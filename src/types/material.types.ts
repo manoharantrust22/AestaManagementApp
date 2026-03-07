@@ -1903,7 +1903,7 @@ export interface MaterialPurchaseExpenseWithDetails extends MaterialPurchaseExpe
   paying_site?: { id: string; name: string } | null;
   vendor?: Vendor | null;
   site_group?: SiteGroup | null;
-  purchase_order?: { id: string; po_number: string; vendor_bill_url?: string | null; bill_verified?: boolean; total_amount?: number } | null;
+  purchase_order?: { id: string; po_number: string; vendor_bill_url?: string | null; bill_verified?: boolean; total_amount?: number; transport_cost?: number | null } | null;
   items?: MaterialPurchaseExpenseItemWithDetails[];
   created_by_user?: { name: string } | null;
 }

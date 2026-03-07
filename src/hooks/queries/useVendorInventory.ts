@@ -1131,10 +1131,7 @@ export function useVendorMaterialPrice(
     queryFn: async () => {
       if (!vendorId || !materialId) return null;
 
-      let query = (supabase as any)
-        .from("vendor_inventory")
-        .select(
-          `
+      const priceFields = `
           id,
           current_price,
           pricing_mode,
@@ -1147,26 +1144,47 @@ export function useVendorMaterialPrice(
           min_order_qty,
           unit,
           updated_at
-        `
-        )
-        .eq("vendor_id", vendorId)
-        .eq("material_id", materialId)
-        .eq("is_available", true)
-        .limit(1);
+        `;
 
-      if (brandId) {
-        query = query.eq("brand_id", brandId);
-      } else {
-        // When no brand is specified, look for prices without brand (base material price)
-        query = query.is("brand_id", null);
+      // Helper to build and execute price query for a given material_id
+      const fetchPrice = async (matId: string) => {
+        let query = (supabase as any)
+          .from("vendor_inventory")
+          .select(priceFields)
+          .eq("vendor_id", vendorId)
+          .eq("material_id", matId)
+          .eq("is_available", true)
+          .limit(1);
+
+        if (brandId) {
+          query = query.eq("brand_id", brandId);
+        } else {
+          query = query.is("brand_id", null);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+        return data && data.length > 0 ? data[0] : null;
+      };
+
+      // Try exact material first
+      let item = await fetchPrice(materialId);
+
+      // If no price found, check parent material (vendor may have price at parent level)
+      if (!item) {
+        const { data: mat } = await supabase
+          .from("materials")
+          .select("parent_id")
+          .eq("id", materialId)
+          .single();
+
+        if (mat?.parent_id) {
+          item = await fetchPrice(mat.parent_id);
+        }
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
+      if (!item) return null;
 
-      if (!data || data.length === 0) return null;
-
-      const item = data[0];
       return {
         price: item.current_price,
         pricing_mode: item.pricing_mode || 'per_piece',
@@ -1203,21 +1221,41 @@ export function useVendorMaterialBrands(
       if (!vendorId || !materialId) return [];
 
       try {
-        const { data, error } = await (supabase as any)
-          .from("vendor_inventory")
-          .select(
-            `
+        const brandSelect = `
             brand_id,
             brand:material_brands(id, material_id, brand_name, variant_name, is_preferred, quality_rating, notes, image_url, is_active, created_at)
-          `
-          )
-          .eq("vendor_id", vendorId)
-          .eq("material_id", materialId)
-          .eq("is_available", true);
+          `;
 
-        if (error) {
-          console.error("[useVendorMaterialBrands] Query error:", error);
-          return []; // Return empty array on error instead of throwing
+        // Helper to fetch brands for a given material_id
+        const fetchBrands = async (matId: string) => {
+          const { data, error } = await (supabase as any)
+            .from("vendor_inventory")
+            .select(brandSelect)
+            .eq("vendor_id", vendorId)
+            .eq("material_id", matId)
+            .eq("is_available", true);
+
+          if (error) {
+            console.error("[useVendorMaterialBrands] Query error:", error);
+            return [];
+          }
+          return data || [];
+        };
+
+        // Fetch brands for exact material
+        let data = await fetchBrands(materialId);
+
+        // If no brands found, also check parent material
+        if (data.length === 0) {
+          const { data: mat } = await supabase
+            .from("materials")
+            .select("parent_id")
+            .eq("id", materialId)
+            .single();
+
+          if (mat?.parent_id) {
+            data = await fetchBrands(mat.parent_id);
+          }
         }
 
         // Extract unique brands with their full details (matching MaterialBrand type)

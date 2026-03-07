@@ -795,6 +795,10 @@ export function useUpdatePurchaseOrder() {
       queryClient.invalidateQueries({
         queryKey: ["purchase-orders", "detail", result.id],
       });
+      // Invalidate material settlements/expenses cache since it reads PO total_amount via join
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.materialPurchases.bySite(variables.siteId),
+      });
     },
     // Note: Removed duplicate onSettled invalidation - onSuccess already handles this
   });

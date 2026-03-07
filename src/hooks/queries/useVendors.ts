@@ -263,6 +263,58 @@ export function useVendorsForMaterials(materialIds: string[] | undefined, siteId
         return [];
       }
 
+      // ================================================================
+      // Expand material IDs to include parent-child relationships
+      // This ensures vendors mapped at parent level show up for child
+      // material request items (and vice versa)
+      // ================================================================
+      const { data: requestMaterials, error: matError } = await supabase
+        .from("materials")
+        .select("id, parent_id")
+        .in("id", materialIds);
+
+      if (matError) throw matError;
+
+      const expandedMaterialIds = new Set(materialIds);
+      // Build coverage map: expanded material_id -> set of original request material_ids it covers
+      const materialCoverageMap = new Map<string, Set<string>>();
+
+      // Each original material covers itself
+      for (const id of materialIds) {
+        if (!materialCoverageMap.has(id)) materialCoverageMap.set(id, new Set());
+        materialCoverageMap.get(id)!.add(id);
+      }
+
+      // If a request material has a parent, include parent in lookup
+      // (vendor mapped to parent can supply the child)
+      for (const mat of (requestMaterials || [])) {
+        if (mat.parent_id) {
+          expandedMaterialIds.add(mat.parent_id);
+          if (!materialCoverageMap.has(mat.parent_id)) materialCoverageMap.set(mat.parent_id, new Set());
+          materialCoverageMap.get(mat.parent_id)!.add(mat.id);
+        }
+      }
+
+      // If a request material is a parent, include its children in lookup
+      // (vendor mapped to a child/variant can supply the parent category)
+      const { data: childMaterials, error: childError } = await supabase
+        .from("materials")
+        .select("id, parent_id")
+        .in("parent_id", materialIds)
+        .eq("is_active", true);
+
+      if (!childError && childMaterials) {
+        for (const child of childMaterials) {
+          expandedMaterialIds.add(child.id);
+          if (!materialCoverageMap.has(child.id)) materialCoverageMap.set(child.id, new Set());
+          if (child.parent_id) {
+            materialCoverageMap.get(child.id)!.add(child.parent_id);
+          }
+        }
+      }
+
+      const allMaterialIds = Array.from(expandedMaterialIds);
+
       // Get vendors that supply the requested materials from material_vendors table
       const { data: materialVendors, error: mvError } = await supabase
         .from("material_vendors")
@@ -276,7 +328,7 @@ export function useVendorsForMaterials(materialIds: string[] | undefined, siteId
             vendor_type, is_active
           )
         `)
-        .in("material_id", materialIds)
+        .in("material_id", allMaterialIds)
         .eq("is_active", true);
 
       if (mvError) throw mvError;
@@ -293,17 +345,31 @@ export function useVendorsForMaterials(materialIds: string[] | undefined, siteId
             vendor_type, is_active
           )
         `)
-        .in("material_id", materialIds)
+        .in("material_id", allMaterialIds)
         .eq("is_available", true);
 
       if (viError) throw viError;
 
-      // Combine and deduplicate vendors, tracking which materials each supplies
+      // Combine and deduplicate vendors, tracking which original request materials each supplies
       const vendorMap = new Map<string, {
         vendor: any;
         suppliedMaterials: Set<string>;
         isPreferred: boolean;
       }>();
+
+      // Helper: map a vendor's material_id to original request material IDs
+      const addSuppliedMaterials = (entry: { suppliedMaterials: Set<string> }, vendorMaterialId: string) => {
+        const coveredIds = materialCoverageMap.get(vendorMaterialId);
+        if (coveredIds) {
+          for (const reqMatId of coveredIds) {
+            entry.suppliedMaterials.add(reqMatId);
+          }
+        }
+        // Also add direct match if it's an original request material
+        if (materialIds.includes(vendorMaterialId)) {
+          entry.suppliedMaterials.add(vendorMaterialId);
+        }
+      };
 
       // Process material_vendors (filter out inactive vendors)
       for (const mv of (materialVendors || [])) {
@@ -319,7 +385,7 @@ export function useVendorsForMaterials(materialIds: string[] | undefined, siteId
           });
         }
         const entry = vendorMap.get(vendorId)!;
-        entry.suppliedMaterials.add(mv.material_id);
+        addSuppliedMaterials(entry, mv.material_id);
         if (mv.is_preferred) {
           entry.isPreferred = true;
         }
@@ -340,7 +406,7 @@ export function useVendorsForMaterials(materialIds: string[] | undefined, siteId
         }
         const entry = vendorMap.get(vendorId)!;
         if (vi.material_id) {
-          entry.suppliedMaterials.add(vi.material_id);
+          addSuppliedMaterials(entry, vi.material_id);
         }
       }
 

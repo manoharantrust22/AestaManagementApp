@@ -110,10 +110,10 @@ export default function MaterialSettlementDialog({
   useEffect(() => {
     if (open) {
       const record = purchase || purchaseOrder;
-      // For expenses with linked PO, use PO's total_amount (which reflects pricing mode changes)
+      // For expenses with linked PO, use PO's total_amount + transport_cost (which reflects pricing mode changes)
       const purchaseAmount = purchase?.purchase_order?.total_amount
-        ? Number(purchase.purchase_order.total_amount)
-        : Number(record?.total_amount || 0);
+        ? Number(purchase.purchase_order.total_amount) + Number(purchase.purchase_order.transport_cost || 0)
+        : Number(record?.total_amount || 0) + (purchaseOrder ? Number(purchaseOrder.transport_cost || 0) : 0);
 
       setSettlementDate(new Date().toISOString().split("T")[0]);
       setPaymentMode("upi");
@@ -241,10 +241,10 @@ export default function MaterialSettlementDialog({
 
   // Get details from either purchase or PO
   const record = purchase || purchaseOrder;
-  // For expenses with linked PO, use PO's total_amount (which reflects pricing mode changes)
+  // For expenses with linked PO, use PO's total_amount + transport_cost (which reflects pricing mode changes)
   const purchaseAmount = purchase?.purchase_order?.total_amount
-    ? Number(purchase.purchase_order.total_amount)
-    : Number(record!.total_amount || 0);
+    ? Number(purchase.purchase_order.total_amount) + Number(purchase.purchase_order.transport_cost || 0)
+    : Number(record!.total_amount || 0) + (purchaseOrder ? Number(purchaseOrder.transport_cost || 0) : 0);
   const vendorName = record!.vendor?.name || (purchase?.vendor_name) || "Unknown Vendor";
   const vendorQrCodeUrl = record!.vendor?.qr_code_url || null;
   const vendorUpiId = record!.vendor?.upi_id || null;

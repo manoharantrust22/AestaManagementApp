@@ -757,6 +757,9 @@ export function useSiteGroupMembership(siteId: string | undefined) {
         .single();
 
       if (siteError || !site?.site_group_id) {
+        if (siteError) {
+          console.warn("[useSiteGroupMembership] Error fetching site:", siteError.message);
+        }
         return {
           isInGroup: false,
           groupId: null,
@@ -774,6 +777,9 @@ export function useSiteGroupMembership(siteId: string | undefined) {
         .single();
 
       if (groupError || !group) {
+        if (groupError) {
+          console.warn("[useSiteGroupMembership] Error fetching group:", groupError.message, "for site_group_id:", site.site_group_id);
+        }
         return {
           isInGroup: false,
           groupId: null,
@@ -813,6 +819,7 @@ export function useSiteGroupMembership(siteId: string | undefined) {
     },
     enabled: !!siteId,
     staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: 2, // Retry on transient errors to prevent hiding group toggle
   });
 }
 

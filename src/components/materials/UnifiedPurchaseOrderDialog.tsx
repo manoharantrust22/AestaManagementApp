@@ -168,7 +168,7 @@ export default function UnifiedPurchaseOrderDialog({
 
   const { data: allVendors = [] } = useVendors();
   const { data: materialSearchOptions = [], groupedMaterials = [] } = useMaterialSearchOptions();
-  const { data: groupMembership } = useSiteGroupMembership(siteId);
+  const { data: groupMembership, isLoading: isLoadingGroupMembership } = useSiteGroupMembership(siteId);
 
   // Fetch request items when in request mode
   const { data: requestItems = [], isLoading: isLoadingRequestItems } = useRequestItemsForConversion(
@@ -1536,7 +1536,7 @@ export default function UnifiedPurchaseOrderDialog({
           {/* Section 4: Group Stock Toggle */}
           {/* ================================================================ */}
 
-          {groupMembership?.isInGroup && (
+          {(isLoadingGroupMembership || groupMembership?.isInGroup) && (
             <Grid size={12}>
               <Paper
                 variant="outlined"
@@ -1556,6 +1556,7 @@ export default function UnifiedPurchaseOrderDialog({
                       control={
                         <Switch
                           checked={isGroupStock}
+                          disabled={isLoadingGroupMembership}
                           onChange={(e) => {
                             setIsGroupStock(e.target.checked);
                             if (e.target.checked && !payingSiteId) {
@@ -1573,7 +1574,7 @@ export default function UnifiedPurchaseOrderDialog({
                     {isGroupStock && (
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                         Materials will be shared across all sites in{" "}
-                        <strong>{groupMembership.groupName}</strong>
+                        <strong>{groupMembership?.groupName}</strong>
                       </Typography>
                     )}
 
@@ -1589,7 +1590,7 @@ export default function UnifiedPurchaseOrderDialog({
                             onChange={(e) => setPayingSiteId(e.target.value)}
                             helperText="Which site's money was used"
                           >
-                            {groupMembership.allSites?.map((site) => (
+                            {groupMembership?.allSites?.map((site) => (
                               <MenuItem key={site.id} value={site.id}>
                                 {site.name}
                                 {site.id === siteId && " (Current)"}
