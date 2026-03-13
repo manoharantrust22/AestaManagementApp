@@ -988,3 +988,46 @@ export function useAddInitialStock() {
     },
   });
 }
+
+// ============================================
+// BATCH → PURCHASE ORDER LOOKUP
+// ============================================
+
+/**
+ * Look up the associated Purchase Order for a given batch_code.
+ * Traces: batch_code → material_purchase_expenses.ref_code → purchase_order_id
+ */
+export function usePOByBatchCode(batchCode: string | null) {
+  const supabase = createClient();
+
+  return useQuery({
+    queryKey: batchCode
+      ? ["po-by-batch-code", batchCode]
+      : ["po-by-batch-code", "none"],
+    queryFn: async () => {
+      if (!batchCode) return null;
+
+      // Step 1: Look up the expense record to get purchase_order_id and paying site info
+      const { data: expense, error: expenseError } = await supabase
+        .from("material_purchase_expenses")
+        .select("purchase_order_id, paying_site_id, site_id, paying_site:sites!material_purchase_expenses_paying_site_id_fkey(id, name)")
+        .eq("ref_code", batchCode)
+        .maybeSingle();
+
+      if (expenseError) {
+        console.warn("[usePOByBatchCode] Error looking up expense:", expenseError);
+        return null;
+      }
+
+      if (!expense?.purchase_order_id) return null;
+
+      return {
+        poId: expense.purchase_order_id as string,
+        payingSiteId: (expense.paying_site_id || expense.site_id) as string | null,
+        payingSiteName: (expense.paying_site as { id: string; name: string } | null)?.name || null,
+      };
+    },
+    enabled: !!batchCode,
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+}

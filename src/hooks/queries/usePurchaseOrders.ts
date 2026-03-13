@@ -560,21 +560,30 @@ export function useUpdatePurchaseOrder() {
                 // === own_site → group_stock (or ensure consistency for existing group_stock) ===
                 console.log("[useUpdatePurchaseOrder] Ensuring group_stock consistency for ref:", refCode);
 
-                // 1. Set batch_code on stock_inventory records
-                for (const item of (poItems || [])) {
-                  let batchUpdateQuery = supabase
-                    .from("stock_inventory")
-                    .update({ batch_code: refCode, updated_at: new Date().toISOString() })
-                    .eq("site_id", result.site_id)
-                    .eq("material_id", item.material_id)
-                    .is("batch_code", null);
+                // 1. Set batch_code on stock_inventory records created from THIS PO's deliveries only
+                // Trace through deliveries → stock_transactions to avoid stamping batch_code on other POs' stock
+                const { data: poDeliveriesForUpdate } = await supabase
+                  .from("deliveries")
+                  .select("id")
+                  .eq("po_id", id);
 
-                  if (item.brand_id) {
-                    batchUpdateQuery = batchUpdateQuery.eq("brand_id", item.brand_id);
-                  } else {
-                    batchUpdateQuery = batchUpdateQuery.is("brand_id", null);
+                if (poDeliveriesForUpdate && poDeliveriesForUpdate.length > 0) {
+                  const deliveryIdsForUpdate = poDeliveriesForUpdate.map((d: any) => d.id);
+                  const { data: stockTxsForUpdate } = await supabase
+                    .from("stock_transactions")
+                    .select("inventory_id")
+                    .eq("reference_type", "delivery")
+                    .in("reference_id", deliveryIdsForUpdate);
+
+                  if (stockTxsForUpdate && stockTxsForUpdate.length > 0) {
+                    const inventoryIdsForUpdate = [...new Set(stockTxsForUpdate.map((t: any) => t.inventory_id))];
+                    await supabase
+                      .from("stock_inventory")
+                      .update({ batch_code: refCode, updated_at: new Date().toISOString() })
+                      .in("id", inventoryIdsForUpdate)
+                      .is("batch_code", null);
+                    console.log("[useUpdatePurchaseOrder] Backfilled batch_code on", inventoryIdsForUpdate.length, "stock rows");
                   }
-                  await batchUpdateQuery;
                 }
 
                 // 2. Create group_stock_inventory and group_stock_transactions if site_group_id available
@@ -1868,8 +1877,10 @@ export function useRecordDelivery() {
               })
               .eq("id", data.po_id);
 
-            // When PO becomes "delivered", auto-create Material Settlement record
-            if (newStatus === "delivered") {
+            // When PO gets any delivery (partial or full), auto-create Material Settlement record
+            // Creating expense early ensures batch_code is available when deliveries are verified,
+            // preventing group stock batches from merging into a single stock_inventory row
+            if (newStatus === "delivered" || newStatus === "partial_delivered") {
               try {
                 // Get full PO details with vendor and items
                 const { data: po } = await supabase
@@ -1987,23 +1998,39 @@ export function useRecordDelivery() {
                     // FIX: Backfill batch_code on stock_inventory for prior verified deliveries
                     // In the two-step flow, partial deliveries may have been verified and created
                     // stock records BEFORE this expense existed. Now update them with batch_code.
+                    // IMPORTANT: Only update stock rows created from THIS PO's deliveries
+                    // (traced via stock_transactions.reference_id → deliveries.po_id)
+                    // to prevent accidentally stamping batch_code on other POs' stock.
                     if (isGroupStock && expense.ref_code) {
                       try {
-                        for (const item of po.items || []) {
-                          let batchUpdateQuery = (supabase as any)
-                            .from("stock_inventory")
-                            .update({ batch_code: expense.ref_code, updated_at: new Date().toISOString() })
-                            .eq("site_id", po.site_id)
-                            .eq("material_id", item.material_id)
-                            .is("batch_code", null); // Only update if not already set
+                        // 1. Find all deliveries for this PO
+                        const { data: poDeliveries } = await (supabase as any)
+                          .from("deliveries")
+                          .select("id")
+                          .eq("po_id", data.po_id);
 
-                          if (item.brand_id) {
-                            batchUpdateQuery = batchUpdateQuery.eq("brand_id", item.brand_id);
-                          } else {
-                            batchUpdateQuery = batchUpdateQuery.is("brand_id", null);
+                        if (poDeliveries && poDeliveries.length > 0) {
+                          const deliveryIds = poDeliveries.map((d: any) => d.id);
+
+                          // 2. Find stock_inventory IDs created from these deliveries
+                          const { data: stockTxs } = await (supabase as any)
+                            .from("stock_transactions")
+                            .select("inventory_id")
+                            .eq("reference_type", "delivery")
+                            .in("reference_id", deliveryIds);
+
+                          if (stockTxs && stockTxs.length > 0) {
+                            const inventoryIds = [...new Set(stockTxs.map((t: any) => t.inventory_id))];
+
+                            // 3. Update only THOSE stock rows (not all rows with same material)
+                            await (supabase as any)
+                              .from("stock_inventory")
+                              .update({ batch_code: expense.ref_code, updated_at: new Date().toISOString() })
+                              .in("id", inventoryIds)
+                              .is("batch_code", null);
+
+                            console.log("[useRecordDelivery] Backfilled batch_code on", inventoryIds.length, "stock rows for PO:", data.po_id);
                           }
-
-                          await batchUpdateQuery;
                         }
                         console.log("[useRecordDelivery] Backfilled stock_inventory batch_code:", expense.ref_code);
                       } catch (batchErr) {

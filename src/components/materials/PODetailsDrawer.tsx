@@ -41,6 +41,7 @@ interface PODetailsDrawerProps {
   onEdit?: (po: PurchaseOrderWithDetails) => void;
   canEdit?: boolean;
   isAdmin?: boolean;
+  contextBanner?: React.ReactNode;
 }
 
 const STATUS_COLORS: Record<POStatus, "default" | "info" | "warning" | "success" | "error"> = {
@@ -71,6 +72,7 @@ export default function PODetailsDrawer({
   onEdit,
   canEdit = false,
   isAdmin = false,
+  contextBanner,
 }: PODetailsDrawerProps) {
   const isMobile = useIsMobile();
 
@@ -172,6 +174,9 @@ export default function PODetailsDrawer({
 
       {/* Content */}
       <Box sx={{ p: 2, overflow: "auto", flex: 1 }}>
+        {/* Context Banner (e.g., cross-site batch info) */}
+        {contextBanner}
+
         {/* Vendor Info */}
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
           <Typography variant="subtitle2" color="text.secondary" gutterBottom>

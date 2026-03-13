@@ -92,6 +92,8 @@ import UsageEntryDrawer from "@/components/inventory/UsageEntryDrawer";
 import BulkUsageEntryDialog from "@/components/inventory/BulkUsageEntryDialog";
 import UsageDeleteConfirmDialog from "@/components/inventory/UsageDeleteConfirmDialog";
 import UsageEditDialog from "@/components/inventory/UsageEditDialog";
+import PODetailsDrawer from "@/components/materials/PODetailsDrawer";
+import { usePOByBatchCode } from "@/hooks/queries/useStockInventory";
 
 const UNIT_LABELS: Record<MaterialUnit, string> = {
   kg: "Kg",
@@ -166,6 +168,10 @@ export default function InventoryPage() {
     record: GroupedUsageRecord | null;
   }>({ open: false, record: null });
 
+  // PO drawer state (batch card → PO details)
+  const [poDrawerBatchCode, setPODrawerBatchCode] = useState<string | null>(null);
+  const [poDrawerOpen, setPODrawerOpen] = useState(false);
+
   // Date range for usage
   const { dateFrom, dateTo } = formatForApi();
   const dateRange = useMemo(() => {
@@ -198,6 +204,9 @@ export default function InventoryPage() {
     siteGroupId: groupMembership?.groupId, // Fetch ALL group batch usage for visibility across sites
   });
   const { data: todaySummary } = useTodayUsageSummary(selectedSite?.id);
+
+  // PO lookup for batch card click → PO drawer
+  const { data: batchPOData } = usePOByBatchCode(poDrawerBatchCode);
 
   // Group FIFO-split usage records for display
   const groupedUsage = useMemo(
@@ -744,7 +753,25 @@ export default function InventoryPage() {
           </Typography>
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
             {batches.map((batch) => (
-              <Paper key={batch.id} variant="outlined" sx={{ p: 1.5, minWidth: 220, maxWidth: 280, flex: "1 1 220px" }}>
+              <Paper
+                key={batch.id}
+                variant="outlined"
+                onClick={() => {
+                  if (batch.batch_code) {
+                    setPODrawerBatchCode(batch.batch_code);
+                    setPODrawerOpen(true);
+                  }
+                }}
+                sx={{
+                  p: 1.5, minWidth: 220, maxWidth: 280, flex: "1 1 220px",
+                  cursor: batch.batch_code ? "pointer" : "default",
+                  transition: "border-color 0.2s, background-color 0.2s",
+                  "&:hover": batch.batch_code ? {
+                    borderColor: "primary.main",
+                    bgcolor: "action.selected",
+                  } : {},
+                }}
+              >
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
                   <Typography variant="caption" sx={{ fontFamily: "monospace", bgcolor: "action.selected", px: 0.5, borderRadius: 0.5 }}>
                     {batch.batch_code || "Own Stock"}
@@ -774,6 +801,11 @@ export default function InventoryPage() {
                 {batch.batch_code && batch.is_vendor_paid === false && (
                   <Typography variant="caption" color="warning.main" display="block">
                     Vendor payment pending
+                  </Typography>
+                )}
+                {batch.batch_code && (
+                  <Typography variant="caption" color="primary.main" display="block" sx={{ mt: 0.5 }}>
+                    Click to view PO
                   </Typography>
                 )}
               </Paper>
@@ -1557,6 +1589,23 @@ export default function InventoryPage() {
           setAddStockDialog(false);
         }}
         isSubmitting={addInitialStock.isPending}
+      />
+
+      {/* PO Details Drawer (opened from batch card click) */}
+      <PODetailsDrawer
+        open={poDrawerOpen}
+        onClose={() => {
+          setPODrawerOpen(false);
+          setPODrawerBatchCode(null);
+        }}
+        purchaseOrder={batchPOData?.poId ? { id: batchPOData.poId } as any : null}
+        contextBanner={
+          batchPOData && batchPOData.payingSiteId !== selectedSite?.id ? (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Purchased by <strong>{batchPOData.payingSiteName || "another site"}</strong> (shared group stock)
+            </Alert>
+          ) : undefined
+        }
       />
     </Box>
   );
