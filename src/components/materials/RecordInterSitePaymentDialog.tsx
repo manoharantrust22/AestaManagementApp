@@ -141,7 +141,7 @@ export default function RecordInterSitePaymentDialog({
   // Success view
   if (success) {
     return (
-      <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <Dialog open={open} onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }} maxWidth="sm" fullWidth>
         <DialogContent sx={{ textAlign: "center", py: 4 }}>
           <SuccessIcon color="success" sx={{ fontSize: 64, mb: 2 }} />
           <Typography variant="h5" gutterBottom fontWeight={600}>

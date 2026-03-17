@@ -1328,6 +1328,8 @@ export interface PurchaseOrderFormData {
   vendor_bill_url?: string; // Vendor bill/invoice URL
   // Source material request (if converted from a request)
   source_request_id?: string;
+  // Whether unit prices include GST (for TMT rod bills etc.)
+  price_includes_gst?: boolean;
 }
 
 export interface PurchaseOrderItemFormData {

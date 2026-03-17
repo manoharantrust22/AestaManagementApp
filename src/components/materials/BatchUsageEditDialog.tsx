@@ -90,7 +90,7 @@ export default function BatchUsageEditDialog({
   return (
     <Dialog
       open={open}
-      onClose={isSaving ? undefined : onClose}
+      onClose={(_event, reason) => { if (reason !== "backdropClick" && !isSaving) onClose(); }}
       maxWidth="sm"
       fullWidth
       PaperProps={{

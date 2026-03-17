@@ -139,7 +139,7 @@ export default function PODetailsDrawer({
     <Drawer
       anchor="right"
       open={open}
-      onClose={onClose}
+      onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }}
       PaperProps={{
         sx: {
           width: { xs: "100%", sm: "65%", md: "50%", lg: "40%" },

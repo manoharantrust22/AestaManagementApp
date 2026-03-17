@@ -104,7 +104,7 @@ export default function EditGroupStockTransactionDialog({
   return (
     <Dialog
       open={open}
-      onClose={handleClose}
+      onClose={(_event, reason) => { if (reason !== "backdropClick") handleClose(); }}
       maxWidth="sm"
       fullWidth
       fullScreen={isMobile}

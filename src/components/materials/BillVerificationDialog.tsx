@@ -107,7 +107,7 @@ export default function BillVerificationDialog({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }}
       fullScreen={isMobile}
       maxWidth={false}
       PaperProps={{

@@ -259,7 +259,7 @@ export default function MaterialSettlementDialog({
   const isGroupStockParent = purchase?.purchase_type === "group_stock" && !purchase.original_batch_code;
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <PaymentIcon color={isPOAdvancePayment ? "warning" : isGroupStockParent ? "secondary" : "success"} />
         {isPOAdvancePayment ? "Record Advance Payment" : isGroupStockParent ? "Record Vendor Payment" : "Settle Material Purchase"}

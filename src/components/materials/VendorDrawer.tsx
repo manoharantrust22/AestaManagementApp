@@ -466,7 +466,7 @@ export default function VendorDrawer({
     <Drawer
       anchor="right"
       open={open}
-      onClose={onClose}
+      onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }}
       PaperProps={{
         sx: { width: { xs: "100%", sm: 480 }, maxWidth: "100%" },
       }}
@@ -823,7 +823,7 @@ export default function VendorDrawer({
       </Box>
 
       {/* Remove Vendor Confirmation Dialog */}
-      <Dialog open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} maxWidth="xs" fullWidth>
+      <Dialog open={!!deleteConfirm} onClose={(_event, reason) => { if (reason !== "backdropClick") setDeleteConfirm(null); }} maxWidth="xs" fullWidth>
         <DialogTitle>Remove Vendor</DialogTitle>
         <DialogContent>
           <Typography>

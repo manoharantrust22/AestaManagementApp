@@ -378,7 +378,7 @@ export default function AddHistoricalPurchaseDialog({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }}
       maxWidth="lg"
       fullWidth
       fullScreen={isMobile}

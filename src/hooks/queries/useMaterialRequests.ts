@@ -1152,7 +1152,7 @@ export function useRequestItemsForConversion(requestId: string | undefined) {
           selected: remainingQty > 0,
           quantity_to_order: remainingQty,
           unit_price: 0,
-          tax_rate: 0, // Default to 0, user can adjust if needed
+          tax_rate: material?.weight_per_unit ? 18 : 0, // Default 18% GST for TMT/weight-based materials
           // Enhanced fields for variant/brand selection
           has_variants: hasVariants,
           variants: hasVariants ? variants : undefined,
@@ -1166,8 +1166,8 @@ export function useRequestItemsForConversion(requestId: string | undefined) {
           length_per_piece: material?.length_per_piece || null,
           length_unit: material?.length_unit || null,
           standard_piece_weight: standardPieceWeight,
-          // Pricing mode form state - default to per_piece
-          pricing_mode: "per_piece" as const,
+          // Pricing mode form state - default to per_kg for weight-based materials (TMT rods)
+          pricing_mode: (material?.weight_per_unit ? "per_kg" : "per_piece") as "per_kg" | "per_piece",
           calculated_weight: calculatedWeight,
           actual_weight: null,
         } as RequestItemForConversion;

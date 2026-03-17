@@ -377,7 +377,7 @@ export default function MaterialVendorsTab({ material }: MaterialVendorsTabProps
       />
 
       {/* Remove Vendor Confirmation Dialog */}
-      <Dialog open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} maxWidth="xs" fullWidth>
+      <Dialog open={!!deleteConfirm} onClose={(_event, reason) => { if (reason !== "backdropClick") setDeleteConfirm(null); }} maxWidth="xs" fullWidth>
         <DialogTitle>Remove Vendor</DialogTitle>
         <DialogContent>
           <Typography>

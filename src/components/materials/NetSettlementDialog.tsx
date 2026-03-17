@@ -185,7 +185,7 @@ export default function NetSettlementDialog({
   // Success view
   if (success) {
     return (
-      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+      <Dialog open={open} onClose={(_event, reason) => { if (reason !== "backdropClick") handleClose(); }} maxWidth="sm" fullWidth>
         <DialogContent>
           <Box
             sx={{
@@ -228,7 +228,7 @@ export default function NetSettlementDialog({
   return (
     <Dialog
       open={open}
-      onClose={handleClose}
+      onClose={(_event, reason) => { if (reason !== "backdropClick") handleClose(); }}
       maxWidth="sm"
       fullWidth
       fullScreen={isMobile && step === 2}

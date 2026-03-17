@@ -1185,6 +1185,21 @@ export function useVendorMaterialPrice(
 
       if (!item) return null;
 
+      // Fetch last actual purchase date from price_history
+      let lastPurchaseDate: string | null = null;
+      const { data: lastHistory } = await supabase
+        .from("price_history")
+        .select("recorded_date")
+        .eq("vendor_id", vendorId!)
+        .eq("material_id", materialId!)
+        .eq("source", "purchase")
+        .order("recorded_date", { ascending: false })
+        .limit(1);
+
+      if (lastHistory && lastHistory.length > 0) {
+        lastPurchaseDate = lastHistory[0].recorded_date;
+      }
+
       return {
         price: item.current_price,
         pricing_mode: item.pricing_mode || 'per_piece',
@@ -1199,6 +1214,7 @@ export function useVendorMaterialPrice(
           (item.loading_cost || 0) +
           (item.unloading_cost || 0),
         recorded_date: item.updated_at,
+        last_purchase_date: lastPurchaseDate,
       };
     },
     enabled: !!vendorId && !!materialId,

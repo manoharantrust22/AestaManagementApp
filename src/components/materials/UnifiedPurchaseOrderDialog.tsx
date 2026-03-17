@@ -240,6 +240,7 @@ export default function UnifiedPurchaseOrderDialog({
   const [isGroupStock, setIsGroupStock] = useState(false);
   const [payingSiteId, setPayingSiteId] = useState<string>(siteId);
   const [transportCost, setTransportCost] = useState("");
+  const [priceIncludesGst, setPriceIncludesGst] = useState(false);
 
   // Vendor bill upload
   const [vendorBillUrl, setVendorBillUrl] = useState<string>("");
@@ -606,13 +607,19 @@ export default function UnifiedPurchaseOrderDialog({
       } else {
         itemTotal = item.quantity_to_order * item.unit_price;
       }
-      const itemTax = item.tax_rate ? (itemTotal * item.tax_rate) / 100 : 0;
+      // When priceIncludesGst: tax is already inside itemTotal, extract it
+      // When not: tax is calculated on top
+      const itemTax = item.tax_rate
+        ? priceIncludesGst
+          ? (itemTotal * item.tax_rate) / (100 + item.tax_rate)
+          : (itemTotal * item.tax_rate) / 100
+        : 0;
       subtotal += itemTotal;
       taxAmount += itemTax;
     });
 
     return { subtotal, taxAmount, selectedCount: selectedItems.length };
-  }, [isRequestMode, requestItemsState]);
+  }, [isRequestMode, requestItemsState, priceIncludesGst]);
 
   // Combined totals
   const totals = useMemo(() => {
@@ -624,10 +631,13 @@ export default function UnifiedPurchaseOrderDialog({
       subtotal: Math.round(subtotal),
       taxAmount: Math.round(taxAmount),
       transport: Math.round(transport),
-      total: Math.round(subtotal + taxAmount + transport),
+      // When priceIncludesGst: subtotal already contains GST, don't add taxAmount again
+      total: priceIncludesGst
+        ? Math.round(subtotal + transport)
+        : Math.round(subtotal + taxAmount + transport),
       itemCount: items.length + requestItemsTotals.selectedCount,
     };
-  }, [itemsTotals, requestItemsTotals, transportCost, items.length]);
+  }, [itemsTotals, requestItemsTotals, transportCost, items.length, priceIncludesGst]);
 
   // ============================================================================
   // Handlers - Request items
@@ -1069,6 +1079,7 @@ export default function UnifiedPurchaseOrderDialog({
           : undefined,
         items: allItems,
         source_request_id: isRequestMode && request ? request.id : undefined,
+        price_includes_gst: priceIncludesGst,
       });
 
       // If we're creating from a request, update the request items' fulfilled quantities
@@ -1113,7 +1124,7 @@ export default function UnifiedPurchaseOrderDialog({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }}
       maxWidth="xl"
       fullWidth
       fullScreen={isMobile}
@@ -1381,8 +1392,17 @@ export default function UnifiedPurchaseOrderDialog({
                         <TableCell align="right" sx={{ minWidth: 100 }}>
                           Qty to Order
                         </TableCell>
-                        <TableCell align="right" sx={{ minWidth: 120 }}>
-                          Unit Price (₹)
+                        <TableCell align="right" sx={{ minWidth: 140 }}>
+                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.5 }}>
+                            <Typography variant="caption" sx={{ fontWeight: 600 }}>Unit Price (₹)</Typography>
+                            <Chip
+                              label={priceIncludesGst ? "Incl. GST" : "Excl. GST"}
+                              size="small"
+                              color={priceIncludesGst ? "success" : "default"}
+                              onClick={() => setPriceIncludesGst(!priceIncludesGst)}
+                              sx={{ cursor: "pointer", fontSize: "0.65rem", height: 20 }}
+                            />
+                          </Box>
                         </TableCell>
                         {hasWeightBasedRequestItems && (
                           <TableCell align="right" sx={{ minWidth: 130 }}>
@@ -1419,6 +1439,7 @@ export default function UnifiedPurchaseOrderDialog({
                             handleRequestItemActualWeightChange(item.id, value)
                           }
                           showPricingModeColumn={hasWeightBasedRequestItems}
+                          priceIncludesGst={priceIncludesGst}
                         />
                       ))}
                     </TableBody>
@@ -1460,7 +1481,7 @@ export default function UnifiedPurchaseOrderDialog({
                           }}
                         >
                           <Typography variant="body2" color="text.secondary">
-                            GST:
+                            GST{priceIncludesGst ? " (included)" : ""}:
                           </Typography>
                           <Typography variant="body2">
                             {formatCurrency(requestItemsTotals.taxAmount)}
@@ -1477,7 +1498,11 @@ export default function UnifiedPurchaseOrderDialog({
                             Request Items Total:
                           </Typography>
                           <Typography variant="subtitle2" fontWeight={600} color="primary.main">
-                            {formatCurrency(requestItemsTotals.subtotal + requestItemsTotals.taxAmount)}
+                            {formatCurrency(
+                              priceIncludesGst
+                                ? requestItemsTotals.subtotal
+                                : requestItemsTotals.subtotal + requestItemsTotals.taxAmount
+                            )}
                           </Typography>
                         </Box>
                       </Box>
@@ -2260,7 +2285,7 @@ export default function UnifiedPurchaseOrderDialog({
                     }}
                   >
                     <Typography variant="body2" color="text.secondary">
-                      GST:
+                      GST{priceIncludesGst ? " (included)" : ""}:
                     </Typography>
                     <Typography variant="body2">
                       {formatCurrency(totals.taxAmount)}

@@ -140,7 +140,7 @@ export default function PriceHistoryDialog({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }}
       maxWidth="md"
       fullWidth
       fullScreen={isMobile}

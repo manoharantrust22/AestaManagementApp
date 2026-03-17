@@ -150,7 +150,7 @@ export default function GroupStockUsageDialog({
   return (
     <Dialog
       open={open}
-      onClose={handleClose}
+      onClose={(_event, reason) => { if (reason !== "backdropClick") handleClose(); }}
       maxWidth="md"
       fullWidth
       PaperProps={{ sx: { minHeight: 400 } }}

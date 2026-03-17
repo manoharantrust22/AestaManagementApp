@@ -217,7 +217,7 @@ export default function WeeklyUsageReportDialog({
 
   if (!groupMembership?.isInGroup) {
     return (
-      <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <Dialog open={open} onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }} maxWidth="sm" fullWidth>
         <DialogTitle>Usage Report Entry</DialogTitle>
         <DialogContent>
           <Alert severity="warning">
@@ -241,7 +241,7 @@ export default function WeeklyUsageReportDialog({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }}
       maxWidth="lg"
       fullWidth
       fullScreen={isMobile}

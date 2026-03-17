@@ -39,8 +39,8 @@ type UploadStatus =
 
 // Upload configuration constants
 const UPLOAD_CONSTANTS = {
-  // Global timeout safety net (3 minutes)
-  GLOBAL_TIMEOUT: 180000,
+  // Global timeout safety net (5 minutes - accounts for slow connections)
+  GLOBAL_TIMEOUT: 300000,
 
   // Dynamic per-attempt timeout: min 30s, +5s per 100KB
   MIN_ATTEMPT_TIMEOUT: 30000,
@@ -595,14 +595,8 @@ export default function FileUploader({
           const delay = UPLOAD_CONSTANTS.INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
           console.log(`[FileUploader] Waiting ${delay}ms before retry ${attempt}`);
           await new Promise((resolve) => setTimeout(resolve, delay));
-
-          // Re-check session before retry - previous attempt may have failed due to stale token
-          try {
-            console.log(`[FileUploader] Re-checking session before retry ${attempt}`);
-            await ensureFreshSession();
-          } catch {
-            console.warn("[FileUploader] Session re-check failed before retry, continuing anyway");
-          }
+          // Session was already checked at upload start - no need to re-check on each retry
+          // (this was causing 8-15s delays per retry, often exceeding global timeout)
         }
 
         console.log(

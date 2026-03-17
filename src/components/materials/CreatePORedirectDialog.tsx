@@ -38,7 +38,7 @@ export default function CreatePORedirectDialog({
   onCreateRequest,
 }: CreatePORedirectDialogProps) {
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }} maxWidth="sm" fullWidth>
       <DialogTitle
         sx={{
           display: "flex",

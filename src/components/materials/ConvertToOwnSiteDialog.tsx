@@ -88,7 +88,7 @@ export default function ConvertToOwnSiteDialog({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }}
       maxWidth="sm"
       fullWidth
       fullScreen={isMobile}

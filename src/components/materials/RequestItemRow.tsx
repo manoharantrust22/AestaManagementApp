@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   TableRow,
   TableCell,
@@ -13,8 +13,11 @@ import {
   Tooltip,
   CircularProgress,
   MenuItem,
+  IconButton,
+  Collapse,
 } from "@mui/material";
-import { Warning as WarningIcon } from "@mui/icons-material";
+import { Warning as WarningIcon, ShowChart as ShowChartIcon } from "@mui/icons-material";
+import MiniPriceChart from "./MiniPriceChart";
 import { useVendorMaterialBrands, useVendorMaterialPrice } from "@/hooks/queries/useVendorInventory";
 import type { RequestItemForConversion, MaterialBrand } from "@/types/material.types";
 import { formatCurrency } from "@/lib/formatters";
@@ -31,6 +34,7 @@ interface RequestItemRowProps {
   onPricingModeChange: (value: "per_piece" | "per_kg") => void;
   onActualWeightChange: (value: string) => void;
   showPricingModeColumn: boolean; // Whether to show the pricing mode column (for table alignment)
+  priceIncludesGst?: boolean; // Whether the unit price input is in GST-inclusive mode
 }
 
 export default function RequestItemRow({
@@ -45,8 +49,13 @@ export default function RequestItemRow({
   onPricingModeChange,
   onActualWeightChange,
   showPricingModeColumn,
+  priceIncludesGst = false,
 }: RequestItemRowProps) {
   const isDisabled = item.remaining_qty <= 0;
+  const [showChart, setShowChart] = useState(false);
+  const hasAutoFilled = useRef(false);
+  const [localPrice, setLocalPrice] = useState<string>("");
+  const [isPriceFocused, setIsPriceFocused] = useState(false);
 
   // Get the effective material ID for brand lookup
   // If variant is selected, use variant's material_id, otherwise use the parent
@@ -81,12 +90,22 @@ export default function RequestItemRow({
     item.selected_brand_id
   );
 
-  // Auto-fill price when price data is available and price is 0
+  // Auto-fill price, GST rate, and pricing mode when price data is available (once)
   useEffect(() => {
-    if (priceData?.price && item.unit_price === 0 && item.selected) {
-      onPriceChange(priceData.price.toString());
+    if (priceData && item.selected && !hasAutoFilled.current) {
+      hasAutoFilled.current = true;
+      if (priceData.price && item.unit_price === 0) {
+        onPriceChange(priceData.price.toString());
+      }
+      if (priceData.gst_rate && item.tax_rate === 0) {
+        onTaxRateChange(priceData.gst_rate.toString());
+      }
+      if (priceData.pricing_mode && item.weight_per_unit && item.pricing_mode !== priceData.pricing_mode) {
+        onPricingModeChange(priceData.pricing_mode as "per_piece" | "per_kg");
+      }
     }
-  }, [priceData, item.unit_price, item.selected, onPriceChange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priceData, item.selected]);
 
   // Handle brand name selection
   const handleBrandNameChange = (brandName: string | null) => {
@@ -146,6 +165,19 @@ export default function RequestItemRow({
     return price * (1 + gst / 100);
   }, [item.unit_price, item.tax_rate]);
 
+  // Sync local price state when not focused (external updates like auto-fill)
+  useEffect(() => {
+    if (!isPriceFocused) {
+      setLocalPrice(item.unit_price ? String(item.unit_price) : "");
+    }
+  }, [item.unit_price, isPriceFocused]);
+
+  // Handle price change - store as-is (no back-calculation)
+  const handlePriceInputChange = (value: string) => {
+    setLocalPrice(value);
+    onPriceChange(value);
+  };
+
   // Calculate item total based on pricing mode
   const itemSubtotal = useMemo(() => {
     if (!item.selected) return 0;
@@ -164,8 +196,14 @@ export default function RequestItemRow({
     item.unit_price,
   ]);
 
-  const itemTax = item.tax_rate ? (itemSubtotal * item.tax_rate) / 100 : 0;
-  const itemTotal = itemSubtotal + itemTax;
+  // When priceIncludesGst: tax is already inside the subtotal, extract it; total = subtotal
+  // When not: tax is added on top of subtotal; total = subtotal + tax
+  const itemTax = item.tax_rate
+    ? priceIncludesGst
+      ? (itemSubtotal * item.tax_rate) / (100 + item.tax_rate)  // back-extract GST portion
+      : (itemSubtotal * item.tax_rate) / 100                     // add GST on top
+    : 0;
+  const itemTotal = priceIncludesGst ? itemSubtotal : itemSubtotal + itemTax;
 
   // Check if brand has variants
   const hasBrandVariants = brandVariantsForSelectedBrand.length > 1 ||
@@ -176,7 +214,11 @@ export default function RequestItemRow({
     ? vendorBrands.find((b: any) => b.id === item.selected_brand_id) as MaterialBrand | undefined
     : undefined;
 
+  // Calculate total column count for chart row span
+  const totalColumns = 10 + (showPricingModeColumn ? 1 : 0);
+
   return (
+    <>
     <TableRow
       sx={{
         opacity: isDisabled ? 0.5 : 1,
@@ -195,19 +237,31 @@ export default function RequestItemRow({
       {/* Material with variant selection */}
       <TableCell>
         <Box>
-          <Typography variant="body2">
-            {item.material_name}
-            {item.material_code && (
-              <Typography
-                component="span"
-                variant="caption"
-                color="text.secondary"
-                sx={{ ml: 1 }}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <Typography variant="body2">
+              {item.material_name}
+              {item.material_code && (
+                <Typography
+                  component="span"
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ ml: 1 }}
+                >
+                  ({item.material_code})
+                </Typography>
+              )}
+            </Typography>
+            <Tooltip title={showChart ? "Hide price trend" : "Show price trend"}>
+              <IconButton
+                size="small"
+                onClick={() => setShowChart(!showChart)}
+                color={showChart ? "primary" : "default"}
+                sx={{ p: 0.25 }}
               >
-                ({item.material_code})
-              </Typography>
-            )}
-          </Typography>
+                <ShowChartIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+          </Box>
 
           {/* Variant Selection - show if material has variants */}
           {item.has_variants && item.variants && item.variants.length > 0 && (
@@ -377,8 +431,10 @@ export default function RequestItemRow({
         <TextField
           type="number"
           size="small"
-          value={item.unit_price || ""}
-          onChange={(e) => onPriceChange(e.target.value)}
+          value={localPrice}
+          onChange={(e) => handlePriceInputChange(e.target.value)}
+          onFocus={() => setIsPriceFocused(true)}
+          onBlur={() => setIsPriceFocused(false)}
           disabled={isDisabled || !item.selected}
           inputProps={{
             min: 0,
@@ -391,10 +447,14 @@ export default function RequestItemRow({
             ),
           }}
         />
-        {/* Show last price hint if available */}
+        {/* Show last price hint if available with unit context */}
         {priceData?.price && item.unit_price !== priceData.price && (
           <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
             → Last: {formatCurrency(priceData.price)}
+            {priceData.pricing_mode === "per_kg" ? "/kg" : priceData.pricing_mode === "per_piece" ? "/pc" : ""}
+            {priceData.last_purchase_date && (
+              <> on {new Date(priceData.last_purchase_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</>
+            )}
           </Typography>
         )}
         {/* Show converted price if weight-based */}
@@ -406,13 +466,15 @@ export default function RequestItemRow({
             {convertedPrice.label}
           </Typography>
         )}
-        {/* Show GST-included price */}
-        {priceIncludingGst && item.tax_rate > 0 && item.selected && (
+        {/* Show complementary GST price */}
+        {item.unit_price > 0 && item.tax_rate > 0 && item.selected && (
           <Typography
             variant="caption"
             sx={{ display: "block", color: "success.main", fontWeight: 500 }}
           >
-            Incl. {item.tax_rate}% GST: ₹{priceIncludingGst.toFixed(2)}
+            {priceIncludesGst
+              ? `Excl. GST: ₹${(item.unit_price / (1 + item.tax_rate / 100)).toFixed(2)}`
+              : `Incl. ${item.tax_rate}% GST: ₹${priceIncludingGst?.toFixed(2)}`}
           </Typography>
         )}
       </TableCell>
@@ -430,10 +492,10 @@ export default function RequestItemRow({
                   onPricingModeChange(e.target.value as "per_piece" | "per_kg")
                 }
                 disabled={isDisabled || !item.selected}
-                sx={{ width: 85 }}
+                sx={{ width: 140 }}
               >
-                <MenuItem value="per_piece">Per Pc</MenuItem>
-                <MenuItem value="per_kg">Per Kg</MenuItem>
+                <MenuItem value="per_piece">Per Piece</MenuItem>
+                <MenuItem value="per_kg">Per Kilogram</MenuItem>
               </TextField>
               {/* Show weight per piece */}
               {item.standard_piece_weight && item.selected && (
@@ -536,5 +598,19 @@ export default function RequestItemRow({
         )}
       </TableCell>
     </TableRow>
+    {showChart && (
+      <TableRow>
+        <TableCell colSpan={totalColumns} sx={{ py: 0, borderBottom: showChart ? 1 : 0, borderColor: "divider" }}>
+          <Collapse in={showChart}>
+            <MiniPriceChart
+              materialId={effectiveMaterialId}
+              materialName={item.material_name}
+              enabled={showChart}
+            />
+          </Collapse>
+        </TableCell>
+      </TableRow>
+    )}
+    </>
   );
 }

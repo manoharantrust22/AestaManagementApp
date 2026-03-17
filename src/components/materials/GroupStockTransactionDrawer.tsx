@@ -40,7 +40,7 @@ export default function GroupStockTransactionDrawer({
     <Drawer
       anchor="right"
       open={open}
-      onClose={onClose}
+      onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }}
       PaperProps={{
         sx: {
           width: { xs: "100%", sm: "450px", md: "500px" },

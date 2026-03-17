@@ -106,7 +106,7 @@ export default function BatchCompletionDialog({
   const canComplete = usedQty > 0 || selfUseQty > 0;
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog open={open} onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }} maxWidth="md" fullWidth>
       <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <CheckCircleIcon color="success" />
         Complete Batch Settlement

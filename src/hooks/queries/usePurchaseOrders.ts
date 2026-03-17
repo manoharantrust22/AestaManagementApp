@@ -150,6 +150,8 @@ export function useCreatePurchaseOrder() {
       let subtotal = 0;
       let taxAmount = 0;
 
+      const priceIncGst = !!data.price_includes_gst;
+
       const itemsWithTotals = data.items.map((item: any) => {
         // Calculate item total based on pricing mode
         let itemTotal: number;
@@ -166,8 +168,12 @@ export function useCreatePurchaseOrder() {
           ? (itemTotal * item.discount_percent) / 100
           : 0;
         const taxableAmount = itemTotal - discount;
+        // When price includes GST: extract tax from the inclusive amount
+        // When not: calculate tax on top of the amount
         const itemTax = item.tax_rate
-          ? (taxableAmount * item.tax_rate) / 100
+          ? priceIncGst
+            ? (taxableAmount * item.tax_rate) / (100 + item.tax_rate)
+            : (taxableAmount * item.tax_rate) / 100
           : 0;
 
         subtotal += taxableAmount;
@@ -177,12 +183,19 @@ export function useCreatePurchaseOrder() {
           ...item,
           discount_amount: Math.round(discount),
           tax_amount: Math.round(itemTax),
-          total_amount: Math.round(taxableAmount + itemTax),
+          // When price includes GST: total = taxableAmount (GST already inside)
+          // When not: total = taxableAmount + tax
+          total_amount: priceIncGst
+            ? Math.round(taxableAmount)
+            : Math.round(taxableAmount + itemTax),
         };
       });
 
       // Round final totals to whole numbers
-      const totalAmount = Math.round(subtotal + taxAmount);
+      // When price includes GST: total = subtotal (GST already inside)
+      const totalAmount = priceIncGst
+        ? Math.round(subtotal)
+        : Math.round(subtotal + taxAmount);
       subtotal = Math.round(subtotal);
       taxAmount = Math.round(taxAmount);
 
@@ -310,7 +323,7 @@ export function useCreatePurchaseOrder() {
         material_id: item.material_id,
         brand_id: item.brand_id || null,
         price: item.unit_price,
-        price_includes_gst: false,
+        price_includes_gst: priceIncGst,
         gst_rate: item.tax_rate || null,
         transport_cost: null,
         loading_cost: null,

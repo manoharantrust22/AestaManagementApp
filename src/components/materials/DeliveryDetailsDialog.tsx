@@ -67,7 +67,7 @@ export default function DeliveryDetailsDialog({
     <>
       <Dialog
         open={open}
-        onClose={onClose}
+        onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }}
         maxWidth="md"
         fullWidth
         fullScreen={isMobile}
@@ -373,7 +373,7 @@ export default function DeliveryDetailsDialog({
       {selectedPhoto && (
         <Dialog
           open={!!selectedPhoto}
-          onClose={() => setSelectedPhoto(null)}
+          onClose={(_event, reason) => { if (reason !== "backdropClick") setSelectedPhoto(null); }}
           maxWidth="lg"
           fullWidth
         >

@@ -223,7 +223,7 @@ export default function PriceAlertsDialog({
   const isPercentType = alertType === "price_drop" || alertType === "price_increase";
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog open={open} onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }} maxWidth="md" fullWidth>
       <DialogTitle>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <AlertIcon color="primary" />

@@ -100,7 +100,7 @@ export default function MaterialRequestDeleteConfirmationDialog({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }}
       maxWidth="sm"
       fullWidth
       PaperProps={{

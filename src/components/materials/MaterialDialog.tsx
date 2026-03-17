@@ -417,7 +417,7 @@ export default function MaterialDialog({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }}
       maxWidth="md"
       fullWidth
       fullScreen={isMobile}
@@ -1084,7 +1084,7 @@ export default function MaterialDialog({
       {/* Add Variant Dialog */}
       <Dialog
         open={addVariantDialogOpen}
-        onClose={() => setAddVariantDialogOpen(false)}
+        onClose={(_event, reason) => { if (reason !== "backdropClick") setAddVariantDialogOpen(false); }}
         maxWidth="sm"
         fullWidth
       >
