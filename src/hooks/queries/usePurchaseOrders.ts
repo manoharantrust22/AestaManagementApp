@@ -1743,9 +1743,10 @@ export function useRecordDelivery() {
       }
 
       // Build the insert payload
-      // Set requires_verification=true and verification_status='pending' to:
-      // 1. Allow deliveries to appear in "Pending Verification" tab for engineer review
-      // 2. Enable the delivery verification workflow before stock is finalized
+      // Set requires_verification=false so the DB trigger creates stock immediately
+      // on delivery_items INSERT. Previously this was true/pending which caused
+      // delivered PO quantities to NOT appear in inventory until a separate
+      // verification step was completed.
       const deliveryPayload = {
         po_id: data.po_id || null,
         site_id: data.site_id,
@@ -1754,8 +1755,8 @@ export function useRecordDelivery() {
         grn_number: grnNumber,
         delivery_date: data.delivery_date,
         delivery_status: "delivered",
-        verification_status: "pending",
-        requires_verification: true,
+        verification_status: "verified",
+        requires_verification: false,
         challan_number: data.challan_number || null,
         challan_date: data.challan_date || null,
         vehicle_number: data.vehicle_number || null,
