@@ -69,6 +69,7 @@ export function usePurchaseOrders(
       return data as PurchaseOrderWithDetails[];
     },
     enabled: !!siteId,
+    staleTime: 30000, // Cache for 30s to avoid excessive refetches
   });
 }
 
@@ -134,17 +135,8 @@ export function useCreatePurchaseOrder() {
 
   return useMutation({
     mutationFn: async (data: PurchaseOrderFormData) => {
-      console.log("[useCreatePurchaseOrder] Starting mutation with data:", {
-        site_id: data.site_id,
-        vendor_id: data.vendor_id,
-        itemsCount: data.items?.length,
-        items: data.items,
-      });
-
       // Ensure fresh session before mutation
-      console.log("[useCreatePurchaseOrder] Checking session...");
       await ensureFreshSession();
-      console.log("[useCreatePurchaseOrder] Session check complete, proceeding...");
 
       // Calculate totals - supports both per_piece and per_kg pricing
       let subtotal = 0;
@@ -205,7 +197,6 @@ export function useCreatePurchaseOrder() {
       const poNumber = `PO-${timestamp}-${random}`;
 
       // Insert PO
-      console.log("[useCreatePurchaseOrder] Inserting PO...", { poNumber, subtotal, taxAmount, totalAmount, source_request_id: data.source_request_id });
       const { data: po, error: poError } = await (
         supabase.from("purchase_orders") as any
       )
@@ -232,10 +223,7 @@ export function useCreatePurchaseOrder() {
         .select()
         .single();
 
-      console.log("[useCreatePurchaseOrder] PO insert result:", { po, poError });
-
       if (poError) {
-        console.error("[useCreatePurchaseOrder] PO insert error:", poError);
         throw poError;
       }
 
@@ -267,20 +255,14 @@ export function useCreatePurchaseOrder() {
         };
       });
 
-      console.log("[useCreatePurchaseOrder] Inserting PO items...", { count: poItems.length });
       const { data: insertedItems, error: itemsError } = await supabase
         .from("purchase_order_items")
         .insert(poItems)
         .select("id, material_id");
 
-      console.log("[useCreatePurchaseOrder] PO items insert result:", { itemsError, insertedCount: insertedItems?.length });
-
       if (itemsError) {
-        console.error("[useCreatePurchaseOrder] PO items insert error:", itemsError);
         throw itemsError;
       }
-
-      console.log("[useCreatePurchaseOrder] PO created successfully:", po.po_number);
 
       // Create junction entries for items linked to material request items
       // Match inserted items with original data items by material_id (order preserved)
@@ -304,16 +286,12 @@ export function useCreatePurchaseOrder() {
 
       // Insert junction entries if any
       if (requestItemLinks.length > 0) {
-        console.log("[useCreatePurchaseOrder] Creating request item links...", { count: requestItemLinks.length });
         const { error: linkError } = await supabase
           .from("purchase_order_request_items")
           .insert(requestItemLinks);
 
         if (linkError) {
-          console.warn("[useCreatePurchaseOrder] Failed to create request item links:", linkError);
           // Don't fail PO creation for this - the source_request_id link still works
-        } else {
-          console.log("[useCreatePurchaseOrder] Request item links created successfully");
         }
       }
 
@@ -1734,12 +1712,11 @@ export function useRecordDelivery() {
       let authUserId: string | null = null;
       try {
         const { data: { user: authUser } } = await supabase.auth.getUser();
-        console.log("[useRecordDelivery] Auth user:", authUser?.id);
         if (authUser?.id) {
           authUserId = authUser.id;  // Use auth user ID directly for recorded_by
         }
       } catch (userError) {
-        console.warn("[useRecordDelivery] Could not fetch user:", userError);
+        // Could not fetch user
       }
 
       // Build the insert payload
@@ -1768,9 +1745,6 @@ export function useRecordDelivery() {
         notes: data.notes || null,
       };
 
-      // Debug logging
-      console.log("[useRecordDelivery] Inserting delivery with payload:", deliveryPayload);
-
       // Insert with retry logic for GRN collision (409 conflict)
       const MAX_RETRIES = 3;
       let delivery = null;
@@ -1780,7 +1754,7 @@ export function useRecordDelivery() {
         // Regenerate GRN on retry
         if (attempt > 0) {
           deliveryPayload.grn_number = generateGrn();
-          console.log(`[useRecordDelivery] Retry ${attempt} with new GRN:`, deliveryPayload.grn_number);
+          // Retry with new GRN
         }
 
         const { data, error } = await (
@@ -1797,18 +1771,17 @@ export function useRecordDelivery() {
 
         // Only retry on unique constraint violation (409/23505)
         if (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('unique')) {
-          console.warn(`[useRecordDelivery] GRN collision on attempt ${attempt + 1}, retrying...`);
+          // GRN collision, retrying
           lastError = error;
           continue;
         }
 
         // For other errors, throw immediately
-        console.error("[useRecordDelivery] Delivery insert error:", error);
         throw error;
       }
 
       if (!delivery) {
-        console.error("[useRecordDelivery] Failed after retries:", lastError);
+        // Failed after retries
         throw lastError || new Error('Failed to create delivery after retries');
       }
 
@@ -1828,14 +1801,14 @@ export function useRecordDelivery() {
         notes: item.notes || null,
       }));
 
-      console.log("[useRecordDelivery] Inserting delivery items:", deliveryItems);
+      // Insert delivery items
 
       const { error: itemsError } = await supabase
         .from("delivery_items")
         .insert(deliveryItems);
 
       if (itemsError) {
-        console.error("[useRecordDelivery] Delivery items insert error:", itemsError);
+        // Delivery items insert error
         throw itemsError;
       }
 
@@ -1918,7 +1891,6 @@ export function useRecordDelivery() {
                     .maybeSingle();
 
                   if (existingExpense) {
-                    console.log("[useRecordDelivery] Material expense already exists for PO:", existingExpense.ref_code);
                     // Skip creation, expense already exists
                   } else {
                   // Check if PO is a group stock purchase
@@ -1936,11 +1908,6 @@ export function useRecordDelivery() {
                   const isGroupStock = parsedNotes?.is_group_stock === true;
                   // Backward compatibility: check both site_group_id (new) and group_id (old)
                   const siteGroupId = parsedNotes?.site_group_id || parsedNotes?.group_id || null;
-
-                  console.log("[useRecordDelivery] Creating material expense - PO:", po.po_number);
-                  console.log("[useRecordDelivery] internal_notes:", po.internal_notes);
-                  console.log("[useRecordDelivery] Parsed:", { isGroupStock, siteGroupId });
-                  console.log("[useRecordDelivery] Will create expense with purchase_type:", isGroupStock ? "group_stock" : "own_site");
 
                   // Generate reference code for material purchase
                   const { data: refCode } = await (supabase as any).rpc(
@@ -1984,8 +1951,6 @@ export function useRecordDelivery() {
                     remaining_qty: isGroupStock ? totalQuantity : null,
                   };
 
-                  console.log("[useRecordDelivery] Expense payload:", JSON.stringify(expensePayload, null, 2));
-
                   // Create material_purchase_expense linked to PO
                   // For group stock, this becomes a batch with tracking fields
                   const { data: expense, error: expenseError } = await (supabase as any)
@@ -1996,18 +1961,7 @@ export function useRecordDelivery() {
 
                   if (expenseError) {
                     console.error("[useRecordDelivery] Failed to create material expense:", expenseError);
-                    console.error("[useRecordDelivery] Error details:", JSON.stringify(expenseError, null, 2));
-                    console.error("[useRecordDelivery] Error message:", expenseError.message);
-                    console.error("[useRecordDelivery] Error code:", expenseError.code);
-                    console.error("[useRecordDelivery] Error hint:", expenseError.hint);
                   } else if (expense) {
-                    console.log("[useRecordDelivery] Material expense created successfully:", {
-                      id: expense.id,
-                      ref_code: expense.ref_code,
-                      purchase_type: expense.purchase_type,
-                      site_id: expense.site_id,
-                      total_amount: expense.total_amount,
-                    });
 
                     // FIX: Backfill batch_code on stock_inventory for prior verified deliveries
                     // In the two-step flow, partial deliveries may have been verified and created
@@ -2043,10 +1997,8 @@ export function useRecordDelivery() {
                               .in("id", inventoryIds)
                               .is("batch_code", null);
 
-                            console.log("[useRecordDelivery] Backfilled batch_code on", inventoryIds.length, "stock rows for PO:", data.po_id);
                           }
                         }
-                        console.log("[useRecordDelivery] Backfilled stock_inventory batch_code:", expense.ref_code);
                       } catch (batchErr) {
                         console.warn("[useRecordDelivery] Error backfilling stock batch_code (non-fatal):", batchErr);
                       }
@@ -2167,9 +2119,9 @@ export function useRecordDelivery() {
                           .insert(transactionsToInsert);
 
                         if (txInsertError) {
-                          console.warn("[useRecordDelivery] Failed to create group_stock_transactions:", txInsertError);
+                          console.error("[useRecordDelivery] Failed to create group_stock_transactions:", txInsertError);
                         } else {
-                          console.log("[useRecordDelivery] Auto-pushed to Inter-Site Settlement:", transactionsToInsert.length, "transactions");
+                          // Auto-pushed to Inter-Site Settlement
                         }
                       }
                     }
@@ -2894,6 +2846,7 @@ export function usePOSummary(siteId: string | undefined) {
       return summary;
     },
     enabled: !!siteId,
+    staleTime: 30000,
   });
 }
 

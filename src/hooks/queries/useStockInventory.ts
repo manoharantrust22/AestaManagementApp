@@ -218,7 +218,6 @@ export function useSiteStock(
                 if (item.quantity != null) {
                   ownBatchOriginalQty.set(key, Number(item.quantity));
                 }
-                console.log(`[useSiteStock] Batch ${refCode} material ${item.material_id}: unit_price=${item.unit_price}, taxRatio=${taxRatio.toFixed(2)}, gst_inclusive=${gstInclusiveUnitPrice.toFixed(2)}`);
               }
             });
           }
@@ -291,7 +290,7 @@ export function useSiteStock(
           const batchCodes = [...new Set((sharedStockData || []).map((s: any) => s.batch_code).filter(Boolean))];
 
           if (batchCodes.length > 0) {
-            console.log(`[useSiteStock] Looking up batch codes:`, batchCodes);
+            // Look up batch codes for shared stock
 
             // Query by batch codes only - removed purchase_type filter as it was too restrictive
             const { data: groupPurchases, error: gpError } = await supabase
@@ -302,7 +301,7 @@ export function useSiteStock(
             if (gpError) {
               console.warn("[useSiteStock] Failed to fetch group purchase expenses:", gpError);
             }
-            console.log(`[useSiteStock] Shared stock: Found ${batchCodes.length} batch codes, matched ${(groupPurchases || []).length} expenses`);
+            // Shared stock: matched batch codes to expenses
 
             // Log which batch codes were not found
             if (groupPurchases) {
@@ -366,7 +365,6 @@ export function useSiteStock(
                     if (item.quantity != null) {
                       sharedBatchOriginalQty.set(`${refCode}|${item.material_id}`, Number(item.quantity));
                     }
-                    console.log(`[useSiteStock] Shared batch ${refCode} material ${item.material_id}: unit_price=${item.unit_price}, taxRatio=${taxRatio.toFixed(2)}, gst_inclusive=${gstInclusiveUnitPrice.toFixed(2)}`);
                   }
                 });
               }
@@ -406,6 +404,7 @@ export function useSiteStock(
       return [...ownStock, ...sharedStock];
     },
     enabled: !!siteId,
+    staleTime: 30000, // Cache for 30s to avoid excessive refetches
   });
 }
 
