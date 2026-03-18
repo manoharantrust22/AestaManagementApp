@@ -320,131 +320,118 @@ export default function ContractPaymentHistoryDialog({
   }, []);
 
   // Fetch settlement groups for contract payments
-  // Hybrid approach: Use labor_payments to IDENTIFY salary settlements,
-  // but also include advance/other payments that don't have labor_payments
+  // Uses two parallel queries to identify contract settlements:
+  // 1. Settlements linked to contract labor_payments (properly created)
+  // 2. Settlements with "Waterfall" in notes (catches orphaned ones where labor_payments failed)
+  // 3. Advance/other/excess settlements (no labor_payments by design)
   const fetchSettlements = useCallback(async () => {
     if (!open || !selectedSite) return;
 
     setLoading(true);
     try {
-      // Step 1: Get settlement_group_ids that have contract labor_payments (salary payments)
-      const { data: contractPayments } = await supabaseQueryWithTimeout(
-        supabase
-          .from("labor_payments")
-          .select("settlement_group_id")
-          .eq("site_id", selectedSite.id)
-          .eq("is_under_contract", true)
-          .not("settlement_group_id", "is", null)
-      );
+      const selectFields = `
+        id,
+        settlement_reference,
+        settlement_date,
+        total_amount,
+        payment_mode,
+        payment_channel,
+        payment_type,
+        payer_source,
+        payer_name,
+        subcontract_id,
+        proof_url,
+        proof_urls,
+        notes,
+        created_by_name,
+        created_at,
+        laborer_count,
+        week_allocations,
+        subcontracts (
+          title
+        )
+      `;
 
-      // Get unique settlement_group_ids from labor_payments
-      const contractSettlementIds = contractPayments
-        ? [...new Set(contractPayments.map((p: any) => p.settlement_group_id))]
-        : [];
-
-      // Step 2: Fetch settlement_groups - both salary settlements (by IDs) AND advance/other payments
-      // Build OR query to include both:
-      // - Settlements with labor_payments (salary)
-      // - Settlements with payment_type = 'advance' or 'other' (no labor_payments)
-      let query = (supabase as any)
-        .from("settlement_groups")
-        .select(`
-          id,
-          settlement_reference,
-          settlement_date,
-          total_amount,
-          payment_mode,
-          payment_channel,
-          payment_type,
-          payer_source,
-          payer_name,
-          subcontract_id,
-          proof_url,
-          proof_urls,
-          notes,
-          created_by_name,
-          created_at,
-          laborer_count,
-          week_allocations,
-          subcontracts (
-            title
-          )
-        `)
-        .eq("site_id", selectedSite.id)
-        .eq("is_cancelled", false)
-        .order("settlement_date", { ascending: false });
-
-      // If we have salary settlements, use OR to include them plus advances/other/excess
-      // If no salary settlements, just fetch advances/other/excess
-      // Note: Using filter with .in() for IDs to avoid query string length issues
-      let settlementData: any[] = [];
-      let error: any = null;
-
-      if (contractSettlementIds.length > 0) {
-        // Query salary settlements by IDs
-        const { data: salaryData, error: salaryError } = await supabaseQueryWithTimeout<any[]>(
-          query.in("id", contractSettlementIds)
-        );
-
-        if (salaryError) {
-          error = salaryError;
-        } else {
-          settlementData = salaryData || [];
-        }
-
-        // Query advance/other/excess settlements separately
-        const { data: otherData, error: otherError } = await supabaseQueryWithTimeout<any[]>(
+      // Run three queries in parallel:
+      // 1. Get settlement_group_ids linked to contract labor_payments
+      // 2. Get settlements with "Waterfall" in notes (contract settlements, including orphaned)
+      // 3. Get advance/other/excess settlements
+      const [contractPaymentsResult, waterfallResult, otherResult] = await Promise.all([
+        supabaseQueryWithTimeout(
           supabase
+            .from("labor_payments")
+            .select("settlement_group_id")
+            .eq("site_id", selectedSite.id)
+            .eq("is_under_contract", true)
+            .not("settlement_group_id", "is", null)
+        ),
+        supabaseQueryWithTimeout<any[]>(
+          (supabase as any)
             .from("settlement_groups")
-            .select(`
-              id,
-              settlement_reference,
-              settlement_date,
-              total_amount,
-              payment_mode,
-              payment_channel,
-              payment_type,
-              payer_source,
-              payer_name,
-              subcontract_id,
-              proof_url,
-              proof_urls,
-              notes,
-              created_by_name,
-              created_at,
-              laborer_count,
-              week_allocations,
-              subcontracts (
-                title
-              )
-            `)
+            .select(selectFields)
+            .eq("site_id", selectedSite.id)
+            .eq("is_cancelled", false)
+            .ilike("notes", "%Waterfall%")
+            .order("settlement_date", { ascending: false })
+        ),
+        supabaseQueryWithTimeout<any[]>(
+          (supabase as any)
+            .from("settlement_groups")
+            .select(selectFields)
             .eq("site_id", selectedSite.id)
             .eq("is_cancelled", false)
             .in("payment_type", ["advance", "other", "excess"])
             .order("settlement_date", { ascending: false })
-        );
+        ),
+      ]);
 
-        if (!otherError && otherData) {
-          // Merge results, avoiding duplicates (some may have been included in both)
-          const existingIds = new Set(settlementData.map((s: any) => s.id));
-          otherData.forEach((s: any) => {
-            if (!existingIds.has(s.id)) {
-              settlementData.push(s);
-            }
-          });
+      const { data: contractPayments } = contractPaymentsResult;
+
+      // Get unique settlement_group_ids from labor_payments
+      const contractSettlementIds = contractPayments
+        ? new Set(contractPayments.map((p: any) => p.settlement_group_id))
+        : new Set<string>();
+
+      // Merge all results, avoiding duplicates
+      const settlementMap = new Map<string, any>();
+
+      // Add waterfall-based settlements (covers both linked and orphaned)
+      (waterfallResult.data || []).forEach((s: any) => {
+        settlementMap.set(s.id, s);
+      });
+
+      // Add advance/other/excess settlements
+      (otherResult.data || []).forEach((s: any) => {
+        if (!settlementMap.has(s.id)) {
+          settlementMap.set(s.id, s);
         }
+      });
 
-        // Sort combined results by settlement_date descending
-        settlementData.sort((a: any, b: any) =>
-          new Date(b.settlement_date).getTime() - new Date(a.settlement_date).getTime()
+      // If there are contract settlement IDs not yet in our map, fetch them
+      // (settlements linked via labor_payments but without "Waterfall" in notes)
+      const missingIds = [...contractSettlementIds].filter((id) => !settlementMap.has(id));
+      if (missingIds.length > 0) {
+        const { data: linkedData } = await supabaseQueryWithTimeout<any[]>(
+          (supabase as any)
+            .from("settlement_groups")
+            .select(selectFields)
+            .eq("site_id", selectedSite.id)
+            .eq("is_cancelled", false)
+            .in("id", missingIds)
         );
-      } else {
-        const { data: otherData, error: otherError } = await supabaseQueryWithTimeout<any[]>(
-          query.in("payment_type", ["advance", "other", "excess"])
-        );
-        settlementData = otherData || [];
-        error = otherError;
+        (linkedData || []).forEach((s: any) => {
+          settlementMap.set(s.id, s);
+        });
       }
+
+      let settlementData = Array.from(settlementMap.values());
+
+      // Sort by settlement_date descending
+      settlementData.sort((a: any, b: any) =>
+        new Date(b.settlement_date).getTime() - new Date(a.settlement_date).getTime()
+      );
+
+      const error = waterfallResult.error || otherResult.error;
 
       if (error) {
         console.error("Error fetching settlements:", error);

@@ -224,6 +224,25 @@ export function useSiteStock(
         }
       }
 
+      // Fetch original purchased qty for own stock items (no batch_code) from stock_transactions
+      const ownStockNoBatchIds = (ownStockData || [])
+        .filter((item: any) => !item.batch_code || item.batch_code.trim().length === 0)
+        .map((item: any) => item.id);
+      const ownStockPurchasedQty = new Map<string, number>();
+      if (ownStockNoBatchIds.length > 0) {
+        const { data: purchaseTxns } = await supabase
+          .from("stock_transactions")
+          .select("inventory_id, quantity")
+          .in("inventory_id", ownStockNoBatchIds)
+          .eq("transaction_type", "purchase");
+        if (purchaseTxns) {
+          for (const txn of purchaseTxns) {
+            const prev = ownStockPurchasedQty.get(txn.inventory_id) || 0;
+            ownStockPurchasedQty.set(txn.inventory_id, prev + Number(txn.quantity || 0));
+          }
+        }
+      }
+
       // Map site's own stock items
       const ownStock: ExtendedStockInventory[] = ((ownStockData || []) as any[]).map(
         (item) => {
@@ -251,7 +270,7 @@ export function useSiteStock(
               : null,
             batch_original_qty: hasBatchCode && item.material_id
               ? ownBatchOriginalQty.get(`${item.batch_code}|${item.material_id}`) || null
-              : null,
+              : ownStockPurchasedQty.get(item.id) || null,
             is_vendor_paid: hasBatchCode
               ? ownBatchIsPaid.get(item.batch_code) ?? null
               : null,

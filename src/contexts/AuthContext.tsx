@@ -70,6 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let mounted = true;
 
     const initializeAuth = async () => {
+      let hasSession = false;
       try {
         console.log("[AuthContext] Initializing auth...");
         const {
@@ -83,7 +84,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (!mounted) return;
 
-        console.log("[AuthContext] Session:", session ? "exists" : "null");
+        hasSession = !!session?.user;
+        console.log("[AuthContext] Session:", hasSession ? "exists" : "null");
         setUser(session?.user ?? null);
 
         if (session?.user) {
@@ -94,14 +96,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         console.error("[AuthContext] Error initializing auth:", error);
       } finally {
-        if (mounted) {
-          console.log("[AuthContext] Auth loading complete");
+        if (mounted && !hasSession) {
+          // Only mark loading complete when there's no session.
+          // When a session exists, onAuthStateChange will set loading=false
+          // after fetchUserProfile completes, preventing SiteProvider from
+          // seeing authLoading=false with userProfile=null.
+          console.log("[AuthContext] No session - auth loading complete");
           setLoading(false);
         }
       }
     };
 
     initializeAuth();
+
+    // Safety timeout: if onAuthStateChange hasn't fired within 5 seconds
+    // (e.g., network issue preventing token refresh), force loading=false
+    // to prevent the app from being stuck in a loading state forever.
+    const safetyTimeout = setTimeout(() => {
+      if (mounted) {
+        setLoading((prev) => {
+          if (prev) {
+            console.warn("[AuthContext] Safety timeout - forcing auth loading complete");
+          }
+          return false;
+        });
+      }
+    }, 5000);
 
     const {
       data: { subscription },
@@ -132,6 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false;
+      clearTimeout(safetyTimeout);
       subscription.unsubscribe();
       // Cleanup session manager on unmount
       stopSessionManager();

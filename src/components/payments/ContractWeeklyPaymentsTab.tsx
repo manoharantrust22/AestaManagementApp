@@ -337,10 +337,9 @@ export default function ContractWeeklyPaymentsTab({
       const teamsMap = new Map<string, string>();
       (teamsLookup || []).forEach((t: any) => teamsMap.set(t.id, t.name));
 
-      // Filter attendance for display (within date range)
-      const attendanceData = (allAttendanceData || []).filter((att: any) => {
-        return att.date >= fromDate && att.date <= toDate;
-      });
+      // Use ALL attendance data (not filtered by date range) so that all weeks
+      // from the financial year start are shown in the contract weekly tab
+      const attendanceData = allAttendanceData || [];
 
       // Group by laborer
       const laborerMap = new Map<
@@ -604,71 +603,63 @@ export default function ContractWeeklyPaymentsTab({
           : [];
 
       // Step 2: Fetch settlement_groups for contract payments
-      // Include both:
-      // - Salary settlements (by IDs from labor_payments)
-      // - Advance/other payments (by payment_type, no labor_payments)
-      let settlementGroupsData: any[] = [];
+      // Uses three parallel queries to catch all contract settlements:
+      // 1. Settlements linked to contract labor_payments (properly created)
+      // 2. Settlements with "Waterfall" in notes (catches orphaned ones)
+      // 3. Advance/other/excess settlements (no labor_payments by design)
+      const sgSelectFields = "id, settlement_reference, settlement_date, total_amount, week_allocations, payment_type";
 
-      let sgQuery = (supabase as any)
-        .from("settlement_groups")
-        .select(
-          "id, settlement_reference, settlement_date, total_amount, week_allocations, payment_type"
-        )
-        .eq("site_id", selectedSite.id)
-        .eq("is_cancelled", false);
+      const [waterfallSgResult, otherSgResult] = await Promise.all([
+        // Waterfall settlements (covers both linked and orphaned contract salary settlements)
+        supabaseQueryWithTimeout<any[]>(
+          (supabase as any)
+            .from("settlement_groups")
+            .select(sgSelectFields)
+            .eq("site_id", selectedSite.id)
+            .eq("is_cancelled", false)
+            .ilike("notes", "%Waterfall%"),
+          45000
+        ),
+        // Advance/other/excess settlements
+        supabaseQueryWithTimeout<any[]>(
+          (supabase as any)
+            .from("settlement_groups")
+            .select(sgSelectFields)
+            .eq("site_id", selectedSite.id)
+            .eq("is_cancelled", false)
+            .in("payment_type", ["advance", "other", "excess"]),
+          45000
+        ),
+      ]);
 
-      // Use separate queries for salary settlements and advance/other/excess payments
-      // to avoid query string length issues with .or() + .in()
-      let sgData: any[] = [];
-      let sgError: any = null;
+      // Merge results, avoiding duplicates
+      const sgMap = new Map<string, any>();
+      (waterfallSgResult.data || []).forEach((s: any) => sgMap.set(s.id, s));
+      (otherSgResult.data || []).forEach((s: any) => {
+        if (!sgMap.has(s.id)) sgMap.set(s.id, s);
+      });
 
-      if (contractSettlementIds.length > 0) {
-        // Query salary settlements and advance/other/excess in parallel
-        const [salaryResult, otherResult] = await Promise.all([
-          supabaseQueryWithTimeout<any[]>(
-            sgQuery.in("id", contractSettlementIds),
-            45000
-          ),
-          supabaseQueryWithTimeout<any[]>(
-            (supabase as any)
-              .from("settlement_groups")
-              .select("id, settlement_reference, settlement_date, total_amount, week_allocations, payment_type")
-              .eq("site_id", selectedSite.id)
-              .eq("is_cancelled", false)
-              .in("payment_type", ["advance", "other", "excess"]),
-            45000
-          ),
-        ]);
-
-        if (salaryResult.error) {
-          sgError = salaryResult.error;
-        } else {
-          sgData = salaryResult.data || [];
-        }
-
-        if (!otherResult.error && otherResult.data) {
-          // Merge results, avoiding duplicates
-          const existingIds = new Set(sgData.map((s: any) => s.id));
-          otherResult.data.forEach((s: any) => {
-            if (!existingIds.has(s.id)) {
-              sgData.push(s);
-            }
-          });
-        }
-      } else {
-        // No salary settlements, just fetch advances/other/excess
-        const { data: otherData, error: otherError } = await supabaseQueryWithTimeout<any[]>(
-          sgQuery.in("payment_type", ["advance", "other", "excess"]),
+      // Also include any settlements linked via labor_payments that weren't caught by "Waterfall" notes
+      const missingSgIds = contractSettlementIds.filter((id: string) => !sgMap.has(id));
+      if (missingSgIds.length > 0) {
+        const { data: linkedSgData } = await supabaseQueryWithTimeout<any[]>(
+          (supabase as any)
+            .from("settlement_groups")
+            .select(sgSelectFields)
+            .eq("site_id", selectedSite.id)
+            .eq("is_cancelled", false)
+            .in("id", missingSgIds),
           45000
         );
-        sgData = otherData || [];
-        sgError = otherError;
+        (linkedSgData || []).forEach((s: any) => sgMap.set(s.id, s));
       }
+
       if (!isMountedRef.current) return;
+      const sgError = waterfallSgResult.error || otherSgResult.error;
       if (sgError) {
         console.error("Error fetching settlement groups:", sgError);
       }
-      settlementGroupsData = sgData || [];
+      const settlementGroupsData = Array.from(sgMap.values());
 
       // ========================================================================
       // WATERFALL CALCULATION using ALL weeks (not filtered)

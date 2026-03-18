@@ -29,6 +29,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  LinearProgress,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -229,6 +230,18 @@ export default function InventoryPage() {
   const addInitialStock = useAddInitialStock();
   const deleteUsage = useDeleteMaterialUsage();
   const updateUsage = useUpdateMaterialUsage();
+
+  // Count usage records per material (for consolidated view column)
+  const usageCountByMaterial = useMemo(() => {
+    const countMap = new Map<string, number>();
+    for (const u of usage) {
+      const mid = (u as any).material_id;
+      if (mid) {
+        countMap.set(mid, (countMap.get(mid) || 0) + 1);
+      }
+    }
+    return countMap;
+  }, [usage]);
 
   // Count own vs group stock for tab badges
   const ownStockCount = useMemo(
@@ -665,6 +678,70 @@ export default function InventoryPage() {
         },
       },
       {
+        id: "total_purchased",
+        header: "Purchased",
+        size: 120,
+        Cell: ({ row }) => {
+          const purchased = row.original.total_purchased;
+          const unit = row.original.unit || "piece";
+          if (!purchased) return <Typography variant="body2" color="text.disabled">-</Typography>;
+          return (
+            <Typography variant="body2">
+              {purchased.toLocaleString()} {UNIT_LABELS[unit as MaterialUnit] || unit}
+            </Typography>
+          );
+        },
+      },
+      {
+        id: "used",
+        Header: () => (
+          <Tooltip title="Used = Total Purchased - Current Stock" arrow>
+            <span style={{ cursor: "help" }}>Used</span>
+          </Tooltip>
+        ),
+        header: "Used",
+        size: 130,
+        Cell: ({ row }) => {
+          const purchased = row.original.total_purchased;
+          const current = row.original.total_qty;
+          if (!purchased) return <Typography variant="body2" color="text.disabled">-</Typography>;
+          const used = purchased - current;
+          const unit = row.original.unit || "piece";
+          const usedPct = purchased > 0 ? (used / purchased) * 100 : 0;
+          return (
+            <Box>
+              <Typography variant="body2">
+                {used.toLocaleString()} {UNIT_LABELS[unit as MaterialUnit] || unit}
+              </Typography>
+              <LinearProgress
+                variant="determinate"
+                value={Math.min(usedPct, 100)}
+                color={usedPct > 80 ? "error" : usedPct > 50 ? "warning" : "primary"}
+                sx={{ height: 4, borderRadius: 2, mt: 0.5 }}
+              />
+            </Box>
+          );
+        },
+      },
+      {
+        id: "usage_records",
+        header: "Usage Entries",
+        size: 100,
+        Cell: ({ row }) => {
+          const count = usageCountByMaterial.get(row.original.material_id) || 0;
+          return count > 0 ? (
+            <Chip
+              label={`${count} entries`}
+              size="small"
+              variant="outlined"
+              color="success"
+            />
+          ) : (
+            <Typography variant="body2" color="text.disabled">0</Typography>
+          );
+        },
+      },
+      {
         id: "batches",
         header: "Batches",
         size: 90,
@@ -719,7 +796,7 @@ export default function InventoryPage() {
         },
       },
     ],
-    []
+    [usageCountByMaterial]
   );
 
   // Row actions for consolidated view
@@ -745,7 +822,7 @@ export default function InventoryPage() {
   const renderConsolidatedDetailPanel = useCallback(
     ({ row }: { row: { original: ConsolidatedStockItem } }) => {
       const batches = row.original.batches;
-      if (batches.length <= 1) return null;
+      if (batches.length === 0) return null;
       return (
         <Box sx={{ p: 2, bgcolor: "action.hover", width: "100%" }}>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
@@ -784,6 +861,11 @@ export default function InventoryPage() {
                 </Box>
                 <Typography variant="body2" fontWeight={600}>
                   {batch.current_qty.toLocaleString()} {UNIT_LABELS[(batch.material?.unit || "piece") as MaterialUnit] || batch.material?.unit}
+                  {batch.batch_original_qty != null && batch.batch_original_qty !== batch.current_qty && (
+                    <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                      (of {batch.batch_original_qty.toLocaleString()} purchased)
+                    </Typography>
+                  )}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   @ ₹{(batch.avg_unit_cost || 0).toLocaleString("en-IN", { minimumFractionDigits: 2 })}/unit
@@ -1377,7 +1459,7 @@ export default function InventoryPage() {
               enableExpanding
               renderDetailPanel={renderConsolidatedDetailPanel}
               muiDetailPanelProps={{ sx: { "& > td": { width: "100%" } } }}
-              mobileHiddenColumns={["batches", "weighted_avg_cost", "total_value", "stock_type"]}
+              mobileHiddenColumns={["batches", "weighted_avg_cost", "total_value", "stock_type", "total_purchased", "used", "usage_records"]}
               initialState={{
                 sorting: [{ id: "material_name", desc: false }],
               }}

@@ -24,6 +24,9 @@ import { SiteActionsContext } from "./SiteActionsContext";
 const SELECTED_SITE_KEY = "selectedSiteId";
 const SITES_CACHE_KEY = "cachedSites";
 
+// Retry config for fetchSites
+const MAX_FETCH_RETRIES = 3;
+
 // Helper functions to safely access localStorage
 function getStoredSiteId(): string | null {
   if (typeof window === "undefined") return null;
@@ -86,20 +89,27 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
     setSelectedSiteCookie(site?.id || null);
   }, []);
 
-  // Fetch sites from database
-  const fetchSites = useCallback(async () => {
+  // Track active retry timeout so we can cancel on unmount
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fetch sites from database with automatic retry on failure
+  const fetchSites = useCallback(async (retryCount = 0) => {
     if (!userProfile) {
       console.log("[SiteContext] No user profile, skipping fetch");
       return;
     }
 
-    setLoading(true);
-    setError(null);
+    // Only show loading on initial fetch, not retries (to avoid UI flicker)
+    if (retryCount === 0) {
+      setLoading(true);
+      setError(null);
+    }
 
     try {
       console.log("[SiteContext] Fetching sites...", {
         userRole: userProfile.role,
         assignedSites: userProfile.assigned_sites,
+        retryCount,
       });
 
       let query = supabase.from("sites").select("*").order("name");
@@ -164,11 +174,28 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Failed to fetch sites";
-      console.error("[SiteContext] Error fetching sites:", errorMessage);
+
+      // Retry with exponential backoff if under the limit
+      if (retryCount < MAX_FETCH_RETRIES) {
+        const delay = 1000 * Math.pow(2, retryCount); // 1s, 2s, 4s
+        console.warn(
+          `[SiteContext] Fetch failed, retrying in ${delay}ms (attempt ${retryCount + 1}/${MAX_FETCH_RETRIES}):`,
+          errorMessage
+        );
+        retryTimeoutRef.current = setTimeout(() => {
+          fetchSites(retryCount + 1);
+        }, delay);
+        return; // Don't set error/loading yet, retry is pending
+      }
+
+      console.error("[SiteContext] Error fetching sites (all retries exhausted):", errorMessage);
       setError(errorMessage);
     } finally {
-      setLoading(false);
-      setIsInitialized(true);
+      // Only update loading/initialized on initial attempt or when retries are exhausted
+      if (retryCount === 0 || retryCount >= MAX_FETCH_RETRIES) {
+        setLoading(false);
+        setIsInitialized(true);
+      }
     }
   }, [userProfile, supabase]);
 
@@ -274,6 +301,46 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener("storage", handleStorageChange);
     return () => window.removeEventListener("storage", handleStorageChange);
   }, [selectedSite?.id, sites, fetchSites]);
+
+  // Re-fetch sites when token is refreshed and previous fetch had failed
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "TOKEN_REFRESHED" && error) {
+        console.log("[SiteContext] Token refreshed after error, retrying fetch");
+        hasFetchedRef.current = false; // Allow re-fetch
+        fetchSites();
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [supabase, error, fetchSites]);
+
+  // Re-fetch sites when tab becomes visible and in error state
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && error && userProfile) {
+        console.log("[SiteContext] Tab visible with error state, retrying fetch");
+        fetchSites();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [error, userProfile, fetchSites]);
+
+  // Cleanup retry timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const refreshSites = useCallback(async () => {
     await fetchSites();

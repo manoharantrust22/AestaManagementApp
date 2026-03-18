@@ -57,6 +57,8 @@ export interface ConsolidatedStockItem {
   weighted_avg_cost: number;
   /** Total stock value */
   total_value: number;
+  /** Total originally purchased quantity across all batches (from batch_original_qty) */
+  total_purchased: number;
   /** Whether any batch is shared */
   has_shared_batches: boolean;
   /** Whether any batch is own stock */
@@ -216,6 +218,7 @@ export function consolidateStock(
         batch_count: 0,
         weighted_avg_cost: 0,
         total_value: 0,
+        total_purchased: 0,
         has_shared_batches: false,
         has_own_batches: false,
         pricing_mode:
@@ -236,6 +239,7 @@ export function consolidateStock(
     consolidated.total_available_qty += item.available_qty ?? item.current_qty;
     consolidated.batch_count += 1;
     consolidated.batches.push(item);
+    consolidated.total_purchased += item.batch_original_qty ?? 0;
 
     if (item.is_shared) consolidated.has_shared_batches = true;
     else consolidated.has_own_batches = true;

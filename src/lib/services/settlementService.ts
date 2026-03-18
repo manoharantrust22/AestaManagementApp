@@ -2062,6 +2062,28 @@ export async function processWaterfallContractPayment(
       });
     }
 
+    // If salary payment with weeks but no labor_payments were created,
+    // rollback by cancelling the settlement_group to prevent orphaned records
+    if (paymentIds.length === 0 && config.weeks.length > 0 && config.paymentType === "salary") {
+      console.error("No labor_payments created despite weeks being provided - cancelling settlement_group", settlementGroupId);
+      if (settlementGroupId) {
+        await supabase
+          .from("settlement_groups")
+          .update({
+            is_cancelled: true,
+            cancelled_at: new Date().toISOString(),
+            cancelled_by: config.userName,
+            cancelled_by_user_id: config.userId,
+            cancellation_reason: "Auto-cancelled: failed to create labor payments for any laborer",
+          })
+          .eq("id", settlementGroupId);
+      }
+      return {
+        success: false,
+        error: "Failed to create labor payments. All laborers may already be fully paid for the selected weeks. Please refresh and try again.",
+      };
+    }
+
     return {
       success: true,
       paymentIds,

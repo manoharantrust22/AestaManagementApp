@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
-import { usePathname } from "next/navigation";
+import { useEffect, useCallback, useRef } from "react";
 
 /**
  * Global listener for session-related errors.
@@ -13,20 +12,21 @@ export function SessionErrorHandler({
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = usePathname();
-
+  // Use window.location.pathname at call time instead of closing over
+  // usePathname(), so this callback is stable and doesn't cause the
+  // useEffect to re-run on every navigation.
   const handleSessionExpired = useCallback(() => {
-    // Avoid redirect loop if already on login page
-    if (pathname === "/login") {
+    if (window.location.pathname === "/login") {
       return;
     }
     console.warn("[SessionErrorHandler] Session expired - redirecting to login");
-    // Use window.location for full page refresh to ensure clean auth state
     window.location.href = "/login?session_expired=true";
-  }, [pathname]);
+  }, []);
+
+  // Use a ref to ensure we only install the fetch wrapper once
+  const fetchWrappedRef = useRef(false);
 
   useEffect(() => {
-    // Listen for session refresh failures from SessionManager
     const handleSessionRefreshFailed = (
       event: CustomEvent<{ error: string }>
     ) => {
@@ -34,8 +34,6 @@ export function SessionErrorHandler({
         "[SessionErrorHandler] Session refresh failed:",
         event.detail.error
       );
-      // Only redirect if the error indicates a truly expired session
-      // Network errors should not trigger redirect
       if (
         event.detail.error?.includes("expired") ||
         event.detail.error?.includes("invalid") ||
@@ -45,25 +43,38 @@ export function SessionErrorHandler({
       }
     };
 
-    // Intercept fetch to detect 401 responses with session expired header
-    const originalFetch = window.fetch;
-    window.fetch = async (...args) => {
-      try {
-        const response = await originalFetch(...args);
-
-        // Check for session expired response from middleware
-        if (
-          response.status === 401 &&
-          response.headers.get("X-Session-Expired") === "true"
-        ) {
-          handleSessionExpired();
+    // Only install the fetch wrapper once to prevent wrapper chaining
+    let originalFetch: typeof window.fetch | null = null;
+    if (!fetchWrappedRef.current) {
+      fetchWrappedRef.current = true;
+      originalFetch = window.fetch;
+      window.fetch = async (...args) => {
+        // Skip interception for Next.js internal requests — these are
+        // static chunks, HMR updates, etc. that should never be intercepted.
+        const url =
+          typeof args[0] === "string"
+            ? args[0]
+            : (args[0] as Request)?.url || "";
+        if (url.includes("/_next/") || url.includes("/api/auth/")) {
+          return originalFetch!(...args);
         }
 
-        return response;
-      } catch (error) {
-        throw error;
-      }
-    };
+        try {
+          const response = await originalFetch!(...args);
+
+          if (
+            response.status === 401 &&
+            response.headers.get("X-Session-Expired") === "true"
+          ) {
+            handleSessionExpired();
+          }
+
+          return response;
+        } catch (error) {
+          throw error;
+        }
+      };
+    }
 
     window.addEventListener(
       "session-refresh-failed",
@@ -75,8 +86,10 @@ export function SessionErrorHandler({
         "session-refresh-failed",
         handleSessionRefreshFailed as EventListener
       );
-      // Restore original fetch
-      window.fetch = originalFetch;
+      if (originalFetch) {
+        window.fetch = originalFetch;
+        fetchWrappedRef.current = false;
+      }
     };
   }, [handleSessionExpired]);
 
