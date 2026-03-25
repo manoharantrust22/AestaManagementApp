@@ -45,6 +45,7 @@ import { processContractPayment, processSettlement } from "@/lib/services/settle
 import FileUploader, { UploadedFile } from "@/components/common/FileUploader";
 import SubcontractLinkSelector from "./SubcontractLinkSelector";
 import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import { useToast } from "@/contexts/ToastContext";
 import dayjs from "dayjs";
 import type {
   PaymentDialogProps,
@@ -76,6 +77,7 @@ export default function PaymentDialog({
   const { userProfile } = useAuth();
   const { selectedSite } = useSite();
   const supabase = createClient();
+  const { showSuccess, showError: showErrorToast } = useToast();
 
   // Form state
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("upi");
@@ -262,6 +264,7 @@ export default function PaymentDialog({
         );
 
         // Success - close dialog (expense handled by service via settlement_groups)
+        showSuccess(`Payment of Rs.${paymentAmount.toLocaleString()} recorded successfully`);
         onSuccess?.();
         onClose();
         return;
@@ -381,11 +384,14 @@ export default function PaymentDialog({
         );
       }
 
+      showSuccess(`Payment of Rs.${paymentAmount.toLocaleString()} recorded successfully`);
       onSuccess?.();
       onClose();
     } catch (err: any) {
       console.error("Payment error:", err);
-      setError(err.message || "Failed to process payment");
+      const errorMsg = err.message || "Failed to process payment";
+      setError(errorMsg);
+      showErrorToast(errorMsg);
     } finally {
       setProcessing(false);
     }

@@ -117,14 +117,21 @@ async function insertLaborPaymentWithRetry(
   maxRetries = 3
 ): Promise<{ data: any; error: any }> {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const { data: payRefData, error: payRefError } = await supabase.rpc(
-      "generate_payment_reference",
-      { p_site_id: siteId }
-    );
+    let paymentReference: string;
 
-    const paymentReference = payRefError
-      ? `PAY-${dayjs().format("YYMMDD")}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`
-      : (payRefData as string);
+    if (attempt === 0) {
+      // First attempt: try RPC-generated sequential reference
+      const { data: payRefData, error: payRefError } = await supabase.rpc(
+        "generate_payment_reference",
+        { p_site_id: siteId }
+      );
+      paymentReference = payRefError
+        ? `PAY-${dayjs().format("YYMMDD")}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`
+        : (payRefData as string);
+    } else {
+      // Retry: use UUID-based reference to guarantee uniqueness
+      paymentReference = `PAY-${dayjs().format("YYMMDD")}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    }
 
     const { data, error } = await (supabase.from("labor_payments") as any)
       .insert({ ...payload, payment_reference: paymentReference })
@@ -134,7 +141,7 @@ async function insertLaborPaymentWithRetry(
     if (!error) return { data, error: null };
 
     if (error.code === "23505" && attempt < maxRetries - 1) {
-      console.warn(`[Settlement] Payment reference collision (attempt ${attempt + 1}), retrying...`);
+      console.warn(`[Settlement] Payment reference collision (attempt ${attempt + 1}), retrying with UUID...`);
       continue;
     }
 
@@ -1972,6 +1979,21 @@ export async function processWaterfallContractPayment(
 
         if (finalAmount <= 0) continue;
 
+        // Idempotency guard: skip if payment already exists for this laborer+settlement+week
+        const { data: existingPayment } = await supabase
+          .from("labor_payments")
+          .select("id")
+          .eq("laborer_id", laborer.laborerId)
+          .eq("settlement_group_id", settlementGroupId)
+          .eq("payment_for_date", week.weekStart)
+          .maybeSingle();
+
+        if (existingPayment) {
+          paymentIds.push(existingPayment.id);
+          laborersProcessed++;
+          continue;
+        }
+
         // Create labor_payments record with retry on reference collision
         const { data: paymentData, error: paymentError } = await insertLaborPaymentWithRetry(
           supabase,
@@ -2000,8 +2022,7 @@ export async function processWaterfallContractPayment(
         );
 
         if (paymentError) {
-          console.error(`Error creating labor_payment for ${laborer.laborerName}:`, paymentError);
-          continue;
+          throw new Error(`Failed to create payment for ${laborer.laborerName}: ${paymentError.message}`);
         }
 
         paymentIds.push(paymentData.id);
@@ -2369,6 +2390,21 @@ export async function processDateWiseContractSettlement(
 
         if (finalAmount <= 0) continue;
 
+        // Idempotency guard: skip if payment already exists for this laborer+settlement+week
+        const { data: existingPayment } = await supabase
+          .from("labor_payments")
+          .select("id")
+          .eq("laborer_id", laborer.laborerId)
+          .eq("settlement_group_id", settlementGroupId)
+          .eq("payment_for_date", week.weekStart)
+          .maybeSingle();
+
+        if (existingPayment) {
+          laborPaymentIds.push(existingPayment.id);
+          processedAmount += finalAmount;
+          continue;
+        }
+
         // Create labor_payments record with retry on reference collision
         const { data: paymentData, error: paymentError } = await insertLaborPaymentWithRetry(
           supabase,
@@ -2397,8 +2433,7 @@ export async function processDateWiseContractSettlement(
         );
 
         if (paymentError) {
-          console.error(`Error creating labor_payment for ${laborer.laborerName}:`, paymentError);
-          continue;
+          throw new Error(`Failed to create payment for ${laborer.laborerName}: ${paymentError.message}`);
         }
 
         laborPaymentIds.push(paymentData.id);

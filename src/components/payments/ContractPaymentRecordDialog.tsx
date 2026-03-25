@@ -51,6 +51,7 @@ import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 import FileUploader, { UploadedFile } from "@/components/common/FileUploader";
 import SubcontractLinkSelector from "./SubcontractLinkSelector";
 import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import { useToast } from "@/contexts/ToastContext";
 import dayjs from "dayjs";
 import type {
   PaymentMode,
@@ -126,6 +127,7 @@ export default function ContractPaymentRecordDialog({
   const { userProfile } = useAuth();
   const { selectedSite } = useSite();
   const supabase = createClient();
+  const { showSuccess, showError: showErrorToast } = useToast();
 
   // Form state
   const [amount, setAmount] = useState<number>(0);
@@ -330,11 +332,14 @@ export default function ContractPaymentRecordDialog({
         throw new Error(result.error || "Failed to process payment");
       }
 
+      showSuccess(`Payment of Rs.${amount.toLocaleString()} recorded successfully`);
       onSuccess?.();
       onClose();
     } catch (err: any) {
       console.error("Payment error:", err);
-      setError(err.message || "Failed to process payment");
+      const errorMsg = err.message || "Failed to process payment";
+      setError(errorMsg);
+      showErrorToast(errorMsg);
     } finally {
       setProcessing(false);
     }
@@ -413,7 +418,7 @@ export default function ContractPaymentRecordDialog({
               All salary dues are settled!
             </Typography>
             <Typography variant="caption">
-              Any payment recorded here will be saved as excess/prepayment. You can use "Salary" type for future salary prepayment or "Advance" for tracked advances.
+              Any payment recorded here will be saved as excess/prepayment. You can use &ldquo;Salary&rdquo; type for future salary prepayment or &ldquo;Advance&rdquo; for tracked advances.
             </Typography>
           </Alert>
         )}
@@ -493,7 +498,7 @@ export default function ContractPaymentRecordDialog({
           {paymentType === "other" && (
             <Alert severity="info" sx={{ mt: 1.5 }}>
               <Typography variant="caption">
-                "Other" payments are recorded but not allocated to specific weeks.
+                &ldquo;Other&rdquo; payments are recorded but not allocated to specific weeks.
                 Use for miscellaneous payments like bonuses or adjustments.
               </Typography>
             </Alert>

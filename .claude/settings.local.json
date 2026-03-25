@@ -110,7 +110,17 @@
       "Bash(ipconfig /all)",
       "Bash(netsh interface show interface)",
       "Bash(netsh interface ip set dns name=\"Wi-Fi\" static 8.8.8.8)",
-      "mcp__supabase__get_project_url"
+      "mcp__supabase__get_project_url",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_click",
+      "mcp__plugin_playwright_playwright__browser_take_screenshot",
+      "mcp__plugin_playwright_playwright__browser_run_code",
+      "mcp__plugin_playwright_playwright__browser_close",
+      "Bash(wc -l \"c:/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp/src/components/attendance/AttendanceDrawer.tsx\" \"c:/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp/src/app/\\(main\\)/site/attendance/attendance-content.tsx\" \"c:/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp/src/features/attendance/AttendanceContentRefactored.tsx\")",
+      "Bash(git add:*)",
+      "Bash(wc -l /c/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp/src/app/\\\\\\(main\\\\\\)/site/attendance/attendance-content.tsx)",
+      "Bash(ls -la /c/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp/src/app/\\\\\\(main\\\\\\)/site/tea-shop/)"
     ],
     "deny": [],
     "ask": []

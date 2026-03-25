@@ -53,6 +53,7 @@ import PageHeader from "@/components/layout/PageHeader";
 import { hasEditPermission } from "@/lib/permissions";
 import TeaShopEntryDialog from "@/components/tea-shop/TeaShopEntryDialog";
 import AuditAvatarGroup from "@/components/common/AuditAvatarGroup";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
 import TeaShopSettlementDialog from "@/components/tea-shop/TeaShopSettlementDialog";
 import GroupTeaShopEntryDialog from "@/components/tea-shop/GroupTeaShopEntryDialog";
 import GroupTeaShopSettlementDialog from "@/components/tea-shop/GroupTeaShopSettlementDialog";
@@ -76,14 +77,17 @@ import {
   useGroupTeaShopEntries,
   useGroupTeaShopPendingBalance,
   useGroupTeaShopSettlements,
+  useDeleteGroupTeaShopSettlement,
 } from "@/hooks/queries/useGroupTeaShop";
 import { useSiteGroup } from "@/hooks/queries/useSiteGroups";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useCombinedTeaShopEntries,
   useCombinedTeaShopPendingBalance,
   useCombinedTeaShopSettlements,
   type CombinedTeaShopEntry,
 } from "@/hooks/queries/useCombinedTeaShop";
+import { queryKeys } from "@/lib/cache/keys";
 import {
   useTeaShopForSite,
   type CompanyTeaShop,
@@ -117,6 +121,8 @@ export default function TeaShopPage() {
   const { formatForApi, isAllTime } = useDateRange();
   const supabase = createClient();
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const deleteGroupSettlement = useDeleteGroupTeaShopSettlement();
 
   const { dateFrom, dateTo } = formatForApi();
 
@@ -137,6 +143,14 @@ export default function TeaShopPage() {
   const [settlementDialogOpen, setSettlementDialogOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<TeaShopEntry | null>(null);
   const [editingSettlement, setEditingSettlement] = useState<TeaShopSettlement | null>(null);
+
+  // Delete confirmation dialog state
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    open: boolean;
+    settlementId: string | null;
+    source: "individual" | "group" | null;
+  }>({ open: false, settlementId: null, source: null });
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Legacy group mode state (for backward compat dialogs)
   const [editingGroupEntry, setEditingGroupEntry] = useState<TeaShopGroupEntryWithAllocations | null>(null);
@@ -453,15 +467,51 @@ export default function TeaShopPage() {
     }
   };
 
-  const handleDeleteSettlement = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this settlement? This will affect the pending balance.")) return;
+  const handleDeleteSettlement = (settlementId: string, source?: string) => {
+    setDeleteConfirm({
+      open: true,
+      settlementId,
+      source: (source === "group" ? "group" : "individual") as "individual" | "group",
+    });
+  };
+
+  const confirmDeleteSettlement = async () => {
+    if (!deleteConfirm.settlementId) return;
+    setIsDeleting(true);
 
     try {
-      const { error } = await supabase.from("tea_shop_settlements").delete().eq("id", id);
-      if (error) throw error;
+      if (deleteConfirm.source === "group" && siteGroupId) {
+        await deleteGroupSettlement.mutateAsync({
+          id: deleteConfirm.settlementId,
+          siteGroupId,
+        });
+      } else {
+        const { error } = await supabase
+          .from("tea_shop_settlements")
+          .delete()
+          .eq("id", deleteConfirm.settlementId);
+        if (error) throw error;
+      }
+
+      // Invalidate combined queries if in group mode
+      if (siteGroupId) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.combinedTeaShop.settlements(siteGroupId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.combinedTeaShop.entries(siteGroupId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.combinedTeaShop.pending(siteGroupId),
+        });
+      }
+
       fetchData();
+      setDeleteConfirm({ open: false, settlementId: null, source: null });
     } catch (error: any) {
       alert("Failed to delete settlement: " + error.message);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -1384,7 +1434,7 @@ export default function TeaShopPage() {
                             <IconButton
                               size="small"
                               color="error"
-                              onClick={() => handleDeleteSettlement(settlement.id)}
+                              onClick={() => handleDeleteSettlement(settlement.id, settlementSource)}
                               disabled={!canEdit}
                               sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
                             >
@@ -1515,6 +1565,18 @@ export default function TeaShopPage() {
           </>
         );
       })()}
+
+      {/* Delete Settlement Confirmation Dialog */}
+      <ConfirmDialog
+        open={deleteConfirm.open}
+        title="Delete Settlement"
+        message="Are you sure you want to delete this settlement? This will affect the pending balance and remove all associated records."
+        confirmText="Delete"
+        confirmColor="error"
+        isLoading={isDeleting}
+        onConfirm={confirmDeleteSettlement}
+        onCancel={() => setDeleteConfirm({ open: false, settlementId: null, source: null })}
+      />
 
       {/* Mobile FAB - always rendered, visibility controlled by CSS */}
       <Fab
