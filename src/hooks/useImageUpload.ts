@@ -87,12 +87,21 @@ export function useImageUpload({
 
       setProgress(50);
 
-      const { data, error: uploadError } = await supabase.storage
+      const uploadPromise = supabase.storage
         .from(bucketName)
         .upload(filePath, file, {
           cacheControl: "3600",
           upsert: true,
         });
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Upload timed out. Please try again.")), 30000)
+      );
+
+      const { data, error: uploadError } = await Promise.race([
+        uploadPromise,
+        timeoutPromise,
+      ]) as Awaited<typeof uploadPromise>;
 
       if (uploadError) {
         // Provide user-friendly error messages

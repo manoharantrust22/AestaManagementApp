@@ -237,6 +237,7 @@ export function useDashboardStats(siteId: string | undefined) {
     queryKey: [...queryKeys.dashboard.site(siteId || ""), "stats"],
     queryFn: () => fetchDashboardStats(siteId!),
     enabled: !!siteId,
+    staleTime: 3 * 60 * 1000, // 3 minutes - dashboard summary data
   });
 }
 
@@ -245,6 +246,7 @@ export function useRecentAttendance(siteId: string | undefined) {
     queryKey: [...queryKeys.dashboard.site(siteId || ""), "recent-attendance"],
     queryFn: () => fetchRecentAttendance(siteId!),
     enabled: !!siteId,
+    staleTime: 3 * 60 * 1000,
   });
 }
 
@@ -253,6 +255,7 @@ export function usePendingSalaries(siteId: string | undefined) {
     queryKey: [...queryKeys.dashboard.site(siteId || ""), "pending-salaries"],
     queryFn: () => fetchPendingSalaries(siteId!),
     enabled: !!siteId,
+    staleTime: 3 * 60 * 1000,
   });
 }
 
@@ -261,6 +264,7 @@ export function useWeeklyTrendData(siteId: string | undefined) {
     queryKey: [...queryKeys.dashboard.site(siteId || ""), "weekly-trend"],
     queryFn: () => fetchWeeklyTrendData(siteId!),
     enabled: !!siteId,
+    staleTime: 3 * 60 * 1000,
   });
 }
 
@@ -269,5 +273,6 @@ export function useExpenseBreakdown(siteId: string | undefined) {
     queryKey: [...queryKeys.dashboard.site(siteId || ""), "expense-breakdown"],
     queryFn: () => fetchExpenseBreakdown(siteId!),
     enabled: !!siteId,
+    staleTime: 3 * 60 * 1000,
   });
 }

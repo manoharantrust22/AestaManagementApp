@@ -81,7 +81,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useThemeMode } from "@/contexts/ThemeContext";
 import { useSyncStatus } from "@/hooks/useSyncStatus";
 import SiteSelector from "@/components/layout/SiteSelector";
-import { useSite } from "@/contexts/SiteContext";
+import { useSelectedSite } from "@/contexts/SiteContext";
 import NotificationBell from "@/components/notifications/NotificationBell";
 import ActiveSectionChip from "@/components/layout/ActiveSectionChip";
 import SettlementDialogManager from "@/components/settlement/SettlementDialogManager";
@@ -422,7 +422,7 @@ export default function MainLayout({
   const isMobile = useIsMobile("md");
   const { mode, toggleTheme } = useThemeMode();
   const syncStatus = useSyncStatus();
-  const { selectedSite } = useSite();
+  const { selectedSite } = useSelectedSite();
 
   // Material workflow badge counts for sidebar
   const workflowSummary = useMaterialWorkflowSummary(

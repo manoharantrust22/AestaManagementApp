@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   Box,
@@ -55,7 +56,10 @@ import {
   useGroupStockPOsSyncStatus,
   usePushBatchToSettlement,
 } from "@/hooks/queries/usePurchaseOrders";
-import UnifiedPurchaseOrderDialog from "@/components/materials/UnifiedPurchaseOrderDialog";
+const UnifiedPurchaseOrderDialog = dynamic(
+  () => import("@/components/materials/UnifiedPurchaseOrderDialog"),
+  { ssr: false }
+);
 import RecordAndVerifyDeliveryDialog from "@/components/materials/RecordAndVerifyDeliveryDialog";
 import PODetailsDrawer from "@/components/materials/PODetailsDrawer";
 import PODeleteConfirmationDialog from "@/components/materials/PODeleteConfirmationDialog";

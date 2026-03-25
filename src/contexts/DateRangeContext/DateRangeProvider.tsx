@@ -132,6 +132,16 @@ export function DateRangeProvider({ children }: { children: React.ReactNode }) {
     setDateRange(null, null);
   }, [setDateRange]);
 
+  const setMonth = useCallback((year: number, month: number) => {
+    const monthStart = dayjs().year(year).month(month).startOf("month");
+    const today = dayjs();
+    // If viewing current month, end at today. Otherwise, end at month's last day.
+    const monthEnd = monthStart.isSame(today, "month")
+      ? today
+      : monthStart.endOf("month");
+    setDateRange(monthStart.toDate(), monthEnd.toDate());
+  }, [setDateRange]);
+
   const formatForApi = useCallback(() => {
     return {
       dateFrom: startDate ? dayjs(startDate).format("YYYY-MM-DD") : null,
@@ -160,8 +170,9 @@ export function DateRangeProvider({ children }: { children: React.ReactNode }) {
       setLastWeek,
       setLastMonth,
       setAllTime,
+      setMonth,
     }),
-    [setDateRange, setLastWeek, setLastMonth, setAllTime]
+    [setDateRange, setLastWeek, setLastMonth, setAllTime, setMonth]
   );
 
   return (

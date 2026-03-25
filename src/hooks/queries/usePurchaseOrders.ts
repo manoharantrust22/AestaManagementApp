@@ -448,9 +448,9 @@ export function useCreatePurchaseOrder() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.purchaseOrders.bySite(variables.site_id),
       });
-      // Also invalidate price history queries
+      // Also invalidate price history queries for this vendor
       queryClient.invalidateQueries({
-        queryKey: ["price-history"],
+        queryKey: queryKeys.priceHistory.byVendor(variables.vendor_id),
       });
     },
     // Note: Removed duplicate onSettled invalidation - onSuccess already handles this
@@ -1225,7 +1225,7 @@ export function usePODeletionImpact(poId: string | undefined) {
       };
     },
     enabled: !!poId,
-    staleTime: 0, // Always fetch fresh data
+    staleTime: 30 * 1000, // 30 seconds - detail views can tolerate brief staleness
   });
 }
 

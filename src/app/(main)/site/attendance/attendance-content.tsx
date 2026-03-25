@@ -76,15 +76,20 @@ import {
   WarningAmber as WarningAmberIcon,
   ArrowForward as ArrowForwardIcon,
   ArrowBack as ArrowBackIcon,
+  ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
   VisibilityOff as VisibilityOffIcon,
   EditCalendar as EditCalendarIcon,
   Groups as GroupsIcon,
 } from "@mui/icons-material";
-import AttendanceDrawer from "@/components/attendance/AttendanceDrawer";
 import { type SiteHoliday } from "@/components/attendance/HolidayConfirmDialog";
 
-// OPTIMIZATION: Lazy load heavy dialog components (code splitting)
-// These dialogs are only shown when user triggers specific actions
+// OPTIMIZATION: Lazy load heavy dialog/drawer components (code splitting)
+// These are only shown when user triggers specific actions
+const AttendanceDrawer = dynamic(
+  () => import("@/components/attendance/AttendanceDrawer"),
+  { ssr: false }
+);
 const HolidayConfirmDialog = dynamic(
   () => import("@/components/attendance/HolidayConfirmDialog"),
   { ssr: false }
@@ -313,12 +318,37 @@ interface WeeklySummary {
 export default function AttendanceContent({ initialData }: AttendanceContentProps) {
   const { selectedSite, loading: siteLoading } = useSite();
   const { userProfile, loading: authLoading } = useAuth();
-  const { formatForApi, isAllTime } = useDateRange();
+  const { formatForApi, isAllTime, setMonth, startDate } = useDateRange();
   const supabase = createClient();
   const isMobile = useIsMobile();
   const searchParams = useSearchParams();
   const router = useRouter();
   const theme = useTheme();
+
+  // Default to current month on first load (instead of "All Time" which loads everything)
+  const hasSetDefaultMonthRef = useRef(false);
+  useEffect(() => {
+    if (isAllTime && !hasSetDefaultMonthRef.current) {
+      hasSetDefaultMonthRef.current = true;
+      const now = dayjs();
+      setMonth(now.year(), now.month());
+    }
+  }, [isAllTime, setMonth]);
+
+  // Month navigation helpers
+  const currentViewMonth = startDate ? dayjs(startDate) : dayjs();
+  const handlePrevMonth = useCallback(() => {
+    const prev = currentViewMonth.subtract(1, "month");
+    setMonth(prev.year(), prev.month());
+  }, [currentViewMonth, setMonth]);
+  const handleNextMonth = useCallback(() => {
+    const next = currentViewMonth.add(1, "month");
+    const today = dayjs();
+    // Don't navigate beyond current month
+    if (next.isAfter(today, "month")) return;
+    setMonth(next.year(), next.month());
+  }, [currentViewMonth, setMonth]);
+  const isCurrentMonth = currentViewMonth.isSame(dayjs(), "month");
 
   // Group tea shop support
   const siteGroupId = (selectedSite as any)?.site_group_id as string | undefined;
@@ -2657,6 +2687,36 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           </Box>
         }
       />
+
+      {/* ===== MONTH NAVIGATION ===== */}
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 1,
+          py: 0.5,
+          px: { xs: 1, sm: 0 },
+          flexShrink: 0,
+        }}
+      >
+        <IconButton size="small" onClick={handlePrevMonth}>
+          <ChevronLeftIcon />
+        </IconButton>
+        <Typography
+          variant="subtitle1"
+          sx={{ fontWeight: 600, minWidth: 120, textAlign: "center" }}
+        >
+          {currentViewMonth.format("MMMM YYYY")}
+        </Typography>
+        <IconButton
+          size="small"
+          onClick={handleNextMonth}
+          disabled={isCurrentMonth}
+        >
+          <ChevronRightIcon />
+        </IconButton>
+      </Box>
 
       {/* Back button when coming from settlement page */}
       {cameFromSettlement && (

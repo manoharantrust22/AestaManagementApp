@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   Box,
@@ -90,7 +91,10 @@ import type {
 } from "@/types/material.types";
 import dayjs from "dayjs";
 import UsageEntryDrawer from "@/components/inventory/UsageEntryDrawer";
-import BulkUsageEntryDialog from "@/components/inventory/BulkUsageEntryDialog";
+const BulkUsageEntryDialog = dynamic(
+  () => import("@/components/inventory/BulkUsageEntryDialog"),
+  { ssr: false }
+);
 import UsageDeleteConfirmDialog from "@/components/inventory/UsageDeleteConfirmDialog";
 import UsageEditDialog from "@/components/inventory/UsageEditDialog";
 import PODetailsDrawer from "@/components/materials/PODetailsDrawer";

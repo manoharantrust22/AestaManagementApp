@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Box,
@@ -79,7 +79,15 @@ interface FormErrors {
   password?: string;
 }
 
-export default function LoginPage() {
+export default function LoginPageWrapper() {
+  return (
+    <Suspense>
+      <LoginPage />
+    </Suspense>
+  );
+}
+
+function LoginPage() {
   // Form state
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

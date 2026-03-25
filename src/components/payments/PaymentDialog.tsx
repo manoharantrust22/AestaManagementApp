@@ -38,6 +38,7 @@ import {
   Info as InfoIcon,
 } from "@mui/icons-material";
 import { createClient } from "@/lib/supabase/client";
+import { ensureFreshSession } from "@/lib/auth/sessionManager";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
 import { createSalaryExpense } from "@/lib/services/notificationService";
@@ -252,6 +253,16 @@ export default function PaymentDialog({
     setError(null);
 
     try {
+      // Ensure session is fresh before database operations
+      try {
+        await ensureFreshSession();
+      } catch (sessionErr) {
+        console.warn("[PaymentDialog] Session check failed:", sessionErr);
+        setError("Your session has expired. Please refresh the page and try again.");
+        setProcessing(false);
+        return;
+      }
+
       const paymentDate = dayjs().format("YYYY-MM-DD");
       let engineerTransactionId: string | null = null;
 

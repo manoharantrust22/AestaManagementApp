@@ -51,6 +51,7 @@ import {
   KeyboardArrowUp as CollapseIcon,
 } from "@mui/icons-material";
 import { createClient } from "@/lib/supabase/client";
+import { ensureFreshSession } from "@/lib/auth/sessionManager";
 import { useAuth } from "@/contexts/AuthContext";
 import dayjs from "dayjs";
 import LaborerSelectionDialog from "./LaborerSelectionDialog";
@@ -1255,6 +1256,16 @@ export default function AttendanceDrawer({
     setSuccess(null);
 
     try {
+      // Ensure session is fresh before any database operations
+      // This prevents silent failures after idle periods
+      try {
+        await ensureFreshSession();
+      } catch (sessionErr) {
+        console.warn("[AttendanceDrawer] Session check failed:", sessionErr);
+        setError("Your session has expired. Please refresh the page and try again.");
+        return;
+      }
+
       console.log("[AttendanceDrawer] Starting save process...");
 
       // Helper to convert empty strings to null for time fields

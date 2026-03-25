@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import dynamic from "next/dynamic";
 import {
   Box,
   Typography,
@@ -36,7 +37,10 @@ import { createClient } from "@/lib/supabase/client";
 import { useSite } from "@/contexts/SiteContext";
 import { useAuth } from "@/contexts/AuthContext";
 import dayjs from "dayjs";
-import SalarySettlementTable from "./SalarySettlementTable";
+const SalarySettlementTable = dynamic(
+  () => import("./SalarySettlementTable"),
+  { ssr: false }
+);
 import PaymentDialog from "./PaymentDialog";
 import CancelPaymentDialog from "./CancelPaymentDialog";
 import DateEditDialog from "./DateEditDialog";

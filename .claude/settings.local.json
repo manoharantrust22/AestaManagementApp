@@ -120,7 +120,9 @@
       "Bash(wc -l \"c:/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp/src/components/attendance/AttendanceDrawer.tsx\" \"c:/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp/src/app/\\(main\\)/site/attendance/attendance-content.tsx\" \"c:/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp/src/features/attendance/AttendanceContentRefactored.tsx\")",
       "Bash(git add:*)",
       "Bash(wc -l /c/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp/src/app/\\\\\\(main\\\\\\)/site/attendance/attendance-content.tsx)",
-      "Bash(ls -la /c/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp/src/app/\\\\\\(main\\\\\\)/site/tea-shop/)"
+      "Bash(ls -la /c/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp/src/app/\\\\\\(main\\\\\\)/site/tea-shop/)",
+      "Bash(wc -l \"c:/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp/src/app/\\(main\\)/site/dashboard/dashboard-content.tsx\")",
+      "Bash(printf \"https://aesta-supabase-proxy.findhari93.workers.dev\")"
     ],
     "deny": [],
     "ask": []

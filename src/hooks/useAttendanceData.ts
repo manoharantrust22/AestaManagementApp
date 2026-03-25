@@ -8,7 +8,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { queryKeys, cacheTTL } from "@/lib/cache/keys";
-import { useSite } from "@/contexts/SiteContext";
+import { useSelectedSite } from "@/contexts/SiteContext";
 import { useEffect, useRef } from "react";
 
 export interface AttendanceQueryParams {
@@ -175,7 +175,7 @@ export function useAttendanceData(
   options: UseAttendanceDataOptions
 ): UseAttendanceDataResult {
   const { dateFrom, dateTo, isAllTime = false, enabled = true } = options;
-  const { selectedSite } = useSite();
+  const { selectedSite } = useSelectedSite();
   const supabase = createClient();
   const queryClient = useQueryClient();
 
@@ -239,7 +239,7 @@ export function useAttendanceData(
  */
 export function useInvalidateAttendanceData() {
   const queryClient = useQueryClient();
-  const { selectedSite } = useSite();
+  const { selectedSite } = useSelectedSite();
 
   return () => {
     if (selectedSite?.id) {

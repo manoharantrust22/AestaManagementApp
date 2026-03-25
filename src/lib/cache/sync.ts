@@ -25,7 +25,7 @@ const DEFAULT_CONFIG: SyncConfig = {
   enabled: true,
   intervals: {
     reference: 10 * 60 * 1000, // 10 minutes
-    transactional: 2 * 60 * 1000, // 2 minutes (reduced from 45 seconds to lower API load)
+    transactional: 5 * 60 * 1000, // 5 minutes (aligned with default staleTime to avoid redundant refetches)
     dashboard: 5 * 60 * 1000, // 5 minutes
     cleanup: 30 * 60 * 1000, // 30 minutes
   },

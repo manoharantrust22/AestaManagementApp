@@ -44,6 +44,7 @@ import {
   CalendarMonth as CalendarIcon,
 } from "@mui/icons-material";
 import { createClient } from "@/lib/supabase/client";
+import { ensureFreshSession } from "@/lib/auth/sessionManager";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
 import { processWaterfallContractPayment } from "@/lib/services/settlementService";
@@ -280,6 +281,16 @@ export default function ContractPaymentRecordDialog({
     setError(null);
 
     try {
+      // Ensure session is fresh before database operations
+      try {
+        await ensureFreshSession();
+      } catch (sessionErr) {
+        console.warn("[ContractPaymentRecordDialog] Session check failed:", sessionErr);
+        setError("Your session has expired. Please refresh the page and try again.");
+        setProcessing(false);
+        return;
+      }
+
       // Build the weeks data with laborers for the service
       // For advance payments, we pass empty weeks array (no waterfall allocation)
       const weeksToProcess =

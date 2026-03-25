@@ -1623,7 +1623,7 @@ export function useMaterialRequestDeletionImpact(requestId: string | undefined) 
       };
     },
     enabled: !!requestId,
-    staleTime: 0, // Always fetch fresh data
+    staleTime: 30 * 1000, // 30 seconds - detail views can tolerate brief staleness
   });
 }
 

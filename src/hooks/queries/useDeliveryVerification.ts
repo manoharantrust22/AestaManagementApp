@@ -957,5 +957,6 @@ export function usePendingVerificationCount(siteId?: string) {
       return count || 0;
     },
     refetchInterval: 60000, // Refetch every minute
+    refetchIntervalInBackground: false, // Don't poll when tab is hidden
   });
 }

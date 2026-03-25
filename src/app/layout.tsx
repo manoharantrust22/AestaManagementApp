@@ -11,7 +11,6 @@ import { ToastProvider } from "@/contexts/ToastContext";
 import QueryProvider from "@/providers/QueryProvider";
 import { TabProvider } from "@/providers/TabProvider";
 
-export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: "Aesta Construction Manager",

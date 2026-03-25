@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useEffect } from "react";
+import dynamic from "next/dynamic";
 import {
   Box,
   Typography,
@@ -16,12 +17,18 @@ import {
   Groups as GroupsIcon,
   ArrowBack as ArrowBackIcon,
 } from "@mui/icons-material";
-import { useSite } from "@/contexts/SiteContext";
+import { useSelectedSite } from "@/contexts/SiteContext";
 import { useDateRange } from "@/contexts/DateRangeContext";
 import PageHeader from "@/components/layout/PageHeader";
 import PaymentSummaryCards from "@/components/payments/PaymentSummaryCards";
-import DailyMarketPaymentsTab from "@/components/payments/DailyMarketPaymentsTab";
-import ContractWeeklyPaymentsTab from "@/components/payments/ContractWeeklyPaymentsTab";
+const DailyMarketPaymentsTab = dynamic(
+  () => import("@/components/payments/DailyMarketPaymentsTab"),
+  { ssr: false }
+);
+const ContractWeeklyPaymentsTab = dynamic(
+  () => import("@/components/payments/ContractWeeklyPaymentsTab"),
+  { ssr: false }
+);
 import dayjs from "dayjs";
 import { useSearchParams, useRouter } from "next/navigation";
 import type { PaymentPageData } from "@/lib/data/payments";
@@ -54,7 +61,7 @@ interface PaymentsContentProps {
 }
 
 export default function PaymentsContent({ initialData }: PaymentsContentProps) {
-  const { selectedSite } = useSite();
+  const { selectedSite } = useSelectedSite();
   const { formatForApi, isAllTime } = useDateRange();
   const searchParams = useSearchParams();
   const router = useRouter();

@@ -11,6 +11,8 @@ interface DateRangeActionsContextType {
   setLastWeek: () => void;
   setLastMonth: () => void;
   setAllTime: () => void;
+  /** Set date range to a specific month (0-indexed month, e.g. 0=January) */
+  setMonth: (year: number, month: number) => void;
 }
 
 export const DateRangeActionsContext = createContext<

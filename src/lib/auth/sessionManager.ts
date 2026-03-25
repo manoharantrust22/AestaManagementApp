@@ -21,7 +21,7 @@ const EXPIRY_BUFFER = 15 * 60; // 15 minutes in seconds - refresh if token expir
 const ACTIVITY_DEBOUNCE = 2000; // 2 seconds
 const SESSION_CHECK_DEBOUNCE = 30000; // 30 seconds - trust a verified session for this long
 const SESSION_CHECK_TIMEOUT = 4000; // 4 seconds - if slow, proceed and let Supabase 401 handle it
-const SESSION_CHECK_TIMEOUT_POST_IDLE = 6000; // 6 seconds - slightly longer after idle
+const SESSION_CHECK_TIMEOUT_POST_IDLE = 8000; // 8 seconds - longer after idle for slow mobile networks
 
 type SessionManagerState = {
   isInitialized: boolean;
@@ -221,13 +221,25 @@ class SessionManager {
       this.state.lastSessionCheckTime = Date.now();
     };
 
-    // Timeout with warning only - don't throw, let mutation proceed
-    // If session is truly expired, Supabase will return 401/403
-    const timeoutPromise = new Promise<void>((resolve) => {
+    // Timeout behavior depends on context:
+    // - Normal check: resolve (let mutation proceed, Supabase 401 triggers retry)
+    // - Post-idle check: reject (token is definitely stale, fail fast with clear error)
+    const timeoutPromise = new Promise<void>((resolve, reject) => {
       setTimeout(() => {
-        console.warn(`[SessionManager] ensureFreshSession check slow (${timeout / 1000}s) - proceeding anyway`);
-        this.state.lastSessionCheckTime = Date.now();
-        resolve();
+        if (needsRefresh) {
+          // Post-idle: token is likely expired, don't let mutation proceed with stale token
+          console.warn(`[SessionManager] Post-idle session refresh timed out (${timeout / 1000}s) - session may be expired`);
+          // Notify UI so user sees a warning banner
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("session-check-timeout"));
+          }
+          reject(new Error("Session refresh timed out. Please try again."));
+        } else {
+          // Normal: proceed anyway, mutation retry will handle 401 if needed
+          console.warn(`[SessionManager] ensureFreshSession check slow (${timeout / 1000}s) - proceeding anyway`);
+          this.state.lastSessionCheckTime = Date.now();
+          resolve();
+        }
       }, timeout);
     });
 

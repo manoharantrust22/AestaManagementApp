@@ -105,8 +105,8 @@ export default function ImageUploadWithCrop({
     setUploading(true);
     setError(null);
 
-    // Timeout for upload (15 seconds)
-    const uploadTimeout = 15000;
+    // Timeout for upload (30 seconds)
+    const uploadTimeout = 30000;
     let timeoutId: NodeJS.Timeout | null = null;
 
     // ... existing imports
@@ -117,10 +117,17 @@ export default function ImageUploadWithCrop({
       // Ensure fresh session before starting upload
       await ensureFreshSession();
 
-      // Compress the cropped image if needed
+      // Compress the cropped image if needed (with 8s timeout)
       let finalBlob = croppedBlob;
       if (croppedBlob.size > maxSizeKB * 1024) {
-        finalBlob = await compressBlob(croppedBlob, maxSizeKB);
+        const compressionPromise = compressBlob(croppedBlob, maxSizeKB);
+        const compressionTimeout = new Promise<Blob>((resolve) => {
+          setTimeout(() => {
+            console.warn("[ImageUpload] Compression timed out after 8s, using original blob");
+            resolve(croppedBlob);
+          }, 8000);
+        });
+        finalBlob = await Promise.race([compressionPromise, compressionTimeout]);
       }
 
       // Generate filename

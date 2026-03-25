@@ -46,6 +46,7 @@ import {
 } from "@mui/icons-material";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { ensureFreshSession } from "@/lib/auth/sessionManager";
 import { useSite } from "@/contexts/SiteContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDateRange } from "@/contexts/DateRangeContext";
@@ -480,6 +481,20 @@ export default function TeaShopPage() {
     setIsDeleting(true);
 
     try {
+      // Ensure session is fresh before delete operation
+      try {
+        await ensureFreshSession();
+      } catch (sessionErr) {
+        console.warn("[TeaShop] Session check failed before delete:", sessionErr);
+        setDeleteConfirm({ open: false, settlementId: null, source: null });
+        setIsDeleting(false);
+        // Show error in a way user can see (not alert behind modal)
+        setTimeout(() => {
+          window.alert("Your session has expired. Please refresh the page and try again.");
+        }, 100);
+        return;
+      }
+
       if (deleteConfirm.source === "group" && siteGroupId) {
         await deleteGroupSettlement.mutateAsync({
           id: deleteConfirm.settlementId,
@@ -506,10 +521,20 @@ export default function TeaShopPage() {
         });
       }
 
+      // Also invalidate individual tea shop queries
+      queryClient.invalidateQueries({
+        queryKey: ["tea-shop"],
+      });
+
       fetchData();
       setDeleteConfirm({ open: false, settlementId: null, source: null });
     } catch (error: any) {
-      alert("Failed to delete settlement: " + error.message);
+      console.error("[TeaShop] Delete settlement failed:", error);
+      // Close the dialog first so alert is visible
+      setDeleteConfirm({ open: false, settlementId: null, source: null });
+      setTimeout(() => {
+        window.alert("Failed to delete settlement: " + (error?.message || "Unknown error"));
+      }, 100);
     } finally {
       setIsDeleting(false);
     }

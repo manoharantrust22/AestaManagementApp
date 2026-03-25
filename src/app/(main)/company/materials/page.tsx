@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useCallback, useDeferredValue } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Box,
@@ -49,7 +50,10 @@ import {
   useMaterialBestPrices,
   useMaterialAuditInfo,
 } from "@/hooks/queries/useMaterialOrderStats";
-import MaterialDialog from "@/components/materials/MaterialDialog";
+const MaterialDialog = dynamic(
+  () => import("@/components/materials/MaterialDialog"),
+  { ssr: false }
+);
 import VendorDrawer from "@/components/materials/VendorDrawer";
 import VariantSubTable from "@/components/materials/VariantSubTable";
 import BrandSubTable from "@/components/materials/BrandSubTable";

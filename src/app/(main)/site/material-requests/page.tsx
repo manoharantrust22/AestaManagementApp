@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -54,7 +55,10 @@ import MaterialRequestDialog from "@/components/materials/MaterialRequestDialog"
 import MaterialRequestDeleteConfirmationDialog from "@/components/materials/MaterialRequestDeleteConfirmationDialog";
 import RequestApprovalDialog from "@/components/materials/RequestApprovalDialog";
 import RequestDetailsDrawer from "@/components/materials/RequestDetailsDrawer";
-import UnifiedPurchaseOrderDialog from "@/components/materials/UnifiedPurchaseOrderDialog";
+const UnifiedPurchaseOrderDialog = dynamic(
+  () => import("@/components/materials/UnifiedPurchaseOrderDialog"),
+  { ssr: false }
+);
 import type {
   MaterialRequestWithDetails,
   MaterialRequestStatus,
