@@ -223,29 +223,19 @@ export default function TeaShopPage() {
       const totalTea = entriesToCalc.reduce((sum, e) => sum + (e.tea_total || 0), 0);
       const totalSnacks = entriesToCalc.reduce((sum, e) => sum + (e.snacks_total || 0), 0);
 
-      // Calculate pending balance from filtered entries (site-specific when filtered)
-      const allEntriesTotal = entriesToCalc.reduce(
+      // For the site-specific view, show this site's share of entries
+      const siteEntriesTotal = entriesToCalc.reduce(
         (sum, e) => sum + getAmount(e), 0
       );
-      // For group entries filtered by site, amount_paid is already the per-allocation value
-      // (set by useCombinedTeaShopEntries from tea_shop_entry_allocations.amount_paid)
-      // So we don't need to apply any ratio calculation - just sum directly
-      const allPaidTotal = entriesToCalc.reduce((sum, e) => {
-        const entryAny = e as any;
-        return sum + (entryAny.amount_paid || 0);
-      }, 0);
 
-      // Calculate pending and overpaid amounts
-      const pendingBalance = Math.max(0, Math.round(allEntriesTotal - allPaidTotal));
-      const overpaidAmount = Math.max(0, Math.round(allPaidTotal - allEntriesTotal));
+      // For pending/overpaid: compare ALL entries across ALL sites against ALL settlements
+      // This gives the true group-level balance, which is what matters for the tea shop owner
+      const allGroupEntriesTotal = combinedEntriesData.reduce(
+        (sum, e) => sum + getAmount(e), 0
+      );
 
-      // Filter settlements by site when effectiveFilterBySiteId is set
-      let settlementsToCalc = combinedSettlementsData || [];
-      if (effectiveFilterBySiteId) {
-        settlementsToCalc = settlementsToCalc.filter(
-          (s: any) => s.site_id === effectiveFilterBySiteId
-        );
-      }
+      // All settlements (don't filter by site - settlements pay for the group as a whole)
+      const settlementsToCalc = combinedSettlementsData || [];
 
       const lastSettlement = settlementsToCalc.length > 0
         ? settlementsToCalc.reduce((latest, s) =>
@@ -253,24 +243,19 @@ export default function TeaShopPage() {
           )
         : null;
 
-      // Total paid from settlements (actual money paid to shop) - site-specific when filtered
+      // Total paid from ALL settlements (actual money paid to shop)
       const totalPaid = settlementsToCalc.reduce(
         (sum, s) => sum + (s.amount_paid || 0), 0
       );
 
-      // When filtering by site, use entry-level paid amounts (already per-allocation)
-      // Settlement-level totals are only accurate for unfiltered (all-sites) view
-      // because group settlements don't have per-site attribution
-      const pendingFromSettlements = effectiveFilterBySiteId
-        ? pendingBalance   // From entry-level calculation (already site-proportional)
-        : Math.max(0, Math.round(allEntriesTotal - totalPaid));
-      const overpaidFromSettlements = effectiveFilterBySiteId
-        ? overpaidAmount   // From entry-level calculation (already site-proportional)
-        : Math.max(0, Math.round(totalPaid - allEntriesTotal));
+      // Calculate group-level pending/overpaid by comparing ALL entries vs ALL settlements
+      // This matches the waterfall logic which uses totalPaid to determine paid checkmarks
+      const pendingFromSettlements = Math.max(0, Math.round(allGroupEntriesTotal - totalPaid));
+      const overpaidFromSettlements = Math.max(0, Math.round(totalPaid - allGroupEntriesTotal));
 
       return {
-        totalEntries: allEntriesTotal,
-        totalAllTime: allEntriesTotal,
+        totalEntries: siteEntriesTotal,
+        totalAllTime: siteEntriesTotal,
         totalTea,
         totalSnacks,
         pendingBalance: pendingFromSettlements,
