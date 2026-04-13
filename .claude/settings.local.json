@@ -127,7 +127,11 @@
       "Bash(ANON_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9jdXRicG9haWJqeHR5amtybmRhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ3NTY2OTUsImV4cCI6MjA4MDMzMjY5NX0.AZMFDbd94ZANzlZHvI9Y_gDGq2t2MckMj5vny785zRg\")",
       "Bash(KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9jdXRicG9haWJqeHR5amtybmRhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ3NTY2OTUsImV4cCI6MjA4MDMzMjY5NX0.AZMFDbd94ZANzlZHvI9Y_gDGq2t2MckMj5vny785zRg\" URL=\"https://ocutbpoaibjxtyjkrnda.supabase.co/rest/v1\" PADMA=\"ff893992-a276-47b7-8bd2-d2fe4f62f3b5\" SRINI=\"79bfcfb3-4b0d-4240-8fce-d1ab584ef972\" GROUP=\"0ecc1e2f-e198-4918-bee2-b56128523b01\" __NEW_LINE_08f32b13d46f2faf__ echo \"=== ALLOCATIONS FOR PADMA ===\" curl -s \"$URL/tea_shop_entry_allocations?select=allocated_amount,amount_paid&site_id=eq.$PADMA\" -H \"apikey: $KEY\" -H \"Authorization: Bearer $KEY\")",
       "Bash(KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9jdXRicG9haWJqeHR5amtybmRhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ3NTY2OTUsImV4cCI6MjA4MDMzMjY5NX0.AZMFDbd94ZANzlZHvI9Y_gDGq2t2MckMj5vny785zRg\" URL=\"https://ocutbpoaibjxtyjkrnda.supabase.co/rest/v1\" __NEW_LINE_5bfa76e1ab174773__ echo \"=== PADMA SETTLEMENTS WITH SUBCONTRACT SITE ===\" curl -s \"$URL/tea_shop_settlements?select=amount_paid,payment_date,tea_shop_id,related_subcontract_id,subcontracts\\(site_id\\)&tea_shop_id=eq.570ae6ac-74f1-4da2-84a4-1ce1e908a1c6&order=payment_date.desc\" -H \"apikey: $KEY\" -H \"Authorization: Bearer $KEY\")",
-      "mcp__plugin_playwright_playwright__browser_console_messages"
+      "mcp__plugin_playwright_playwright__browser_console_messages",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(npm run:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000)"
     ],
     "deny": [],
     "ask": []

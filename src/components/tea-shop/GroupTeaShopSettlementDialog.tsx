@@ -237,8 +237,8 @@ export default function GroupTeaShopSettlementDialog({
       return;
     }
 
-    if (paymentMode === "upi" && !proofUrl) {
-      setError("Please upload payment proof for UPI");
+    if (paymentMode !== "cash" && !proofUrl) {
+      setError("Please upload payment proof screenshot (required for non-cash payments)");
       return;
     }
 
@@ -523,11 +523,11 @@ export default function GroupTeaShopSettlementDialog({
             </Select>
           </FormControl>
 
-          {/* Payment Proof for UPI */}
-          {paymentMode === "upi" && (
+          {/* Payment Proof - required for all non-cash payments */}
+          {paymentMode !== "cash" && (
             <Box>
               <Typography variant="subtitle2" gutterBottom>
-                Payment Proof *
+                Payment Screenshot (Required) *
               </Typography>
               <FileUploader
                 supabase={supabase}

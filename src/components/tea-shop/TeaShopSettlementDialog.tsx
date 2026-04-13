@@ -435,6 +435,11 @@ export default function TeaShopSettlementDialog({
       return;
     }
 
+    if (paymentMode !== "cash" && !proofUrl) {
+      setError("Please upload payment proof screenshot (required for non-cash payments)");
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -972,8 +977,8 @@ export default function TeaShopSettlementDialog({
           </Select>
         </FormControl>
 
-        {/* Payment Proof Uploader for UPI payments */}
-        {paymentMode === "upi" && (
+        {/* Payment Proof Uploader - required for all non-cash payments */}
+        {paymentMode !== "cash" && (
           <Box sx={{ mb: 3 }}>
             <FileUploader
               supabase={supabase}
@@ -981,8 +986,8 @@ export default function TeaShopSettlementDialog({
               folderPath={`tea-shop/${shop.id}`}
               fileNamePrefix="tea-settlement"
               accept="image"
-              label="Payment Screenshot (Required for UPI)"
-              helperText="Upload screenshot of UPI payment confirmation"
+              label="Payment Screenshot (Required)"
+              helperText="Upload screenshot of payment confirmation"
               compact
               uploadOnSelect
               value={proofUrl ? { name: "Payment Proof", size: 0, url: proofUrl } : null}
