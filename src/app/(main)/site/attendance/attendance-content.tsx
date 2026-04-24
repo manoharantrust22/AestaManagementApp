@@ -122,6 +122,7 @@ const PaymentDialog = dynamic(
 import type { UnifiedSettlementConfig, SettlementRecord } from "@/types/settlement.types";
 import DataTable, { type MRT_ColumnDef } from "@/components/common/DataTable";
 import AuditAvatarGroup from "@/components/common/AuditAvatarGroup";
+import ScopePill from "@/components/common/ScopePill";
 import {
   PhotoBadge,
   WorkUpdateViewer,
@@ -2738,10 +2739,16 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       {/* ===== HEADER ROW 2: Date Picker + Show Last Quick Filters (Same Row) ===== */}
       {/* Period Summary Bar - Collapsible on Mobile */}
       <Paper
-        sx={{ p: { xs: 0.75, sm: 2 }, mb: { xs: 1, sm: 2 }, flexShrink: 0 }}
+        sx={{
+          overflow: "hidden",
+          mb: { xs: 1, sm: 2 },
+          flexShrink: 0,
+        }}
       >
-        {/* Mobile: Collapsible Summary */}
-        <Box sx={{ display: { xs: "block", sm: "none" } }}>
+        <ScopePill />
+        <Box sx={{ p: { xs: 0.75, sm: 2 } }}>
+          {/* Mobile: Collapsible Summary */}
+          <Box sx={{ display: { xs: "block", sm: "none" } }}>
           {/* Collapsed Header - Always visible on mobile */}
           <Box
             onClick={() => setSummaryExpanded(!summaryExpanded)}
@@ -3137,6 +3144,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
               </Typography>
             </Box>
           </Box>
+        </Box>
         </Box>
       </Paper>
 
