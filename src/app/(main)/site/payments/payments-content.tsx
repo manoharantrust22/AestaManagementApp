@@ -21,6 +21,7 @@ import { useSelectedSite } from "@/contexts/SiteContext";
 import { useDateRange } from "@/contexts/DateRangeContext";
 import PageHeader from "@/components/layout/PageHeader";
 import PaymentSummaryCards from "@/components/payments/PaymentSummaryCards";
+import ScopePill from "@/components/common/ScopePill";
 const DailyMarketPaymentsTab = dynamic(
   () => import("@/components/payments/DailyMarketPaymentsTab"),
   { ssr: false }
@@ -168,6 +169,12 @@ export default function PaymentsContent({ initialData }: PaymentsContentProps) {
         title="Salary Settlements"
         subtitle="Manage daily, market, and contract laborer salary settlements"
       />
+
+      {!isAllTime && (
+        <Paper sx={{ mb: 2, overflow: "hidden" }}>
+          <ScopePill />
+        </Paper>
+      )}
 
       {/* Back button when coming from expenses page via ref code click */}
       {highlightRef && (
