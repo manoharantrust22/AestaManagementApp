@@ -48,7 +48,10 @@ function storeDateRange(
   }
 }
 
-function getLabel(startDate: Date | null, endDate: Date | null): string {
+export function computeLabel(
+  startDate: Date | null,
+  endDate: Date | null
+): string {
   if (!startDate || !endDate) {
     return "All Time";
   }
@@ -57,29 +60,47 @@ function getLabel(startDate: Date | null, endDate: Date | null): string {
   const end = dayjs(endDate);
   const today = dayjs();
 
-  // Check for "This Week" (Sunday to today)
-  if (
-    start.isSame(today.startOf("week"), "day") &&
-    end.isSame(today, "day")
-  ) {
-    return "This Week";
+  const isSameDay = start.isSame(end, "day");
+  const endsToday = end.isSame(today, "day");
+  const daysBetween = end.diff(start, "day"); // inclusive diff: 0 = single day
+
+  // Single-day cases
+  if (isSameDay) {
+    if (start.isSame(today, "day")) return "Today";
+    if (start.isSame(today.subtract(1, "day"), "day")) return "Yesterday";
+    return start.format("MMM D, YYYY");
   }
 
-  // Check for "This Month" (1st to today)
-  if (
-    start.isSame(today.startOf("month"), "day") &&
-    end.isSame(today, "day")
-  ) {
-    return "This Month";
+  // Rolling / "This" ranges ending today
+  if (endsToday) {
+    if (start.isSame(today.startOf("week"), "day")) return "This Week";
+    if (start.isSame(today.startOf("month"), "day")) return "This Month";
+    if (daysBetween === 6) return "Last 7 days";
+    if (daysBetween === 13) return "Last 14 days";
+    if (daysBetween === 29) return "Last 30 days";
+    if (daysBetween === 89) return "Last 90 days";
+  }
+
+  // Last Week (previous Sun–Sat)
+  const lastWeekStart = today.subtract(1, "week").startOf("week");
+  const lastWeekEnd = lastWeekStart.endOf("week");
+  if (start.isSame(lastWeekStart, "day") && end.isSame(lastWeekEnd, "day")) {
+    return "Last Week";
+  }
+
+  // Last Month (previous calendar month)
+  const lastMonthStart = today.subtract(1, "month").startOf("month");
+  const lastMonthEnd = today.subtract(1, "month").endOf("month");
+  if (start.isSame(lastMonthStart, "day") && end.isSame(lastMonthEnd, "day")) {
+    return "Last Month";
   }
 
   // Custom range
-  const startStr = start.format("MMM D");
-  const endStr = end.format("MMM D");
-  if (start.year() !== end.year()) {
-    return `${start.format("MMM D, YYYY")} - ${end.format("MMM D, YYYY")}`;
+  const crossesYears = start.year() !== end.year();
+  if (crossesYears) {
+    return `${start.format("MMM D, YYYY")} – ${end.format("MMM D, YYYY")}`;
   }
-  return `${startStr} - ${endStr}`;
+  return `${start.format("MMM D")} – ${end.format("MMM D")}`;
 }
 
 export function DateRangeProvider({ children }: { children: React.ReactNode }) {
@@ -150,7 +171,7 @@ export function DateRangeProvider({ children }: { children: React.ReactNode }) {
   }, [startDate, endDate]);
 
   const isAllTime = !startDate && !endDate;
-  const label = getLabel(startDate, endDate);
+  const label = computeLabel(startDate, endDate);
 
   // Memoize context values to prevent unnecessary re-renders
   const dataValue = useMemo(
