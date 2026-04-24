@@ -103,10 +103,16 @@ export default function ExpensesPage() {
   const [hasMultiplePayers, setHasMultiplePayers] = useState(false);
   const [sitePayers, setSitePayers] = useState<SitePayer[]>([]);
 
-  // Subcontract summary state
+  // Subcontract summary state — lazy-loaded on drawer open to keep page load fast
+  // (the underlying query scans v_all_expenses for ALL subcontracts of the site, no date filter)
   const [subcontracts, setSubcontracts] = useState<SubcontractTotals[]>([]);
   const [subcontractsLoading, setSubcontractsLoading] = useState(false);
   const [subcontractDrawerOpen, setSubcontractDrawerOpen] = useState(false);
+  const [subcontractsLoadedForSite, setSubcontractsLoadedForSite] = useState<string | null>(null);
+
+  // Result-cap state — guards against pulling unbounded rows from v_all_expenses
+  const RESULT_LIMIT = 2000;
+  const [resultLimitHit, setResultLimitHit] = useState(false);
 
   // Material Purchases state removed - now handled by Material Settlements page
 
@@ -153,6 +159,7 @@ export default function ExpensesPage() {
   const fetchSubcontracts = async () => {
     if (!selectedSite?.id) {
       setSubcontracts([]);
+      setSubcontractsLoadedForSite(null);
       return;
     }
 
@@ -167,6 +174,7 @@ export default function ExpensesPage() {
         ["active", "on_hold", "completed", "draft", "cancelled"]
       );
       setSubcontracts(summaries);
+      setSubcontractsLoadedForSite(selectedSite.id);
     } catch (err) {
       console.error("Error fetching subcontracts:", err);
     } finally {
@@ -174,9 +182,26 @@ export default function ExpensesPage() {
     }
   };
 
+  // Clear stale subcontract data when site changes; do NOT auto-fetch
+  // (the v_all_expenses scan for subcontract totals is the second-heaviest query on this page)
   useEffect(() => {
-    fetchSubcontracts();
+    setSubcontracts([]);
+    setSubcontractsLoadedForSite(null);
   }, [selectedSite?.id]);
+
+  // Fetch subcontract totals only when the user opens the drawer
+  // and the data isn't already loaded for the current site.
+  useEffect(() => {
+    if (
+      subcontractDrawerOpen &&
+      selectedSite?.id &&
+      subcontractsLoadedForSite !== selectedSite.id &&
+      !subcontractsLoading
+    ) {
+      fetchSubcontracts();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subcontractDrawerOpen, selectedSite?.id, subcontractsLoadedForSite]);
 
   // Fetch multi-payer settings when site changes
   useEffect(() => {
@@ -240,21 +265,29 @@ export default function ExpensesPage() {
 
       if (activeTab !== "all") query = query.eq("module", activeTab);
 
+      // Cap the result set to keep response time bounded for sites with large history.
+      // v_all_expenses is a 7-way UNION ALL with correlated subqueries, so unlimited
+      // selects can exceed both the client 30s wrapper and the Cloudflare proxy TTFB.
+      query = query.limit(RESULT_LIMIT);
+
       // Use timeout protection to prevent infinite loading
       const { data, error } = await supabaseQueryWithTimeout<any[]>(query, 30000);
       if (error) throw error;
 
+      const rows = data || [];
+      setResultLimitHit(rows.length >= RESULT_LIMIT);
       setExpenses(
-        (data || []).map((e: any) => ({
+        rows.map((e: any) => ({
           ...e,
           // View already has category_name, payer_name, subcontract_title
         }))
       );
-      // Also refresh subcontracts summary since expenses affect paid totals
-      fetchSubcontracts();
+      // Mark subcontract totals as stale; they refresh next time the drawer opens.
+      setSubcontractsLoadedForSite(null);
     } catch (error: any) {
       console.error("Error loading expenses:", error);
       setExpenses([]);
+      setResultLimitHit(false);
     } finally {
       setLoading(false);
     }
@@ -844,21 +877,21 @@ export default function ExpensesPage() {
               </Box>
             )}
 
-            {/* Right: Subcontract Summary (Compact) */}
-            {subcontracts.length > 0 && (
-              <Box
-                sx={{
-                  minWidth: { xs: "auto", md: 200 },
-                  borderLeft: { xs: 0, md: 1 },
-                  borderTop: { xs: 1, md: 0 },
-                  borderColor: "divider",
-                  pl: { xs: 0, md: 3 },
-                  pt: { xs: 2, md: 0 },
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "center",
-                }}
-              >
+            {/* Right: Subcontract Summary — lazy-loaded (heavy v_all_expenses query) */}
+            <Box
+              sx={{
+                minWidth: { xs: "auto", md: 200 },
+                borderLeft: { xs: 0, md: 1 },
+                borderTop: { xs: 1, md: 0 },
+                borderColor: "divider",
+                pl: { xs: 0, md: 3 },
+                pt: { xs: 2, md: 0 },
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+              }}
+            >
+              {subcontractsLoadedForSite === selectedSite.id && subcontracts.length > 0 ? (
                 <Box
                   onClick={() => setSubcontractDrawerOpen(true)}
                   sx={{
@@ -867,9 +900,7 @@ export default function ExpensesPage() {
                     p: 1.5,
                     mx: -1.5,
                     transition: "background-color 0.2s",
-                    "&:hover": {
-                      bgcolor: "action.hover",
-                    },
+                    "&:hover": { bgcolor: "action.hover" },
                   }}
                 >
                   <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
@@ -912,11 +943,30 @@ export default function ExpensesPage() {
                     </Box>
                   </Box>
                 </Box>
-              </Box>
-            )}
+              ) : (
+                <Tooltip title="Subcontract totals are loaded on demand to keep this page fast">
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<ContractIcon />}
+                    onClick={() => setSubcontractDrawerOpen(true)}
+                    disabled={subcontractsLoading}
+                  >
+                    {subcontractsLoading ? "Loading…" : "Show Subcontract Summary"}
+                  </Button>
+                </Tooltip>
+              )}
+            </Box>
           </Box>
         </CardContent>
       </Card>
+
+      {resultLimitHit && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Showing the first {RESULT_LIMIT.toLocaleString("en-IN")} records for the selected
+          range. Narrow the date range or filter by module/type to see older entries.
+        </Alert>
+      )}
 
       {/* Material Purchases section removed - material expenses show in All Site Expenses only AFTER settlement */}
       {/* See /site/material-settlements for pending material purchases */}
