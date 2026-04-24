@@ -86,4 +86,24 @@ describe("ScopePill", () => {
     expect(screen.queryByText(/–/)).not.toBeInTheDocument();
     expect(screen.getByText(/Today/)).toBeInTheDocument();
   });
+
+  it("calls setAllTime when the status strip (outside the button) is clicked", () => {
+    const setAllTime = vi.fn();
+    vi.spyOn(DateRangeModule, "useDateRange").mockReturnValue({
+      startDate: new Date("2026-04-17"),
+      endDate: new Date("2026-04-24"),
+      label: "Last 7 days",
+      isAllTime: false,
+      setAllTime,
+      setDateRange: vi.fn(),
+      setLastWeek: vi.fn(),
+      setLastMonth: vi.fn(),
+      setMonth: vi.fn(),
+      formatForApi: () => ({ dateFrom: "2026-04-17", dateTo: "2026-04-24" }),
+    } as ReturnType<typeof DateRangeModule.useDateRange>);
+
+    render(<ScopePill />);
+    fireEvent.click(screen.getByRole("status"));
+    expect(setAllTime).toHaveBeenCalledTimes(1);
+  });
 });

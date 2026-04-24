@@ -95,12 +95,8 @@ export function computeLabel(
     return "Last Month";
   }
 
-  // Custom range
-  const crossesYears = start.year() !== end.year();
-  if (crossesYears) {
-    return `${start.format("MMM D, YYYY")} – ${end.format("MMM D, YYYY")}`;
-  }
-  return `${start.format("MMM D")} – ${end.format("MMM D")}`;
+  // Custom range — ScopePill / picker button append the date string via their own formatter.
+  return "Custom range";
 }
 
 export function DateRangeProvider({ children }: { children: React.ReactNode }) {

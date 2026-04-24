@@ -58,13 +58,13 @@ describe("computeLabel", () => {
   it("returns a custom range label for unrecognised ranges within the same year", () => {
     const start = dayjs("2026-04-03").toDate();
     const end = dayjs("2026-04-17").toDate();
-    expect(computeLabel(start, end)).toBe("Apr 3 – Apr 17");
+    expect(computeLabel(start, end)).toBe("Custom range");
   });
 
   it("returns a custom range label with year suffix for ranges crossing years", () => {
     const start = dayjs("2025-12-20").toDate();
     const end = dayjs("2026-01-05").toDate();
-    expect(computeLabel(start, end)).toBe("Dec 20, 2025 – Jan 5, 2026");
+    expect(computeLabel(start, end)).toBe("Custom range");
   });
 
   it("returns the formatted single date when start and end are the same non-today day", () => {
