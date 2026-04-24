@@ -241,8 +241,17 @@ export default function DateRangePicker({
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
 
-  // Create dynamic presets with minDate for allTime
-  const dynamicPresets = useMemo(() => getPresetsWithMinDate(minDate), [minDate]);
+  // Create dynamic presets with minDate for allTime.
+  // Memoised on minDate's timestamp (NOT the Date reference) because the parent
+  // likely instantiates `new Date(siteStartDate)` on every render, which would
+  // otherwise invalidate this memo every render and cascade into the sync-effect
+  // below overwriting the user's in-picker selections.
+  const minDateMs = minDate?.getTime();
+  const dynamicPresets = useMemo(
+    () => getPresetsWithMinDate(minDate),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [minDateMs]
+  );
 
   const [tempRange, setTempRange] = useState<Range[]>([
     {
@@ -255,13 +264,16 @@ export default function DateRangePicker({
     startDate && endDate ? findMatchingPreset(startDate, endDate) : null
   );
 
-  // react-date-range's internal [rangeIndex, step] focus. 0 = pick start, 1 = pick end.
-  // We control this so presets and typed-input commits reset the library to a clean
-  // "next click sets start" state. Without this, an active preset leaves step=0 or 1
-  // lingering and the user's first calendar click after a preset unexpectedly extends
-  // the end instead of beginning a new range.
-  const [focusedRange, setFocusedRange] = useState<[number, 0 | 1]>([0, 0]);
-  const clickStage: "start" | "end" = focusedRange[1] === 0 ? "start" : "end";
+  // We remount <DateRange> on every preset/open so its internal [rangeIndex, step]
+  // focus always starts fresh (i.e. "next click picks the start"). Without this, an
+  // active preset leaves the library mid-sequence at step 1 and the user's first
+  // calendar click after a preset unexpectedly extends the end instead of beginning
+  // a new range. Using a `key` that increments on reset is simpler and more robust
+  // than trying to control `focusedRange` from the outside — controlled focus mode
+  // interacts poorly with `moveRangeOnFirstSelection={false}` and sometimes absorbs
+  // the click silently.
+  const [pickerKey, setPickerKey] = useState(0);
+  const [clickStage, setClickStage] = useState<"start" | "end">("start");
   const [typedStart, setTypedStart] = useState("");
   const [typedEnd, setTypedEnd] = useState("");
 
@@ -283,7 +295,12 @@ export default function DateRangePicker({
     }
   }, [openOnMount, anchorEl]);
 
-  // Sync temp range when props change
+  // Sync temp range when the parent's committed range changes. We intentionally
+  // don't depend on `dynamicPresets` here: its reference can churn (see above),
+  // and we never want a churning-preset reference to overwrite whatever the user
+  // is mid-selecting inside the calendar. Preset highlight for a new prop range
+  // is still recomputed via `findMatchingPreset(..., dynamicPresets)` at the
+  // moment this effect runs.
   useEffect(() => {
     if (startDate && endDate) {
       setTempRange([
@@ -295,7 +312,8 @@ export default function DateRangePicker({
       ]);
       setSelectedPreset(findMatchingPreset(startDate, endDate, dynamicPresets));
     }
-  }, [startDate, endDate, dynamicPresets]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startDate, endDate]);
 
   const handleOpen = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -309,7 +327,8 @@ export default function DateRangePicker({
         key: "selection",
       },
     ]);
-    setFocusedRange([0, 0]);
+    setClickStage("start");
+    setPickerKey((k) => k + 1);
   };
 
   const handleClose = () => {
@@ -336,7 +355,8 @@ export default function DateRangePicker({
       },
     ]);
     setSelectedPreset(preset.key);
-    setFocusedRange([0, 0]);
+    setClickStage("start");
+    setPickerKey((k) => k + 1);
 
     // Auto-apply on mobile for quick preset selection
     if (isMobile) {
@@ -359,8 +379,21 @@ export default function DateRangePicker({
         findMatchingPreset(selection.startDate, selection.endDate, dynamicPresets)
       );
     }
-    // Click stage is derived from focusedRange, which the library updates via
-    // onRangeFocusChange — no manual toggling needed here.
+
+    // After a fresh-mount first click, react-date-range sets start === end
+    // (single-day). That's our cue we've consumed the "start" click and the
+    // next click is the end. After the second click the two dates diverge,
+    // and we reset for the next round.
+    if (
+      selection.startDate &&
+      selection.endDate &&
+      format(selection.startDate, "yyyy-MM-dd") ===
+        format(selection.endDate, "yyyy-MM-dd")
+    ) {
+      setClickStage("end");
+    } else {
+      setClickStage("start");
+    }
   };
 
   const commitTypedDate = (which: "start" | "end", raw: string) => {
@@ -402,7 +435,8 @@ export default function DateRangePicker({
       }
     }
     setSelectedPreset(null);
-    setFocusedRange([0, 0]);
+    setClickStage("start");
+    setPickerKey((k) => k + 1);
   };
 
   // Check if dates are set (not "All Time" mode)
@@ -698,15 +732,9 @@ export default function DateRangePicker({
             </Box>
 
             <DateRange
+              key={pickerKey}
               ranges={tempRange}
               onChange={handleRangeChange}
-              focusedRange={focusedRange}
-              onRangeFocusChange={(range) =>
-                setFocusedRange([
-                  range[0] ?? 0,
-                  (range[1] === 1 ? 1 : 0) as 0 | 1,
-                ])
-              }
               months={isMobile ? 1 : 2}
               direction="horizontal"
               maxDate={maxDate}
