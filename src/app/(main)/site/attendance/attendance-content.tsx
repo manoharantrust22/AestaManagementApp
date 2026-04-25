@@ -2623,7 +2623,12 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         flexDirection: "column",
         height: isFullscreen
           ? "100vh"
-          : { xs: "calc(100vh - 56px)", sm: "calc(100vh - 64px)" },
+          : {
+              // Subtract MainLayout app bar (xs 56 / sm 64) + main padding (xs 1.5*8*2=24 / sm 2*8*2=32 / md 3*8*2=48)
+              xs: "calc(100vh - 80px)",
+              sm: "calc(100vh - 96px)",
+              md: "calc(100vh - 112px)",
+            },
         minHeight: 0,
         ...(isFullscreen && {
           bgcolor: "background.paper",
