@@ -1,6 +1,7 @@
 name = "aesta-supabase-proxy"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
+account_id = "816cbcd84b2213dee67be1ada89acc15"
 
 [vars]
 SUPABASE_URL = "https://ocutbpoaibjxtyjkrnda.supabase.co"
