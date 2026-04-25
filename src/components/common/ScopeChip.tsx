@@ -6,20 +6,7 @@ import {
   CalendarMonth as CalendarMonthIcon,
   Close as CloseIcon,
 } from "@mui/icons-material";
-import dayjs from "dayjs";
-import { useDateRange } from "@/contexts/DateRangeContext";
-
-function formatRange(startDate: Date, endDate: Date): string {
-  const start = dayjs(startDate);
-  const end = dayjs(endDate);
-  if (start.isSame(end, "day")) {
-    return start.format("MMM D, YYYY");
-  }
-  if (start.year() !== end.year()) {
-    return `${start.format("MMM D, YYYY")} – ${end.format("MMM D, YYYY")}`;
-  }
-  return `${start.format("MMM D")} – ${end.format("MMM D")}`;
-}
+import { useDateRange, formatScopeLabel } from "@/contexts/DateRangeContext";
 
 export default function ScopeChip() {
   const { isAllTime, startDate, endDate, days, setAllTime, openPicker } =
@@ -30,11 +17,7 @@ export default function ScopeChip() {
   return (
     <Chip
       icon={<CalendarMonthIcon fontSize="small" />}
-      label={
-        isFiltered
-          ? `${formatRange(startDate, endDate)} · ${days === 1 ? "1 day" : `${days} days`}`
-          : "All Time"
-      }
+      label={formatScopeLabel(startDate, endDate, days)}
       size="small"
       color={isFiltered ? "primary" : "default"}
       variant="outlined"

@@ -20,7 +20,7 @@ import {
   KeyboardArrowDown as ArrowDownIcon,
 } from "@mui/icons-material";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useDateRange } from "@/contexts/DateRangeContext";
+import { useDateRange, formatScopeLabel } from "@/contexts/DateRangeContext";
 import { computeStep } from "@/contexts/DateRangeContext/DateRangeProvider";
 import { DateRange, Range, RangeKeyDict } from "react-date-range";
 import dayjs from "dayjs";
@@ -439,8 +439,19 @@ export default function DateRangePicker({
     setPickerKey((k) => k + 1);
   };
 
-  // Current label comes from shared context computeLabel
-  const { label: currentLabel, stepBackward, stepForward, pickerContainer } = useDateRange();
+  // Current label: spec §5.3 requires the pill and ScopeChip to read identically,
+  // so we use the shared formatScopeLabel helper here (NOT context.label, which
+  // returns preset names like "Custom range" / "Mar 2026" that diverge from the chip).
+  const {
+    isAllTime,
+    days,
+    stepBackward,
+    stepForward,
+    pickerContainer,
+  } = useDateRange();
+  const currentLabel = isAllTime
+    ? "All Time"
+    : formatScopeLabel(startDate, endDate, days);
 
   const isPrevDisabled = useMemo(() => {
     // null result from computeStep means out of bounds
@@ -474,7 +485,7 @@ export default function DateRangePicker({
           endIcon={<ArrowDownIcon sx={{ fontSize: { xs: 16, sm: 20 } }} />}
           sx={{
             textTransform: "none",
-            minWidth: { xs: 80, sm: 180 },
+            minWidth: { xs: 80, sm: 240 },
             justifyContent: "space-between",
             px: { xs: 0.75, sm: 1.5 },
             py: { xs: 0.25, sm: 0.5 },

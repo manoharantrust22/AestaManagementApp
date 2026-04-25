@@ -28,3 +28,6 @@ export { useDateRangeActions } from "./DateRangeActionsContext";
 
 // Export combined hook for backwards compatibility
 export { useDateRange } from "./useDateRange";
+
+// Export shared label formatter (spec §5.3 — chip and pill must read identically)
+export { formatScopeLabel } from "./formatScopeLabel";
