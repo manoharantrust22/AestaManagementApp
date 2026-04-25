@@ -2629,28 +2629,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         title="Attendance"
         subtitle={isMobile ? undefined : selectedSite?.name}
         titleChip={<ScopeChip />}
-        actions={
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-            {/* View Mode Toggle */}
-            <Select
-              value={viewMode}
-              onChange={(e) =>
-                setViewMode(e.target.value as "date-wise" | "detailed")
-              }
-              size="small"
-              sx={{
-                minWidth: { xs: 90, sm: 120 },
-                height: 32,
-                fontSize: { xs: "0.75rem", sm: "0.875rem" },
-                bgcolor: "background.paper",
-                "& .MuiSelect-select": { py: 0.5, px: 1 },
-              }}
-            >
-              <MenuItem value="date-wise">Date View</MenuItem>
-              <MenuItem value="detailed">Detailed View</MenuItem>
-            </Select>
-          </Box>
-        }
+        actions={null}
       />
 
       {/* Back button when coming from settlement page */}
