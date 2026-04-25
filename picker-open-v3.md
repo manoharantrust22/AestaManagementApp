@@ -1,0 +1,913 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - generic [ref=e138]:
+            - combobox [ref=e139] [cursor=pointer]:
+              - generic [ref=e140]:
+                - img [ref=e141]
+                - generic [ref=e143]:
+                  - paragraph [ref=e144]: Padmavathy Apartments
+                  - generic [ref=e145]: Pudukkottai
+                - generic [ref=e147]: active
+            - textbox: ff893992-a276-47b7-8bd2-d2fe4f62f3b5
+            - img
+            - group
+          - button [ref=e1020] [cursor=pointer]:
+            - img [ref=e149]
+            - generic [ref=e152]:
+              - generic [ref=e153]: Firrst Floor Interrior Plastering
+              - generic [ref=e154]: Structure / Roof Slab
+        - generic [ref=e11]:
+          - generic [ref=e13]:
+            - button [ref=e155] [cursor=pointer]:
+              - img [ref=e156]
+            - button [ref=e1021] [cursor=pointer]:
+              - paragraph [ref=e15]: This Month
+              - img [ref=e17]
+            - button [disabled]:
+              - img
+          - button [ref=e1022] [cursor=pointer]:
+            - generic [ref=e20]: Today
+          - button [ref=e1023] [cursor=pointer]:
+            - generic [ref=e22]: Week
+          - button [ref=e1024] [cursor=pointer]:
+            - generic [ref=e24]: Month
+          - button [ref=e1025] [cursor=pointer]:
+            - generic [ref=e26]: Custom
+        - button [ref=e1026] [cursor=pointer]:
+          - img [ref=e28]
+        - button [ref=e1027] [cursor=pointer]:
+          - generic [ref=e32]:
+            - img [ref=e161]
+            - generic [ref=e163]: "50"
+    - navigation [ref=e35]:
+      - button [ref=e36] [cursor=pointer]:
+        - img [ref=e37]
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - img [ref=e42]
+          - heading [level=6] [ref=e1028]: Aesta
+        - separator [ref=e45]
+        - tablist [ref=e49]:
+          - tab [selected] [ref=e1029] [cursor=pointer]:
+            - img [ref=e51]
+            - text: Site
+          - tab [ref=e1030] [cursor=pointer]:
+            - img [ref=e55]
+            - text: Company
+        - separator [ref=e57]
+        - list [ref=e58]:
+          - listitem [ref=e59]:
+            - button [ref=e1031] [cursor=pointer]:
+              - img [ref=e62]
+              - generic [ref=e65]: Dashboard
+          - button [ref=e1032] [cursor=pointer]:
+            - generic [ref=e68]:
+              - generic [ref=e69]: 👷
+              - generic [ref=e70]: Workforce
+            - img [ref=e71]
+          - button [ref=e1033] [cursor=pointer]:
+            - generic [ref=e75]:
+              - generic [ref=e76]: 💰
+              - generic [ref=e77]: Expenses
+            - img [ref=e78]
+          - button [ref=e1034] [cursor=pointer]:
+            - generic [ref=e82]:
+              - generic [ref=e83]: 🏗️
+              - generic [ref=e84]: Site Operations
+            - img [ref=e85]
+          - button [ref=e1035] [cursor=pointer]:
+            - generic [ref=e89]:
+              - generic [ref=e90]: 📦
+              - generic [ref=e91]: Materials
+            - img [ref=e92]
+          - button [ref=e1036] [cursor=pointer]:
+            - generic [ref=e96]:
+              - generic [ref=e97]: 🤝
+              - generic [ref=e98]: Contracts
+            - img [ref=e99]
+          - button [ref=e1037] [cursor=pointer]:
+            - generic [ref=e103]:
+              - generic [ref=e104]: ⚙️
+              - generic [ref=e105]: Settings
+            - img [ref=e106]
+        - separator [ref=e108]
+        - generic [ref=e110]:
+          - button [ref=e1038] [cursor=pointer]:
+            - img [ref=e165]
+          - generic [ref=e113]:
+            - paragraph [ref=e114]: Hari Admin
+            - text: Admin
+          - button [ref=e1039] [cursor=pointer]:
+            - img [ref=e116]
+    - main [ref=e118]:
+      - generic [ref=e120]:
+        - generic [ref=e121]:
+          - generic [ref=e122]:
+            - button [ref=e1040] [cursor=pointer]:
+              - img [ref=e124]
+            - generic [ref=e126]:
+              - heading [level=6] [ref=e1041]: All Site Expenses
+              - paragraph [ref=e166]: Track expenses for Padmavathy Apartments
+          - button [ref=e1042] [cursor=pointer]:
+            - img [ref=e170]
+            - text: Add Expense
+        - generic [ref=e173]:
+          - status [ref=e174] [cursor=pointer]:
+            - generic [ref=e175]:
+              - img [ref=e176]
+              - paragraph [ref=e178]: "Showing: This Month · Apr 1 – Apr 24"
+            - button [ref=e1043]:
+              - img [ref=e181]
+              - generic [ref=e183]: View All Time
+          - generic [ref=e184]:
+            - generic [ref=e185]:
+              - generic [ref=e186]:
+                - img [ref=e187]
+                - generic [ref=e189]: Total Expenses
+              - heading [level=4] [ref=e1044]: ₹1,12,117
+              - generic [ref=e191]: 29 records
+            - generic [ref=e192]:
+              - generic [ref=e193]: Breakdown by Type
+              - generic [ref=e194]:
+                - generic [ref=e195]:
+                  - generic [ref=e196]: Contract Salary
+                  - heading [level=6] [ref=e1045]: ₹65,000
+                  - generic [ref=e198]: 4 rec
+                - generic [ref=e199]:
+                  - generic [ref=e200]: Daily Salary
+                  - heading [level=6] [ref=e1046]: ₹43,850
+                  - generic [ref=e202]: 18 rec
+                - generic [ref=e203]:
+                  - generic [ref=e204]: Tea & Snacks
+                  - heading [level=6] [ref=e1047]: ₹3,267
+                  - generic [ref=e206]: 7 rec
+            - button [ref=e1048] [cursor=pointer]:
+              - img [ref=e210]
+              - text: Show Subcontract Summary
+        - tablist [ref=e216]:
+          - tab [selected] [ref=e1049] [cursor=pointer]: All
+          - tab [ref=e1050] [cursor=pointer]: Labor
+          - tab [ref=e1051] [cursor=pointer]: Material
+          - tab [ref=e1052] [cursor=pointer]: Machinery
+          - tab [ref=e1053] [cursor=pointer]: General
+          - tab [ref=e1054] [cursor=pointer]: Miscellaneous
+        - generic [ref=e224]:
+          - generic [ref=e227]:
+            - generic [ref=e232]:
+              - img [ref=e233]
+              - textbox [ref=e1055]:
+                - /placeholder: Search
+              - generic [ref=e1056]:
+                - button [disabled]:
+                  - img
+              - group
+            - generic [ref=e238]:
+              - button [ref=e1057] [cursor=pointer]:
+                - img [ref=e240]
+              - button [ref=e1058] [cursor=pointer]:
+                - img [ref=e243]
+              - button [ref=e1059] [cursor=pointer]:
+                - img [ref=e246]
+          - table [ref=e249]:
+            - rowgroup [ref=e250]:
+              - row [ref=e1060]:
+                - columnheader [ref=e1061]:
+                  - generic [ref=e253]:
+                    - generic [ref=e254] [cursor=pointer]
+                    - generic [ref=e260]
+                    - separator [ref=e268]
+                  - textbox [ref=e1066]:
+                    - /placeholder: Filter by Ref Code
+                - columnheader [ref=e1067]:
+                  - generic [ref=e276]:
+                    - generic [ref=e277] [cursor=pointer]
+                    - generic [ref=e283]
+                    - separator [ref=e291]
+                  - textbox [ref=e1072]:
+                    - /placeholder: Filter by Settlement Date
+                - columnheader [ref=e1073]:
+                  - generic [ref=e299]:
+                    - generic [ref=e300] [cursor=pointer]
+                    - generic [ref=e306]
+                    - separator [ref=e314]
+                  - textbox [ref=e1078]:
+                    - /placeholder: Filter by Recorded Date
+                - columnheader [ref=e1079]:
+                  - generic [ref=e322]:
+                    - generic [ref=e323] [cursor=pointer]
+                    - generic [ref=e329]
+                    - separator [ref=e337]
+                  - generic [ref=e342]:
+                    - combobox [ref=e1084] [cursor=pointer]
+                    - textbox
+                    - img
+                - columnheader [ref=e1085]:
+                  - generic [ref=e346]:
+                    - generic [ref=e347] [cursor=pointer]
+                    - generic [ref=e353]
+                    - separator [ref=e361]
+                  - generic [ref=e366]:
+                    - combobox [ref=e1090] [cursor=pointer]
+                    - textbox
+                    - img
+                - columnheader [ref=e1091]:
+                  - generic [ref=e370]:
+                    - generic [ref=e371] [cursor=pointer]
+                    - generic [ref=e377]
+                    - separator [ref=e385]
+                  - textbox [ref=e1096]:
+                    - /placeholder: Filter by Category
+                - columnheader [ref=e1097]:
+                  - generic [ref=e393]:
+                    - generic [ref=e394] [cursor=pointer]
+                    - generic [ref=e400]
+                    - separator [ref=e408]
+                  - textbox [ref=e1102]:
+                    - /placeholder: Filter by Amount
+                - columnheader [ref=e1103]:
+                  - generic [ref=e416]:
+                    - generic [ref=e417] [cursor=pointer]
+                    - generic [ref=e423]
+                    - separator [ref=e431]
+                  - textbox [ref=e1108]:
+                    - /placeholder: Filter by Vendor
+                - columnheader [ref=e1109]:
+                  - generic [ref=e439]:
+                    - generic [ref=e440] [cursor=pointer]
+                    - generic [ref=e446]
+                    - separator [ref=e454]
+                  - textbox [ref=e1114]:
+                    - /placeholder: Filter by Paid By
+                - columnheader [ref=e1115]:
+                  - generic [ref=e462]:
+                    - generic [ref=e463] [cursor=pointer]
+                    - generic [ref=e469]
+                    - separator [ref=e477]
+                  - textbox [ref=e1120]:
+                    - /placeholder: Filter by Subcontract
+                - columnheader [ref=e1121]:
+                  - generic [ref=e485]:
+                    - generic [ref=e486] [cursor=pointer]
+                    - generic [ref=e492]
+                    - separator [ref=e500]
+                  - generic [ref=e505]:
+                    - combobox [ref=e1126] [cursor=pointer]
+                    - textbox
+                    - img
+                - columnheader [ref=e1127]:
+                  - generic [ref=e509]:
+                    - generic [ref=e511]: Actions
+                    - generic [ref=e512]
+                    - separator [ref=e520]
+            - rowgroup [ref=e521]:
+              - row [ref=e1130]:
+                - cell [ref=e1131]:
+                  - button [ref=e1132] [cursor=pointer]:
+                    - generic [ref=e525]: SET-260420-001
+                - cell [ref=e1133]: 20 Apr 2026
+                - cell [ref=e1134]:
+                  - paragraph [ref=e528]: 20 Apr 2026
+                - cell [ref=e1135]:
+                  - generic [ref=e531]: LABOR
+                - cell [ref=e1136]:
+                  - generic [ref=e534]: Daily Salary
+                - cell [ref=e1137]: Salary Settlement
+                - cell [ref=e1138]:
+                  - paragraph [ref=e537]: ₹2,850
+                - cell [ref=e1139]: "-"
+                - cell [ref=e1140]:
+                  - generic [ref=e541]: Amma Money
+                - cell [ref=e1141]:
+                  - generic [ref=e543]:
+                    - img [ref=e544]
+                    - generic [ref=e546]: 2nd Floor Construction
+                - cell [ref=e1142]:
+                  - generic [ref=e549]: CLEARED
+                - cell [ref=e550]:
+                  - generic [ref=e551]:
+                    - button [ref=e552] [cursor=pointer]
+                    - button [ref=e555] [cursor=pointer]
+              - row [ref=e1143]:
+                - cell [ref=e1144]:
+                  - button [ref=e1145] [cursor=pointer]:
+                    - generic [ref=e561]: SET-260419-001
+                - cell [ref=e1146]: 19 Apr 2026
+                - cell [ref=e1147]:
+                  - paragraph [ref=e564]: 19 Apr 2026
+                - cell [ref=e1148]:
+                  - generic [ref=e567]: LABOR
+                - cell [ref=e1149]:
+                  - generic [ref=e570]: Contract Salary
+                - cell [ref=e1150]: Salary Settlement
+                - cell [ref=e1151]:
+                  - paragraph [ref=e573]: ₹40,000
+                - cell [ref=e1152]: "-"
+                - cell [ref=e1153]:
+                  - generic [ref=e577]: Amma Money
+                - cell [ref=e1154]:
+                  - generic [ref=e579]:
+                    - img [ref=e580]
+                    - generic [ref=e582]: 1st Floor Construction
+                - cell [ref=e1155]:
+                  - generic [ref=e585]: CLEARED
+                - cell [ref=e586]:
+                  - generic [ref=e587]:
+                    - button [ref=e588] [cursor=pointer]
+                    - button [ref=e591] [cursor=pointer]
+              - row [ref=e1156]:
+                - cell [ref=e1157]:
+                  - button [ref=e1158] [cursor=pointer]:
+                    - generic [ref=e597]: SET-260418-001
+                - cell [ref=e1159]: 18 Apr 2026
+                - cell [ref=e1160]:
+                  - paragraph [ref=e600]: 18 Apr 2026
+                - cell [ref=e1161]:
+                  - generic [ref=e603]: LABOR
+                - cell [ref=e1162]:
+                  - generic [ref=e606]: Contract Salary
+                - cell [ref=e1163]: Salary Settlement
+                - cell [ref=e1164]:
+                  - paragraph [ref=e609]: ₹1,000
+                - cell [ref=e1165]: "-"
+                - cell [ref=e1166]:
+                  - generic [ref=e613]: Own Money
+                - cell [ref=e1167]:
+                  - generic [ref=e615]:
+                    - img [ref=e616]
+                    - generic [ref=e618]: 1st Floor Construction
+                - cell [ref=e1168]:
+                  - generic [ref=e621]: CLEARED
+                - cell [ref=e622]:
+                  - generic [ref=e623]:
+                    - button [ref=e624] [cursor=pointer]
+                    - button [ref=e627] [cursor=pointer]
+              - row [ref=e1169]:
+                - cell [ref=e1170]:
+                  - button [ref=e1171] [cursor=pointer]:
+                    - generic [ref=e633]: SET-260418-002
+                - cell [ref=e1172]: 18 Apr 2026
+                - cell [ref=e1173]:
+                  - paragraph [ref=e636]: 18 Apr 2026
+                - cell [ref=e1174]:
+                  - generic [ref=e639]: LABOR
+                - cell [ref=e1175]:
+                  - generic [ref=e642]: Daily Salary
+                - cell [ref=e1176]: Salary Settlement
+                - cell [ref=e1177]:
+                  - paragraph [ref=e645]: ₹5,700
+                - cell [ref=e1178]: "-"
+                - cell [ref=e1179]:
+                  - generic [ref=e649]: Multiple Sources
+                - cell [ref=e1180]:
+                  - generic [ref=e651]:
+                    - img [ref=e652]
+                    - generic [ref=e654]: 2nd Floor Construction
+                - cell [ref=e1181]:
+                  - generic [ref=e657]: CLEARED
+                - cell [ref=e658]:
+                  - generic [ref=e659]:
+                    - button [ref=e660] [cursor=pointer]
+                    - button [ref=e663] [cursor=pointer]
+              - row [ref=e1182]:
+                - cell [ref=e1183]:
+                  - button [ref=e1184] [cursor=pointer]:
+                    - generic [ref=e669]: SET-260417-001
+                - cell [ref=e1185]: 17 Apr 2026
+                - cell [ref=e1186]:
+                  - paragraph [ref=e672]: 17 Apr 2026
+                - cell [ref=e1187]:
+                  - generic [ref=e675]: LABOR
+                - cell [ref=e1188]:
+                  - generic [ref=e678]: Daily Salary
+                - cell [ref=e1189]: Salary Settlement
+                - cell [ref=e1190]:
+                  - paragraph [ref=e681]: ₹2,850
+                - cell [ref=e1191]: "-"
+                - cell [ref=e1192]:
+                  - generic [ref=e685]: Amma Money
+                - cell [ref=e1193]:
+                  - generic [ref=e687]:
+                    - img [ref=e688]
+                    - generic [ref=e690]: 2nd Floor Construction
+                - cell [ref=e1194]:
+                  - generic [ref=e693]: CLEARED
+                - cell [ref=e694]:
+                  - generic [ref=e695]:
+                    - button [ref=e696] [cursor=pointer]
+                    - button [ref=e699] [cursor=pointer]
+              - row [ref=e1195]:
+                - cell [ref=e1196]:
+                  - button [ref=e1197] [cursor=pointer]:
+                    - generic [ref=e705]: SET-260416-004
+                - cell [ref=e1198]: 16 Apr 2026
+                - cell [ref=e1199]:
+                  - paragraph [ref=e708]: 16 Apr 2026
+                - cell [ref=e1200]:
+                  - generic [ref=e711]: LABOR
+                - cell [ref=e1201]:
+                  - generic [ref=e714]: Daily Salary
+                - cell [ref=e1202]: Salary Settlement
+                - cell [ref=e1203]:
+                  - paragraph [ref=e717]: ₹4,450
+                - cell [ref=e1204]: "-"
+                - cell [ref=e1205]:
+                  - generic [ref=e721]: Own Money
+                - cell [ref=e1206]:
+                  - generic [ref=e723]:
+                    - img [ref=e724]
+                    - generic [ref=e726]: 2nd Floor Construction
+                - cell [ref=e1207]:
+                  - generic [ref=e729]: CLEARED
+                - cell [ref=e730]:
+                  - generic [ref=e731]:
+                    - button [ref=e732] [cursor=pointer]
+                    - button [ref=e735] [cursor=pointer]
+              - row [ref=e1208]:
+                - cell [ref=e1209]:
+                  - button [ref=e1210] [cursor=pointer]:
+                    - generic [ref=e741]: SET-260415-002
+                - cell [ref=e1211]: 15 Apr 2026
+                - cell [ref=e1212]:
+                  - paragraph [ref=e744]: 15 Apr 2026
+                - cell [ref=e1213]:
+                  - generic [ref=e747]: LABOR
+                - cell [ref=e1214]:
+                  - generic [ref=e750]: Daily Salary
+                - cell [ref=e1215]: Salary Settlement
+                - cell [ref=e1216]:
+                  - paragraph [ref=e753]: ₹2,850
+                - cell [ref=e1217]: "-"
+                - cell [ref=e1218]:
+                  - generic [ref=e757]: Own Money
+                - cell [ref=e1219]:
+                  - generic [ref=e759]:
+                    - img [ref=e760]
+                    - generic [ref=e762]: 2nd Floor Construction
+                - cell [ref=e1220]:
+                  - generic [ref=e765]: CLEARED
+                - cell [ref=e766]:
+                  - generic [ref=e767]:
+                    - button [ref=e768] [cursor=pointer]
+                    - button [ref=e771] [cursor=pointer]
+              - row [ref=e1221]:
+                - cell [ref=e1222]:
+                  - button [ref=e1223] [cursor=pointer]:
+                    - generic [ref=e777]: SET-260416-002
+                - cell [ref=e1224]: 15 Apr 2026
+                - cell [ref=e1225]:
+                  - paragraph [ref=e780]: 15 Apr 2026
+                - cell [ref=e1226]:
+                  - generic [ref=e783]: LABOR
+                - cell [ref=e1227]:
+                  - generic [ref=e786]: Contract Salary
+                - cell [ref=e1228]: Salary Settlement
+                - cell [ref=e1229]:
+                  - paragraph [ref=e789]: ₹2,000
+                - cell [ref=e1230]: "-"
+                - cell [ref=e1231]:
+                  - generic [ref=e793]: Own Money
+                - cell [ref=e1232]:
+                  - generic [ref=e795]:
+                    - img [ref=e796]
+                    - generic [ref=e798]: 2nd Floor Construction
+                - cell [ref=e1233]:
+                  - generic [ref=e801]: CLEARED
+                - cell [ref=e802]:
+                  - generic [ref=e803]:
+                    - button [ref=e804] [cursor=pointer]
+                    - button [ref=e807] [cursor=pointer]
+              - row [ref=e1234]:
+                - cell [ref=e1235]:
+                  - button [ref=e1236] [cursor=pointer]:
+                    - generic [ref=e813]: SET-260414-001
+                - cell [ref=e1237]: 14 Apr 2026
+                - cell [ref=e1238]:
+                  - paragraph [ref=e816]: 14 Apr 2026
+                - cell [ref=e1239]:
+                  - generic [ref=e819]: LABOR
+                - cell [ref=e1240]:
+                  - generic [ref=e822]: Daily Salary
+                - cell [ref=e1241]: Salary Settlement
+                - cell [ref=e1242]:
+                  - paragraph [ref=e825]: ₹1,850
+                - cell [ref=e1243]: "-"
+                - cell [ref=e1244]:
+                  - generic [ref=e829]: Own Money
+                - cell [ref=e1245]:
+                  - generic [ref=e831]:
+                    - img [ref=e832]
+                    - generic [ref=e834]: 2nd Floor Construction
+                - cell [ref=e1246]:
+                  - generic [ref=e837]: CLEARED
+                - cell [ref=e838]:
+                  - generic [ref=e839]:
+                    - button [ref=e840] [cursor=pointer]
+                    - button [ref=e843] [cursor=pointer]
+              - row [ref=e1247]:
+                - cell [ref=e1248]:
+                  - button [ref=e1249] [cursor=pointer]:
+                    - generic [ref=e849]: TSS-260421-WWB
+                - cell [ref=e1250]: 13 Apr 2026
+                - cell [ref=e1251]:
+                  - paragraph [ref=e852]: 13 Apr 2026
+                - cell [ref=e1252]:
+                  - generic [ref=e855]: GENERAL
+                - cell [ref=e1253]:
+                  - generic [ref=e858]: Tea & Snacks
+                - cell [ref=e1254]: Tea & Snacks
+                - cell [ref=e1255]:
+                  - paragraph [ref=e861]: ₹576
+                - cell [ref=e1256]: Elango Tea shop
+                - cell [ref=e1257]:
+                  - generic [ref=e865]: Company Direct
+                - cell [ref=e1258]:
+                  - generic [ref=e867]:
+                    - img [ref=e868]
+                    - generic [ref=e870]: 2nd Floor Construction
+                - cell [ref=e1259]:
+                  - generic [ref=e873]: CLEARED
+                - cell [ref=e874]:
+                  - generic [ref=e875]:
+                    - button [ref=e876] [cursor=pointer]
+                    - button [ref=e879] [cursor=pointer]
+              - row [ref=e1260]:
+                - cell [ref=e1261]:
+                  - button [ref=e1262] [cursor=pointer]:
+                    - generic [ref=e885]: SET-260413-001
+                - cell [ref=e1263]: 13 Apr 2026
+                - cell [ref=e1264]:
+                  - paragraph [ref=e888]: 13 Apr 2026
+                - cell [ref=e1265]:
+                  - generic [ref=e891]: LABOR
+                - cell [ref=e1266]:
+                  - generic [ref=e894]: Daily Salary
+                - cell [ref=e1267]: Salary Settlement
+                - cell [ref=e1268]:
+                  - paragraph [ref=e897]: ₹2,850
+                - cell [ref=e1269]: "-"
+                - cell [ref=e1270]:
+                  - generic [ref=e901]: Amma Money
+                - cell [ref=e1271]:
+                  - generic [ref=e903]:
+                    - img [ref=e904]
+                    - generic [ref=e906]: 1st Floor Construction
+                - cell [ref=e1272]:
+                  - generic [ref=e909]: CLEARED
+                - cell [ref=e910]:
+                  - generic [ref=e911]:
+                    - button [ref=e912] [cursor=pointer]
+                    - button [ref=e915] [cursor=pointer]
+              - row [ref=e1273]:
+                - cell [ref=e1274]:
+                  - button [ref=e1275] [cursor=pointer]:
+                    - generic [ref=e921]: TSS-260413-AV0
+                - cell [ref=e1276]: 13 Apr 2026
+                - cell [ref=e1277]:
+                  - paragraph [ref=e924]: 13 Apr 2026
+                - cell [ref=e1278]:
+                  - generic [ref=e927]: GENERAL
+                - cell [ref=e1279]:
+                  - generic [ref=e930]: Tea & Snacks
+                - cell [ref=e1280]: Tea & Snacks
+                - cell [ref=e1281]:
+                  - paragraph [ref=e933]: ₹399
+                - cell [ref=e1282]: Elango Tea shop
+                - cell [ref=e1283]:
+                  - generic [ref=e937]: Company Direct
+                - cell [ref=e1284]:
+                  - generic [ref=e939]:
+                    - img [ref=e940]
+                    - generic [ref=e942]: House Construction on Srinivasan Site
+                - cell [ref=e1285]:
+                  - generic [ref=e945]: CLEARED
+                - cell [ref=e946]:
+                  - generic [ref=e947]:
+                    - button [ref=e948] [cursor=pointer]
+                    - button [ref=e951] [cursor=pointer]
+              - row [ref=e1286]:
+                - cell [ref=e1287]:
+                  - button [ref=e1288] [cursor=pointer]:
+                    - generic [ref=e957]: TSS-260413-ZP6
+                - cell [ref=e1289]: 13 Apr 2026
+                - cell [ref=e1290]:
+                  - paragraph [ref=e960]: 13 Apr 2026
+                - cell [ref=e1291]:
+                  - generic [ref=e963]: GENERAL
+                - cell [ref=e1292]:
+                  - generic [ref=e966]: Tea & Snacks
+                - cell [ref=e1293]: Tea & Snacks
+                - cell [ref=e1294]:
+                  - paragraph [ref=e969]: ₹385
+                - cell [ref=e1295]: Elango Tea shop
+                - cell [ref=e1296]:
+                  - generic [ref=e973]: Company Direct
+                - cell [ref=e1297]:
+                  - generic [ref=e975]:
+                    - img [ref=e976]
+                    - generic [ref=e978]: 2nd Floor Construction
+                - cell [ref=e1298]:
+                  - generic [ref=e981]: CLEARED
+                - cell [ref=e982]:
+                  - generic [ref=e983]:
+                    - button [ref=e984] [cursor=pointer]
+                    - button [ref=e987] [cursor=pointer]
+          - generic [ref=e991]:
+            - generic [ref=e994]: 29 records
+            - generic [ref=e996]:
+              - generic [ref=e997]:
+                - generic [ref=e998]: Rows per page
+                - generic [ref=e999]:
+                  - combobox [ref=e1299] [cursor=pointer]: "100"
+                  - textbox: "100"
+                  - img
+              - navigation [ref=e1300]:
+                - list [ref=e1002]:
+                  - listitem [ref=e1003]:
+                    - button [disabled]
+                  - listitem [ref=e1004]:
+                    - button [disabled]
+                  - listitem [ref=e1005]:
+                    - button [ref=e1301] [cursor=pointer]: "1"
+                  - listitem [ref=e1007]:
+                    - button [disabled]
+                  - listitem [ref=e1008]:
+                    - button [disabled]
+    - button [ref=e1302] [cursor=pointer]:
+      - img [ref=e135]
+  - button "Open Next.js Dev Tools" [ref=e1014] [cursor=pointer]:
+    - img [ref=e1015]
+  - alert [ref=e1018]
+  - generic [active] [ref=e1304]:
+    - generic [ref=e1305]:
+      - generic [ref=e1306]:
+        - generic [ref=e1307]:
+          - generic [ref=e1308]: Quick
+          - list [ref=e1309]:
+            - button "Today" [ref=e1310] [cursor=pointer]:
+              - generic [ref=e1312]: Today
+            - button "Yesterday" [ref=e1313] [cursor=pointer]:
+              - generic [ref=e1315]: Yesterday
+            - button "This Week" [ref=e1316] [cursor=pointer]:
+              - generic [ref=e1318]: This Week
+            - button "This Month" [ref=e1319] [cursor=pointer]:
+              - generic [ref=e1321]: This Month
+        - generic [ref=e1322]:
+          - generic [ref=e1323]: Rolling
+          - list [ref=e1324]:
+            - button "Last 7 days" [ref=e1325] [cursor=pointer]:
+              - generic [ref=e1327]: Last 7 days
+            - button "Last 14 days" [ref=e1328] [cursor=pointer]:
+              - generic [ref=e1330]: Last 14 days
+            - button "Last 30 days" [ref=e1331] [cursor=pointer]:
+              - generic [ref=e1333]: Last 30 days
+            - button "Last 90 days" [ref=e1334] [cursor=pointer]:
+              - generic [ref=e1336]: Last 90 days
+        - generic [ref=e1337]:
+          - generic [ref=e1338]: Previous
+          - list [ref=e1339]:
+            - button "Last Week" [ref=e1340] [cursor=pointer]:
+              - generic [ref=e1342]: Last Week
+            - button "Last Month" [ref=e1343] [cursor=pointer]:
+              - generic [ref=e1345]: Last Month
+        - separator [ref=e1346]
+        - button "All Time" [ref=e1347] [cursor=pointer]:
+          - generic [ref=e1348]: ★
+          - generic [ref=e1350]: All Time
+      - generic [ref=e1351]:
+        - generic [ref=e1352]:
+          - generic [ref=e1353]:
+            - generic [ref=e1354]: Start
+            - generic [ref=e1355]:
+              - textbox "Start date" [ref=e1356]: Apr 1, 2026
+              - group:
+                - generic: Start
+          - paragraph [ref=e1357]: →
+          - generic [ref=e1358]:
+            - generic [ref=e1359]: End
+            - generic [ref=e1360]:
+              - textbox "End date" [ref=e1361]: Apr 24, 2026
+              - group:
+                - generic: End
+        - generic [ref=e1362]:
+          - generic [ref=e1363]:
+            - button [ref=e1364] [cursor=pointer]
+            - generic [ref=e1366]:
+              - combobox [ref=e1368] [cursor=pointer]:
+                - option "January"
+                - option "February"
+                - option "March"
+                - option "April" [selected]
+                - option "May"
+                - option "June"
+                - option "July"
+                - option "August"
+                - option "September"
+                - option "October"
+                - option "November"
+                - option "December"
+              - combobox [ref=e1370] [cursor=pointer]:
+                - option "2026" [selected]
+                - option "2025"
+            - button [ref=e1371] [cursor=pointer]
+          - generic [ref=e1373]:
+            - generic [ref=e1374]:
+              - generic [ref=e1375]: Apr 2026
+              - generic [ref=e1376]:
+                - generic [ref=e1377]: Sun
+                - generic [ref=e1378]: Mon
+                - generic [ref=e1379]: Tue
+                - generic [ref=e1380]: Wed
+                - generic [ref=e1381]: Thu
+                - generic [ref=e1382]: Fri
+                - generic [ref=e1383]: Sat
+              - generic [ref=e1384]:
+                - button "29":
+                  - generic:
+                    - generic: "29"
+                - button "30":
+                  - generic:
+                    - generic: "30"
+                - button "31":
+                  - generic:
+                    - generic: "31"
+                - button "1" [ref=e1385] [cursor=pointer]:
+                  - generic [ref=e1387]: "1"
+                - button "2" [ref=e1388] [cursor=pointer]:
+                  - generic [ref=e1390]: "2"
+                - button "3" [ref=e1391] [cursor=pointer]:
+                  - generic [ref=e1393]: "3"
+                - button "4" [ref=e1394] [cursor=pointer]:
+                  - generic [ref=e1396]: "4"
+                - button "5" [ref=e1397] [cursor=pointer]:
+                  - generic [ref=e1399]: "5"
+                - button "6" [ref=e1400] [cursor=pointer]:
+                  - generic [ref=e1402]: "6"
+                - button "7" [ref=e1403] [cursor=pointer]:
+                  - generic [ref=e1405]: "7"
+                - button "8" [ref=e1406] [cursor=pointer]:
+                  - generic [ref=e1408]: "8"
+                - button "9" [ref=e1409] [cursor=pointer]:
+                  - generic [ref=e1411]: "9"
+                - button "10" [ref=e1412] [cursor=pointer]:
+                  - generic [ref=e1414]: "10"
+                - button "11" [ref=e1415] [cursor=pointer]:
+                  - generic [ref=e1417]: "11"
+                - button "12" [ref=e1418] [cursor=pointer]:
+                  - generic [ref=e1420]: "12"
+                - button "13" [ref=e1421] [cursor=pointer]:
+                  - generic [ref=e1423]: "13"
+                - button "14" [ref=e1424] [cursor=pointer]:
+                  - generic [ref=e1426]: "14"
+                - button "15" [ref=e1427] [cursor=pointer]:
+                  - generic [ref=e1429]: "15"
+                - button "16" [ref=e1430] [cursor=pointer]:
+                  - generic [ref=e1432]: "16"
+                - button "17" [ref=e1433] [cursor=pointer]:
+                  - generic [ref=e1435]: "17"
+                - button "18" [ref=e1436] [cursor=pointer]:
+                  - generic [ref=e1438]: "18"
+                - button "19" [ref=e1439] [cursor=pointer]:
+                  - generic [ref=e1441]: "19"
+                - button "20" [ref=e1442] [cursor=pointer]:
+                  - generic [ref=e1444]: "20"
+                - button "21" [ref=e1445] [cursor=pointer]:
+                  - generic [ref=e1447]: "21"
+                - button "22" [ref=e1448] [cursor=pointer]:
+                  - generic [ref=e1450]: "22"
+                - button "23" [ref=e1451] [cursor=pointer]:
+                  - generic [ref=e1453]: "23"
+                - button "24" [ref=e1454] [cursor=pointer]:
+                  - generic [ref=e1456]: "24"
+                - button "25" [ref=e1457]:
+                  - generic [ref=e1459]: "25"
+                - button "26" [ref=e1460]:
+                  - generic [ref=e1462]: "26"
+                - button "27" [ref=e1463]:
+                  - generic [ref=e1465]: "27"
+                - button "28" [ref=e1466]:
+                  - generic [ref=e1468]: "28"
+                - button "29" [ref=e1469]:
+                  - generic [ref=e1471]: "29"
+                - button "30" [ref=e1472]:
+                  - generic [ref=e1474]: "30"
+                - button "1":
+                  - generic:
+                    - generic: "1"
+                - button "2":
+                  - generic:
+                    - generic: "2"
+            - generic [ref=e1475]:
+              - generic [ref=e1476]: May 2026
+              - generic [ref=e1477]:
+                - generic [ref=e1478]: Sun
+                - generic [ref=e1479]: Mon
+                - generic [ref=e1480]: Tue
+                - generic [ref=e1481]: Wed
+                - generic [ref=e1482]: Thu
+                - generic [ref=e1483]: Fri
+                - generic [ref=e1484]: Sat
+              - generic [ref=e1485]:
+                - button "26":
+                  - generic:
+                    - generic: "26"
+                - button "27":
+                  - generic:
+                    - generic: "27"
+                - button "28":
+                  - generic:
+                    - generic: "28"
+                - button "29":
+                  - generic:
+                    - generic: "29"
+                - button "30":
+                  - generic:
+                    - generic: "30"
+                - button "1" [ref=e1486]:
+                  - generic [ref=e1488]: "1"
+                - button "2" [ref=e1489]:
+                  - generic [ref=e1491]: "2"
+                - button "3" [ref=e1492]:
+                  - generic [ref=e1494]: "3"
+                - button "4" [ref=e1495]:
+                  - generic [ref=e1497]: "4"
+                - button "5" [ref=e1498]:
+                  - generic [ref=e1500]: "5"
+                - button "6" [ref=e1501]:
+                  - generic [ref=e1503]: "6"
+                - button "7" [ref=e1504]:
+                  - generic [ref=e1506]: "7"
+                - button "8" [ref=e1507]:
+                  - generic [ref=e1509]: "8"
+                - button "9" [ref=e1510]:
+                  - generic [ref=e1512]: "9"
+                - button "10" [ref=e1513]:
+                  - generic [ref=e1515]: "10"
+                - button "11" [ref=e1516]:
+                  - generic [ref=e1518]: "11"
+                - button "12" [ref=e1519]:
+                  - generic [ref=e1521]: "12"
+                - button "13" [ref=e1522]:
+                  - generic [ref=e1524]: "13"
+                - button "14" [ref=e1525]:
+                  - generic [ref=e1527]: "14"
+                - button "15" [ref=e1528]:
+                  - generic [ref=e1530]: "15"
+                - button "16" [ref=e1531]:
+                  - generic [ref=e1533]: "16"
+                - button "17" [ref=e1534]:
+                  - generic [ref=e1536]: "17"
+                - button "18" [ref=e1537]:
+                  - generic [ref=e1539]: "18"
+                - button "19" [ref=e1540]:
+                  - generic [ref=e1542]: "19"
+                - button "20" [ref=e1543]:
+                  - generic [ref=e1545]: "20"
+                - button "21" [ref=e1546]:
+                  - generic [ref=e1548]: "21"
+                - button "22" [ref=e1549]:
+                  - generic [ref=e1551]: "22"
+                - button "23" [ref=e1552]:
+                  - generic [ref=e1554]: "23"
+                - button "24" [ref=e1555]:
+                  - generic [ref=e1557]: "24"
+                - button "25" [ref=e1558]:
+                  - generic [ref=e1560]: "25"
+                - button "26" [ref=e1561]:
+                  - generic [ref=e1563]: "26"
+                - button "27" [ref=e1564]:
+                  - generic [ref=e1566]: "27"
+                - button "28" [ref=e1567]:
+                  - generic [ref=e1569]: "28"
+                - button "29" [ref=e1570]:
+                  - generic [ref=e1572]: "29"
+                - button "30" [ref=e1573]:
+                  - generic [ref=e1575]: "30"
+                - button "31" [ref=e1576]:
+                  - generic [ref=e1578]: "31"
+                - button "1":
+                  - generic:
+                    - generic: "1"
+                - button "2":
+                  - generic:
+                    - generic: "2"
+                - button "3":
+                  - generic:
+                    - generic: "3"
+                - button "4":
+                  - generic:
+                    - generic: "4"
+                - button "5":
+                  - generic:
+                    - generic: "5"
+                - button "6":
+                  - generic:
+                    - generic: "6"
+        - generic [ref=e1579]: Click a start date, then an end date.
+    - generic [ref=e1580]:
+      - separator [ref=e1581]
+      - generic [ref=e1582]:
+        - button "Cancel" [ref=e1583] [cursor=pointer]
+        - button "Apply" [ref=e1584] [cursor=pointer]

@@ -1,0 +1,175 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - generic [ref=e138]:
+            - combobox [ref=e139] [cursor=pointer]:
+              - generic [ref=e140]
+            - textbox: ff893992-a276-47b7-8bd2-d2fe4f62f3b5
+            - img
+            - group
+          - button "Click to change default section" [ref=e148] [cursor=pointer]:
+            - img [ref=e149]
+            - generic [ref=e152]:
+              - generic [ref=e153]: Firrst Floor Interrior Plastering
+              - generic [ref=e154]: Structure / Roof Slab
+        - generic [ref=e11]:
+          - generic [ref=e13]:
+            - button [ref=e155] [cursor=pointer]:
+              - img [ref=e156]
+            - button "This Month" [ref=e158] [cursor=pointer]:
+              - paragraph [ref=e15]: This Month
+              - img [ref=e17]
+            - button [disabled]:
+              - img
+          - button "Today" [ref=e19] [cursor=pointer]:
+            - generic [ref=e20]: Today
+          - button "Week" [ref=e21] [cursor=pointer]:
+            - generic [ref=e22]: Week
+          - button "Month" [ref=e23] [cursor=pointer]:
+            - generic [ref=e24]: Month
+          - button "Custom" [ref=e25] [cursor=pointer]:
+            - generic [ref=e26]: Custom
+        - button "Last synced 3 minutes ago Click to refresh (Ctrl/Cmd + R)" [ref=e159] [cursor=pointer]:
+          - img [ref=e28]
+        - button "50" [ref=e160] [cursor=pointer]:
+          - generic [ref=e32]:
+            - img [ref=e161]
+            - generic [ref=e163]: "50"
+    - navigation [ref=e35]:
+      - button [ref=e36] [cursor=pointer]:
+        - img [ref=e37]
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - img [ref=e42]
+          - heading "Aesta" [level=6] [ref=e44]
+        - separator [ref=e45]
+        - tablist [ref=e49]:
+          - tab "Site" [selected] [ref=e50] [cursor=pointer]:
+            - img [ref=e51]
+            - text: Site
+          - tab "Company" [ref=e54] [cursor=pointer]:
+            - img [ref=e55]
+            - text: Company
+        - separator [ref=e57]
+        - list [ref=e58]:
+          - listitem [ref=e59]:
+            - button "Dashboard" [ref=e60] [cursor=pointer]:
+              - img [ref=e62]
+              - generic [ref=e65]: Dashboard
+          - button "👷 Workforce" [ref=e67] [cursor=pointer]:
+            - generic [ref=e68]:
+              - generic [ref=e69]: 👷
+              - generic [ref=e70]: Workforce
+            - img [ref=e71]
+          - button "💰 Expenses" [ref=e74] [cursor=pointer]:
+            - generic [ref=e75]:
+              - generic [ref=e76]: 💰
+              - generic [ref=e77]: Expenses
+            - img [ref=e78]
+          - button "🏗️ Site Operations" [ref=e81] [cursor=pointer]:
+            - generic [ref=e82]:
+              - generic [ref=e83]: 🏗️
+              - generic [ref=e84]: Site Operations
+            - img [ref=e85]
+          - button "📦 Materials" [ref=e88] [cursor=pointer]:
+            - generic [ref=e89]:
+              - generic [ref=e90]: 📦
+              - generic [ref=e91]: Materials
+            - img [ref=e92]
+          - button "🤝 Contracts" [ref=e95] [cursor=pointer]:
+            - generic [ref=e96]:
+              - generic [ref=e97]: 🤝
+              - generic [ref=e98]: Contracts
+            - img [ref=e99]
+          - button "⚙️ Settings" [ref=e102] [cursor=pointer]:
+            - generic [ref=e103]:
+              - generic [ref=e104]: ⚙️
+              - generic [ref=e105]: Settings
+            - img [ref=e106]
+        - separator [ref=e108]
+        - generic [ref=e110]:
+          - button "Account settings" [ref=e111] [cursor=pointer]:
+            - img [ref=e165]
+          - generic [ref=e113]:
+            - paragraph [ref=e114]: Hari Admin
+            - text: Admin
+          - button "Switch to Dark Mode" [ref=e115] [cursor=pointer]:
+            - img [ref=e116]
+    - main [ref=e118]:
+      - generic [ref=e120]:
+        - generic [ref=e121]:
+          - generic [ref=e122]:
+            - button "Go back" [ref=e123] [cursor=pointer]:
+              - img [ref=e124]
+            - generic [ref=e126]:
+              - heading "All Site Expenses" [level=6] [ref=e128]
+              - paragraph [ref=e166]: Track expenses for Padmavathy Apartments
+          - button "Add Expense" [ref=e168] [cursor=pointer]:
+            - img [ref=e170]
+            - text: Add Expense
+        - generic [ref=e173]:
+          - status [ref=e174] [cursor=pointer]:
+            - generic [ref=e175]:
+              - img [ref=e176]
+              - paragraph [ref=e178]: "Showing: This Month · Apr 1 – Apr 24"
+            - button "Clear date filter and show all time" [ref=e179]:
+              - img [ref=e181]
+              - generic [ref=e183]: View All Time
+          - generic [ref=e184]:
+            - generic [ref=e185]:
+              - generic [ref=e186]
+              - heading "₹1,12,117" [level=4] [ref=e190]
+              - generic [ref=e191]: 29 records
+            - generic [ref=e192]:
+              - generic [ref=e193]: Breakdown by Type
+              - generic [ref=e194]
+            - button "Subcontract totals are loaded on demand to keep this page fast" [ref=e208] [cursor=pointer]:
+              - img [ref=e210]
+              - text: Show Subcontract Summary
+        - tablist [ref=e216]:
+          - tab "All" [selected] [ref=e217] [cursor=pointer]
+          - tab "Labor" [ref=e218] [cursor=pointer]
+          - tab "Material" [ref=e219] [cursor=pointer]
+          - tab "Machinery" [ref=e220] [cursor=pointer]
+          - tab "General" [ref=e221] [cursor=pointer]
+          - tab "Miscellaneous" [ref=e222] [cursor=pointer]
+        - generic [ref=e224]:
+          - generic [ref=e227]:
+            - generic [ref=e232]:
+              - img [ref=e233]
+              - textbox "Search" [ref=e235]
+              - generic "Clear search" [ref=e237]
+              - group
+            - generic [ref=e238]:
+              - button "Show/Hide filters" [ref=e239] [cursor=pointer]
+              - button "Show/Hide columns" [ref=e242] [cursor=pointer]
+              - button "Toggle full screen" [ref=e245] [cursor=pointer]
+          - table [ref=e249]:
+            - rowgroup [ref=e250]:
+              - row "Ref Code Sort by Ref Code ascending Move Column Actions Settlement Date Sort by Settlement Date ascending Move Column Actions Recorded Date Sort by Recorded Date ascending Move Column Actions Module Sort by Module ascending Move Column Actions Filter by Module Type Sort by Type ascending Move Column Actions Filter by Type Category Sort by Category ascending Move Column Actions Amount Sort by Amount descending Move Column Actions Vendor Sort by Vendor descending Move Column Actions Paid By Sort by Paid By ascending Move Column Actions Subcontract Sort by Subcontract ascending Move Column Actions Status Sort by Status descending Move Column Actions Filter by Status Actions Move Column Actions" [ref=e251]
+            - rowgroup [ref=e521]:
+              - row "SET-260420-001 20 Apr 2026 20 Apr 2026 LABOR Daily Salary Salary Settlement ₹2,850 - Amma Money 2nd Floor Construction CLEARED" [ref=e522]
+              - row "SET-260419-001 19 Apr 2026 19 Apr 2026 LABOR Contract Salary Salary Settlement ₹40,000 - Amma Money 1st Floor Construction CLEARED" [ref=e558]
+              - row "SET-260418-001 18 Apr 2026 18 Apr 2026 LABOR Contract Salary Salary Settlement ₹1,000 - Own Money 1st Floor Construction CLEARED" [ref=e594]
+              - row "SET-260418-002 18 Apr 2026 18 Apr 2026 LABOR Daily Salary Salary Settlement ₹5,700 - Multiple Sources 2nd Floor Construction CLEARED" [ref=e630]
+              - row "SET-260417-001 17 Apr 2026 17 Apr 2026 LABOR Daily Salary Salary Settlement ₹2,850 - Amma Money 2nd Floor Construction CLEARED" [ref=e666]
+              - row "SET-260416-004 16 Apr 2026 16 Apr 2026 LABOR Daily Salary Salary Settlement ₹4,450 - Own Money 2nd Floor Construction CLEARED" [ref=e702]
+              - row "SET-260415-002 15 Apr 2026 15 Apr 2026 LABOR Daily Salary Salary Settlement ₹2,850 - Own Money 2nd Floor Construction CLEARED" [ref=e738]
+              - row "SET-260416-002 15 Apr 2026 15 Apr 2026 LABOR Contract Salary Salary Settlement ₹2,000 - Own Money 2nd Floor Construction CLEARED" [ref=e774]
+              - row "SET-260414-001 14 Apr 2026 14 Apr 2026 LABOR Daily Salary Salary Settlement ₹1,850 - Own Money 2nd Floor Construction CLEARED" [ref=e810]
+              - row "TSS-260421-WWB 13 Apr 2026 13 Apr 2026 GENERAL Tea & Snacks Tea & Snacks ₹576 Elango Tea shop Company Direct 2nd Floor Construction CLEARED" [ref=e846]
+              - row "SET-260413-001 13 Apr 2026 13 Apr 2026 LABOR Daily Salary Salary Settlement ₹2,850 - Amma Money 1st Floor Construction CLEARED" [ref=e882]
+              - row "TSS-260413-AV0 13 Apr 2026 13 Apr 2026 GENERAL Tea & Snacks Tea & Snacks ₹399 Elango Tea shop Company Direct House Construction on Srinivasan Site CLEARED" [ref=e918]
+              - row "TSS-260413-ZP6 13 Apr 2026 13 Apr 2026 GENERAL Tea & Snacks Tea & Snacks ₹385 Elango Tea shop Company Direct 2nd Floor Construction CLEARED" [ref=e954]
+          - generic [ref=e991]:
+            - generic [ref=e994]: 29 records
+            - generic [ref=e996]:
+              - generic [ref=e997]
+              - navigation "pagination navigation" [ref=e1001]
+    - button "chat assistant" [ref=e134] [cursor=pointer]:
+      - img [ref=e135]
+  - button "Open Next.js Dev Tools" [ref=e1014] [cursor=pointer]:
+    - img [ref=e1015]
+  - alert [ref=e1018]
