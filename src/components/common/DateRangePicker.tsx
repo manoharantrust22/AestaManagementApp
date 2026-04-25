@@ -32,7 +32,6 @@ import "react-date-range/dist/theme/default.css";
 const startOfDay = (date: Date): Date => dayjs(date).startOf("day").toDate();
 const endOfDay = (date: Date): Date => dayjs(date).endOf("day").toDate();
 const subDays = (date: Date, days: number): Date => dayjs(date).subtract(days, "day").toDate();
-const addDays = (date: Date, days: number): Date => dayjs(date).add(days, "day").toDate();
 const startOfWeek = (date: Date): Date => dayjs(date).startOf("week").toDate();
 const endOfWeek = (date: Date): Date => dayjs(date).endOf("week").toDate();
 const startOfMonth = (date: Date): Date => dayjs(date).startOf("month").toDate();
@@ -439,13 +438,6 @@ export default function DateRangePicker({
     setClickStage("start");
     setPickerKey((k) => k + 1);
   };
-
-  // Check if dates are set (not "All Time" mode)
-  const hasDates = startDate && endDate;
-
-  // Check if it's a single date selection (not a range)
-  const isSingleDate = hasDates &&
-    format(startDate, "yyyy-MM-dd") === format(endDate, "yyyy-MM-dd");
 
   // Current label comes from shared context computeLabel
   const { label: currentLabel, stepBackward, stepForward } = useDateRange();
