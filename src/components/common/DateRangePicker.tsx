@@ -57,14 +57,18 @@ interface DateRangePickerProps {
   minDate?: Date;
   maxDate?: Date;
   /**
-   * When true, on next mount/open the popover opens with the calendar
-   * focused and the preset list visually present but not highlighted.
-   * Used by the "Custom" top-bar chip.
+   * Externally driven open signal. While true, the popover opens (or stays
+   * open) with the calendar focused and the preset list visually present but
+   * not highlighted. Toggle back to false (typically via `onPopoverClose`)
+   * after each open cycle so the next true→false→true transition re-opens.
+   *
+   * Today this is wired to `pickerOpen` from `DateRangeContext`, which
+   * `<ScopeChip />` and other consumers can flip via `openPicker()`.
    */
-  openOnMount?: boolean;
+  forceOpen?: boolean;
   /**
    * Called when the user closes the picker without applying.
-   * Lets the parent reset `openOnMount` flags.
+   * Lets the parent reset `forceOpen` flags.
    */
   onPopoverClose?: () => void;
 }
@@ -234,7 +238,7 @@ export default function DateRangePicker({
   onChange,
   minDate,
   maxDate = new Date(),
-  openOnMount,
+  forceOpen,
   onPopoverClose,
 }: DateRangePickerProps) {
   const isMobile = useIsMobile();
@@ -288,12 +292,12 @@ export default function DateRangePicker({
 
   const open = Boolean(anchorEl);
 
-  // Open popover when openOnMount changes to true
+  // Open popover when forceOpen changes to true
   useEffect(() => {
-    if (openOnMount && triggerRef.current && !anchorEl) {
+    if (forceOpen && triggerRef.current && !anchorEl) {
       setAnchorEl(triggerRef.current);
     }
-  }, [openOnMount, anchorEl]);
+  }, [forceOpen, anchorEl]);
 
   // Sync temp range when the parent's committed range changes. We intentionally
   // don't depend on `dynamicPresets` here: its reference can churn (see above),

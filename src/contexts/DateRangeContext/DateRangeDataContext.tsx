@@ -11,6 +11,13 @@ interface DateRangeDataContextType {
   endDate: Date | null;
   formatForApi: () => { dateFrom: string | null; dateTo: string | null };
   isAllTime: boolean;
+  /**
+   * Preset/category label only ("This Week", "Last Month", "Custom range",
+   * "Mar 2026", etc.) — used by code that needs to identify which named
+   * range is active. For the literal date span shown in the top-bar pill
+   * and the <ScopeChip />, use `formatScopeLabel(startDate, endDate, days)`
+   * from `./formatScopeLabel` instead.
+   */
   label: string;
   days: number | null;
   pickerOpen: boolean;

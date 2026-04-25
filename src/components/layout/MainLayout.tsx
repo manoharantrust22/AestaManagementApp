@@ -1108,7 +1108,7 @@ export default function MainLayout({
                 closePicker();
               }}
               minDate={selectedSite?.start_date ? new Date(selectedSite.start_date) : undefined}
-              openOnMount={pickerOpen}
+              forceOpen={pickerOpen}
               onPopoverClose={() => closePicker()}
             />
 
