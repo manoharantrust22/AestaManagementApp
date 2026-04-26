@@ -45,6 +45,9 @@ nul
 # Supabase backups
 supabase/production_backup.sql
 
+# Supabase CLI scratch / version cache
+supabase/.temp/
+
 # Playwright MCP artifacts
 .playwright-mcp/
 
