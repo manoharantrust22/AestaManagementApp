@@ -7,7 +7,6 @@ import {
   Box,
   IconButton,
   Snackbar,
-  Stack,
   Tooltip,
 } from "@mui/material";
 import {
@@ -18,88 +17,15 @@ import { useSelectedSite } from "@/contexts/SiteContext";
 import { useDateRange } from "@/contexts/DateRangeContext";
 import PageHeader from "@/components/layout/PageHeader";
 import ScopeChip from "@/components/common/ScopeChip";
-import PaymentsKpiStrip from "@/components/payments/PaymentsKpiStrip";
 import PendingBanner from "@/components/payments/PendingBanner";
-import PaymentsLedger from "@/components/payments/PaymentsLedger";
+import { SalarySliceHero } from "@/components/payments/SalarySliceHero";
+import { SalaryWaterfallList } from "@/components/payments/SalaryWaterfallList";
 import { usePaymentSummary } from "@/hooks/queries/usePaymentSummary";
-import { usePaymentsLedger } from "@/hooks/queries/usePaymentsLedger";
+import { useSalarySliceSummary } from "@/hooks/queries/useSalarySliceSummary";
+import { useSalaryWaterfall } from "@/hooks/queries/useSalaryWaterfall";
 import { useInspectPane } from "@/hooks/useInspectPane";
 import { InspectPane } from "@/components/common/InspectPane";
 import type { InspectEntity } from "@/components/common/InspectPane";
-
-type StatusFilter = "pending" | "completed" | "all";
-type TypeFilter = "daily-market" | "weekly" | "all";
-
-interface ChipOption<T extends string> {
-  key: T;
-  label: string;
-  tone?: "warn" | "pos";
-}
-
-function ChipRow<T extends string>({
-  options,
-  active,
-  onChange,
-}: {
-  options: ChipOption<T>[];
-  active: T;
-  onChange: (k: T) => void;
-}) {
-  return (
-    <Stack direction="row" spacing={0.75}>
-      {options.map((o) => {
-        const isActive = active === o.key;
-        const activeStyles = isActive
-          ? o.tone === "warn"
-            ? {
-                bgcolor: "warning.light",
-                color: "warning.dark",
-                borderColor: "warning.main",
-              }
-            : o.tone === "pos"
-              ? {
-                  bgcolor: "success.light",
-                  color: "success.dark",
-                  borderColor: "success.main",
-                }
-              : {
-                  bgcolor: "primary.light",
-                  color: "primary.dark",
-                  borderColor: "primary.main",
-                }
-          : { borderColor: "divider" };
-        return (
-          <Box
-            key={o.key}
-            role="button"
-            aria-pressed={isActive}
-            tabIndex={0}
-            onClick={() => onChange(o.key)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onChange(o.key);
-              }
-            }}
-            sx={{
-              cursor: "pointer",
-              userSelect: "none",
-              px: 1.25,
-              py: 0.4,
-              borderRadius: 8,
-              fontSize: 12,
-              fontWeight: isActive ? 600 : 500,
-              border: 1,
-              ...activeStyles,
-            }}
-          >
-            {o.label}
-          </Box>
-        );
-      })}
-    </Stack>
-  );
-}
 
 export default function PaymentsContent() {
   const { selectedSite } = useSelectedSite();
@@ -111,46 +37,49 @@ export default function PaymentsContent() {
   const effectiveFrom = isAllTime ? null : dateFrom;
   const effectiveTo = isAllTime ? null : dateTo;
 
-  // The single supported URL param: ?ref=<settlement_ref> highlights the
-  // matching ledger row. Per spec §5.2 the InspectPane never auto-opens;
-  // user must click the row to inspect. The ref is read by the ledger to
-  // tint the matching row, but PaymentsLedger today selects via
-  // selectedEntity (driven by clicks). The ref param is kept for future
-  // wiring; today it's used only as a notification hint.
   const highlightRef = searchParams.get("ref");
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const pane = useInspectPane();
 
-  const summaryQuery = usePaymentSummary(selectedSite?.id, effectiveFrom, effectiveTo);
-  const ledgerQuery = usePaymentsLedger({
+  // Subcontract scoping is added in Phase 3 (SubcontractContextStrip).
+  // For Phase 1 the salary slice aggregates across all subcontracts on the site.
+  const selectedSubcontractId: string | null = null;
+
+  const summaryQuery = usePaymentSummary(
+    selectedSite?.id,
+    effectiveFrom,
+    effectiveTo
+  );
+
+  const salarySummaryQuery = useSalarySliceSummary({
     siteId: selectedSite?.id,
+    subcontractId: selectedSubcontractId,
     dateFrom: effectiveFrom,
     dateTo: effectiveTo,
-    status: statusFilter,
-    type: typeFilter,
   });
 
-  // Settle CTA. The dialog input shapes (DateSummaryForSettlement /
-  // WeeklySummaryForSettlement) require per-record fields (is_paid,
-  // laborer_id, laborer_type, originalDbId) that the current display
-  // hooks do not expose -- see src/components/payments/settlementAdapters.ts
-  // for the rationale. Until a settlement-payload RPC ships, route the
-  // user to /site/attendance which already has the full data shape.
+  const waterfallQuery = useSalaryWaterfall({
+    siteId: selectedSite?.id,
+    subcontractId: selectedSubcontractId,
+    dateFrom: effectiveFrom,
+    dateTo: effectiveTo,
+  });
+
   const handleSettleClick = useCallback(
     (entity: InspectEntity) => {
       const url =
         entity.kind === "daily-date"
           ? `/site/attendance?date=${entity.date}`
-          : `/site/attendance?weekStart=${entity.weekStart}&laborerId=${entity.laborerId}`;
+          : entity.kind === "weekly-week"
+            ? `/site/attendance?weekStart=${entity.weekStart}&laborerId=${entity.laborerId}`
+            : "/site/attendance";
       setNotice("Opening attendance to record this settlement…");
       router.push(url);
     },
-    [router],
+    [router]
   );
 
   const handleOpenInPage = useCallback(
@@ -158,10 +87,12 @@ export default function PaymentsContent() {
       const url =
         entity.kind === "daily-date"
           ? `/site/attendance?date=${entity.date}`
-          : `/site/attendance?weekStart=${entity.weekStart}&laborerId=${entity.laborerId}`;
+          : entity.kind === "weekly-week"
+            ? `/site/attendance?weekStart=${entity.weekStart}&laborerId=${entity.laborerId}`
+            : "/site/attendance";
       router.push(url);
     },
-    [router],
+    [router]
   );
 
   if (!selectedSite) {
@@ -199,7 +130,9 @@ export default function PaymentsContent() {
               <IconButton
                 onClick={() => setIsFullscreen((v) => !v)}
                 size="small"
-                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                aria-label={
+                  isFullscreen ? "Exit fullscreen" : "Enter fullscreen"
+                }
               >
                 {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
               </IconButton>
@@ -207,9 +140,9 @@ export default function PaymentsContent() {
           }
         />
 
-        <PaymentsKpiStrip
-          summary={summaryQuery.data}
-          isLoading={summaryQuery.isLoading}
+        <SalarySliceHero
+          summary={salarySummaryQuery.data}
+          isLoading={salarySummaryQuery.isLoading}
         />
 
         <PendingBanner
@@ -217,67 +150,46 @@ export default function PaymentsContent() {
           pendingDatesCount={summaryQuery.data?.pendingDatesCount ?? 0}
         />
 
-        <Box
-          sx={{
-            display: "flex",
-            gap: 2,
-            alignItems: "center",
-            py: 1,
-            px: 1.5,
-            borderBottom: 1,
-            borderColor: "divider",
-            flexWrap: "wrap",
-          }}
-        >
-          <ChipRow<StatusFilter>
-            options={[
-              {
-                key: "pending",
-                label: `⏳ Pending (${summaryQuery.data?.pendingDatesCount ?? 0})`,
-                tone: "warn",
-              },
-              {
-                key: "completed",
-                label: `✓ Completed (${summaryQuery.data?.paidCount ?? 0})`,
-                tone: "pos",
-              },
-              { key: "all", label: "All" },
-            ]}
-            active={statusFilter}
-            onChange={setStatusFilter}
-          />
-          <Box sx={{ width: "1px", height: 18, bgcolor: "divider" }} />
-          <ChipRow<TypeFilter>
-            options={[
-              { key: "all", label: "All Types" },
-              { key: "daily-market", label: "Daily + Market" },
-              { key: "weekly", label: "Weekly Contract" },
-            ]}
-            active={typeFilter}
-            onChange={setTypeFilter}
-          />
-          {highlightRef && (
-            <Box
-              sx={{
-                ml: "auto",
-                fontSize: 12,
-                color: "text.secondary",
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              }}
-            >
-              Highlighting: {highlightRef}
-            </Box>
-          )}
-        </Box>
+        {highlightRef && (
+          <Box
+            sx={{
+              px: 1.5,
+              py: 0.75,
+              borderBottom: 1,
+              borderColor: "divider",
+              fontSize: 12,
+              color: "text.secondary",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            }}
+          >
+            Highlighting: {highlightRef}
+          </Box>
+        )}
       </Box>
 
       <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-        <PaymentsLedger
-          rows={ledgerQuery.data ?? []}
-          isLoading={ledgerQuery.isLoading}
-          selectedEntity={pane.currentEntity}
-          onRowClick={pane.open}
-          onSettleClick={handleSettleClick}
+        <SalaryWaterfallList
+          weeks={waterfallQuery.data ?? []}
+          futureCredit={salarySummaryQuery.data?.futureCredit ?? 0}
+          isLoading={waterfallQuery.isLoading}
+          onRowClick={(week) => {
+            // Phase 4 adds the 'weekly-aggregate' entity kind to InspectEntity.
+            // For Phase 1 this is a placeholder cast that opens the existing
+            // InspectPane with a synthetic kind; the pane will not render
+            // tab content until Phase 4.2 adds WeeklyAggregateShape.
+            (pane.open as (entity: unknown) => void)({
+              kind: "weekly-aggregate",
+              siteId: selectedSite.id,
+              subcontractId: selectedSubcontractId,
+              weekStart: week.weekStart,
+              weekEnd: week.weekEnd,
+            });
+          }}
+          onSettleClick={(week) => {
+            setNotice(
+              `Settle Week ${week.weekStart} → ${week.weekEnd} (Phase 4 wires WeeklySettlementDialog)`
+            );
+          }}
         />
       </Box>
 
