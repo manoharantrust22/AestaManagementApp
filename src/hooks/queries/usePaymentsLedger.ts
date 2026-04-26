@@ -30,6 +30,7 @@ export function usePaymentsLedger(args: UsePaymentsLedgerArgs) {
         id: string;
         settlement_ref: string | null;
         row_type: "daily-market" | "weekly";
+        subtype: string | null;
         date_or_week_start: string;
         week_end: string | null;
         for_label: string;
@@ -42,6 +43,7 @@ export function usePaymentsLedger(args: UsePaymentsLedgerArgs) {
         id:            r.id,
         settlementRef: r.settlement_ref,
         type:          r.row_type,
+        subtype:       r.subtype ?? r.row_type,
         date:          r.date_or_week_start,
         weekEnd:       r.week_end ?? undefined,
         forLabel:      r.for_label,

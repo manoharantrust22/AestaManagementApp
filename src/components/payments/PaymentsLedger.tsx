@@ -14,6 +14,7 @@ export interface PaymentsLedgerRow {
   id: string;
   settlementRef: string | null;
   type: "daily-market" | "weekly";
+  subtype: string;               // 'daily-market' | 'salary-waterfall' | 'advance' | 'adjustment' | 'unclassified'
   date: string;                  // YYYY-MM-DD
   weekEnd?: string;              // YYYY-MM-DD (only for paid weekly rows)
   forLabel: string;
