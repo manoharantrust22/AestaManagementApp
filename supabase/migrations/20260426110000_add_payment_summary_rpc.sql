@@ -24,6 +24,15 @@
 --     they don't fit the per-date attendance pending pattern. The Pending
 --     banner on /site/payments shows attendance pending only; tea-shop pending
 --     is surfaced separately on /site/tea-shop.
+--   - NULL settlement_date is filtered out of paid_groups entirely. Such rows
+--     are orphaned/incomplete settlement_groups (see migration
+--     20260111215210_fix_orphaned_settlement_groups.sql) and aren't surfaced
+--     in any scope -- including All-Time -- to keep KPI behavior consistent
+--     when the user narrows or widens the date filter. Without this, NULL-dated
+--     rows would appear in All-Time (both bounds NULL -> clauses TRUE) but
+--     silently disappear under any date-bounded scope (NULL >= 'YYYY-MM-DD'
+--     is NULL -> treated as FALSE in WHERE), violating the "scope shrinkage
+--     is monotonic" invariant.
 
 CREATE OR REPLACE FUNCTION public.get_payment_summary(
   p_site_id uuid,
@@ -99,6 +108,7 @@ AS $$
     FROM public.settlement_groups sg
     WHERE sg.site_id = p_site_id
       AND sg.is_cancelled = false
+      AND sg.settlement_date IS NOT NULL
       AND (p_date_from IS NULL OR sg.settlement_date >= p_date_from)
       AND (p_date_to   IS NULL OR sg.settlement_date <= p_date_to)
   ),
