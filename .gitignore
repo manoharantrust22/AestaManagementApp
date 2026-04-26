@@ -54,6 +54,9 @@ supabase/production_backup.sql
 # Superpowers brainstorming session artifacts (mockups, state, server logs)
 .superpowers/
 
+# Git worktrees (isolated workspaces for parallel feature work)
+.worktrees/
+
 # Scratch UI verification screenshots at repo root (committed ones live elsewhere)
 /attendance-*.png
 /payments-*.png
