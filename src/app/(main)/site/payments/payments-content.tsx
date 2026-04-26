@@ -25,11 +25,13 @@ import { SalarySliceHero } from "@/components/payments/SalarySliceHero";
 import { SalaryWaterfallList } from "@/components/payments/SalaryWaterfallList";
 import { AdvancesList } from "@/components/payments/AdvancesList";
 import { DailyMarketLedger } from "@/components/payments/DailyMarketLedger";
+import { SubcontractContextStrip } from "@/components/payments/SubcontractContextStrip";
 import { usePaymentSummary } from "@/hooks/queries/usePaymentSummary";
 import { usePaymentsLedger } from "@/hooks/queries/usePaymentsLedger";
 import { useSalarySliceSummary } from "@/hooks/queries/useSalarySliceSummary";
 import { useSalaryWaterfall } from "@/hooks/queries/useSalaryWaterfall";
 import { useAdvances } from "@/hooks/queries/useAdvances";
+import { useSubcontractSpend } from "@/hooks/queries/useSubcontractSpend";
 import { useInspectPane } from "@/hooks/useInspectPane";
 import { InspectPane } from "@/components/common/InspectPane";
 import type { InspectEntity } from "@/components/common/InspectPane";
@@ -54,9 +56,14 @@ export default function PaymentsContent() {
 
   const pane = useInspectPane();
 
-  // Subcontract scoping is added in Phase 3 (SubcontractContextStrip).
-  // For Phase 1 the salary slice aggregates across all subcontracts on the site.
+  // Subcontract scoping picker is intentionally out of scope for this plan;
+  // the page operates against all subcontracts on the site. The
+  // SubcontractContextStrip below renders its fallback layout in this mode
+  // and the new RPCs treat null as "aggregate across all subcontracts".
   const selectedSubcontractId: string | null = null;
+  const selectedSubcontractTitle: string | null = null;
+
+  const subcontractSpendQuery = useSubcontractSpend(selectedSubcontractId);
 
   const summaryQuery = usePaymentSummary(
     selectedSite?.id,
@@ -166,6 +173,19 @@ export default function PaymentsContent() {
               </IconButton>
             </Tooltip>
           }
+        />
+
+        <SubcontractContextStrip
+          subcontractTitle={selectedSubcontractTitle}
+          totalValue={subcontractSpendQuery.data?.totalValue ?? null}
+          spent={subcontractSpendQuery.data?.spent ?? null}
+          onOpenFullBurnDown={() => {
+            if (selectedSubcontractId) {
+              router.push(`/site/subcontracts?focus=${selectedSubcontractId}`);
+            } else {
+              router.push("/site/subcontracts");
+            }
+          }}
         />
 
         <SalarySliceHero
