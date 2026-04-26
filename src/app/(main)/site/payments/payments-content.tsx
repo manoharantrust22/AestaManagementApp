@@ -1,161 +1,173 @@
 "use client";
 
-import React, { useState, useCallback, useEffect } from "react";
-import dynamic from "next/dynamic";
+import { useCallback, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
-  Box,
-  Typography,
-  Tab,
-  Tabs,
-  Paper,
   Alert,
+  Box,
+  IconButton,
   Snackbar,
-  Button,
+  Stack,
+  Tooltip,
 } from "@mui/material";
 import {
-  Person as PersonIcon,
-  Groups as GroupsIcon,
-  ArrowBack as ArrowBackIcon,
+  Fullscreen as FullscreenIcon,
+  FullscreenExit as FullscreenExitIcon,
 } from "@mui/icons-material";
 import { useSelectedSite } from "@/contexts/SiteContext";
 import { useDateRange } from "@/contexts/DateRangeContext";
 import PageHeader from "@/components/layout/PageHeader";
-import PaymentSummaryCards from "@/components/payments/PaymentSummaryCards";
-import ScopePill from "@/components/common/ScopePill";
-const DailyMarketPaymentsTab = dynamic(
-  () => import("@/components/payments/DailyMarketPaymentsTab"),
-  { ssr: false }
-);
-const ContractWeeklyPaymentsTab = dynamic(
-  () => import("@/components/payments/ContractWeeklyPaymentsTab"),
-  { ssr: false }
-);
-import dayjs from "dayjs";
-import { useSearchParams, useRouter } from "next/navigation";
-import type { PaymentPageData } from "@/lib/data/payments";
-import type { PaymentSummaryData } from "@/types/payment.types";
+import ScopeChip from "@/components/common/ScopeChip";
+import PaymentsKpiStrip from "@/components/payments/PaymentsKpiStrip";
+import PendingBanner from "@/components/payments/PendingBanner";
+import PaymentsLedger from "@/components/payments/PaymentsLedger";
+import { usePaymentSummary } from "@/hooks/queries/usePaymentSummary";
+import { usePaymentsLedger } from "@/hooks/queries/usePaymentsLedger";
+import { useInspectPane } from "@/hooks/useInspectPane";
+import { InspectPane } from "@/components/common/InspectPane";
+import type { InspectEntity } from "@/components/common/InspectPane";
 
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
+type StatusFilter = "pending" | "completed" | "all";
+type TypeFilter = "daily-market" | "weekly" | "all";
+
+interface ChipOption<T extends string> {
+  key: T;
+  label: string;
+  tone?: "warn" | "pos";
 }
 
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
-
+function ChipRow<T extends string>({
+  options,
+  active,
+  onChange,
+}: {
+  options: ChipOption<T>[];
+  active: T;
+  onChange: (k: T) => void;
+}) {
   return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`payment-tabpanel-${index}`}
-      aria-labelledby={`payment-tab-${index}`}
-      {...other}
-    >
-      {value === index && <Box sx={{ pt: 3 }}>{children}</Box>}
-    </div>
+    <Stack direction="row" spacing={0.75}>
+      {options.map((o) => {
+        const isActive = active === o.key;
+        const activeStyles = isActive
+          ? o.tone === "warn"
+            ? {
+                bgcolor: "warning.light",
+                color: "warning.dark",
+                borderColor: "warning.main",
+              }
+            : o.tone === "pos"
+              ? {
+                  bgcolor: "success.light",
+                  color: "success.dark",
+                  borderColor: "success.main",
+                }
+              : {
+                  bgcolor: "primary.light",
+                  color: "primary.dark",
+                  borderColor: "primary.main",
+                }
+          : { borderColor: "divider" };
+        return (
+          <Box
+            key={o.key}
+            role="button"
+            aria-pressed={isActive}
+            tabIndex={0}
+            onClick={() => onChange(o.key)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onChange(o.key);
+              }
+            }}
+            sx={{
+              cursor: "pointer",
+              userSelect: "none",
+              px: 1.25,
+              py: 0.4,
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: isActive ? 600 : 500,
+              border: 1,
+              ...activeStyles,
+            }}
+          >
+            {o.label}
+          </Box>
+        );
+      })}
+    </Stack>
   );
 }
 
-interface PaymentsContentProps {
-  initialData: PaymentPageData | null;
-}
-
-export default function PaymentsContent({ initialData }: PaymentsContentProps) {
+export default function PaymentsContent() {
   const { selectedSite } = useSelectedSite();
   const { formatForApi, isAllTime } = useDateRange();
-  const searchParams = useSearchParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const { dateFrom, dateTo } = formatForApi();
+  const effectiveFrom = isAllTime ? null : dateFrom;
+  const effectiveTo = isAllTime ? null : dateTo;
 
-  // URL params for highlighting (from redirect)
-  const highlightDate = searchParams.get("date");
-  const highlightAction = searchParams.get("action");
-  const highlightTransactionId = searchParams.get("transactionId");
-  const highlightRef = searchParams.get("highlight");
-  const tabParam = searchParams.get("tab");
+  // The single supported URL param: ?ref=<settlement_ref> highlights the
+  // matching ledger row. Per spec §5.2 the InspectPane never auto-opens;
+  // user must click the row to inspect. The ref is read by the ledger to
+  // tint the matching row, but PaymentsLedger today selects via
+  // selectedEntity (driven by clicks). The ref param is kept for future
+  // wiring; today it's used only as a notification hint.
+  const highlightRef = searchParams.get("ref");
 
-  // Notification snackbar state
-  const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  // Handle URL params for highlighting (from redirect)
-  useEffect(() => {
-    if (highlightDate && highlightAction === "edit_or_delete") {
-      const formattedDate = dayjs(highlightDate).format("DD MMM YYYY");
-      setNotificationMessage(
-        `Cancel or modify the payment for ${formattedDate} to update the linked expense`
-      );
-    }
-  }, [highlightDate, highlightAction]);
+  const pane = useInspectPane();
 
-  // Tab state - initialize based on URL param
-  const [activeTab, setActiveTab] = useState(() => {
-    if (tabParam === "salary" || tabParam === "daily") return 0;
-    if (tabParam === "contract" || tabParam === "weekly") return 1;
-    return 0;
+  const summaryQuery = usePaymentSummary(selectedSite?.id, effectiveFrom, effectiveTo);
+  const ledgerQuery = usePaymentsLedger({
+    siteId: selectedSite?.id,
+    dateFrom: effectiveFrom,
+    dateTo: effectiveTo,
+    status: statusFilter,
+    type: typeFilter,
   });
 
-  // Update tab when URL param changes
-  useEffect(() => {
-    if (tabParam === "salary" || tabParam === "daily") setActiveTab(0);
-    if (tabParam === "contract" || tabParam === "weekly") setActiveTab(1);
-  }, [tabParam]);
-
-  // Empty summary for initialization
-  const emptySummary: PaymentSummaryData = {
-    dailyMarketPending: 0,
-    dailyMarketPendingCount: 0,
-    dailyMarketSentToEngineer: 0,
-    dailyMarketSentToEngineerCount: 0,
-    dailyMarketPaid: 0,
-    dailyMarketPaidCount: 0,
-    contractWeeklyDue: 0,
-    contractWeeklyDueLaborerCount: 0,
-    contractWeeklyPaid: 0,
-    bySubcontract: [],
-    unlinkedTotal: 0,
-    unlinkedCount: 0,
-  };
-
-  // Store summary for each tab separately
-  const [dailyMarketSummary, setDailyMarketSummary] = useState<PaymentSummaryData>(
-    initialData?.summaryData || emptySummary
+  // Settle CTA. The dialog input shapes (DateSummaryForSettlement /
+  // WeeklySummaryForSettlement) require per-record fields (is_paid,
+  // laborer_id, laborer_type, originalDbId) that the current display
+  // hooks do not expose -- see src/components/payments/settlementAdapters.ts
+  // for the rationale. Until a settlement-payload RPC ships, route the
+  // user to /site/attendance which already has the full data shape.
+  const handleSettleClick = useCallback(
+    (entity: InspectEntity) => {
+      const url =
+        entity.kind === "daily-date"
+          ? `/site/attendance?date=${entity.date}`
+          : `/site/attendance?weekStart=${entity.weekStart}&laborerId=${entity.laborerId}`;
+      setNotice("Opening attendance to record this settlement…");
+      router.push(url);
+    },
+    [router],
   );
-  const [contractWeeklySummary, setContractWeeklySummary] = useState<PaymentSummaryData>(emptySummary);
-  const [summaryLoading, setSummaryLoading] = useState(false);
 
-  // Display the active tab's summary
-  const summaryData = activeTab === 0 ? dailyMarketSummary : contractWeeklySummary;
+  const handleOpenInPage = useCallback(
+    (entity: InspectEntity) => {
+      const url =
+        entity.kind === "daily-date"
+          ? `/site/attendance?date=${entity.date}`
+          : `/site/attendance?weekStart=${entity.weekStart}&laborerId=${entity.laborerId}`;
+      router.push(url);
+    },
+    [router],
+  );
 
-  // Callbacks for child components to update their summaries
-  const handleDailyMarketSummaryChange = useCallback((summary: PaymentSummaryData) => {
-    setDailyMarketSummary(summary);
-  }, []);
-
-  const handleContractWeeklySummaryChange = useCallback((summary: PaymentSummaryData) => {
-    setContractWeeklySummary(summary);
-  }, []);
-
-  // Handle data changes - child components handle their own data fetching
-  const handleDataChange = useCallback(() => {
-    // Summary updates are now handled by onSummaryChange callbacks
-  }, []);
-
-  // Calculate effective date range for tab components
-  const effectiveDateFrom = isAllTime
-    ? "2000-01-01"
-    : dateFrom || dayjs().format("YYYY-MM-DD");
-  const effectiveDateTo = dateTo || dayjs().format("YYYY-MM-DD");
-
-  // If no site selected, show message
   if (!selectedSite) {
     return (
       <Box>
-        <PageHeader
-          title="Salary Settlements"
-          subtitle="Manage daily, market, and contract laborer salary settlements"
-        />
+        <PageHeader title="Salary Settlements" titleChip={<ScopeChip />} />
         <Alert severity="info">
           Please select a site from the dropdown to view salary settlements.
         </Alert>
@@ -164,92 +176,128 @@ export default function PaymentsContent({ initialData }: PaymentsContentProps) {
   }
 
   return (
-    <Box>
-      <PageHeader
-        title="Salary Settlements"
-        subtitle="Manage daily, market, and contract laborer salary settlements"
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        height: "calc(100vh - 64px)",
+        ...(isFullscreen && {
+          position: "fixed",
+          inset: 0,
+          zIndex: 1300,
+          height: "100vh",
+          bgcolor: "background.default",
+        }),
+      }}
+    >
+      <Box sx={{ flexShrink: 0 }}>
+        <PageHeader
+          title="Salary Settlements"
+          titleChip={<ScopeChip />}
+          actions={
+            <Tooltip title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}>
+              <IconButton
+                onClick={() => setIsFullscreen((v) => !v)}
+                size="small"
+                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              >
+                {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+              </IconButton>
+            </Tooltip>
+          }
+        />
+
+        <PaymentsKpiStrip
+          summary={summaryQuery.data}
+          isLoading={summaryQuery.isLoading}
+        />
+
+        <PendingBanner
+          pendingAmount={summaryQuery.data?.pendingAmount ?? 0}
+          pendingDatesCount={summaryQuery.data?.pendingDatesCount ?? 0}
+        />
+
+        <Box
+          sx={{
+            display: "flex",
+            gap: 2,
+            alignItems: "center",
+            py: 1,
+            px: 1.5,
+            borderBottom: 1,
+            borderColor: "divider",
+            flexWrap: "wrap",
+          }}
+        >
+          <ChipRow<StatusFilter>
+            options={[
+              {
+                key: "pending",
+                label: `⏳ Pending (${summaryQuery.data?.pendingDatesCount ?? 0})`,
+                tone: "warn",
+              },
+              {
+                key: "completed",
+                label: `✓ Completed (${summaryQuery.data?.paidCount ?? 0})`,
+                tone: "pos",
+              },
+              { key: "all", label: "All" },
+            ]}
+            active={statusFilter}
+            onChange={setStatusFilter}
+          />
+          <Box sx={{ width: "1px", height: 18, bgcolor: "divider" }} />
+          <ChipRow<TypeFilter>
+            options={[
+              { key: "all", label: "All Types" },
+              { key: "daily-market", label: "Daily + Market" },
+              { key: "weekly", label: "Weekly Contract" },
+            ]}
+            active={typeFilter}
+            onChange={setTypeFilter}
+          />
+          {highlightRef && (
+            <Box
+              sx={{
+                ml: "auto",
+                fontSize: 12,
+                color: "text.secondary",
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              }}
+            >
+              Highlighting: {highlightRef}
+            </Box>
+          )}
+        </Box>
+      </Box>
+
+      <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+        <PaymentsLedger
+          rows={ledgerQuery.data ?? []}
+          isLoading={ledgerQuery.isLoading}
+          selectedEntity={pane.currentEntity}
+          onRowClick={pane.open}
+          onSettleClick={handleSettleClick}
+        />
+      </Box>
+
+      <InspectPane
+        entity={pane.currentEntity}
+        isOpen={pane.isOpen}
+        isPinned={pane.isPinned}
+        activeTab={pane.activeTab}
+        onTabChange={pane.setActiveTab}
+        onClose={pane.close}
+        onTogglePin={pane.togglePin}
+        onOpenInPage={handleOpenInPage}
+        onSettleClick={handleSettleClick}
       />
 
-      {!isAllTime && (
-        <Paper sx={{ mb: 2, overflow: "hidden" }}>
-          <ScopePill />
-        </Paper>
-      )}
-
-      {/* Back button when coming from expenses page via ref code click */}
-      {highlightRef && (
-        <Box sx={{ mb: 2 }}>
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<ArrowBackIcon />}
-            onClick={() => router.push("/site/expenses")}
-          >
-            Back to Expenses
-          </Button>
-        </Box>
-      )}
-
-      {/* Tabs */}
-      <Paper sx={{ mb: 3 }}>
-        <Tabs
-          value={activeTab}
-          onChange={(_, newValue) => {
-            setActiveTab(newValue);
-            // Update URL to preserve tab on refresh
-            const tabName = newValue === 0 ? "salary" : "contract";
-            const params = new URLSearchParams(searchParams.toString());
-            params.set("tab", tabName);
-            router.replace(`/site/payments?${params.toString()}`, { scroll: false });
-          }}
-          sx={{ borderBottom: 1, borderColor: "divider" }}
-        >
-          <Tab
-            icon={<PersonIcon />}
-            iconPosition="start"
-            label="Daily & Market Settlements"
-            id="payment-tab-0"
-            aria-controls="payment-tabpanel-0"
-          />
-          <Tab
-            icon={<GroupsIcon />}
-            iconPosition="start"
-            label="Contract Weekly Settlements"
-            id="payment-tab-1"
-            aria-controls="payment-tabpanel-1"
-          />
-        </Tabs>
-
-        <Box sx={{ p: 2 }}>
-          <TabPanel value={activeTab} index={0}>
-            <DailyMarketPaymentsTab
-              dateFrom={effectiveDateFrom}
-              dateTo={effectiveDateTo}
-              onFilterChange={() => {}}
-              onDataChange={handleDataChange}
-              onSummaryChange={handleDailyMarketSummaryChange}
-              highlightRef={highlightRef}
-            />
-          </TabPanel>
-
-          <TabPanel value={activeTab} index={1}>
-            <ContractWeeklyPaymentsTab
-              dateFrom={effectiveDateFrom}
-              dateTo={effectiveDateTo}
-              onDataChange={handleDataChange}
-              onSummaryChange={handleContractWeeklySummaryChange}
-              highlightRef={highlightRef}
-            />
-          </TabPanel>
-        </Box>
-      </Paper>
-
-      {/* Notification snackbar (from redirect) */}
       <Snackbar
-        open={!!notificationMessage}
-        autoHideDuration={8000}
-        onClose={() => setNotificationMessage(null)}
-        message={notificationMessage}
+        open={!!notice}
+        autoHideDuration={4000}
+        onClose={() => setNotice(null)}
+        message={notice}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       />
     </Box>
