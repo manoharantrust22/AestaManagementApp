@@ -303,10 +303,12 @@ function WeeklyShape({
           label="Daily Sal."
           value={`₹${dailySalary.toLocaleString("en-IN")}`}
         />
-        <TotalTile
-          label="Contract"
-          value={`₹${contractAmount.toLocaleString("en-IN")}`}
-        />
+        {contractAmount > 0 && (
+          <TotalTile
+            label="Contract"
+            value={`₹${contractAmount.toLocaleString("en-IN")}`}
+          />
+        )}
         <TotalTile
           label="Total"
           value={`₹${total.toLocaleString("en-IN")}`}
