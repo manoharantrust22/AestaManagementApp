@@ -19,6 +19,11 @@
 --     excess settlements which the UX groups under the contract bucket).
 --   This partition is mutually exclusive and exhaustive over non-cancelled
 --   settlement_groups, so daily_market + weekly = total paid.
+--   - Tea-shop unpaid is intentionally excluded here. Tea-shop expenses live in
+--     tea_shop_entries / tea_shop_settlements, not on attendance.is_paid, so
+--     they don't fit the per-date attendance pending pattern. The Pending
+--     banner on /site/payments shows attendance pending only; tea-shop pending
+--     is surfaced separately on /site/tea-shop.
 
 CREATE OR REPLACE FUNCTION public.get_payment_summary(
   p_site_id uuid,
