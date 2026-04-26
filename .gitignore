@@ -50,3 +50,11 @@ supabase/production_backup.sql
 
 # Env backups
 *.local.bak
+
+# Superpowers brainstorming session artifacts (mockups, state, server logs)
+.superpowers/
+
+# Scratch UI verification screenshots at repo root (committed ones live elsewhere)
+/attendance-*.png
+/payments-*.png
+/expenses-*.png

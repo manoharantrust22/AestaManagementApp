@@ -640,3 +640,20 @@ export function getContractPaymentTypeColor(
       return "default";
   }
 }
+
+// ============ SCOPE SUMMARY (server-side aggregate) ============
+
+/**
+ * Server-side aggregate from get_payment_summary RPC.
+ * One row per call regardless of scope size.
+ */
+export interface PaymentScopeSummary {
+  pendingAmount: number;
+  pendingDatesCount: number;
+  paidAmount: number;
+  paidCount: number;
+  dailyMarketAmount: number;
+  dailyMarketCount: number;
+  weeklyAmount: number;
+  weeklyCount: number;
+}

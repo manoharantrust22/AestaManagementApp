@@ -456,6 +456,14 @@ export function shouldPersistQuery(queryKey: readonly unknown[]): boolean {
     return false;
   }
 
+  // Don't persist scope-wide aggregate queries (e.g. attendance summary
+  // RPC). They're cheap to recompute and persisting an outdated total —
+  // or worse, a cached zeros result from a transient error — would
+  // silently mislead the user on the next page load.
+  if (queryKey.includes('summary')) {
+    return false;
+  }
+
   return !noPersistEntities.includes(entity);
 }
 

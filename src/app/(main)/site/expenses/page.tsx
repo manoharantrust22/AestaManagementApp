@@ -38,10 +38,14 @@ import {
   OpenInNew,
   Close,
   ChevronRight,
+  Fullscreen as FullscreenIcon,
+  FullscreenExit as FullscreenExitIcon,
 } from "@mui/icons-material";
 import DataTable, { type MRT_ColumnDef } from "@/components/common/DataTable";
 import RedirectConfirmDialog from "@/components/common/RedirectConfirmDialog";
-import ScopePill from "@/components/common/ScopePill";
+import ScopeChip from "@/components/common/ScopeChip";
+import { InspectPane } from "@/components/common/InspectPane";
+import { useInspectPane } from "@/hooks/useInspectPane";
 import { createClient } from "@/lib/supabase/client";
 import { useSite } from "@/contexts/SiteContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -99,6 +103,10 @@ export default function ExpensesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [activeTab, setActiveTab] = useState<ExpenseModule | "all" | "miscellaneous">("all");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Inspect pane for in-place settlement detail viewing (replaces ref-code router push for DLY-/SS-/WS-)
+  const pane = useInspectPane();
 
   // Multi-payer state
   const [hasMultiplePayers, setHasMultiplePayers] = useState(false);
@@ -655,11 +663,37 @@ export default function ExpensesPage() {
                   // Navigate to subcontracts page for direct payments
                   router.push(`/site/subcontracts`);
                 } else {
-                  // Use expense_type to determine which tab to navigate to
-                  // "Contract Salary" goes to contract tab, all others (Daily Salary, etc) go to salary tab
-                  const isContractSettlement = row.original.expense_type === "Contract Salary";
-                  const tab = isContractSettlement ? "contract" : "salary";
-                  router.push(`/site/payments?tab=${tab}&highlight=${encodeURIComponent(ref)}`);
+                  // Settlement refs (DLY-, SS-, WS-) - open InspectPane in-place,
+                  // no nav. Cross-page rule from spec section 6.
+                  const isWeekly = ref.startsWith("WS-");
+                  if (isWeekly) {
+                    // Weekly needs contract_laborer_id + week_start/week_end on the
+                    // row. v_all_expenses doesn't yet expose those columns, so the
+                    // accessor read returns undefined and we fall back to navigation
+                    // (the previous behaviour) rather than silently dropping the click.
+                    const lid = (row.original as any).contract_laborer_id;
+                    const ws = (row.original as any).week_start;
+                    const we = (row.original as any).week_end;
+                    if (lid && ws && we) {
+                      pane.open({
+                        kind: "weekly-week",
+                        siteId: selectedSite!.id,
+                        laborerId: lid,
+                        weekStart: ws,
+                        weekEnd: we,
+                        settlementRef: ref,
+                      });
+                    } else {
+                      router.push(`/site/payments?tab=contract&highlight=${encodeURIComponent(ref)}`);
+                    }
+                  } else {
+                    pane.open({
+                      kind: "daily-date",
+                      siteId: selectedSite!.id,
+                      date: row.original.date,
+                      settlementRef: ref,
+                    });
+                  }
                 }
               }}
               sx={{ fontFamily: "monospace", fontWeight: 600, cursor: "pointer" }}
@@ -848,37 +882,65 @@ export default function ExpensesPage() {
     );
 
     return cols;
-  }, [canEdit]);
+    // pane and selectedSite are captured by closure inside the Ref Code onClick;
+    // include them so settlement-ref clicks always see the latest values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canEdit, pane, selectedSite, router]);
 
   if (!selectedSite)
     return (
       <Box>
-        <PageHeader title="All Site Expenses" />
+        <PageHeader title="All Site Expenses" titleChip={<ScopeChip />} />
         <Alert severity="warning">Please select a site</Alert>
       </Box>
     );
 
   return (
-    <Box>
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        height: "calc(100vh - 64px)",
+        ...(isFullscreen && {
+          position: "fixed",
+          inset: 0,
+          zIndex: 1300,
+          height: "100vh",
+          bgcolor: "background.default",
+        }),
+      }}
+    >
+      <Box sx={{ flexShrink: 0 }}>
       <PageHeader
         title="All Site Expenses"
+        titleChip={<ScopeChip />}
         subtitle={`Track expenses for ${selectedSite.name}`}
         actions={
-          <Button
-            variant="contained"
-            startIcon={<Add />}
-            onClick={() => handleOpenDialog()}
-            disabled={!canEdit}
-          >
-            Add Expense
-          </Button>
+          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+            <Button
+              variant="contained"
+              startIcon={<Add />}
+              onClick={() => handleOpenDialog()}
+              disabled={!canEdit}
+            >
+              Add Expense
+            </Button>
+            <Tooltip title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}>
+              <IconButton
+                onClick={() => setIsFullscreen((v) => !v)}
+                size="small"
+                aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              >
+                {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+              </IconButton>
+            </Tooltip>
+          </Box>
         }
       />
 
       {/* Unified Expense Summary */}
       <Card sx={{ mb: 3 }}>
         <CardContent sx={{ p: 0 }}>
-          <ScopePill />
           <Box
             sx={{
               display: "flex",
@@ -1117,17 +1179,20 @@ export default function ExpensesPage() {
           </Tabs>
         </CardContent>
       </Card>
+      </Box>
 
-      <DataTable
-        columns={columns}
-        data={expenses}
-        isLoading={loading}
-        enableColumnPinning
-        showRecordCount
-        initialState={{
-          columnPinning: { left: ["settlement_reference", "date"] },
-        }}
-      />
+      <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+        <DataTable
+          columns={columns}
+          data={expenses}
+          isLoading={loading}
+          enableColumnPinning
+          showRecordCount
+          initialState={{
+            columnPinning: { left: ["settlement_reference", "date"] },
+          }}
+        />
+      </Box>
 
       <Dialog
         open={dialogOpen}
@@ -1513,6 +1578,25 @@ export default function ExpensesPage() {
           </Box>
         </Box>
       </Drawer>
+
+      {/* Inspect pane for settlement detail (DLY-/SS-/WS- ref-code clicks). */}
+      {/* No onSettleClick: pending settlements live on /site/payments. */}
+      <InspectPane
+        entity={pane.currentEntity}
+        isOpen={pane.isOpen}
+        isPinned={pane.isPinned}
+        activeTab={pane.activeTab}
+        onTabChange={pane.setActiveTab}
+        onClose={pane.close}
+        onTogglePin={pane.togglePin}
+        onOpenInPage={(e) => {
+          const url =
+            e.kind === "daily-date"
+              ? `/site/payments?ref=${e.settlementRef ?? ""}`
+              : `/site/payments?ref=${e.settlementRef ?? ""}`;
+          router.push(url);
+        }}
+      />
     </Box>
   );
 }

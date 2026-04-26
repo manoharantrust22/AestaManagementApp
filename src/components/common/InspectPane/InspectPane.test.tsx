@@ -1,0 +1,111 @@
+import React from "react";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { InspectPane } from "./InspectPane";
+import type { InspectEntity } from "./types";
+
+// Mock the supabase client used inside AttendanceTab's hooks so that
+// rendering the pane shell in this test doesn't trigger real network.
+// (The hook's queryFn is gated behind enabled: Boolean(siteId && date),
+// which is true in these tests, so we still need the rpc() to resolve.)
+vi.mock("@/lib/supabase/client", () => ({
+  createClient: () => ({
+    rpc: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  }),
+}));
+
+const dailyEntity: InspectEntity = {
+  kind: "daily-date",
+  siteId: "site-1",
+  date: "2026-04-21",
+  settlementRef: "SS-0421",
+};
+
+function renderWithClient(ui: React.ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>
+  );
+}
+
+const baseProps = {
+  entity: dailyEntity,
+  isOpen: true,
+  isPinned: false,
+  activeTab: "attendance" as const,
+  onTabChange: vi.fn(),
+  onClose: vi.fn(),
+  onTogglePin: vi.fn(),
+  onOpenInPage: vi.fn(),
+};
+
+describe("InspectPane", () => {
+  it("renders nothing when isOpen=false", () => {
+    const { container } = renderWithClient(<InspectPane {...baseProps} isOpen={false} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("renders nothing when entity is null", () => {
+    const { container } = renderWithClient(<InspectPane {...baseProps} entity={null} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("renders title for daily entity", () => {
+    renderWithClient(<InspectPane {...baseProps} />);
+    // "📅 21 Apr · Mon"
+    expect(screen.getByText(/21 Apr/)).toBeInTheDocument();
+    expect(screen.getByText(/SS-0421/)).toBeInTheDocument();
+  });
+
+  it("close button calls onClose", () => {
+    const onClose = vi.fn();
+    renderWithClient(<InspectPane {...baseProps} onClose={onClose} />);
+    fireEvent.click(screen.getByLabelText(/close/i));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("Esc key calls onClose", () => {
+    const onClose = vi.fn();
+    renderWithClient(<InspectPane {...baseProps} onClose={onClose} />);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("Esc does NOT call onClose when isOpen=false", () => {
+    const onClose = vi.fn();
+    renderWithClient(<InspectPane {...baseProps} isOpen={false} onClose={onClose} />);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("clicking a tab calls onTabChange", () => {
+    const onTabChange = vi.fn();
+    renderWithClient(<InspectPane {...baseProps} onTabChange={onTabChange} />);
+    fireEvent.click(screen.getByRole("tab", { name: /settlement/i }));
+    expect(onTabChange).toHaveBeenCalledWith("settlement");
+  });
+
+  it("pin button calls onTogglePin", () => {
+    const onTogglePin = vi.fn();
+    renderWithClient(<InspectPane {...baseProps} onTogglePin={onTogglePin} />);
+    fireEvent.click(screen.getByLabelText(/pin/i));
+    expect(onTogglePin).toHaveBeenCalled();
+  });
+
+  it("renders weekly-week title shape", () => {
+    const weeklyEntity: InspectEntity = {
+      kind: "weekly-week",
+      siteId: "site-1",
+      laborerId: "laborer-1",
+      weekStart: "2026-04-14",
+      weekEnd: "2026-04-20",
+      settlementRef: "WS-W16-01",
+    };
+    renderWithClient(<InspectPane {...baseProps} entity={weeklyEntity} />);
+    expect(screen.getByText(/Week 14[–-]20 Apr/)).toBeInTheDocument();
+    expect(screen.getByText(/WS-W16-01/)).toBeInTheDocument();
+  });
+});

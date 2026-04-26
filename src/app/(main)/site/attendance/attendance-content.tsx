@@ -121,6 +121,11 @@ import type { UnifiedSettlementConfig, SettlementRecord } from "@/types/settleme
 import DataTable, { type MRT_ColumnDef } from "@/components/common/DataTable";
 import AuditAvatarGroup from "@/components/common/AuditAvatarGroup";
 import ScopeChip from "@/components/common/ScopeChip";
+import { InspectPane } from "@/components/common/InspectPane";
+import type { InspectEntity } from "@/components/common/InspectPane";
+import { useInspectPane } from "@/hooks/useInspectPane";
+import SettleDayButton from "@/components/attendance/SettleDayButton";
+import SettlementRefChip from "@/components/attendance/SettlementRefChip";
 import {
   PhotoBadge,
   WorkUpdateViewer,
@@ -135,10 +140,14 @@ import type { DailyPaymentRecord } from "@/types/payment.types";
 import { createClient } from "@/lib/supabase/client";
 import { useSite } from "@/contexts/SiteContext";
 import {
-  useAttendanceData,
   useInvalidateAttendanceData,
   type RawAttendanceData,
 } from "@/hooks/useAttendanceData";
+import { useAttendanceWeeksInfinite } from "@/hooks/useAttendanceWeeksInfinite";
+import {
+  useAttendanceSummary,
+  type AttendancePeriodTotals,
+} from "@/hooks/useAttendanceSummary";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDateRange } from "@/contexts/DateRangeContext";
 import PageHeader from "@/components/layout/PageHeader";
@@ -370,6 +379,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   // Fullscreen mode using native Fullscreen API
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const pickerPortalRef = useRef<HTMLDivElement>(null);
+  // Sentinel row at the bottom of the attendance table; an
+  // IntersectionObserver below triggers fetchNextPage when it scrolls into
+  // view so older weeks load on demand instead of all at once.
+  const loadMoreSentinelRef = useRef<HTMLTableCellElement | null>(null);
   const { isFullscreen, enterFullscreen, exitFullscreen } = useFullscreen(
     tableContainerRef,
     { orientation: "landscape" }
@@ -534,6 +547,9 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   const [settlementDialogOpen, setSettlementDialogOpen] = useState(false);
   const [settlementConfig, setSettlementConfig] = useState<UnifiedSettlementConfig | null>(null);
 
+  // InspectPane (for SettlementRefChip click-to-inspect, no navigation).
+  const pane = useInspectPane();
+
   // Restoration/notification message state
   const [restorationMessage, setRestorationMessage] = useState<string | null>(
     null
@@ -606,14 +622,150 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     setPaidRecordDialog(null);
   };
 
-  // React Query hook for attendance data - properly handles site switching and caching
-  const {
-    data: attendanceQueryData,
-    isLoading: queryLoading,
-    isFetching: queryFetching,
-    isTransitioning: siteTransitioning,
-    refetch: refetchAttendance,
-  } = useAttendanceData({
+  // ---- Settlement dialog triggers (reused by row CTAs and InspectPane) ----
+  // Open the daily settlement dialog for a given DateSummary. Builds the
+  // UnifiedSettlementConfig identical to the legacy inline IconButton path.
+  const openDailySettlementDialog = useCallback((summary: DateSummary) => {
+    const records: SettlementRecord[] = [
+      // Daily records
+      ...summary.records
+        .filter((r) => !r.is_paid)
+        .map((r) => ({
+          id: `daily-${r.id}`,
+          sourceType: "daily" as const,
+          sourceId: r.id,
+          laborerName: r.laborer_name,
+          laborerType: (r.laborer_type === "contract" ? "contract" : "daily") as
+            | "daily"
+            | "contract"
+            | "market",
+          amount: r.daily_earnings,
+          date: summary.date,
+          isPaid: false,
+          category: r.category_name,
+          role: r.role_name,
+        })),
+      // Market records
+      ...summary.marketLaborers
+        .filter((m) => !m.isPaid)
+        .map((m) => ({
+          id: `market-${m.originalDbId}`,
+          sourceType: "market" as const,
+          sourceId: m.originalDbId,
+          laborerName: m.roleName,
+          laborerType: "market" as const,
+          amount: m.dailyEarnings,
+          date: summary.date,
+          isPaid: false,
+          role: m.roleName,
+          count: m.groupCount,
+        })),
+    ];
+
+    const dailyLaborPending = summary.records
+      .filter((r) => !r.is_paid && r.laborer_type !== "contract")
+      .reduce((sum, r) => sum + r.daily_earnings, 0);
+    const contractLaborPending = summary.records
+      .filter((r) => !r.is_paid && r.laborer_type === "contract")
+      .reduce((sum, r) => sum + r.daily_earnings, 0);
+    const marketLaborPending = summary.marketLaborers
+      .filter((m) => !m.isPaid)
+      .reduce((sum, m) => sum + m.dailyEarnings, 0);
+
+    setSettlementConfig({
+      context: "daily_single",
+      date: summary.date,
+      records,
+      totalAmount: summary.totalSalary,
+      pendingAmount: summary.pendingAmount,
+      dailyLaborPending,
+      contractLaborPending,
+      marketLaborPending,
+      allowTypeSelection: false,
+    });
+    setSettlementDialogOpen(true);
+  }, []);
+
+  // Open the weekly settlement dialog for a given WeeklySummary.
+  const openWeeklySettlementDialog = useCallback(
+    (weekly: WeeklySummary) => {
+      setSettlementConfig({
+        context: "weekly",
+        dateRange: { from: weekly.weekStart, to: weekly.weekEnd },
+        weekLabel: weekly.weekLabel,
+        records: [], // Weekly settlement fetches records from DB
+        totalAmount: weekly.totalPending,
+        pendingAmount: weekly.totalPending,
+        dailyLaborPending: weekly.pendingDailySalary,
+        contractLaborPending: weekly.pendingContractSalary,
+        marketLaborPending: weekly.pendingMarketSalary,
+        allowTypeSelection: true,
+      });
+      setSettlementDialogOpen(true);
+    },
+    []
+  );
+
+  // React Query hook for attendance TABLE rows - infinite scroll, one week per page.
+  // The cards above don't depend on these pages; they read scope-wide totals
+  // from useAttendanceSummary so they stay accurate even when only a couple
+  // of weeks are loaded into the table.
+  const weeksQuery = useAttendanceWeeksInfinite({
+    dateFrom,
+    dateTo,
+    isAllTime,
+    enabled: !initialData || initialDataProcessedRef.current,
+  });
+
+  // Merge every loaded page into one RawAttendanceData blob so the existing
+  // grouping/processing pipeline below stays untouched. Pages append on
+  // scroll; merging is a flat concat.
+  const attendanceQueryData: RawAttendanceData | undefined = useMemo(() => {
+    if (!weeksQuery.data) return undefined;
+    const dailyAttendance: any[] = [];
+    const marketAttendance: any[] = [];
+    const workSummaries: any[] = [];
+    const teaShopEntries: any[] = [];
+    const teaShopAllocations: any[] = [];
+    const seenAlloc = new Set<string>();
+    weeksQuery.data.pages.forEach((page) => {
+      dailyAttendance.push(...page.data.dailyAttendance);
+      marketAttendance.push(...page.data.marketAttendance);
+      workSummaries.push(...page.data.workSummaries);
+      teaShopEntries.push(...page.data.teaShopEntries);
+      // Allocations are fetched per-page from the same source table, so the
+      // same allocation row can show up in multiple pages. Dedupe on
+      // (entry_id, allocated_amount) to avoid double-counting in the
+      // per-day tea-shop UI.
+      page.data.teaShopAllocations.forEach((a: any) => {
+        const key = `${a.entry_id}|${a.allocated_amount}`;
+        if (seenAlloc.has(key)) return;
+        seenAlloc.add(key);
+        teaShopAllocations.push(a);
+      });
+    });
+    return {
+      dailyAttendance,
+      marketAttendance,
+      workSummaries,
+      teaShopEntries,
+      teaShopAllocations,
+    };
+  }, [weeksQuery.data]);
+
+  const queryLoading = weeksQuery.isLoading;
+  const queryFetching = weeksQuery.isFetching;
+  // The previous hook exposed isTransitioning to suppress stale data during a
+  // site change. The infinite hook clears prior-site pages on mount, so the
+  // closest equivalent is "still loading the first page after a site change".
+  const siteTransitioning = weeksQuery.isFetching && !weeksQuery.data;
+  const refetchAttendance = weeksQuery.refetch;
+
+  // Scope-wide aggregates for the cards above (Period Total / Salary /
+  // Tea Shop / Daily / Contract / Market / Paid / Pending / Avg-per-day).
+  // Stays accurate at any scope because it's a single Postgres aggregate
+  // call rather than a row-by-row sum on the client.
+  const summaryQuery = useAttendanceSummary({
     dateFrom,
     dateTo,
     isAllTime,
@@ -622,6 +774,35 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
 
   // Hook to invalidate attendance cache after mutations
   const invalidateAttendance = useInvalidateAttendanceData();
+
+  // Auto-load the next week when the sentinel row scrolls into view.
+  // The 200px rootMargin starts the fetch slightly before the row is
+  // actually visible so the loading indicator transitions are smooth.
+  useEffect(() => {
+    const node = loadMoreSentinelRef.current;
+    if (!node) return;
+    if (!weeksQuery.hasNextPage) return;
+    if (weeksQuery.isFetchingNextPage) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting) {
+          weeksQuery.fetchNextPage();
+        }
+      },
+      { rootMargin: "200px 0px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [
+    weeksQuery.hasNextPage,
+    weeksQuery.isFetchingNextPage,
+    weeksQuery.fetchNextPage,
+    // Re-attach when the rendered row count changes (the sentinel TableRow
+    // is conditionally mounted only when combinedDateEntries.length > 0).
+    weeksQuery.data?.pages.length,
+  ]);
 
   // Track previous site ID to detect site changes and clear stale data
   const previousSiteIdRef = useRef<string | null>(null);
@@ -1035,8 +1216,14 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     }
   }, [selectedSite?.id]); // Only run when site changes
 
-  // Calculate totals for the filtered period
-  const periodTotals = useMemo(() => {
+  // Period totals for the summary cards. Prefer the scope-wide RPC result
+  // (accurate at any scope, including All Time, regardless of which weeks
+  // the table has loaded). Fall back to summing the loaded dateSummaries
+  // when the RPC hasn't returned yet — mostly the very first paint and
+  // the brief window before the migration is applied locally.
+  const periodTotals = useMemo<AttendancePeriodTotals>(() => {
+    if (summaryQuery.data) return summaryQuery.data;
+
     let totalSalary = 0;
     let totalTeaShop = 0;
     let totalLaborers = 0;
@@ -1044,7 +1231,6 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     let totalPendingCount = 0;
     let totalPaidAmount = 0;
     let totalPendingAmount = 0;
-    // Laborer type amounts
     let totalDailyAmount = 0;
     let totalContractAmount = 0;
     let totalMarketAmount = 0;
@@ -1057,7 +1243,6 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       totalPendingCount += s.pendingCount;
       totalPaidAmount += s.paidAmount;
       totalPendingAmount += s.pendingAmount;
-      // Laborer type amounts
       totalDailyAmount += s.dailyLaborerAmount;
       totalContractAmount += s.contractLaborerAmount;
       totalMarketAmount += s.marketLaborerAmount;
@@ -1072,17 +1257,16 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       totalLaborers,
       avgPerDay:
         dateSummaries.length > 0 ? totalExpense / dateSummaries.length : 0,
-      // Payment breakdown
       totalPaidCount,
       totalPendingCount,
       totalPaidAmount,
       totalPendingAmount,
-      // Laborer type totals
       totalDailyAmount,
       totalContractAmount,
       totalMarketAmount,
+      activeDays: dateSummaries.length,
     };
-  }, [dateSummaries]);
+  }, [summaryQuery.data, dateSummaries]);
 
   // Combined view: dateSummaries + holiday-only dates + weekly separators
   // This creates a merged list sorted by date descending with weekly summary strips
@@ -1500,41 +1684,11 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     setLoading(false);
   }, []);
 
-  // Only fetch client-side if no initialData or when date range changes beyond server range
-  useEffect(() => {
-    // Skip if waiting for initial data to be processed
-    if (initialData && !initialDataProcessedRef.current) {
-      return;
-    }
-
-    // If we have server data, only refetch when date range changes beyond server range
-    if (initialData && initialDataProcessedRef.current) {
-      const serverFrom = initialData.serverDateRange?.from;
-      const serverTo = initialData.serverDateRange?.to;
-
-      // If date range context not ready yet, don't trigger refetch - server data is sufficient
-      if (!dateFrom || !dateTo) {
-        return;
-      }
-
-      // If client date range is within server range, no refetch needed
-      if (serverFrom && serverTo && dateFrom >= serverFrom && dateTo <= serverTo) {
-        return;
-      }
-
-      // Date range changed beyond server range - need to refetch
-      // But only if we actually have a site selected
-      if (selectedSite) {
-        invalidateAttendance();
-      }
-      return;
-    }
-
-    // No server data - fetch client-side if site is selected
-    if (selectedSite) {
-      invalidateAttendance();
-    }
-  }, [invalidateAttendance, initialData, dateFrom, dateTo, selectedSite]);
+  // (Legacy refetch-on-date-change effect removed.) The infinite weeks query
+  // now keys on { siteId, dateFrom, dateTo, isAllTime }, so React Query
+  // refetches automatically when any of those change — no manual invalidate
+  // needed here. Keeping the old effect caused an infinite refetch loop
+  // whenever the SiteContext returned a fresh selectedSite reference.
 
   // Check if today is a holiday for the selected site
   const checkTodayHoliday = useCallback(async () => {
@@ -3746,34 +3900,11 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
 
                               {/* Weekly Settlement Button - only show for completed weeks */}
                               {canEdit && entry.weeklySummary.totalPending > 0 && !entry.weeklySummary.isCurrentWeek && (
-                                <Button
-                                  variant="contained"
-                                  color="success"
-                                  size="small"
-                                  startIcon={<PaymentIcon />}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    // Create config for weekly settlement
-                                    setSettlementConfig({
-                                      context: "weekly",
-                                      dateRange: {
-                                        from: entry.weeklySummary.weekStart,
-                                        to: entry.weeklySummary.weekEnd,
-                                      },
-                                      weekLabel: entry.weeklySummary.weekLabel,
-                                      records: [], // Weekly settlement fetches records from DB
-                                      totalAmount: entry.weeklySummary.totalPending,
-                                      pendingAmount: entry.weeklySummary.totalPending,
-                                      dailyLaborPending: entry.weeklySummary.pendingDailySalary,
-                                      contractLaborPending: entry.weeklySummary.pendingContractSalary,
-                                      marketLaborPending: entry.weeklySummary.pendingMarketSalary,
-                                      allowTypeSelection: true,
-                                    });
-                                    setSettlementDialogOpen(true);
-                                  }}
-                                >
-                                  Weekly Settlement (₹{entry.weeklySummary.totalPending.toLocaleString()})
-                                </Button>
+                                <SettleDayButton
+                                  label="Settle Week"
+                                  pendingAmount={entry.weeklySummary.totalPending}
+                                  onClick={() => openWeeklySettlementDialog(entry.weeklySummary)}
+                                />
                               )}
                             </Box>
                           </TableCell>
@@ -3924,6 +4055,37 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                     {dayjs(entry.summary.date).format("ddd")}
                                   </Typography>
                                 </Box>
+                                {/* Settlement ref chip — shown for fully-settled days. */}
+                                {(() => {
+                                  const summary = entry.summary;
+                                  const isFullySettled =
+                                    summary.pendingCount === 0 && summary.paidCount > 0;
+                                  if (!isFullySettled || !selectedSite) return null;
+                                  // Derive a display ref from the first paid record's engineer
+                                  // transaction id. The real settlement_reference lives in
+                                  // settlement_groups; the pane fetches the canonical ref via
+                                  // useSettlementAudit when opened. This chip is the surface.
+                                  const firstPaid = summary.records.find((r) => r.is_paid);
+                                  const refSeed =
+                                    firstPaid?.engineer_transaction_id ||
+                                    firstPaid?.expense_id ||
+                                    null;
+                                  if (!refSeed) return null;
+                                  const shortRef = `SS-${refSeed.slice(-6).toUpperCase()}`;
+                                  return (
+                                    <SettlementRefChip
+                                      settlementRef={shortRef}
+                                      onClick={() =>
+                                        pane.open({
+                                          kind: "daily-date",
+                                          siteId: selectedSite.id,
+                                          date: summary.date,
+                                          settlementRef: shortRef,
+                                        })
+                                      }
+                                    />
+                                  );
+                                })()}
                               </Box>
                             </TableCell>
                             <TableCell align="center">
@@ -4174,76 +4336,13 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                 )}
 
                                 {/* Action Icons */}
-                                <Box sx={{ display: "flex", alignItems: "center", ml: "auto" }}>
-                                  {/* Settle - only show if pending laborers */}
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, ml: "auto" }}>
+                                  {/* Primary Settle CTA — only show if pending laborers */}
                                   {canEdit && entry.summary.pendingCount > 0 && (
-                                    <Tooltip title={`Settle ₹${entry.summary.pendingAmount.toLocaleString()}`}>
-                                      <IconButton
-                                        size="small"
-                                        color="success"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          // Convert DateSummary to UnifiedSettlementConfig
-                                          const records: SettlementRecord[] = [
-                                            // Daily records
-                                            ...entry.summary.records
-                                              .filter((r) => !r.is_paid)
-                                              .map((r) => ({
-                                                id: `daily-${r.id}`,
-                                                sourceType: "daily" as const,
-                                                sourceId: r.id,
-                                                laborerName: r.laborer_name,
-                                                laborerType: (r.laborer_type === "contract" ? "contract" : "daily") as "daily" | "contract" | "market",
-                                                amount: r.daily_earnings,
-                                                date: entry.summary.date,
-                                                isPaid: false,
-                                                category: r.category_name,
-                                                role: r.role_name,
-                                              })),
-                                            // Market records
-                                            ...entry.summary.marketLaborers
-                                              .filter((m) => !m.isPaid)
-                                              .map((m) => ({
-                                                id: `market-${m.originalDbId}`,
-                                                sourceType: "market" as const,
-                                                sourceId: m.originalDbId,
-                                                laborerName: m.roleName,
-                                                laborerType: "market" as const,
-                                                amount: m.dailyEarnings,
-                                                date: entry.summary.date,
-                                                isPaid: false,
-                                                role: m.roleName,
-                                                count: m.groupCount,
-                                              })),
-                                          ];
-
-                                          const dailyLaborPending = entry.summary.records
-                                            .filter((r) => !r.is_paid && r.laborer_type !== "contract")
-                                            .reduce((sum, r) => sum + r.daily_earnings, 0);
-                                          const contractLaborPending = entry.summary.records
-                                            .filter((r) => !r.is_paid && r.laborer_type === "contract")
-                                            .reduce((sum, r) => sum + r.daily_earnings, 0);
-                                          const marketLaborPending = entry.summary.marketLaborers
-                                            .filter((m) => !m.isPaid)
-                                            .reduce((sum, m) => sum + m.dailyEarnings, 0);
-
-                                          setSettlementConfig({
-                                            context: "daily_single",
-                                            date: entry.summary.date,
-                                            records,
-                                            totalAmount: entry.summary.totalSalary,
-                                            pendingAmount: entry.summary.pendingAmount,
-                                            dailyLaborPending,
-                                            contractLaborPending,
-                                            marketLaborPending,
-                                            allowTypeSelection: false,
-                                          });
-                                          setSettlementDialogOpen(true);
-                                        }}
-                                      >
-                                        <PaymentIcon sx={{ fontSize: 16 }} />
-                                      </IconButton>
-                                    </Tooltip>
+                                    <SettleDayButton
+                                      pendingAmount={entry.summary.pendingAmount}
+                                      onClick={() => openDailySettlementDialog(entry.summary)}
+                                    />
                                   )}
 
                                   {/* Edit */}
@@ -5250,6 +5349,33 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                           No attendance records found for the selected date
                           range
                         </Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {combinedDateEntries.length > 0 && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={13}
+                        align="center"
+                        ref={loadMoreSentinelRef}
+                        sx={{ py: 2, borderBottom: 0 }}
+                      >
+                        {weeksQuery.isFetchingNextPage ? (
+                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1 }}>
+                            <CircularProgress size={18} />
+                            <Typography variant="body2" color="text.secondary">
+                              Loading older weeks…
+                            </Typography>
+                          </Box>
+                        ) : weeksQuery.hasNextPage ? (
+                          <Typography variant="caption" color="text.secondary">
+                            Scroll to load more
+                          </Typography>
+                        ) : (
+                          <Typography variant="caption" color="text.disabled">
+                            End of records
+                          </Typography>
+                        )}
                       </TableCell>
                     </TableRow>
                   )}
@@ -6778,6 +6904,36 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         onClose={() => setRestorationMessage(null)}
         message={restorationMessage}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      />
+
+      {/* Inspect Pane — opens in-place when a SettlementRefChip is clicked.
+          No navigation; full attendance + settlement + audit context for the
+          entity stays visible alongside the table. */}
+      <InspectPane
+        entity={pane.currentEntity}
+        isOpen={pane.isOpen}
+        isPinned={pane.isPinned}
+        activeTab={pane.activeTab}
+        onTabChange={pane.setActiveTab}
+        onClose={pane.close}
+        onTogglePin={pane.togglePin}
+        onOpenInPage={(e: InspectEntity) => {
+          const ref = e.settlementRef ?? "";
+          const url =
+            e.kind === "daily-date"
+              ? `/site/payments?ref=${ref}&date=${e.date}`
+              : `/site/payments?ref=${ref}`;
+          router.push(url);
+        }}
+        onSettleClick={(e: InspectEntity) => {
+          if (e.kind === "daily-date") {
+            const summary = dateSummaries.find((d) => d.date === e.date);
+            if (summary) openDailySettlementDialog(summary);
+          }
+          // Weekly settle from pane is currently a no-op — attendance file
+          // does not surface per-laborer-week rows directly; users use the
+          // weekly separator's Settle Week button.
+        }}
       />
     </Box>
   );
