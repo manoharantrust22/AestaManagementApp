@@ -50,7 +50,7 @@ export default function WorkUpdateViewer({
   const [fullscreenPeriod, setFullscreenPeriod] = useState<
     "morning" | "evening"
   >("morning");
-  const [viewMode, setViewMode] = useState<"list" | "compare">("list");
+  const [viewMode, setViewMode] = useState<"list" | "compare">("compare");
 
   const handleMorningPhotoClick = (index: number) => {
     if (workUpdates?.morning?.photos) {
@@ -125,11 +125,11 @@ export default function WorkUpdateViewer({
                 onChange={(_, value) => value && setViewMode(value)}
                 size="small"
               >
-                <ToggleButton value="list">
-                  <ListIcon sx={{ fontSize: 18 }} />
-                </ToggleButton>
                 <ToggleButton value="compare">
                   <CompareIcon sx={{ fontSize: 18 }} />
+                </ToggleButton>
+                <ToggleButton value="list">
+                  <ListIcon sx={{ fontSize: 18 }} />
                 </ToggleButton>
               </ToggleButtonGroup>
             )}
@@ -300,8 +300,8 @@ export default function WorkUpdateViewer({
             </Box>
           )}
 
-          {/* List View (default) */}
-          {viewMode === "list" && (
+          {/* List View — also fallback when compare isn't possible (only one period has photos) */}
+          {(viewMode === "list" || !hasBothPhotos) && (
             <>
               {/* Morning Section */}
               {hasMorning && workUpdates.morning && (

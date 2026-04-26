@@ -140,10 +140,14 @@ import type { DailyPaymentRecord } from "@/types/payment.types";
 import { createClient } from "@/lib/supabase/client";
 import { useSite } from "@/contexts/SiteContext";
 import {
-  useAttendanceData,
   useInvalidateAttendanceData,
   type RawAttendanceData,
 } from "@/hooks/useAttendanceData";
+import { useAttendanceWeeksInfinite } from "@/hooks/useAttendanceWeeksInfinite";
+import {
+  useAttendanceSummary,
+  type AttendancePeriodTotals,
+} from "@/hooks/useAttendanceSummary";
 import { useAuth } from "@/contexts/AuthContext";
 import { useDateRange } from "@/contexts/DateRangeContext";
 import PageHeader from "@/components/layout/PageHeader";
@@ -375,6 +379,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   // Fullscreen mode using native Fullscreen API
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const pickerPortalRef = useRef<HTMLDivElement>(null);
+  // Sentinel row at the bottom of the attendance table; an
+  // IntersectionObserver below triggers fetchNextPage when it scrolls into
+  // view so older weeks load on demand instead of all at once.
+  const loadMoreSentinelRef = useRef<HTMLTableCellElement | null>(null);
   const { isFullscreen, enterFullscreen, exitFullscreen } = useFullscreen(
     tableContainerRef,
     { orientation: "landscape" }
@@ -698,14 +706,66 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     []
   );
 
-  // React Query hook for attendance data - properly handles site switching and caching
-  const {
-    data: attendanceQueryData,
-    isLoading: queryLoading,
-    isFetching: queryFetching,
-    isTransitioning: siteTransitioning,
-    refetch: refetchAttendance,
-  } = useAttendanceData({
+  // React Query hook for attendance TABLE rows - infinite scroll, one week per page.
+  // The cards above don't depend on these pages; they read scope-wide totals
+  // from useAttendanceSummary so they stay accurate even when only a couple
+  // of weeks are loaded into the table.
+  const weeksQuery = useAttendanceWeeksInfinite({
+    dateFrom,
+    dateTo,
+    isAllTime,
+    enabled: !initialData || initialDataProcessedRef.current,
+  });
+
+  // Merge every loaded page into one RawAttendanceData blob so the existing
+  // grouping/processing pipeline below stays untouched. Pages append on
+  // scroll; merging is a flat concat.
+  const attendanceQueryData: RawAttendanceData | undefined = useMemo(() => {
+    if (!weeksQuery.data) return undefined;
+    const dailyAttendance: any[] = [];
+    const marketAttendance: any[] = [];
+    const workSummaries: any[] = [];
+    const teaShopEntries: any[] = [];
+    const teaShopAllocations: any[] = [];
+    const seenAlloc = new Set<string>();
+    weeksQuery.data.pages.forEach((page) => {
+      dailyAttendance.push(...page.data.dailyAttendance);
+      marketAttendance.push(...page.data.marketAttendance);
+      workSummaries.push(...page.data.workSummaries);
+      teaShopEntries.push(...page.data.teaShopEntries);
+      // Allocations are fetched per-page from the same source table, so the
+      // same allocation row can show up in multiple pages. Dedupe on
+      // (entry_id, allocated_amount) to avoid double-counting in the
+      // per-day tea-shop UI.
+      page.data.teaShopAllocations.forEach((a: any) => {
+        const key = `${a.entry_id}|${a.allocated_amount}`;
+        if (seenAlloc.has(key)) return;
+        seenAlloc.add(key);
+        teaShopAllocations.push(a);
+      });
+    });
+    return {
+      dailyAttendance,
+      marketAttendance,
+      workSummaries,
+      teaShopEntries,
+      teaShopAllocations,
+    };
+  }, [weeksQuery.data]);
+
+  const queryLoading = weeksQuery.isLoading;
+  const queryFetching = weeksQuery.isFetching;
+  // The previous hook exposed isTransitioning to suppress stale data during a
+  // site change. The infinite hook clears prior-site pages on mount, so the
+  // closest equivalent is "still loading the first page after a site change".
+  const siteTransitioning = weeksQuery.isFetching && !weeksQuery.data;
+  const refetchAttendance = weeksQuery.refetch;
+
+  // Scope-wide aggregates for the cards above (Period Total / Salary /
+  // Tea Shop / Daily / Contract / Market / Paid / Pending / Avg-per-day).
+  // Stays accurate at any scope because it's a single Postgres aggregate
+  // call rather than a row-by-row sum on the client.
+  const summaryQuery = useAttendanceSummary({
     dateFrom,
     dateTo,
     isAllTime,
@@ -714,6 +774,35 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
 
   // Hook to invalidate attendance cache after mutations
   const invalidateAttendance = useInvalidateAttendanceData();
+
+  // Auto-load the next week when the sentinel row scrolls into view.
+  // The 200px rootMargin starts the fetch slightly before the row is
+  // actually visible so the loading indicator transitions are smooth.
+  useEffect(() => {
+    const node = loadMoreSentinelRef.current;
+    if (!node) return;
+    if (!weeksQuery.hasNextPage) return;
+    if (weeksQuery.isFetchingNextPage) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting) {
+          weeksQuery.fetchNextPage();
+        }
+      },
+      { rootMargin: "200px 0px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [
+    weeksQuery.hasNextPage,
+    weeksQuery.isFetchingNextPage,
+    weeksQuery.fetchNextPage,
+    // Re-attach when the rendered row count changes (the sentinel TableRow
+    // is conditionally mounted only when combinedDateEntries.length > 0).
+    weeksQuery.data?.pages.length,
+  ]);
 
   // Track previous site ID to detect site changes and clear stale data
   const previousSiteIdRef = useRef<string | null>(null);
@@ -1127,8 +1216,14 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     }
   }, [selectedSite?.id]); // Only run when site changes
 
-  // Calculate totals for the filtered period
-  const periodTotals = useMemo(() => {
+  // Period totals for the summary cards. Prefer the scope-wide RPC result
+  // (accurate at any scope, including All Time, regardless of which weeks
+  // the table has loaded). Fall back to summing the loaded dateSummaries
+  // when the RPC hasn't returned yet — mostly the very first paint and
+  // the brief window before the migration is applied locally.
+  const periodTotals = useMemo<AttendancePeriodTotals>(() => {
+    if (summaryQuery.data) return summaryQuery.data;
+
     let totalSalary = 0;
     let totalTeaShop = 0;
     let totalLaborers = 0;
@@ -1136,7 +1231,6 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     let totalPendingCount = 0;
     let totalPaidAmount = 0;
     let totalPendingAmount = 0;
-    // Laborer type amounts
     let totalDailyAmount = 0;
     let totalContractAmount = 0;
     let totalMarketAmount = 0;
@@ -1149,7 +1243,6 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       totalPendingCount += s.pendingCount;
       totalPaidAmount += s.paidAmount;
       totalPendingAmount += s.pendingAmount;
-      // Laborer type amounts
       totalDailyAmount += s.dailyLaborerAmount;
       totalContractAmount += s.contractLaborerAmount;
       totalMarketAmount += s.marketLaborerAmount;
@@ -1164,17 +1257,16 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       totalLaborers,
       avgPerDay:
         dateSummaries.length > 0 ? totalExpense / dateSummaries.length : 0,
-      // Payment breakdown
       totalPaidCount,
       totalPendingCount,
       totalPaidAmount,
       totalPendingAmount,
-      // Laborer type totals
       totalDailyAmount,
       totalContractAmount,
       totalMarketAmount,
+      activeDays: dateSummaries.length,
     };
-  }, [dateSummaries]);
+  }, [summaryQuery.data, dateSummaries]);
 
   // Combined view: dateSummaries + holiday-only dates + weekly separators
   // This creates a merged list sorted by date descending with weekly summary strips
@@ -1592,41 +1684,11 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     setLoading(false);
   }, []);
 
-  // Only fetch client-side if no initialData or when date range changes beyond server range
-  useEffect(() => {
-    // Skip if waiting for initial data to be processed
-    if (initialData && !initialDataProcessedRef.current) {
-      return;
-    }
-
-    // If we have server data, only refetch when date range changes beyond server range
-    if (initialData && initialDataProcessedRef.current) {
-      const serverFrom = initialData.serverDateRange?.from;
-      const serverTo = initialData.serverDateRange?.to;
-
-      // If date range context not ready yet, don't trigger refetch - server data is sufficient
-      if (!dateFrom || !dateTo) {
-        return;
-      }
-
-      // If client date range is within server range, no refetch needed
-      if (serverFrom && serverTo && dateFrom >= serverFrom && dateTo <= serverTo) {
-        return;
-      }
-
-      // Date range changed beyond server range - need to refetch
-      // But only if we actually have a site selected
-      if (selectedSite) {
-        invalidateAttendance();
-      }
-      return;
-    }
-
-    // No server data - fetch client-side if site is selected
-    if (selectedSite) {
-      invalidateAttendance();
-    }
-  }, [invalidateAttendance, initialData, dateFrom, dateTo, selectedSite]);
+  // (Legacy refetch-on-date-change effect removed.) The infinite weeks query
+  // now keys on { siteId, dateFrom, dateTo, isAllTime }, so React Query
+  // refetches automatically when any of those change — no manual invalidate
+  // needed here. Keeping the old effect caused an infinite refetch loop
+  // whenever the SiteContext returned a fresh selectedSite reference.
 
   // Check if today is a holiday for the selected site
   const checkTodayHoliday = useCallback(async () => {
@@ -5287,6 +5349,33 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                           No attendance records found for the selected date
                           range
                         </Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {combinedDateEntries.length > 0 && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={13}
+                        align="center"
+                        ref={loadMoreSentinelRef}
+                        sx={{ py: 2, borderBottom: 0 }}
+                      >
+                        {weeksQuery.isFetchingNextPage ? (
+                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1 }}>
+                            <CircularProgress size={18} />
+                            <Typography variant="body2" color="text.secondary">
+                              Loading older weeks…
+                            </Typography>
+                          </Box>
+                        ) : weeksQuery.hasNextPage ? (
+                          <Typography variant="caption" color="text.secondary">
+                            Scroll to load more
+                          </Typography>
+                        ) : (
+                          <Typography variant="caption" color="text.disabled">
+                            End of records
+                          </Typography>
+                        )}
                       </TableCell>
                     </TableRow>
                   )}
