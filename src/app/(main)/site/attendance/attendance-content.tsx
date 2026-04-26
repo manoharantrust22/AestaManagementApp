@@ -121,6 +121,11 @@ import type { UnifiedSettlementConfig, SettlementRecord } from "@/types/settleme
 import DataTable, { type MRT_ColumnDef } from "@/components/common/DataTable";
 import AuditAvatarGroup from "@/components/common/AuditAvatarGroup";
 import ScopeChip from "@/components/common/ScopeChip";
+import { InspectPane } from "@/components/common/InspectPane";
+import type { InspectEntity } from "@/components/common/InspectPane";
+import { useInspectPane } from "@/hooks/useInspectPane";
+import SettleDayButton from "@/components/attendance/SettleDayButton";
+import SettlementRefChip from "@/components/attendance/SettlementRefChip";
 import {
   PhotoBadge,
   WorkUpdateViewer,
@@ -534,6 +539,9 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   const [settlementDialogOpen, setSettlementDialogOpen] = useState(false);
   const [settlementConfig, setSettlementConfig] = useState<UnifiedSettlementConfig | null>(null);
 
+  // InspectPane (for SettlementRefChip click-to-inspect, no navigation).
+  const pane = useInspectPane();
+
   // Restoration/notification message state
   const [restorationMessage, setRestorationMessage] = useState<string | null>(
     null
@@ -605,6 +613,90 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     router.push(`/site/payments?${params.toString()}`);
     setPaidRecordDialog(null);
   };
+
+  // ---- Settlement dialog triggers (reused by row CTAs and InspectPane) ----
+  // Open the daily settlement dialog for a given DateSummary. Builds the
+  // UnifiedSettlementConfig identical to the legacy inline IconButton path.
+  const openDailySettlementDialog = useCallback((summary: DateSummary) => {
+    const records: SettlementRecord[] = [
+      // Daily records
+      ...summary.records
+        .filter((r) => !r.is_paid)
+        .map((r) => ({
+          id: `daily-${r.id}`,
+          sourceType: "daily" as const,
+          sourceId: r.id,
+          laborerName: r.laborer_name,
+          laborerType: (r.laborer_type === "contract" ? "contract" : "daily") as
+            | "daily"
+            | "contract"
+            | "market",
+          amount: r.daily_earnings,
+          date: summary.date,
+          isPaid: false,
+          category: r.category_name,
+          role: r.role_name,
+        })),
+      // Market records
+      ...summary.marketLaborers
+        .filter((m) => !m.isPaid)
+        .map((m) => ({
+          id: `market-${m.originalDbId}`,
+          sourceType: "market" as const,
+          sourceId: m.originalDbId,
+          laborerName: m.roleName,
+          laborerType: "market" as const,
+          amount: m.dailyEarnings,
+          date: summary.date,
+          isPaid: false,
+          role: m.roleName,
+          count: m.groupCount,
+        })),
+    ];
+
+    const dailyLaborPending = summary.records
+      .filter((r) => !r.is_paid && r.laborer_type !== "contract")
+      .reduce((sum, r) => sum + r.daily_earnings, 0);
+    const contractLaborPending = summary.records
+      .filter((r) => !r.is_paid && r.laborer_type === "contract")
+      .reduce((sum, r) => sum + r.daily_earnings, 0);
+    const marketLaborPending = summary.marketLaborers
+      .filter((m) => !m.isPaid)
+      .reduce((sum, m) => sum + m.dailyEarnings, 0);
+
+    setSettlementConfig({
+      context: "daily_single",
+      date: summary.date,
+      records,
+      totalAmount: summary.totalSalary,
+      pendingAmount: summary.pendingAmount,
+      dailyLaborPending,
+      contractLaborPending,
+      marketLaborPending,
+      allowTypeSelection: false,
+    });
+    setSettlementDialogOpen(true);
+  }, []);
+
+  // Open the weekly settlement dialog for a given WeeklySummary.
+  const openWeeklySettlementDialog = useCallback(
+    (weekly: WeeklySummary) => {
+      setSettlementConfig({
+        context: "weekly",
+        dateRange: { from: weekly.weekStart, to: weekly.weekEnd },
+        weekLabel: weekly.weekLabel,
+        records: [], // Weekly settlement fetches records from DB
+        totalAmount: weekly.totalPending,
+        pendingAmount: weekly.totalPending,
+        dailyLaborPending: weekly.pendingDailySalary,
+        contractLaborPending: weekly.pendingContractSalary,
+        marketLaborPending: weekly.pendingMarketSalary,
+        allowTypeSelection: true,
+      });
+      setSettlementDialogOpen(true);
+    },
+    []
+  );
 
   // React Query hook for attendance data - properly handles site switching and caching
   const {
@@ -3746,34 +3838,11 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
 
                               {/* Weekly Settlement Button - only show for completed weeks */}
                               {canEdit && entry.weeklySummary.totalPending > 0 && !entry.weeklySummary.isCurrentWeek && (
-                                <Button
-                                  variant="contained"
-                                  color="success"
-                                  size="small"
-                                  startIcon={<PaymentIcon />}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    // Create config for weekly settlement
-                                    setSettlementConfig({
-                                      context: "weekly",
-                                      dateRange: {
-                                        from: entry.weeklySummary.weekStart,
-                                        to: entry.weeklySummary.weekEnd,
-                                      },
-                                      weekLabel: entry.weeklySummary.weekLabel,
-                                      records: [], // Weekly settlement fetches records from DB
-                                      totalAmount: entry.weeklySummary.totalPending,
-                                      pendingAmount: entry.weeklySummary.totalPending,
-                                      dailyLaborPending: entry.weeklySummary.pendingDailySalary,
-                                      contractLaborPending: entry.weeklySummary.pendingContractSalary,
-                                      marketLaborPending: entry.weeklySummary.pendingMarketSalary,
-                                      allowTypeSelection: true,
-                                    });
-                                    setSettlementDialogOpen(true);
-                                  }}
-                                >
-                                  Weekly Settlement (₹{entry.weeklySummary.totalPending.toLocaleString()})
-                                </Button>
+                                <SettleDayButton
+                                  label="Settle Week"
+                                  pendingAmount={entry.weeklySummary.totalPending}
+                                  onClick={() => openWeeklySettlementDialog(entry.weeklySummary)}
+                                />
                               )}
                             </Box>
                           </TableCell>
@@ -3924,6 +3993,37 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                     {dayjs(entry.summary.date).format("ddd")}
                                   </Typography>
                                 </Box>
+                                {/* Settlement ref chip — shown for fully-settled days. */}
+                                {(() => {
+                                  const summary = entry.summary;
+                                  const isFullySettled =
+                                    summary.pendingCount === 0 && summary.paidCount > 0;
+                                  if (!isFullySettled || !selectedSite) return null;
+                                  // Derive a display ref from the first paid record's engineer
+                                  // transaction id. The real settlement_reference lives in
+                                  // settlement_groups; the pane fetches the canonical ref via
+                                  // useSettlementAudit when opened. This chip is the surface.
+                                  const firstPaid = summary.records.find((r) => r.is_paid);
+                                  const refSeed =
+                                    firstPaid?.engineer_transaction_id ||
+                                    firstPaid?.expense_id ||
+                                    null;
+                                  if (!refSeed) return null;
+                                  const shortRef = `SS-${refSeed.slice(-6).toUpperCase()}`;
+                                  return (
+                                    <SettlementRefChip
+                                      settlementRef={shortRef}
+                                      onClick={() =>
+                                        pane.open({
+                                          kind: "daily-date",
+                                          siteId: selectedSite.id,
+                                          date: summary.date,
+                                          settlementRef: shortRef,
+                                        })
+                                      }
+                                    />
+                                  );
+                                })()}
                               </Box>
                             </TableCell>
                             <TableCell align="center">
@@ -4174,76 +4274,13 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                 )}
 
                                 {/* Action Icons */}
-                                <Box sx={{ display: "flex", alignItems: "center", ml: "auto" }}>
-                                  {/* Settle - only show if pending laborers */}
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, ml: "auto" }}>
+                                  {/* Primary Settle CTA — only show if pending laborers */}
                                   {canEdit && entry.summary.pendingCount > 0 && (
-                                    <Tooltip title={`Settle ₹${entry.summary.pendingAmount.toLocaleString()}`}>
-                                      <IconButton
-                                        size="small"
-                                        color="success"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          // Convert DateSummary to UnifiedSettlementConfig
-                                          const records: SettlementRecord[] = [
-                                            // Daily records
-                                            ...entry.summary.records
-                                              .filter((r) => !r.is_paid)
-                                              .map((r) => ({
-                                                id: `daily-${r.id}`,
-                                                sourceType: "daily" as const,
-                                                sourceId: r.id,
-                                                laborerName: r.laborer_name,
-                                                laborerType: (r.laborer_type === "contract" ? "contract" : "daily") as "daily" | "contract" | "market",
-                                                amount: r.daily_earnings,
-                                                date: entry.summary.date,
-                                                isPaid: false,
-                                                category: r.category_name,
-                                                role: r.role_name,
-                                              })),
-                                            // Market records
-                                            ...entry.summary.marketLaborers
-                                              .filter((m) => !m.isPaid)
-                                              .map((m) => ({
-                                                id: `market-${m.originalDbId}`,
-                                                sourceType: "market" as const,
-                                                sourceId: m.originalDbId,
-                                                laborerName: m.roleName,
-                                                laborerType: "market" as const,
-                                                amount: m.dailyEarnings,
-                                                date: entry.summary.date,
-                                                isPaid: false,
-                                                role: m.roleName,
-                                                count: m.groupCount,
-                                              })),
-                                          ];
-
-                                          const dailyLaborPending = entry.summary.records
-                                            .filter((r) => !r.is_paid && r.laborer_type !== "contract")
-                                            .reduce((sum, r) => sum + r.daily_earnings, 0);
-                                          const contractLaborPending = entry.summary.records
-                                            .filter((r) => !r.is_paid && r.laborer_type === "contract")
-                                            .reduce((sum, r) => sum + r.daily_earnings, 0);
-                                          const marketLaborPending = entry.summary.marketLaborers
-                                            .filter((m) => !m.isPaid)
-                                            .reduce((sum, m) => sum + m.dailyEarnings, 0);
-
-                                          setSettlementConfig({
-                                            context: "daily_single",
-                                            date: entry.summary.date,
-                                            records,
-                                            totalAmount: entry.summary.totalSalary,
-                                            pendingAmount: entry.summary.pendingAmount,
-                                            dailyLaborPending,
-                                            contractLaborPending,
-                                            marketLaborPending,
-                                            allowTypeSelection: false,
-                                          });
-                                          setSettlementDialogOpen(true);
-                                        }}
-                                      >
-                                        <PaymentIcon sx={{ fontSize: 16 }} />
-                                      </IconButton>
-                                    </Tooltip>
+                                    <SettleDayButton
+                                      pendingAmount={entry.summary.pendingAmount}
+                                      onClick={() => openDailySettlementDialog(entry.summary)}
+                                    />
                                   )}
 
                                   {/* Edit */}
@@ -6778,6 +6815,36 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         onClose={() => setRestorationMessage(null)}
         message={restorationMessage}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      />
+
+      {/* Inspect Pane — opens in-place when a SettlementRefChip is clicked.
+          No navigation; full attendance + settlement + audit context for the
+          entity stays visible alongside the table. */}
+      <InspectPane
+        entity={pane.currentEntity}
+        isOpen={pane.isOpen}
+        isPinned={pane.isPinned}
+        activeTab={pane.activeTab}
+        onTabChange={pane.setActiveTab}
+        onClose={pane.close}
+        onTogglePin={pane.togglePin}
+        onOpenInPage={(e: InspectEntity) => {
+          const ref = e.settlementRef ?? "";
+          const url =
+            e.kind === "daily-date"
+              ? `/site/payments?ref=${ref}&date=${e.date}`
+              : `/site/payments?ref=${ref}`;
+          router.push(url);
+        }}
+        onSettleClick={(e: InspectEntity) => {
+          if (e.kind === "daily-date") {
+            const summary = dateSummaries.find((d) => d.date === e.date);
+            if (summary) openDailySettlementDialog(summary);
+          }
+          // Weekly settle from pane is currently a no-op — attendance file
+          // does not surface per-laborer-week rows directly; users use the
+          // weekly separator's Settle Week button.
+        }}
       />
     </Box>
   );
