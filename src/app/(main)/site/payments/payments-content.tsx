@@ -287,10 +287,7 @@ export default function PaymentsContent() {
             futureCredit={salarySummaryQuery.data?.futureCredit ?? 0}
             isLoading={waterfallQuery.isLoading}
             onRowClick={(week) => {
-              // Phase 4 adds the 'weekly-aggregate' entity kind to InspectEntity.
-              // For Phase 2 this is still a placeholder cast; the pane will not
-              // render tab content until Phase 4.2 adds WeeklyAggregateShape.
-              (pane.open as (entity: unknown) => void)({
+              pane.open({
                 kind: "weekly-aggregate",
                 siteId: selectedSite.id,
                 subcontractId: selectedSubcontractId,
@@ -311,11 +308,7 @@ export default function PaymentsContent() {
             advances={advancesQuery.data ?? []}
             isLoading={advancesQuery.isLoading}
             onRowClick={(adv) => {
-              // Phase 4.1 adds the 'advance' entity kind. Until then we open
-              // the existing daily-date shape pointing at the advance date —
-              // it won't show meaningful attendance content but keeps the
-              // pane interaction predictable.
-              (pane.open as (entity: unknown) => void)({
+              pane.open({
                 kind: "advance",
                 siteId: selectedSite.id,
                 settlementId: adv.id,

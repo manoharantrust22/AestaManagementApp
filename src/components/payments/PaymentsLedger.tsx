@@ -28,8 +28,14 @@ export interface PaymentsLedgerRow {
 // entityKey() must match useInspectPane.ts byte-for-byte so selection
 // comparison stays consistent across the two sites where it's used.
 function entityKey(e: InspectEntity): string {
-  if (e.kind === "daily-date") return `d:${e.siteId}:${e.date}`;
-  return `w:${e.siteId}:${e.laborerId}:${e.weekStart}`;
+  if (e.kind === "daily-date")
+    return `d:${e.siteId}:${e.date}`;
+  if (e.kind === "weekly-week")
+    return `w:${e.siteId}:${e.laborerId}:${e.weekStart}`;
+  if (e.kind === "weekly-aggregate")
+    return `wa:${e.siteId}:${e.subcontractId ?? "_"}:${e.weekStart}`;
+  // 'advance'
+  return `a:${e.siteId}:${e.settlementId}`;
 }
 
 function rowToEntity(r: PaymentsLedgerRow): InspectEntity {
