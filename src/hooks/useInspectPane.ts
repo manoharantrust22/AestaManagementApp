@@ -1,16 +1,9 @@
 import { useCallback, useState } from "react";
-import type { InspectEntity, InspectTabKey } from "@/components/common/InspectPane/types";
-
-function entityKey(e: InspectEntity): string {
-  if (e.kind === "daily-date")
-    return `d:${e.siteId}:${e.date}`;
-  if (e.kind === "weekly-week")
-    return `w:${e.siteId}:${e.laborerId}:${e.weekStart}`;
-  if (e.kind === "weekly-aggregate")
-    return `wa:${e.siteId}:${e.subcontractId ?? "_"}:${e.weekStart}`;
-  // 'advance'
-  return `a:${e.siteId}:${e.settlementId}`;
-}
+import {
+  entityKey,
+  type InspectEntity,
+  type InspectTabKey,
+} from "@/components/common/InspectPane/types";
 
 function entitiesEqual(a: InspectEntity | null, b: InspectEntity | null): boolean {
   if (!a || !b) return a === b;
