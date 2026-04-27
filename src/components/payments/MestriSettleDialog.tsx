@@ -23,6 +23,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSiteSubcontracts } from "@/hooks/queries/useSubcontracts";
 import { processContractPayment } from "@/lib/services/settlementService";
+import FileUploader, { type UploadedFile } from "@/components/common/FileUploader";
 import type {
   ContractPaymentType,
   PaymentChannel,
@@ -96,6 +97,7 @@ export function MestriSettleDialog({
   const [payerSource, setPayerSource] = useState<string>("site_cash");
   const [customPayerName, setCustomPayerName] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
+  const [proofFile, setProofFile] = useState<UploadedFile | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,6 +114,7 @@ export function MestriSettleDialog({
       setPayerSource("site_cash");
       setCustomPayerName("");
       setNotes("");
+      setProofFile(null);
       setError(null);
       setSubmitting(false);
     }
@@ -134,12 +137,17 @@ export function MestriSettleDialog({
   // Validate before allowing submit
   const amountNum = Number(amount);
   const amountValid = Number.isFinite(amountNum) && amountNum > 0;
+  // UPI requires a proof screenshot — matches the existing settlement dialog's
+  // pattern (see SettlementFormDialog), where bank/UPI transfers must be
+  // accompanied by an upload to the settlement-proofs bucket.
+  const upiNeedsProof = paymentMode === "upi" && !proofFile;
   const canSubmit =
     amountValid &&
     Boolean(subcontractId) &&
     Boolean(selectedSubcontract?.laborer_name) &&
     Boolean(paymentDate) &&
-    Boolean(userProfile);
+    Boolean(userProfile) &&
+    !upiNeedsProof;
 
   async function handleSubmit() {
     if (!canSubmit || !userProfile || !selectedSubcontract) return;
@@ -176,6 +184,7 @@ export function MestriSettleDialog({
         customPayerName:
           payerSource === "custom" ? customPayerName : undefined,
         subcontractId: selectedSubcontract.id,
+        proofUrl: proofFile?.url || undefined,
         notes: notes || undefined,
         userId: userProfile.id,
         userName: userProfile.name ?? userProfile.email ?? "Unknown",
@@ -327,6 +336,26 @@ export function MestriSettleDialog({
               ))}
             </TextField>
           </Stack>
+
+          {/* UPI proof screenshot — required when payment mode is UPI */}
+          {paymentMode === "upi" && (
+            <Box>
+              <FileUploader
+                supabase={supabase}
+                bucketName="settlement-proofs"
+                folderPath={`settlements/${siteId}/${weekStart}-${dayjs().format("HHmmss")}`}
+                fileNamePrefix="proof"
+                accept="image"
+                maxSizeMB={10}
+                label="Payment screenshot *"
+                helperText="Upload screenshot of UPI/bank transfer (required for UPI)"
+                value={proofFile}
+                onUpload={(file) => setProofFile(file)}
+                onRemove={() => setProofFile(null)}
+                compact
+              />
+            </Box>
+          )}
 
           {/* Payer source */}
           <TextField

@@ -4,18 +4,6 @@
       "type": "sse",
       "url": "https://h2d-mcp.divriots.com/88c4f197-9f33-4b8d-82e5-06ca18dd3f54/mcp"
     },
-    "supabase": {
-      "type": "stdio",
-      "command": "npx",
-      "args": [
-        "-y",
-        "@supabase/mcp-server-supabase@latest",
-        "--access-token",
-        "sbp_989dbeecf80b11dbac5b8c85e0b2d80710cbd1f6",
-        "--project-ref",
-        "ocutbpoaibjxtyjkrnda"
-      ]
-    },
     "playwright": {
       "type": "stdio",
       "command": "npx",

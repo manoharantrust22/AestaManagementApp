@@ -754,6 +754,16 @@ function WeeklyAggregateShape({
 // ----------------------------------------------------------------
 
 import type { WeekHoliday } from "@/hooks/queries/useWeekAggregateAttendance";
+import { useWorkUpdates } from "@/hooks/queries/useWorkUpdates";
+import PhotoFullscreenDialog from "@/components/attendance/work-updates/PhotoFullscreenDialog";
+import type { WorkPhoto } from "@/types/work-updates.types";
+
+interface DayLightboxState {
+  photos: WorkPhoto[];
+  index: number;
+  period: "morning" | "evening";
+  title: string;
+}
 
 function DayDetailExpansion({
   siteId,
@@ -769,6 +779,23 @@ function DayDetailExpansion({
   void subcontractId; // Per-day RPC is not subcontract-scoped today; whole site
   const theme = useTheme();
   const { data, isLoading } = useAttendanceForDate(siteId, date);
+  const { data: workUpdates, isLoading: workLoading } = useWorkUpdates(
+    siteId,
+    date,
+    date
+  );
+  const [lightbox, setLightbox] = React.useState<DayLightboxState | null>(null);
+
+  const dailyCount = data?.dailyLaborers?.length ?? 0;
+  const marketCount = data?.marketLaborers?.length ?? 0;
+  const dailyTotal = (data?.dailyLaborers ?? []).reduce(
+    (s, l) => s + l.amount,
+    0
+  );
+  const marketTotal = (data?.marketLaborers ?? []).reduce(
+    (s, l) => s + l.amount,
+    0
+  );
 
   return (
     <Box
@@ -779,17 +806,40 @@ function DayDetailExpansion({
         p: 1.25,
       }}
     >
-      <Typography
-        variant="caption"
-        color="text.secondary"
+      {/* Day header */}
+      <Box
         sx={{
-          ...SECTION_LABEL_SX,
-          color: "primary.main",
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          mb: 0.75,
+          gap: 1,
+          flexWrap: "wrap",
         }}
       >
-        {dayjs(date).format("dddd, DD MMM")}
-        {holiday && " · Holiday"}
-      </Typography>
+        <Typography
+          variant="caption"
+          sx={{
+            ...SECTION_LABEL_SX,
+            color: "primary.main",
+            mb: 0,
+          }}
+        >
+          {dayjs(date).format("dddd, DD MMM")}
+          {holiday && " · Holiday"}
+        </Typography>
+        {!isLoading && dailyCount + marketCount > 0 && (
+          <Typography
+            variant="caption"
+            sx={{
+              fontSize: 11,
+              color: "text.secondary",
+            }}
+          >
+            {dailyCount + marketCount} worked on this day
+          </Typography>
+        )}
+      </Box>
 
       {holiday && (
         <Typography
@@ -809,30 +859,47 @@ function DayDetailExpansion({
         <Skeleton variant="rounded" height={64} />
       ) : (
         <>
-          {(data?.dailyLaborers?.length ?? 0) === 0 &&
-          (data?.marketLaborers?.length ?? 0) === 0 ? (
+          {dailyCount === 0 && marketCount === 0 ? (
             <Typography variant="caption" color="text.disabled">
               No attendance recorded on this day.
             </Typography>
           ) : (
             <>
-              {(data?.dailyLaborers?.length ?? 0) > 0 && (
+              {dailyCount > 0 && (
                 <>
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
+                  <Box
                     sx={{
-                      display: "block",
-                      fontSize: 9,
-                      textTransform: "uppercase",
-                      letterSpacing: 0.4,
-                      fontWeight: 600,
+                      display: "flex",
+                      alignItems: "baseline",
+                      justifyContent: "space-between",
                       mt: 1,
                       mb: 0.5,
                     }}
                   >
-                    Daily Laborers ({data!.dailyLaborers.length})
-                  </Typography>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{
+                        fontSize: 9,
+                        textTransform: "uppercase",
+                        letterSpacing: 0.4,
+                        fontWeight: 600,
+                      }}
+                    >
+                      Contract / Daily Laborers ({dailyCount})
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontSize: 10.5,
+                        fontWeight: 600,
+                        color: "success.dark",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      ₹{dailyTotal.toLocaleString("en-IN")}
+                    </Typography>
+                  </Box>
                   <Stack spacing={0.5}>
                     {data!.dailyLaborers.map((lab) => (
                       <Box
@@ -872,23 +939,54 @@ function DayDetailExpansion({
                 </>
               )}
 
-              {(data?.marketLaborers?.length ?? 0) > 0 && (
+              {marketCount > 0 && (
                 <>
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
+                  <Box
                     sx={{
-                      display: "block",
-                      fontSize: 9,
-                      textTransform: "uppercase",
-                      letterSpacing: 0.4,
-                      fontWeight: 600,
-                      mt: 1,
+                      display: "flex",
+                      alignItems: "baseline",
+                      justifyContent: "space-between",
+                      mt: 1.25,
                       mb: 0.5,
                     }}
                   >
-                    Market Laborers ({data!.marketLaborers.length})
-                  </Typography>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{
+                        fontSize: 9,
+                        textTransform: "uppercase",
+                        letterSpacing: 0.4,
+                        fontWeight: 600,
+                      }}
+                    >
+                      Market Laborers ({marketCount})
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontSize: 10.5,
+                        fontWeight: 600,
+                        color: "warning.dark",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      ₹{marketTotal.toLocaleString("en-IN")}
+                    </Typography>
+                  </Box>
+                  <Box
+                    sx={{
+                      display: "block",
+                      mb: 0.5,
+                      px: 0.5,
+                      fontSize: 10,
+                      fontStyle: "italic",
+                      color: "warning.dark",
+                    }}
+                  >
+                    Not part of the contract waterfall — paid separately
+                    under Daily + Market.
+                  </Box>
                   <Stack spacing={0.5}>
                     {data!.marketLaborers.map((mkt) => (
                       <Box
@@ -898,8 +996,8 @@ function DayDetailExpansion({
                           justifyContent: "space-between",
                           p: 0.75,
                           px: 1.25,
-                          bgcolor: theme.palette.background.default,
-                          border: `1px solid ${theme.palette.divider}`,
+                          bgcolor: alpha(theme.palette.warning.main, 0.06),
+                          border: `1px solid ${alpha(theme.palette.warning.main, 0.4)}`,
                           borderRadius: 1,
                         }}
                       >
@@ -918,7 +1016,7 @@ function DayDetailExpansion({
                         <Typography
                           variant="body2"
                           fontWeight={600}
-                          color="success.main"
+                          color="warning.dark"
                         >
                           ₹{mkt.amount.toLocaleString("en-IN")}
                         </Typography>
@@ -929,6 +1027,180 @@ function DayDetailExpansion({
               )}
             </>
           )}
+        </>
+      )}
+
+      {/* Inline Work Updates for this day — morning vs evening side by side */}
+      {!workLoading && (workUpdates?.updates?.length ?? 0) > 0 && (
+        <>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{
+              display: "block",
+              fontSize: 9,
+              textTransform: "uppercase",
+              letterSpacing: 0.4,
+              fontWeight: 600,
+              mt: 1.5,
+              mb: 0.5,
+            }}
+          >
+            Work updates on this day · morning vs evening
+          </Typography>
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+              gap: 0.75,
+              alignItems: "start",
+            }}
+          >
+            {workUpdates!.updates.map((u) => {
+              const photos: WorkPhoto[] = (u.photoUrls ?? []).map((url, i) => ({
+                id: `${u.id}-${i}`,
+                url,
+                uploadedAt: "",
+              }));
+              const period: "morning" | "evening" =
+                u.timeOfDay === "Morning" ? "morning" : "evening";
+              const accent =
+                period === "morning"
+                  ? theme.palette.warning.main
+                  : theme.palette.info.main;
+              const title = `${u.timeOfDay} · ${dayjs(date).format("DD MMM")}`;
+              return (
+                <Box
+                  key={u.id}
+                  sx={{
+                    p: 1,
+                    borderRadius: 1,
+                    border: `1px solid ${theme.palette.divider}`,
+                    borderLeft: `3px solid ${accent}`,
+                    bgcolor: theme.palette.background.default,
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: "block", fontSize: 10.5, mb: 0.5 }}
+                  >
+                    {u.timeOfDay} ·{" "}
+                    {dayjs(u.createdAt).format("hh:mm A")} · by{" "}
+                    {u.createdByName}
+                  </Typography>
+                  {u.note && (
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        fontSize: 12.5,
+                        whiteSpace: "pre-wrap",
+                        mb: photos.length > 0 ? 0.75 : 0,
+                      }}
+                    >
+                      {u.note}
+                    </Typography>
+                  )}
+                  {photos.length > 0 && (
+                    <Stack
+                      direction="row"
+                      spacing={0.5}
+                      sx={{ flexWrap: "wrap", gap: 0.5 }}
+                    >
+                      {photos.slice(0, 6).map((photo, i) => (
+                        <Box
+                          key={photo.id}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Open photo ${i + 1} fullscreen`}
+                          onClick={() =>
+                            setLightbox({ photos, index: i, period, title })
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              setLightbox({ photos, index: i, period, title });
+                            }
+                          }}
+                          sx={{
+                            width: 56,
+                            height: 56,
+                            borderRadius: 0.75,
+                            overflow: "hidden",
+                            bgcolor: theme.palette.action.hover,
+                            border: `1px solid ${theme.palette.divider}`,
+                            cursor: "pointer",
+                            flex: "0 0 auto",
+                            transition:
+                              "transform 120ms ease, box-shadow 120ms ease",
+                            "&:hover": {
+                              transform: "scale(1.05)",
+                              boxShadow: theme.shadows[2],
+                            },
+                            "&:focus-visible": {
+                              outline: `2px solid ${theme.palette.primary.main}`,
+                              outlineOffset: 2,
+                            },
+                          }}
+                        >
+                          <Box
+                            component="img"
+                            src={photo.url}
+                            alt={`Photo ${i + 1}`}
+                            loading="eager"
+                            sx={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                              display: "block",
+                            }}
+                          />
+                        </Box>
+                      ))}
+                      {photos.length > 6 && (
+                        <Box
+                          role="button"
+                          tabIndex={0}
+                          onClick={() =>
+                            setLightbox({
+                              photos,
+                              index: 6,
+                              period,
+                              title,
+                            })
+                          }
+                          sx={{
+                            width: 56,
+                            height: 56,
+                            borderRadius: 0.75,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            bgcolor: theme.palette.action.hover,
+                            border: `1px solid ${theme.palette.divider}`,
+                            fontSize: 12,
+                            color: "text.secondary",
+                            fontWeight: 600,
+                            cursor: "pointer",
+                          }}
+                        >
+                          +{photos.length - 6}
+                        </Box>
+                      )}
+                    </Stack>
+                  )}
+                </Box>
+              );
+            })}
+          </Box>
+          <PhotoFullscreenDialog
+            open={lightbox !== null}
+            onClose={() => setLightbox(null)}
+            photos={lightbox?.photos ?? []}
+            initialIndex={lightbox?.index ?? 0}
+            period={lightbox?.period}
+            title={lightbox?.title}
+          />
         </>
       )}
     </Box>

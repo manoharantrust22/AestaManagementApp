@@ -11,9 +11,11 @@ import {
   alpha,
 } from "@mui/material";
 import dayjs from "dayjs";
+import { useState } from "react";
 import { entitySettlementRef, type InspectEntity } from "./types";
 import { useSettlementDetails } from "@/hooks/queries/useSettlementDetails";
 import { useSalaryWaterfall } from "@/hooks/queries/useSalaryWaterfall";
+import SettlementRefDetailDialog from "@/components/payments/SettlementRefDetailDialog";
 
 function formatINR(n: number): string {
   return `₹${n.toLocaleString("en-IN")}`;
@@ -189,6 +191,7 @@ function WeeklyAggregateSettlement({
   onSettleClick?: (entity: InspectEntity) => void;
 }) {
   const theme = useTheme();
+  const [refDetail, setRefDetail] = useState<string | null>(null);
   // Use the page's scope (scopeFrom/scopeTo) — not the week's own range.
   // The waterfall is order-dependent: settlements made AFTER this week can
   // legitimately fill earlier weeks. Re-running with just (weekStart..weekEnd)
@@ -273,20 +276,34 @@ function WeeklyAggregateSettlement({
       {/* filled_by allocations */}
       {week.filledBy.length > 0 && (
         <>
-          <Typography
-            variant="caption"
-            color="text.secondary"
+          <Box
             sx={{
-              display: "block",
-              fontSize: 9,
-              textTransform: "uppercase",
-              letterSpacing: 0.4,
-              fontWeight: 600,
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
               mb: 0.75,
             }}
           >
-            Allocations from waterfall
-          </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{
+                fontSize: 9,
+                textTransform: "uppercase",
+                letterSpacing: 0.4,
+                fontWeight: 600,
+              }}
+            >
+              Allocations from waterfall ({week.filledBy.length})
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ fontSize: 10, fontStyle: "italic" }}
+            >
+              tap a ref to see full settlement details
+            </Typography>
+          </Box>
           <Stack
             spacing={0.5}
             divider={
@@ -311,15 +328,29 @@ function WeeklyAggregateSettlement({
                   py: 0.5,
                 }}
               >
-                <Typography
-                  variant="body2"
+                <Box
+                  component="button"
+                  type="button"
+                  onClick={() => setRefDetail(f.ref)}
                   sx={{
                     fontFamily: "ui-monospace, monospace",
                     fontSize: 11,
+                    color: "primary.main",
+                    background: "transparent",
+                    border: "none",
+                    p: 0,
+                    textAlign: "left",
+                    cursor: "pointer",
+                    fontWeight: 600,
+                    "&:hover": { textDecoration: "underline" },
+                    "&:focus-visible": {
+                      outline: `2px solid ${theme.palette.primary.main}`,
+                      outlineOffset: 2,
+                    },
                   }}
                 >
                   {f.ref}
-                </Typography>
+                </Box>
                 <Typography
                   variant="caption"
                   color="text.secondary"
@@ -340,9 +371,54 @@ function WeeklyAggregateSettlement({
                 </Typography>
               </Box>
             ))}
+            {/* Total row at bottom — verifies the sum of allocations to this week */}
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: "1fr auto",
+                alignItems: "center",
+                gap: 1,
+                pt: 0.5,
+                mt: 0.5,
+                borderTop: `1px dashed ${theme.palette.divider}`,
+              }}
+            >
+              <Typography
+                variant="caption"
+                sx={{
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.4,
+                  fontSize: 10,
+                }}
+              >
+                Total allocated to this week
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{
+                  fontWeight: 700,
+                  fontVariantNumeric: "tabular-nums",
+                  minWidth: 80,
+                  textAlign: "right",
+                  color: "success.dark",
+                }}
+              >
+                {formatINR(
+                  week.filledBy.reduce((sum, f) => sum + f.amount, 0)
+                )}
+              </Typography>
+            </Box>
           </Stack>
         </>
       )}
+
+      {/* Full settlement details popup — opens when a ref chip is tapped */}
+      <SettlementRefDetailDialog
+        open={refDetail !== null}
+        settlementReference={refDetail}
+        onClose={() => setRefDetail(null)}
+      />
 
       {/* Settle CTA when underpaid or untouched */}
       {(isPartial || isUntouched) && (

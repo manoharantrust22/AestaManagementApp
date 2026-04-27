@@ -119,14 +119,14 @@ export default function WorkUpdatesTab({ entity }: { entity: InspectEntity }) {
                         }
                       }}
                       sx={{
-                        width: 56,
-                        height: 56,
+                        width: 64,
+                        height: 64,
                         borderRadius: 0.75,
-                        backgroundImage: `url(${photo.url})`,
-                        backgroundSize: "cover",
-                        backgroundPosition: "center",
+                        overflow: "hidden",
+                        bgcolor: theme.palette.action.hover,
                         border: `1px solid ${theme.palette.divider}`,
                         cursor: "pointer",
+                        flex: "0 0 auto",
                         transition: "transform 120ms ease, box-shadow 120ms ease",
                         "&:hover": {
                           transform: "scale(1.04)",
@@ -137,7 +137,20 @@ export default function WorkUpdatesTab({ entity }: { entity: InspectEntity }) {
                           outlineOffset: 2,
                         },
                       }}
-                    />
+                    >
+                      <Box
+                        component="img"
+                        src={photo.url}
+                        alt={`Photo ${i + 1}`}
+                        loading="lazy"
+                        sx={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                          display: "block",
+                        }}
+                      />
+                    </Box>
                   ))}
                   {photos.length > 6 && (
                     <Box
