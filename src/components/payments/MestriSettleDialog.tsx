@@ -34,10 +34,22 @@ interface MestriSettleDialogProps {
   open: boolean;
   onClose: () => void;
   siteId: string;
-  weekStart: string; // YYYY-MM-DD
-  weekEnd: string; // YYYY-MM-DD
-  /** Default amount to fill — typically wagesDue - paid for the week. */
-  suggestedAmount: number;
+  /**
+   * "fill-week" — week-scoped settle (the original "Settle this week" CTA).
+   *               Requires weekStart/weekEnd, and the amount field pre-fills
+   *               from `suggestedAmount` (typically wagesDue - paid).
+   * "date-only" — ledger-style entry from the page header. The user records
+   *               an arbitrary "paid ₹X today" and the waterfall RPC handles
+   *               which week(s) it fills automatically. Default: empty amount,
+   *               today's date, no week subtitle.
+   */
+  mode?: "fill-week" | "date-only";
+  /** Required in "fill-week" mode; ignored in "date-only" mode. */
+  weekStart?: string;
+  /** Required in "fill-week" mode; ignored in "date-only" mode. */
+  weekEnd?: string;
+  /** Default amount to fill — typically wagesDue - paid. Used in "fill-week" mode only. */
+  suggestedAmount?: number;
   /** Pre-selected subcontract (when the page already has a scope). */
   initialSubcontractId?: string | null;
 }
@@ -72,11 +84,13 @@ export function MestriSettleDialog({
   open,
   onClose,
   siteId,
+  mode = "fill-week",
   weekStart,
   weekEnd,
-  suggestedAmount,
+  suggestedAmount = 0,
   initialSubcontractId,
 }: MestriSettleDialogProps) {
+  const isDateOnly = mode === "date-only";
   const { userProfile } = useAuth();
   const queryClient = useQueryClient();
   const supabase = useMemo(() => createClient(), []);
@@ -87,7 +101,9 @@ export function MestriSettleDialog({
   const [subcontractId, setSubcontractId] = useState<string | null>(
     initialSubcontractId ?? null
   );
-  const [amount, setAmount] = useState<string>(String(Math.max(0, suggestedAmount)));
+  const [amount, setAmount] = useState<string>(
+    isDateOnly ? "" : String(Math.max(0, suggestedAmount))
+  );
   const [paymentDate, setPaymentDate] = useState<string>(
     dayjs().format("YYYY-MM-DD")
   );
@@ -106,7 +122,7 @@ export function MestriSettleDialog({
   useEffect(() => {
     if (open) {
       setSubcontractId(initialSubcontractId ?? null);
-      setAmount(String(Math.max(0, suggestedAmount)));
+      setAmount(isDateOnly ? "" : String(Math.max(0, suggestedAmount)));
       setPaymentDate(dayjs().format("YYYY-MM-DD"));
       setPaymentType("salary");
       setPaymentMode("cash");
@@ -118,7 +134,7 @@ export function MestriSettleDialog({
       setError(null);
       setSubmitting(false);
     }
-  }, [open, initialSubcontractId, suggestedAmount]);
+  }, [open, initialSubcontractId, suggestedAmount, isDateOnly]);
 
   // Auto-pick the subcontract if there's only one on the site (saves a click)
   useEffect(() => {
@@ -170,6 +186,10 @@ export function MestriSettleDialog({
         );
       }
 
+      // In date-only mode there is no week to bind to — pass the actual
+      // payment date itself. The waterfall RPC is the only consumer that
+      // matters and it ignores `payment_for_date` (it allocates based on
+      // settlement_groups.settlement_date oldest-first).
       const result = await processContractPayment(supabase, {
         siteId,
         laborerId,
@@ -177,7 +197,7 @@ export function MestriSettleDialog({
         amount: amountNum,
         paymentType,
         actualPaymentDate: paymentDate,
-        paymentForDate: weekStart,
+        paymentForDate: isDateOnly ? paymentDate : (weekStart as string),
         paymentMode,
         paymentChannel,
         payerSource,
@@ -213,15 +233,26 @@ export function MestriSettleDialog({
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle sx={{ pr: 6 }}>
-        Record settlement
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ display: "block" }}
-        >
-          Week {dayjs(weekStart).format("DD MMM")}–
-          {dayjs(weekEnd).format("DD MMM YYYY")}
-        </Typography>
+        {isDateOnly ? "Record mesthri payment" : "Record settlement"}
+        {!isDateOnly && weekStart && weekEnd && (
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: "block" }}
+          >
+            Week {dayjs(weekStart).format("DD MMM")}–
+            {dayjs(weekEnd).format("DD MMM YYYY")}
+          </Typography>
+        )}
+        {isDateOnly && (
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: "block" }}
+          >
+            Auto-allocates to outstanding weeks via the waterfall.
+          </Typography>
+        )}
         <IconButton
           onClick={onClose}
           sx={{ position: "absolute", right: 8, top: 8 }}
@@ -269,7 +300,7 @@ export function MestriSettleDialog({
               sx={{ flex: 1 }}
               error={amount !== "" && !amountValid}
               helperText={
-                suggestedAmount > 0
+                !isDateOnly && suggestedAmount > 0
                   ? `Suggested: ₹${suggestedAmount.toLocaleString("en-IN")} (week's outstanding)`
                   : undefined
               }
@@ -343,7 +374,7 @@ export function MestriSettleDialog({
               <FileUploader
                 supabase={supabase}
                 bucketName="settlement-proofs"
-                folderPath={`settlements/${siteId}/${weekStart}-${dayjs().format("HHmmss")}`}
+                folderPath={`settlements/${siteId}/${weekStart ?? paymentDate}-${dayjs().format("HHmmss")}`}
                 fileNamePrefix="proof"
                 accept="image"
                 maxSizeMB={10}

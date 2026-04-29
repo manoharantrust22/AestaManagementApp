@@ -55,7 +55,16 @@ export interface SettlementDetails {
   settlementGroupId: string;
   settlementReference: string;
   settlementDate: string;
+  /** Gross paid amount (settlement_groups.total_amount). For contract
+   *  settlements this can exceed `distributedToLaborers` — the difference
+   *  is the mesthri's share / contract margin. */
   totalAmount: number;
+  /** Sum of labor_payments rows attached to this settlement_group. */
+  distributedToLaborers: number;
+  /** When mode === actual_payment_date and it differs from settlement_date,
+   *  show both. */
+  actualPaymentDate: string | null;
+  paymentType: string | null;
   laborerCount: number;
   paymentChannel: string;
   paymentMode: string | null;
@@ -148,6 +157,8 @@ async function getSettlementDetailsByReference(
         id,
         settlement_reference,
         settlement_date,
+        actual_payment_date,
+        payment_type,
         total_amount,
         laborer_count,
         payment_channel,
@@ -155,6 +166,7 @@ async function getSettlementDetailsByReference(
         payer_source,
         payer_name,
         proof_url,
+        proof_urls,
         notes,
         subcontract_id,
         is_cancelled,
@@ -204,13 +216,16 @@ async function getSettlementDetailsByReference(
       paymentType: p.payment_type || "salary",
     }));
 
-    // Calculate total from laborers (more accurate than settlement_groups.total_amount)
-    const calculatedTotal = laborers.reduce((sum, l) => sum + l.amount, 0);
+    // Sum of labor_payments — for contract settlements this is the portion
+    // distributed to laborers; the difference vs total_amount is the mesthri's
+    // share / contract margin. For daily/market settlements they're equal.
+    const distributedToLaborers = laborers.reduce((sum, l) => sum + l.amount, 0);
 
-    // Collect proof URLs
+    // Collect proof URLs from both legacy single-URL field and the array field
     const proofUrls: string[] = [];
-    if (sg.proof_url) {
-      // Could be a single URL or JSON array
+    if (Array.isArray(sg.proof_urls) && sg.proof_urls.length > 0) {
+      proofUrls.push(...sg.proof_urls.filter((u: any) => typeof u === "string"));
+    } else if (sg.proof_url) {
       try {
         const parsed = JSON.parse(sg.proof_url);
         if (Array.isArray(parsed)) {
@@ -227,8 +242,13 @@ async function getSettlementDetailsByReference(
       settlementGroupId: sg.id,
       settlementReference: sg.settlement_reference,
       settlementDate: sg.settlement_date,
-      // Use calculated total from actual payments (not settlement_groups.total_amount which may include non-contract laborers)
-      totalAmount: calculatedTotal || sg.total_amount,
+      actualPaymentDate: sg.actual_payment_date ?? null,
+      paymentType: sg.payment_type ?? null,
+      // Always use settlement_groups.total_amount (the actual paid gross).
+      // Older code used the labor-payments sum, but for contract settlements
+      // that under-reported the gross by the mesthri's contract margin.
+      totalAmount: Number(sg.total_amount) || 0,
+      distributedToLaborers,
       laborerCount: laborers.length,
       paymentChannel: sg.payment_channel,
       paymentMode: sg.payment_mode,
@@ -262,8 +282,11 @@ export default function SettlementRefDetailDialog({
   const [loading, setLoading] = useState(false);
   const [details, setDetails] = useState<SettlementDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [laborersExpanded, setLaborersExpanded] = useState(true);
-  const [proofsExpanded, setProofsExpanded] = useState(false);
+  // Laborer distribution is secondary detail — default collapsed so the
+  // payment record (mode/channel/source/proofs) is what users see first.
+  const [laborersExpanded, setLaborersExpanded] = useState(false);
+  // Default-expand proofs so the verification screenshot is visible immediately.
+  const [proofsExpanded, setProofsExpanded] = useState(true);
 
   useEffect(() => {
     const fetchDetails = async () => {
@@ -400,6 +423,38 @@ export default function SettlementRefDetailDialog({
               </Grid>
             </Grid>
 
+            {/* When mesthri retained a share, surface it inline so it's
+                obvious that total_paid > distributed_to_laborers. */}
+            {details.distributedToLaborers > 0 &&
+              details.totalAmount > details.distributedToLaborers + 0.5 && (
+                <Box
+                  sx={{
+                    mb: 2,
+                    p: 1.5,
+                    borderRadius: 1,
+                    bgcolor: alpha("#1976d2", 0.06),
+                    border: `1px dashed ${alpha("#1976d2", 0.3)}`,
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto",
+                    rowGap: 0.5,
+                    columnGap: 2,
+                  }}
+                >
+                  <Typography variant="caption" color="text.secondary">
+                    Distributed to laborers
+                  </Typography>
+                  <Typography variant="body2" fontWeight={500} sx={{ fontVariantNumeric: "tabular-nums" }}>
+                    Rs.{details.distributedToLaborers.toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Mesthri&apos;s share
+                  </Typography>
+                  <Typography variant="body2" fontWeight={500} sx={{ fontVariantNumeric: "tabular-nums" }}>
+                    Rs.{(details.totalAmount - details.distributedToLaborers).toLocaleString()}
+                  </Typography>
+                </Box>
+              )}
+
             <Divider sx={{ my: 2 }} />
 
             {/* Payment Details */}
@@ -422,6 +477,34 @@ export default function SettlementRefDetailDialog({
                   </Box>
                   <Typography variant="body2" fontWeight={500}>
                     {getPayerSourceLabel(details.payerSource, details.payerName)}
+                  </Typography>
+                </Grid>
+              )}
+              {details.actualPaymentDate &&
+                details.actualPaymentDate !== details.settlementDate && (
+                  <Grid size={{ xs: 6, sm: 4 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <CalendarIcon fontSize="small" color="action" />
+                      <Typography variant="caption" color="text.secondary">
+                        Actual Payment Date
+                      </Typography>
+                    </Box>
+                    <Typography variant="body2" fontWeight={500}>
+                      {dayjs(details.actualPaymentDate).format("MMM D, YYYY")}
+                    </Typography>
+                  </Grid>
+                )}
+              {details.paymentType && details.paymentType !== "salary" && (
+                <Grid size={{ xs: 6, sm: 4 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Payment Type
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    fontWeight={500}
+                    sx={{ textTransform: "capitalize" }}
+                  >
+                    {details.paymentType}
                   </Typography>
                 </Grid>
               )}
@@ -456,7 +539,10 @@ export default function SettlementRefDetailDialog({
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <PersonIcon color="action" />
                     <Typography variant="subtitle1" fontWeight={600}>
-                      Laborers ({details.laborers.length})
+                      Labor distribution ({details.laborers.length}
+                      {details.distributedToLaborers > 0 &&
+                        ` · Rs.${details.distributedToLaborers.toLocaleString()}`}
+                      )
                     </Typography>
                   </Box>
                   {laborersExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}

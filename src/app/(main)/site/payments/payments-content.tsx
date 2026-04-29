@@ -6,14 +6,18 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
   Box,
+  Button,
   Chip,
   IconButton,
   Snackbar,
   Tab,
   Tabs,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
 } from "@mui/material";
 import {
+  Add as AddIcon,
   Fullscreen as FullscreenIcon,
   FullscreenExit as FullscreenExitIcon,
 } from "@mui/icons-material";
@@ -29,17 +33,21 @@ import { DailyMarketLedger } from "@/components/payments/DailyMarketLedger";
 import PaymentsLedger from "@/components/payments/PaymentsLedger";
 import { MestriSettleDialog } from "@/components/payments/MestriSettleDialog";
 import PaymentDialog from "@/components/payments/PaymentDialog";
+import SettlementRefDetailDialog from "@/components/payments/SettlementRefDetailDialog";
+import { SettlementsList } from "@/components/payments/SettlementsList";
 import { usePaymentSummary } from "@/hooks/queries/usePaymentSummary";
 import { usePaymentsLedger } from "@/hooks/queries/usePaymentsLedger";
 import { useSalarySliceSummary } from "@/hooks/queries/useSalarySliceSummary";
 import { useSalaryWaterfall } from "@/hooks/queries/useSalaryWaterfall";
 import { useAdvances } from "@/hooks/queries/useAdvances";
 import { useDayPendingRecords } from "@/hooks/queries/useDayPendingRecords";
+import { useSettlementsList } from "@/hooks/queries/useSettlementsList";
 import { useInspectPane } from "@/hooks/useInspectPane";
 import { InspectPane } from "@/components/common/InspectPane";
 import type { InspectEntity } from "@/components/common/InspectPane";
 
 type ActiveTab = "all" | "contract" | "daily-market";
+type ViewMode = "default" | "by-settlement";
 
 export default function PaymentsContent() {
   const { selectedSite } = useSelectedSite();
@@ -56,11 +64,27 @@ export default function PaymentsContent() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>("contract");
+  // Per-tab view mode. "default" is the existing waterfall (Contract) /
+  // ledger (Daily+Market, All) view; "by-settlement" shows a flat
+  // chronological list of settlement_groups rows for verification.
+  const [viewModes, setViewModes] = useState<Record<ActiveTab, ViewMode>>({
+    contract: "default",
+    "daily-market": "default",
+    all: "default",
+  });
+  const viewMode = viewModes[activeTab];
+  const setViewMode = (next: ViewMode) =>
+    setViewModes((prev) => ({ ...prev, [activeTab]: next }));
+  // SET-XXX detail dialog opened from a row click in the by-settlement view.
+  const [refDetail, setRefDetail] = useState<string | null>(null);
   const [settleDialog, setSettleDialog] = useState<null | {
     weekStart: string;
     weekEnd: string;
     suggestedAmount: number;
   }>(null);
+  // Date-only ledger entry (not bound to a week). The user picks any date
+  // in the dialog; the waterfall RPC handles allocation downstream.
+  const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
   // In-page settle dialog for a single Daily+Market date. Holds the date so
   // the records hook can fetch its pending entries; null = closed.
   const [dayDialog, setDayDialog] = useState<null | { date: string }>(null);
@@ -118,6 +142,21 @@ export default function PaymentsContent() {
     dateTo: effectiveTo,
     status: "all",
     type: "all",
+  });
+
+  // Chronological flat list of settlement_groups. Filter follows the active
+  // tab. Only fetched when the user actually toggles to "by-settlement" so
+  // we don't pay for it on every page load.
+  const settlementsListQuery = useSettlementsList({
+    siteId: selectedSite?.id,
+    filter:
+      activeTab === "contract"
+        ? "contract"
+        : activeTab === "daily-market"
+          ? "daily-market"
+          : "all",
+    dateFrom: effectiveFrom,
+    dateTo: effectiveTo,
   });
 
   const pendingDailyMarketCount = (dailyMarketLedgerQuery.data ?? []).filter(
@@ -339,79 +378,226 @@ export default function PaymentsContent() {
 
         {activeTab === "contract" && (
           <Box>
-            <SalaryWaterfallList
-              weeks={waterfallQuery.data ?? []}
-              futureCredit={salarySummaryQuery.data?.futureCredit ?? 0}
-              isLoading={waterfallQuery.isLoading}
-              onRowClick={(week) => {
-                pane.open({
-                  kind: "weekly-aggregate",
-                  siteId: selectedSite.id,
-                  subcontractId: selectedSubcontractId,
-                  weekStart: week.weekStart,
-                  weekEnd: week.weekEnd,
-                  scopeFrom: effectiveFrom,
-                  scopeTo: effectiveTo,
-                });
+            <Box
+              sx={{
+                px: 1.5,
+                py: 1,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 1,
+                borderBottom: 1,
+                borderColor: "divider",
+                flexWrap: "wrap",
               }}
-              onSettleClick={(week) => {
-                setSettleDialog({
-                  weekStart: week.weekStart,
-                  weekEnd: week.weekEnd,
-                  suggestedAmount: Math.max(0, week.wagesDue - week.paid),
-                });
-              }}
-            />
-            {(advancesQuery.data?.length ?? 0) > 0 && (
-              <Box sx={{ mt: 1.5 }}>
-                <AdvancesList
-                  advances={advancesQuery.data ?? []}
-                  isLoading={advancesQuery.isLoading}
-                  onRowClick={(adv) => {
+            >
+              <ToggleButtonGroup
+                value={viewMode}
+                exclusive
+                size="small"
+                onChange={(_, v) => v && setViewMode(v as ViewMode)}
+                aria-label="View mode"
+                sx={{
+                  "& .MuiToggleButton-root": {
+                    fontSize: 11,
+                    fontWeight: 600,
+                    textTransform: "none",
+                    py: 0.25,
+                    px: 1.25,
+                  },
+                }}
+              >
+                <ToggleButton value="default" aria-label="Weekly waterfall">
+                  📊 Weekly waterfall
+                </ToggleButton>
+                <ToggleButton value="by-settlement" aria-label="By settlement">
+                  📜 By settlement
+                </ToggleButton>
+              </ToggleButtonGroup>
+              <Button
+                variant="contained"
+                color="primary"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() => setRecordPaymentOpen(true)}
+              >
+                Record mesthri payment
+              </Button>
+            </Box>
+            {viewMode === "default" ? (
+              <>
+                <SalaryWaterfallList
+                  weeks={waterfallQuery.data ?? []}
+                  futureCredit={salarySummaryQuery.data?.futureCredit ?? 0}
+                  isLoading={waterfallQuery.isLoading}
+                  onRowClick={(week) => {
                     pane.open({
-                      kind: "advance",
+                      kind: "weekly-aggregate",
                       siteId: selectedSite.id,
-                      settlementId: adv.id,
-                      settlementRef: adv.settlementRef,
+                      subcontractId: selectedSubcontractId,
+                      weekStart: week.weekStart,
+                      weekEnd: week.weekEnd,
+                      scopeFrom: effectiveFrom,
+                      scopeTo: effectiveTo,
+                    });
+                  }}
+                  onSettleClick={(week) => {
+                    setSettleDialog({
+                      weekStart: week.weekStart,
+                      weekEnd: week.weekEnd,
+                      suggestedAmount: Math.max(0, week.wagesDue - week.paid),
                     });
                   }}
                 />
-              </Box>
+                {(advancesQuery.data?.length ?? 0) > 0 && (
+                  <Box sx={{ mt: 1.5 }}>
+                    <AdvancesList
+                      advances={advancesQuery.data ?? []}
+                      isLoading={advancesQuery.isLoading}
+                      onRowClick={(adv) => {
+                        pane.open({
+                          kind: "advance",
+                          siteId: selectedSite.id,
+                          settlementId: adv.id,
+                          settlementRef: adv.settlementRef,
+                        });
+                      }}
+                    />
+                  </Box>
+                )}
+              </>
+            ) : (
+              <SettlementsList
+                rows={settlementsListQuery.data ?? []}
+                isLoading={settlementsListQuery.isLoading}
+                onRowClick={(row) => setRefDetail(row.ref)}
+                emptyMessage="No contract settlements recorded for this period."
+              />
             )}
           </Box>
         )}
 
         {activeTab === "daily-market" && (
-          <DailyMarketLedger
-            rows={dailyMarketLedgerQuery.data ?? []}
-            isLoading={dailyMarketLedgerQuery.isLoading}
-            onRowClick={(row) => {
-              pane.open({
-                kind: "daily-date",
-                siteId: selectedSite.id,
-                date: row.date,
-                settlementRef: row.settlementRef,
-              });
-            }}
-            onSettleClick={(row) =>
-              handleSettleClick({
-                kind: "daily-date",
-                siteId: selectedSite.id,
-                date: row.date,
-                settlementRef: row.settlementRef,
-              })
-            }
-          />
+          <Box>
+            <Box
+              sx={{
+                px: 1.5,
+                py: 1,
+                display: "flex",
+                justifyContent: "flex-start",
+                borderBottom: 1,
+                borderColor: "divider",
+              }}
+            >
+              <ToggleButtonGroup
+                value={viewMode}
+                exclusive
+                size="small"
+                onChange={(_, v) => v && setViewMode(v as ViewMode)}
+                aria-label="View mode"
+                sx={{
+                  "& .MuiToggleButton-root": {
+                    fontSize: 11,
+                    fontWeight: 600,
+                    textTransform: "none",
+                    py: 0.25,
+                    px: 1.25,
+                  },
+                }}
+              >
+                <ToggleButton value="default" aria-label="By date">
+                  📅 By date
+                </ToggleButton>
+                <ToggleButton value="by-settlement" aria-label="By settlement">
+                  📜 By settlement
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+            {viewMode === "default" ? (
+              <DailyMarketLedger
+                rows={dailyMarketLedgerQuery.data ?? []}
+                isLoading={dailyMarketLedgerQuery.isLoading}
+                onRowClick={(row) => {
+                  pane.open({
+                    kind: "daily-date",
+                    siteId: selectedSite.id,
+                    date: row.date,
+                    settlementRef: row.settlementRef,
+                  });
+                }}
+                onSettleClick={(row) =>
+                  handleSettleClick({
+                    kind: "daily-date",
+                    siteId: selectedSite.id,
+                    date: row.date,
+                    settlementRef: row.settlementRef,
+                  })
+                }
+              />
+            ) : (
+              <SettlementsList
+                rows={settlementsListQuery.data ?? []}
+                isLoading={settlementsListQuery.isLoading}
+                onRowClick={(row) => setRefDetail(row.ref)}
+                emptyMessage="No daily/market settlements recorded for this period."
+              />
+            )}
+          </Box>
         )}
 
         {activeTab === "all" && (
-          <PaymentsLedger
-            rows={allLedgerQuery.data ?? []}
-            isLoading={allLedgerQuery.isLoading}
-            selectedEntity={pane.currentEntity}
-            onRowClick={(entity) => pane.open(entity)}
-            onSettleClick={(entity) => handleSettleClick(entity)}
-          />
+          <Box>
+            <Box
+              sx={{
+                px: 1.5,
+                py: 1,
+                display: "flex",
+                justifyContent: "flex-start",
+                borderBottom: 1,
+                borderColor: "divider",
+              }}
+            >
+              <ToggleButtonGroup
+                value={viewMode}
+                exclusive
+                size="small"
+                onChange={(_, v) => v && setViewMode(v as ViewMode)}
+                aria-label="View mode"
+                sx={{
+                  "& .MuiToggleButton-root": {
+                    fontSize: 11,
+                    fontWeight: 600,
+                    textTransform: "none",
+                    py: 0.25,
+                    px: 1.25,
+                  },
+                }}
+              >
+                <ToggleButton value="default" aria-label="Unified ledger">
+                  📋 Unified ledger
+                </ToggleButton>
+                <ToggleButton value="by-settlement" aria-label="By settlement">
+                  📜 By settlement
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+            {viewMode === "default" ? (
+              <PaymentsLedger
+                rows={allLedgerQuery.data ?? []}
+                isLoading={allLedgerQuery.isLoading}
+                selectedEntity={pane.currentEntity}
+                onRowClick={(entity) => pane.open(entity)}
+                onSettleClick={(entity) => handleSettleClick(entity)}
+              />
+            ) : (
+              <SettlementsList
+                rows={settlementsListQuery.data ?? []}
+                isLoading={settlementsListQuery.isLoading}
+                onRowClick={(row) => setRefDetail(row.ref)}
+                emptyMessage="No settlements recorded for this period."
+              />
+            )}
+          </Box>
         )}
       </Box>
 
@@ -420,12 +606,30 @@ export default function PaymentsContent() {
           open
           onClose={() => setSettleDialog(null)}
           siteId={selectedSite.id}
+          mode="fill-week"
           weekStart={settleDialog.weekStart}
           weekEnd={settleDialog.weekEnd}
           suggestedAmount={settleDialog.suggestedAmount}
           initialSubcontractId={selectedSubcontractId}
         />
       )}
+
+      {recordPaymentOpen && (
+        <MestriSettleDialog
+          open
+          onClose={() => setRecordPaymentOpen(false)}
+          siteId={selectedSite.id}
+          mode="date-only"
+          initialSubcontractId={selectedSubcontractId}
+        />
+      )}
+
+      <SettlementRefDetailDialog
+        open={refDetail !== null}
+        settlementReference={refDetail}
+        onClose={() => setRefDetail(null)}
+      />
+
 
       {dayDialog && (
         <PaymentDialog
