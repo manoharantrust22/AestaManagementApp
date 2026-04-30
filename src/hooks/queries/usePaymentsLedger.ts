@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 import type { PaymentsLedgerRow } from "@/components/payments/PaymentsLedger";
 
 export interface UsePaymentsLedgerArgs {
@@ -18,13 +19,17 @@ export function usePaymentsLedger(args: UsePaymentsLedgerArgs) {
     enabled: Boolean(siteId),
     staleTime: 15_000,
     queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc("get_payments_ledger", {
-        p_site_id:   siteId,
-        p_date_from: dateFrom,
-        p_date_to:   dateTo,
-        p_status:    status,
-        p_type:      type,
-      });
+      const { data, error } = await withTimeout(
+        Promise.resolve((supabase as any).rpc("get_payments_ledger", {
+          p_site_id:   siteId,
+          p_date_from: dateFrom,
+          p_date_to:   dateTo,
+          p_status:    status,
+          p_type:      type,
+        })),
+        TIMEOUTS.QUERY,
+        "Payments ledger query timed out. Please retry.",
+      );
       if (error) throw error;
       const rows = (data ?? []) as Array<{
         id: string;

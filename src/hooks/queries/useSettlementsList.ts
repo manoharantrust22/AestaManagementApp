@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 
 /**
  * A row in the chronological settlement-list view. Mirrors what the user
@@ -75,7 +76,11 @@ export function useSettlementsList(args: UseSettlementsListArgs) {
       if (dateFrom) q = q.gte("settlement_date", dateFrom);
       if (dateTo) q = q.lte("settlement_date", dateTo);
 
-      const { data, error } = await q;
+      const { data, error } = await withTimeout(
+        Promise.resolve(q),
+        TIMEOUTS.QUERY,
+        "Settlements list query timed out. Please retry.",
+      );
       if (error) throw error;
 
       const rows: SettlementListRow[] = (data ?? []).map((sg: any) => {

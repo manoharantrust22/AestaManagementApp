@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 
 export interface WeekDayAggregate {
   date: string;
@@ -55,10 +56,11 @@ export function useWeekAggregateAttendance(
         .gte("date", weekStart!)
         .lte("date", weekEnd!);
 
-      const [attendanceRes, holidaysRes] = await Promise.all([
-        attendanceQ,
-        holidaysQ,
-      ]);
+      const [attendanceRes, holidaysRes] = await withTimeout(
+        Promise.all([attendanceQ, holidaysQ]),
+        TIMEOUTS.QUERY,
+        "Week aggregate attendance query timed out. Please retry.",
+      );
       if (attendanceRes.error) throw attendanceRes.error;
       if (holidaysRes.error) throw holidaysRes.error;
 

@@ -15,6 +15,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 
 export interface LaborerWeekDay {
   date: string; // YYYY-MM-DD
@@ -56,14 +57,18 @@ export function useLaborerWeek(
     enabled: Boolean(siteId && laborerId && weekStart && weekEnd),
     staleTime: 30_000,
     queryFn: async (): Promise<LaborerWeekData> => {
-      const { data, error } = await (supabase as any).rpc(
-        "get_laborer_week_breakdown",
-        {
-          p_site_id: siteId,
-          p_laborer_id: laborerId,
-          p_week_start: weekStart,
-          p_week_end: weekEnd,
-        }
+      const { data, error } = await withTimeout(
+        Promise.resolve((supabase as any).rpc(
+          "get_laborer_week_breakdown",
+          {
+            p_site_id: siteId,
+            p_laborer_id: laborerId,
+            p_week_start: weekStart,
+            p_week_end: weekEnd,
+          }
+        )),
+        TIMEOUTS.QUERY,
+        "Laborer week breakdown query timed out. Please retry.",
       );
       if (error) throw error;
       const r: any = data || {};

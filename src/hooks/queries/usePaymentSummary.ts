@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 import type { PaymentScopeSummary } from "@/types/payment.types";
 
 export function usePaymentSummary(
@@ -12,11 +13,15 @@ export function usePaymentSummary(
     queryKey: ["payment-summary", siteId, dateFrom, dateTo],
     enabled: Boolean(siteId),
     queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc("get_payment_summary", {
-        p_site_id:   siteId,
-        p_date_from: dateFrom,
-        p_date_to:   dateTo,
-      });
+      const { data, error } = await withTimeout(
+        Promise.resolve((supabase as any).rpc("get_payment_summary", {
+          p_site_id:   siteId,
+          p_date_from: dateFrom,
+          p_date_to:   dateTo,
+        })),
+        TIMEOUTS.QUERY,
+        "Payment summary query timed out. Please retry.",
+      );
       if (error) throw error;
       const r = (data ?? [])[0] ?? {};
       return {

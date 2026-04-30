@@ -15,6 +15,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 
 export interface WorkUpdateCard {
   id: string;
@@ -71,12 +72,18 @@ export function useWorkUpdates(
     enabled: Boolean(siteId && dateFrom && dateTo),
     staleTime: 30_000,
     queryFn: async (): Promise<UseWorkUpdatesData> => {
-      const { data, error } = await (supabase.from("daily_work_summary") as any)
-        .select("date, work_updates, entered_by, updated_by")
-        .eq("site_id", siteId)
-        .gte("date", dateFrom)
-        .lte("date", dateTo)
-        .order("date", { ascending: true });
+      const { data, error } = await withTimeout(
+        Promise.resolve(
+          (supabase.from("daily_work_summary") as any)
+            .select("date, work_updates, entered_by, updated_by")
+            .eq("site_id", siteId)
+            .gte("date", dateFrom)
+            .lte("date", dateTo)
+            .order("date", { ascending: true })
+        ),
+        TIMEOUTS.QUERY,
+        "Work updates query timed out. Please retry.",
+      );
 
       if (error) throw error;
 

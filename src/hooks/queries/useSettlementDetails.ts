@@ -12,6 +12,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 
 export interface SettlementDetailsData {
   settledOn: string | null; // settlement_date (YYYY-MM-DD)
@@ -87,12 +88,18 @@ export function useSettlementDetails(
     staleTime: 60_000,
     queryFn: async (): Promise<SettlementDetailsData | null> => {
       if (!settlementRef) return null;
-      const { data, error } = await (supabase.from("settlement_groups") as any)
-        .select(
-          "settlement_date, payer_source, payer_name, payment_mode, payment_channel, created_by_name, subcontract_id"
-        )
-        .eq("settlement_reference", settlementRef)
-        .single();
+      const { data, error } = await withTimeout(
+        Promise.resolve(
+          (supabase.from("settlement_groups") as any)
+            .select(
+              "settlement_date, payer_source, payer_name, payment_mode, payment_channel, created_by_name, subcontract_id"
+            )
+            .eq("settlement_reference", settlementRef)
+            .single()
+        ),
+        TIMEOUTS.QUERY,
+        "Settlement details query timed out. Please retry.",
+      );
       if (error) {
         // Not-found shouldn't crash the tab — return null and let the view
         // render placeholders.

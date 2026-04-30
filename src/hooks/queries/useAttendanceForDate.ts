@@ -10,6 +10,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 
 export interface AttendanceForDateData {
   dailyTotal: number;
@@ -44,9 +45,13 @@ export function useAttendanceForDate(siteId: string, date: string) {
     staleTime: 30_000,
     queryFn: async (): Promise<AttendanceForDateData> => {
       // RPC returns a single jsonb row; supabase-js wraps that in `data`.
-      const { data, error } = await (supabase as any).rpc(
-        "get_attendance_for_date",
-        { p_site_id: siteId, p_date: date }
+      const { data, error } = await withTimeout(
+        Promise.resolve((supabase as any).rpc(
+          "get_attendance_for_date",
+          { p_site_id: siteId, p_date: date }
+        )),
+        TIMEOUTS.QUERY,
+        "Attendance-for-date query timed out. Please retry.",
       );
       if (error) throw error;
       const r: any = data || {};

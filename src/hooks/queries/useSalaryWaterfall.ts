@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 
 export interface WaterfallFilledBy {
   ref: string;
@@ -38,12 +39,21 @@ export function useSalaryWaterfall(args: UseSalaryWaterfallArgs) {
     enabled: Boolean(siteId),
     staleTime: 15_000,
     queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc("get_salary_waterfall", {
-        p_site_id:        siteId,
-        p_subcontract_id: subcontractId,
-        p_date_from:      dateFrom,
-        p_date_to:        dateTo,
-      });
+      // Wrap RPC in a Promise so withTimeout's Promise.race can short-circuit
+      // a silently-hung request (browser pause/resume, transient network glitch,
+      // or queueing behind the 6-conn limit). Without this, the queryFn never
+      // resolves/rejects and the page stays in skeleton state until the user
+      // refreshes — matches the reported "stuck loading, no errors" symptom.
+      const { data, error } = await withTimeout(
+        Promise.resolve((supabase as any).rpc("get_salary_waterfall", {
+          p_site_id:        siteId,
+          p_subcontract_id: subcontractId,
+          p_date_from:      dateFrom,
+          p_date_to:        dateTo,
+        })),
+        TIMEOUTS.QUERY,
+        "Salary waterfall query timed out. Please retry.",
+      );
       if (error) throw error;
       const rows = (data ?? []) as Array<any>;
       return rows.map<WaterfallWeek>((r) => ({

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 
 export interface SalarySliceSummary {
   wagesDue: number;
@@ -40,12 +41,16 @@ export function useSalarySliceSummary(args: UseSalarySliceSummaryArgs) {
     enabled: Boolean(siteId),
     staleTime: 15_000,
     queryFn: async () => {
-      const { data, error } = await (supabase as any).rpc("get_salary_slice_summary", {
-        p_site_id:        siteId,
-        p_subcontract_id: subcontractId,
-        p_date_from:      dateFrom,
-        p_date_to:        dateTo,
-      });
+      const { data, error } = await withTimeout(
+        Promise.resolve((supabase as any).rpc("get_salary_slice_summary", {
+          p_site_id:        siteId,
+          p_subcontract_id: subcontractId,
+          p_date_from:      dateFrom,
+          p_date_to:        dateTo,
+        })),
+        TIMEOUTS.QUERY,
+        "Salary summary query timed out. Please retry.",
+      );
       if (error) throw error;
       const row = (data && data.length > 0 ? data[0] : null) as any;
       if (!row) return ZERO;
