@@ -1,6 +1,12 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import dayjs from "dayjs";
+import isoWeek from "dayjs/plugin/isoWeek";
 import { createSalaryExpense } from "./notificationService";
+
+// ISO weeks (Mon-Sun) match Postgres `date_trunc('week', date)` used by
+// get_salary_waterfall and get_payments_ledger — keep allocator buckets aligned
+// with the SQL source of truth so per-week paid/owed totals reconcile.
+dayjs.extend(isoWeek);
 import type {
   PaymentMode,
   PaymentChannel,
@@ -1201,8 +1207,8 @@ async function allocateSalaryToWeeks(
 
   for (const att of attendanceData) {
     const d = dayjs(att.date);
-    const weekStart = d.day(0).format("YYYY-MM-DD"); // Sunday
-    const weekEnd = d.day(6).format("YYYY-MM-DD"); // Saturday
+    const weekStart = d.startOf("isoWeek").format("YYYY-MM-DD"); // Monday
+    const weekEnd = d.endOf("isoWeek").format("YYYY-MM-DD"); // Sunday
 
     if (!weeklyData.has(weekStart)) {
       weeklyData.set(weekStart, { weekStart, weekEnd, totalDue: 0, attendanceIds: [] });
@@ -2204,8 +2210,8 @@ export async function processDateWiseContractSettlement(
 
     for (const att of unpaidWeeksData) {
       const d = dayjs(att.date);
-      const weekStart = d.day(0).format("YYYY-MM-DD"); // Sunday
-      const weekEnd = d.day(6).format("YYYY-MM-DD"); // Saturday
+      const weekStart = d.startOf("isoWeek").format("YYYY-MM-DD"); // Monday
+      const weekEnd = d.endOf("isoWeek").format("YYYY-MM-DD"); // Sunday
       const weekLabel = `${dayjs(weekStart).format("MMM DD")} - ${dayjs(weekEnd).format("MMM DD, YYYY")}`;
 
       if (!weekDataMap.has(weekStart)) {
@@ -2705,8 +2711,8 @@ export async function getMaestriEarnings(
 
     for (const att of attendanceData) {
       const d = dayjs(att.date);
-      const weekStart = d.day(0).format("YYYY-MM-DD");
-      const weekEnd = d.day(6).format("YYYY-MM-DD");
+      const weekStart = d.startOf("isoWeek").format("YYYY-MM-DD"); // Monday
+      const weekEnd = d.endOf("isoWeek").format("YYYY-MM-DD"); // Sunday
       const weekLabel = `${dayjs(weekStart).format("MMM DD")} - ${dayjs(weekEnd).format("MMM DD, YYYY")}`;
 
       if (!weekDataMap.has(weekStart)) {
