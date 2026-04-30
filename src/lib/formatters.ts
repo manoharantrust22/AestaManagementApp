@@ -268,7 +268,7 @@ export function generateSettlementNotificationMessage(params: {
     marketCount,
     siteName,
     transactionId,
-    appBaseUrl = "https://aestamanagementapp.vercel.app",
+    appBaseUrl = "https://app.aesta.co.in",
   } = params;
 
   const laborerText =
