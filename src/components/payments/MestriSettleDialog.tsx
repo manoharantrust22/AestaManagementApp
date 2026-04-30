@@ -280,6 +280,8 @@ export function MestriSettleDialog({
             renderInput={(params) => (
               <TextField
                 {...params}
+                id="mestri-subcontract"
+                name="mestri-subcontract"
                 label="Subcontract / Mestri"
                 size="small"
                 required
@@ -290,6 +292,8 @@ export function MestriSettleDialog({
           {/* Amount + date */}
           <Stack direction="row" spacing={1.5}>
             <TextField
+              id="mestri-amount"
+              name="mestri-amount"
               label="Amount (₹)"
               size="small"
               type="number"
@@ -306,6 +310,8 @@ export function MestriSettleDialog({
               }
             />
             <TextField
+              id="mestri-payment-date"
+              name="mestri-payment-date"
               label="Payment date"
               size="small"
               type="date"
@@ -319,6 +325,8 @@ export function MestriSettleDialog({
 
           {/* Payment type */}
           <TextField
+            id="mestri-payment-type"
+            name="mestri-payment-type"
             label="Payment type"
             size="small"
             select
@@ -337,6 +345,8 @@ export function MestriSettleDialog({
           {/* Mode + channel */}
           <Stack direction="row" spacing={1.5}>
             <TextField
+              id="mestri-payment-mode"
+              name="mestri-payment-mode"
               label="Payment mode"
               size="small"
               select
@@ -351,6 +361,8 @@ export function MestriSettleDialog({
               ))}
             </TextField>
             <TextField
+              id="mestri-payment-channel"
+              name="mestri-payment-channel"
               label="Channel"
               size="small"
               select
@@ -390,6 +402,8 @@ export function MestriSettleDialog({
 
           {/* Payer source */}
           <TextField
+            id="mestri-payer-source"
+            name="mestri-payer-source"
             label="Paid by"
             size="small"
             select
@@ -405,6 +419,8 @@ export function MestriSettleDialog({
 
           {payerSource === "custom" && (
             <TextField
+              id="mestri-custom-payer"
+              name="mestri-custom-payer"
               label="Custom payer name"
               size="small"
               value={customPayerName}
@@ -414,6 +430,8 @@ export function MestriSettleDialog({
 
           {/* Notes */}
           <TextField
+            id="mestri-notes"
+            name="mestri-notes"
             label="Notes (optional)"
             size="small"
             value={notes}

@@ -32,6 +32,7 @@ import { ensureFreshSession } from "@/lib/supabase/client";
 type UploadStatus =
   | "idle"
   | "compressing"
+  | "preparing"
   | "uploading"
   | "retrying"
   | "success"
@@ -191,8 +192,17 @@ const compressImage = (
   maxSizeKB: number = 200,
   maxWidth: number = 1280,
   maxHeight: number = 1280,
+  onProgress?: (percent: number) => void,
 ): Promise<File> => {
   return new Promise((resolve) => {
+    const reportProgress = (pct: number) => {
+      try {
+        onProgress?.(pct);
+      } catch {
+        // Ignore consumer callback errors so they can't stall compression
+      }
+    };
+
     const effectiveMime = getEffectiveMimeType(file);
 
     // Skip compression for non-image files
@@ -221,17 +231,20 @@ const compressImage = (
       resolve(result);
     };
 
-    // Global timeout - if compression takes more than 8s, skip and upload original
+    // Global timeout - if compression takes more than 4s, skip and upload original.
+    // Real images decode + encode in <1s; the longer wait is dead time when canvas
+    // can't decode (e.g. HEIC mis-extensioned as .jpg, corrupt images).
     const timeout = setTimeout(() => {
-      console.warn("[Compress] Timed out after 8s, uploading original file");
+      console.warn("[Compress] Timed out after 4s, uploading original file");
       safeResolve(file);
-    }, 8000);
+    }, 4000);
 
     // Use createObjectURL instead of readAsDataURL (instant, no base64 encoding overhead)
     const objectUrl = URL.createObjectURL(file);
     const img = new Image();
 
     img.onload = () => {
+      reportProgress(12);
       try {
         // Calculate new dimensions maintaining aspect ratio
         let { width, height } = img;
@@ -262,6 +275,7 @@ const compressImage = (
 
         ctx.drawImage(img, 0, 0, width, height);
         URL.revokeObjectURL(objectUrl);
+        reportProgress(25);
 
         // Output as JPEG for best compression (PNG only if input is PNG)
         const outputType = effectiveMime === "image/png" ? "image/png" : "image/jpeg";
@@ -269,6 +283,7 @@ const compressImage = (
 
         // Try quality levels in a single pass: 0.6 → 0.4 → 0.2
         const tryQualities = [0.6, 0.4, 0.2];
+        const attemptProgress = [35, 42, 48];
         let qualityIndex = 0;
 
         const tryCompress = () => {
@@ -278,6 +293,7 @@ const compressImage = (
           canvas.toBlob(
             (blob) => {
               if (resolved) return;
+              reportProgress(attemptProgress[qualityIndex]);
 
               if (!blob) {
                 clearTimeout(timeout);
@@ -439,6 +455,8 @@ export default function FileUploader({
     switch (status) {
       case "compressing":
         return "Compressing image...";
+      case "preparing":
+        return "Preparing upload...";
       case "uploading":
         return "Uploading...";
       case "retrying":
@@ -702,7 +720,12 @@ export default function FileUploader({
               file,
               maxCompressedSizeKB,
               maxImageWidth,
-              maxImageHeight
+              maxImageHeight,
+              (pct) => {
+                if (isMountedRef.current) {
+                  setUploadProgress(pct);
+                }
+              }
             );
             console.log(
               `[FileUploader] Image compressed: ${formatFileSize(file.size)} -> ${formatFileSize(fileToUpload.size)}`
@@ -719,7 +742,13 @@ export default function FileUploader({
 
         // === PHASE 2: Get fresh auth token ===
         // Ensure token is valid before upload - expired tokens cause CORS/network errors
-        // from Supabase Storage that appear as "Network error during upload"
+        // from Supabase Storage that appear as "Network error during upload".
+        // Use a distinct "preparing" status so the UI doesn't keep saying
+        // "Compressing image..." while the auth refresh is running.
+        if (isMountedRef.current) {
+          setUploadStatus("preparing");
+          setUploadProgress(50);
+        }
         try {
           await ensureFreshSession();
         } catch (sessionError) {
@@ -732,7 +761,7 @@ export default function FileUploader({
 
         // === PHASE 3: Upload with real XHR progress ===
         setUploadStatus("uploading");
-        setUploadProgress(10);
+        setUploadProgress(55);
 
         const ext = file.name.split(".").pop() || "file";
         const timestamp = Date.now();
@@ -744,9 +773,9 @@ export default function FileUploader({
           fileToUpload,
           session.access_token,
           (percent) => {
-            // Map XHR progress (0-100) to our UI range (10-95)
+            // Map XHR progress (0-100) to our UI range (55-99)
             if (isMountedRef.current) {
-              setUploadProgress(10 + (percent * 0.85));
+              setUploadProgress(55 + (percent * 0.44));
             }
           }
         );
