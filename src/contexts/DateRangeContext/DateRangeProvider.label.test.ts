@@ -76,6 +76,18 @@ describe("computeLabel", () => {
 import { computeDays } from "./DateRangeProvider";
 
 describe("computeLabel — calendar months (revised 2026-04-25)", () => {
+  // Freeze to mid-month so "1st-to-today" is a multi-day range — without this,
+  // running on the 1st of any month makes the range collapse to a single day
+  // and computeLabel correctly returns "Today" instead of "This Month".
+  beforeAll(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-24T12:00:00"));
+  });
+
+  afterAll(() => {
+    vi.useRealTimers();
+  });
+
   it("returns 'Feb 2026' for a full past calendar month (two months ago)", () => {
     const start = dayjs("2026-02-01").startOf("day").toDate();
     const end = dayjs("2026-02-28").endOf("day").toDate();
