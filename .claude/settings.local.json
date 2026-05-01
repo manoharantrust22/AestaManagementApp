@@ -141,7 +141,10 @@
       "mcp__playwright__browser_tabs",
       "Skill(schedule)",
       "Skill(schedule:*)",
-      "Bash(jobs -p)"
+      "Bash(jobs -p)",
+      "PowerShell(Get-Process \"Docker Desktop\" -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Service \"com.docker.service\" -ErrorAction SilentlyContinue)",
+      "PowerShell(if \\(-not $?\\) { \"Docker Desktop not running\" })"
     ],
     "deny": [],
     "ask": []
