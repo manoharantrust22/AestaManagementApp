@@ -40,6 +40,8 @@ import { useSelectedCompany } from "@/contexts/CompanyContext/SelectedCompanyCon
 import type { Tables } from "@/types/database.types";
 import type { LaborersPageData, LaborerWithDetails } from "@/lib/data/laborers";
 import LaborerPhotoUploader from "@/components/laborers/LaborerPhotoUploader";
+import RateCascadeDialog from "@/components/laborers/RateCascadeDialog";
+import type { LaborerRateCascadeResult } from "@/lib/services/laborerService";
 import dayjs from "dayjs";
 
 type LaborCategory = Tables<"labor_categories">;
@@ -69,6 +71,13 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
   const [deactivatingLaborer, setDeactivatingLaborer] =
     useState<LaborerWithDetails | null>(null);
   const [deactivateLoading, setDeactivateLoading] = useState(false);
+
+  const [rateCascadeContext, setRateCascadeContext] = useState<{
+    laborerId: string;
+    laborerName: string;
+    oldRate: number;
+    newRate: number;
+  } | null>(null);
 
   const { userProfile } = useAuth();
   const { selectedCompany } = useSelectedCompany();
@@ -178,10 +187,37 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
       };
 
       if (editingLaborer) {
+        const newRate = Number(formData.daily_rate) || 0;
+        const oldRate = Number(editingLaborer.daily_rate) || 0;
+        const rateChanged = newRate !== oldRate;
+
+        // Save non-rate fields first so they persist regardless of cascade choice.
+        // The rate itself is owned by the cascade RPC when it changed.
+        const { daily_rate: _dr, ...nonRatePayload } = payload as Record<
+          string,
+          unknown
+        >;
+        const updatePayload = rateChanged ? nonRatePayload : payload;
+
         const { error } = await (supabase.from("laborers") as any)
-          .update(payload)
+          .update(updatePayload)
           .eq("id", editingLaborer.id);
         if (error) throw error;
+
+        if (rateChanged) {
+          // Defer the rate change + history cascade to the confirmation dialog.
+          setRateCascadeContext({
+            laborerId: editingLaborer.id,
+            laborerName: editingLaborer.name,
+            oldRate,
+            newRate,
+          });
+          // Keep the edit dialog open behind the cascade dialog so Cancel
+          // returns the user to their edits.
+          setLoading(false);
+          return;
+        }
+
         setSuccess("Laborer updated");
       } else {
         const { error } = await (supabase.from("laborers") as any).insert(
@@ -951,6 +987,31 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
       >
         <AddIcon />
       </Fab>
+
+      {rateCascadeContext && (
+        <RateCascadeDialog
+          open
+          laborerId={rateCascadeContext.laborerId}
+          laborerName={rateCascadeContext.laborerName}
+          oldRate={rateCascadeContext.oldRate}
+          newRate={rateCascadeContext.newRate}
+          onClose={() => setRateCascadeContext(null)}
+          onApplied={async (result: LaborerRateCascadeResult) => {
+            setRateCascadeContext(null);
+            setOpenDialog(false);
+            const delta = result.total_delta;
+            const sign = delta > 0 ? "+" : delta < 0 ? "−" : "";
+            const deltaStr =
+              delta === 0
+                ? "no net change"
+                : `${sign}₹${Math.abs(delta).toLocaleString("en-IN")}`;
+            setSuccess(
+              `Rate updated · ${result.affected_attendance} attendance days, ${result.affected_settlements} settlements re-totalled · ${deltaStr}`
+            );
+            await fetchLaborers();
+          }}
+        />
+      )}
     </Box>
   );
 }

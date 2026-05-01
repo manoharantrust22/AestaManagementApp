@@ -3,8 +3,10 @@
 import React from "react";
 import {
   Box,
+  Chip,
   Skeleton,
   Stack,
+  Tooltip,
   Typography,
   useTheme,
   alpha,
@@ -910,15 +912,52 @@ function DayDetailExpansion({
                           alignItems: "center",
                           p: 0.75,
                           px: 1.25,
-                          bgcolor: theme.palette.background.default,
-                          border: `1px solid ${theme.palette.divider}`,
+                          bgcolor: lab.isOverridden
+                            ? alpha(theme.palette.warning.main, 0.08)
+                            : theme.palette.background.default,
+                          border: `1px solid ${
+                            lab.isOverridden
+                              ? alpha(theme.palette.warning.main, 0.4)
+                              : theme.palette.divider
+                          }`,
                           borderRadius: 1,
                         }}
                       >
-                        <Box>
-                          <Typography variant="body2" fontWeight={500}>
-                            {lab.name}
-                          </Typography>
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 0.75,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <Typography variant="body2" fontWeight={500}>
+                              {lab.name}
+                            </Typography>
+                            {lab.isOverridden && (
+                              <Tooltip
+                                title={
+                                  lab.overrideReason
+                                    ? `Manual override: ${lab.overrideReason}`
+                                    : "Manual override applied for this day"
+                                }
+                              >
+                                <Chip
+                                  label="Overridden"
+                                  size="small"
+                                  color="warning"
+                                  variant="outlined"
+                                  sx={{
+                                    height: 18,
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    "& .MuiChip-label": { px: 0.75 },
+                                  }}
+                                />
+                              </Tooltip>
+                            )}
+                          </Box>
                           <Typography
                             variant="caption"
                             color="text.secondary"
@@ -929,7 +968,9 @@ function DayDetailExpansion({
                         <Typography
                           variant="body2"
                           fontWeight={600}
-                          color="success.main"
+                          color={
+                            lab.isOverridden ? "warning.dark" : "success.main"
+                          }
                         >
                           ₹{lab.amount.toLocaleString("en-IN")}
                         </Typography>

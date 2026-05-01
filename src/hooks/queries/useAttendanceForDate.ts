@@ -22,6 +22,9 @@ export interface AttendanceForDateData {
     role: string;
     fullDay: boolean;
     amount: number;
+    isOverridden: boolean;
+    overrideReason: string | null;
+    laborerId: string | null;
   }>;
   marketLaborers: Array<{
     id: string;
@@ -65,6 +68,12 @@ export function useAttendanceForDate(siteId: string, date: string) {
           role: String(l.role ?? ""),
           fullDay: Boolean(l.full_day),
           amount: toNumber(l.amount),
+          isOverridden: Boolean(l.is_overridden),
+          overrideReason:
+            typeof l.override_reason === "string" && l.override_reason.length > 0
+              ? l.override_reason
+              : null,
+          laborerId: l.laborer_id ? String(l.laborer_id) : null,
         })),
         marketLaborers: (r.market_laborers ?? []).map((m: any) => ({
           id: String(m.id),
