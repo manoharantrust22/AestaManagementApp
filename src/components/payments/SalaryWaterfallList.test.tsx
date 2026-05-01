@@ -5,7 +5,7 @@ import { SalaryWaterfallList } from "./SalaryWaterfallList";
 import type { WaterfallWeek } from "@/hooks/queries/useSalaryWaterfall";
 
 const settledWeek: WaterfallWeek = {
-  weekStart: "2026-04-06", weekEnd: "2026-04-12",
+  weekStart: "2026-04-05", weekEnd: "2026-04-11",
   daysWorked: 7, laborerCount: 4,
   wagesDue: 52000, paid: 52000, status: "settled",
   filledBy: [{ ref: "SET-260408-001", amount: 40000, settledAt: "2026-04-08" },
@@ -13,14 +13,14 @@ const settledWeek: WaterfallWeek = {
 };
 
 const underpaidWeek: WaterfallWeek = {
-  weekStart: "2026-04-20", weekEnd: "2026-04-26",
+  weekStart: "2026-04-19", weekEnd: "2026-04-25",
   daysWorked: 6, laborerCount: 4,
   wagesDue: 52400, paid: 38200, status: "underpaid",
   filledBy: [{ ref: "SET-260423-001", amount: 38200, settledAt: "2026-04-23" }],
 };
 
 const pendingWeek: WaterfallWeek = {
-  weekStart: "2026-04-27", weekEnd: "2026-05-03",
+  weekStart: "2026-04-26", weekEnd: "2026-05-02",
   daysWorked: 0, laborerCount: 0,
   wagesDue: 0, paid: 0, status: "pending",
   filledBy: [],

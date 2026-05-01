@@ -1,12 +1,12 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import dayjs from "dayjs";
-import isoWeek from "dayjs/plugin/isoWeek";
 import { createSalaryExpense } from "./notificationService";
+import { weekStartStr, weekEndStr } from "@/lib/utils/weekUtils";
 
-// ISO weeks (Mon-Sun) match Postgres `date_trunc('week', date)` used by
-// get_salary_waterfall and get_payments_ledger — keep allocator buckets aligned
-// with the SQL source of truth so per-week paid/owed totals reconcile.
-dayjs.extend(isoWeek);
+// Construction-payroll convention: a week runs Sunday → Saturday. The Postgres
+// RPCs (get_salary_waterfall, get_payments_ledger, get_salary_slice_summary)
+// were reverted to the same Sun-Sat boundary on 2026-05-01, so allocator and
+// SQL views reconcile. See src/lib/utils/weekUtils.ts.
 import type {
   PaymentMode,
   PaymentChannel,
@@ -1206,9 +1206,8 @@ async function allocateSalaryToWeeks(
   const weeklyData = new Map<string, { weekStart: string; weekEnd: string; totalDue: number; attendanceIds: string[] }>();
 
   for (const att of attendanceData) {
-    const d = dayjs(att.date);
-    const weekStart = d.startOf("isoWeek").format("YYYY-MM-DD"); // Monday
-    const weekEnd = d.endOf("isoWeek").format("YYYY-MM-DD"); // Sunday
+    const weekStart = weekStartStr(att.date);
+    const weekEnd = weekEndStr(att.date);
 
     if (!weeklyData.has(weekStart)) {
       weeklyData.set(weekStart, { weekStart, weekEnd, totalDue: 0, attendanceIds: [] });
@@ -2209,9 +2208,8 @@ export async function processDateWiseContractSettlement(
     }>();
 
     for (const att of unpaidWeeksData) {
-      const d = dayjs(att.date);
-      const weekStart = d.startOf("isoWeek").format("YYYY-MM-DD"); // Monday
-      const weekEnd = d.endOf("isoWeek").format("YYYY-MM-DD"); // Sunday
+      const weekStart = weekStartStr(att.date);
+      const weekEnd = weekEndStr(att.date);
       const weekLabel = `${dayjs(weekStart).format("MMM DD")} - ${dayjs(weekEnd).format("MMM DD, YYYY")}`;
 
       if (!weekDataMap.has(weekStart)) {
@@ -2710,9 +2708,8 @@ export async function getMaestriEarnings(
     let totalDaysWorked = 0;
 
     for (const att of attendanceData) {
-      const d = dayjs(att.date);
-      const weekStart = d.startOf("isoWeek").format("YYYY-MM-DD"); // Monday
-      const weekEnd = d.endOf("isoWeek").format("YYYY-MM-DD"); // Sunday
+      const weekStart = weekStartStr(att.date);
+      const weekEnd = weekEndStr(att.date);
       const weekLabel = `${dayjs(weekStart).format("MMM DD")} - ${dayjs(weekEnd).format("MMM DD, YYYY")}`;
 
       if (!weekDataMap.has(weekStart)) {

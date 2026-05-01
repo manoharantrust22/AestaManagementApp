@@ -4,12 +4,9 @@
  */
 
 import dayjs from "dayjs";
-import isoWeek from "dayjs/plugin/isoWeek";
 import type { DateRange } from "./types";
 import { DATE_PATTERNS, MONTH_MAP } from "./constants";
-
-// Extend dayjs with isoWeek plugin for week calculations
-dayjs.extend(isoWeek);
+import { weekStartStr, weekEndStr } from "@/lib/utils/weekUtils";
 
 /**
  * Extract date range from user input text
@@ -61,16 +58,16 @@ export function extractDateRange(input: string): DateRange {
 
   if (DATE_PATTERNS.thisWeek.test(normalized)) {
     return {
-      from: dayjs().startOf("isoWeek").format("YYYY-MM-DD"),
-      to: dayjs().endOf("isoWeek").format("YYYY-MM-DD"),
+      from: weekStartStr(dayjs()),
+      to: weekEndStr(dayjs()),
     };
   }
 
   if (DATE_PATTERNS.lastWeek.test(normalized)) {
-    const lastWeekStart = dayjs().subtract(1, "week").startOf("isoWeek");
+    const lastWeekRef = dayjs().subtract(1, "week");
     return {
-      from: lastWeekStart.format("YYYY-MM-DD"),
-      to: lastWeekStart.endOf("isoWeek").format("YYYY-MM-DD"),
+      from: weekStartStr(lastWeekRef),
+      to: weekEndStr(lastWeekRef),
     };
   }
 
@@ -197,8 +194,8 @@ export function formatDateRangeDescription(from: string, to: string): string {
   }
 
   // This week
-  const thisWeekStart = dayjs().startOf("isoWeek").format("YYYY-MM-DD");
-  const thisWeekEnd = dayjs().endOf("isoWeek").format("YYYY-MM-DD");
+  const thisWeekStart = weekStartStr(dayjs());
+  const thisWeekEnd = weekEndStr(dayjs());
   if (from === thisWeekStart && to === thisWeekEnd) {
     return "this week";
   }

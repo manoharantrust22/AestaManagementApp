@@ -24,6 +24,7 @@ import { useDateRange, formatScopeLabel } from "@/contexts/DateRangeContext";
 import { computeStep } from "@/contexts/DateRangeContext/DateRangeProvider";
 import { DateRange, Range, RangeKeyDict } from "react-date-range";
 import dayjs from "dayjs";
+import { weekStartOf, weekEndOf } from "@/lib/utils/weekUtils";
 import "react-date-range/dist/styles.css";
 import "react-date-range/dist/theme/default.css";
 
@@ -32,8 +33,8 @@ import "react-date-range/dist/theme/default.css";
 const startOfDay = (date: Date): Date => dayjs(date).startOf("day").toDate();
 const endOfDay = (date: Date): Date => dayjs(date).endOf("day").toDate();
 const subDays = (date: Date, days: number): Date => dayjs(date).subtract(days, "day").toDate();
-const startOfWeek = (date: Date): Date => dayjs(date).startOf("week").toDate();
-const endOfWeek = (date: Date): Date => dayjs(date).endOf("week").toDate();
+const startOfWeek = (date: Date): Date => weekStartOf(date).toDate();
+const endOfWeek = (date: Date): Date => weekEndOf(date).toDate();
 const startOfMonth = (date: Date): Date => dayjs(date).startOf("month").toDate();
 const endOfMonth = (date: Date): Date => dayjs(date).endOf("month").toDate();
 const subMonths = (date: Date, months: number): Date => dayjs(date).subtract(months, "month").toDate();

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import dayjs from "dayjs";
+import { weekStartOf, weekEndOf } from "@/lib/utils/weekUtils";
 import { DateRangeDataContext } from "./DateRangeDataContext";
 import { DateRangeActionsContext } from "./DateRangeActionsContext";
 
@@ -81,7 +82,7 @@ export function computeLabel(
 
   // Rolling / "This" ranges ending today
   if (endsToday) {
-    if (start.isSame(today.startOf("week"), "day")) return "This Week";
+    if (start.isSame(weekStartOf(today), "day")) return "This Week";
     if (start.isSame(today.startOf("month"), "day")) return "This Month";
     if (daysBetween === 6) return "Last 7 days";
     if (daysBetween === 13) return "Last 14 days";
@@ -90,8 +91,8 @@ export function computeLabel(
   }
 
   // Last Week (previous Sun–Sat)
-  const lastWeekStart = today.subtract(1, "week").startOf("week");
-  const lastWeekEnd = lastWeekStart.endOf("week");
+  const lastWeekStart = weekStartOf(today.subtract(1, "week"));
+  const lastWeekEnd = weekEndOf(lastWeekStart);
   if (start.isSame(lastWeekStart, "day") && end.isSame(lastWeekEnd, "day")) {
     return "Last Week";
   }
@@ -144,7 +145,7 @@ export function computeStep(
     const end = dayjs(endDate);
 
     const isWeekAligned =
-      start.isSame(start.startOf("week"), "day") &&
+      start.isSame(weekStartOf(start), "day") &&
       end.diff(start, "day") === 6;
 
     const isCalendarMonth =
@@ -245,7 +246,7 @@ export function DateRangeProvider({ children }: { children: React.ReactNode }) {
 
   const setLastWeek = useCallback(() => {
     const today = dayjs();
-    const weekStart = today.startOf("week"); // Sunday
+    const weekStart = weekStartOf(today); // Sunday
     setDateRange(weekStart.toDate(), today.toDate());
   }, [setDateRange]);
 

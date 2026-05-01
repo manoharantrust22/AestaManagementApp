@@ -23,6 +23,7 @@ import dayjs from "dayjs";
 import { createClient } from "@/lib/supabase/client";
 import { useSelectedSite } from "@/contexts/SiteContext";
 import { cacheTTL } from "@/lib/cache/keys";
+import { weekStartStr, weekEndStr } from "@/lib/utils/weekUtils";
 import type { RawAttendanceData } from "@/hooks/useAttendanceData";
 
 export interface AttendanceWeekPage {
@@ -45,10 +46,9 @@ export interface UseAttendanceWeeksInfiniteOptions {
 const MAX_EMPTY_STREAK = 4;
 
 function weekBoundsContaining(date: string): { start: string; end: string } {
-  const d = dayjs(date);
   return {
-    start: d.startOf("week").format("YYYY-MM-DD"),
-    end: d.endOf("week").format("YYYY-MM-DD"),
+    start: weekStartStr(date),
+    end: weekEndStr(date),
   };
 }
 
@@ -214,7 +214,7 @@ export function useAttendanceWeeksInfinite(
     initialPageParam: initialBounds.start,
     queryFn: async ({ pageParam }): Promise<AttendanceWeekPage> => {
       const weekStart = pageParam as string;
-      const weekEnd = dayjs(weekStart).endOf("week").format("YYYY-MM-DD");
+      const weekEnd = weekEndStr(weekStart);
       const data = await fetchAttendanceWeek(
         supabase,
         siteId!,
@@ -255,9 +255,7 @@ export function useAttendanceWeeksInfinite(
       // When a lower bound is set, stop once the next week's END would
       // already be before the bound — there's nothing left to load.
       if (scopeFrom) {
-        const prevWeekEnd = dayjs(prevWeekStart)
-          .endOf("week")
-          .format("YYYY-MM-DD");
+        const prevWeekEnd = weekEndStr(prevWeekStart);
         if (prevWeekEnd < scopeFrom) return undefined;
       }
 

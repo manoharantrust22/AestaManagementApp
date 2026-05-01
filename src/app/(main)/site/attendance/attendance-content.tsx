@@ -160,6 +160,7 @@ import type { AttendancePageData } from "@/lib/data/attendance";
 type LaborerType = string;
 type DailyWorkSummary = Database["public"]["Tables"]["daily_work_summary"]["Row"];
 import dayjs from "dayjs";
+import { weekStartStr } from "@/lib/utils/weekUtils";
 import {
   groupHolidays,
   formatHolidayDateRange,
@@ -1360,7 +1361,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     const entriesByWeek = new Map<string, (typeof combined)[0][]>();
 
     combined.forEach((entry) => {
-      const weekStart = dayjs(entry.date).startOf("week").format("YYYY-MM-DD");
+      const weekStart = weekStartStr(entry.date);
       if (!entriesByWeek.has(weekStart)) {
         entriesByWeek.set(weekStart, []);
       }
@@ -1374,7 +1375,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
 
     // Helper to calculate weekly summary
     const today = dayjs().startOf("day");
-    const currentWeekStart = today.startOf("week").format("YYYY-MM-DD");
+    const currentWeekStart = weekStartStr(today);
 
     const calculateWeeklySummary = (
       weekStart: string,

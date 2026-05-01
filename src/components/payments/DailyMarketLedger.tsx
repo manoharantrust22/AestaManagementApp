@@ -3,6 +3,7 @@
 import React, { useMemo } from "react";
 import { Box, Chip, Skeleton, Typography, useTheme, alpha } from "@mui/material";
 import dayjs from "dayjs";
+import { weekStartStr, weekEndStr } from "@/lib/utils/weekUtils";
 import type { PaymentsLedgerRow } from "./PaymentsLedger";
 
 interface DailyMarketLedgerProps {
@@ -31,9 +32,8 @@ function groupByWeek(rows: PaymentsLedgerRow[]): {
   const paid = rows.filter((r) => r.isPaid);
   const groupMap = new Map<string, WeekGroup>();
   for (const r of paid) {
-    // Use ISO week (Monday-start) for consistency with the salary waterfall
-    const ws = dayjs(r.date).startOf("week").format("YYYY-MM-DD");
-    const we = dayjs(ws).add(6, "day").format("YYYY-MM-DD");
+    const ws = weekStartStr(r.date);
+    const we = weekEndStr(r.date);
     const g = groupMap.get(ws) ?? {
       weekStart: ws,
       weekEnd: we,

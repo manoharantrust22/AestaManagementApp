@@ -19,8 +19,8 @@ describe("useSalaryWaterfall", () => {
     mockRpc.mockResolvedValue({
       data: [
         {
-          week_start: "2026-04-20",
-          week_end: "2026-04-26",
+          week_start: "2026-04-19",
+          week_end: "2026-04-25",
           days_worked: 6,
           laborer_count: 4,
           wages_due: "52400",
@@ -40,8 +40,8 @@ describe("useSalaryWaterfall", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual([
       {
-        weekStart: "2026-04-20",
-        weekEnd: "2026-04-26",
+        weekStart: "2026-04-19",
+        weekEnd: "2026-04-25",
         daysWorked: 6,
         laborerCount: 4,
         wagesDue: 52400,
@@ -57,7 +57,7 @@ describe("useSalaryWaterfall", () => {
   it("treats missing filled_by as empty array", async () => {
     mockRpc.mockResolvedValue({
       data: [{
-        week_start: "2026-04-13", week_end: "2026-04-19",
+        week_start: "2026-04-12", week_end: "2026-04-18",
         days_worked: 0, laborer_count: 0,
         wages_due: "0", paid: "0",
         status: "pending", filled_by: null,

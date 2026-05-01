@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { weekStartStr, weekEndStr } from "@/lib/utils/weekUtils";
 import type {
   InterSiteSettlement,
   InterSiteSettlementWithDetails,
@@ -255,8 +256,8 @@ export function useInterSiteBalances(groupId: string | undefined) {
               debtor_site_name: record.usage_site?.name || "Unknown",
               year: new Date(record.usage_date).getFullYear(),
               week_number: getWeekNumber(new Date(record.usage_date)),
-              week_start: getWeekStart(new Date(record.usage_date)).toISOString().split("T")[0],
-              week_end: getWeekEnd(new Date(record.usage_date)).toISOString().split("T")[0],
+              week_start: weekStartStr(record.usage_date),
+              week_end: weekEndStr(record.usage_date),
               transaction_count: 1,
               material_count: 1,
               total_quantity: record.quantity || 0,
@@ -629,12 +630,8 @@ export function useGenerateSettlement() {
             batch_ref_code: batchRefCode,
             year,
             week_number: weekNumber,
-            period_start: getWeekStart(new Date(year, 0, 1 + (weekNumber - 1) * 7))
-              .toISOString()
-              .split("T")[0],
-            period_end: getWeekEnd(new Date(year, 0, 1 + (weekNumber - 1) * 7))
-              .toISOString()
-              .split("T")[0],
+            period_start: weekStartStr(new Date(year, 0, 1 + (weekNumber - 1) * 7)),
+            period_end: weekEndStr(new Date(year, 0, 1 + (weekNumber - 1) * 7)),
             total_amount: newAmount,
             paid_amount: 0,
             status: "pending",
@@ -1890,8 +1887,8 @@ export function useNetSettlement() {
               batch_ref_code: batchRefCode,
               year,
               week_number: weekNumber,
-              period_start: getWeekStart(new Date(year, 0, 1 + (weekNumber - 1) * 7)).toISOString().split("T")[0],
-              period_end: getWeekEnd(new Date(year, 0, 1 + (weekNumber - 1) * 7)).toISOString().split("T")[0],
+              period_start: weekStartStr(new Date(year, 0, 1 + (weekNumber - 1) * 7)),
+              period_end: weekEndStr(new Date(year, 0, 1 + (weekNumber - 1) * 7)),
               total_amount: totalAmount,
               paid_amount: 0,
               status: "pending",
@@ -2211,20 +2208,6 @@ function getWeekNumber(date: Date): number {
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-}
-
-function getWeekStart(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
-  return new Date(d.setDate(diff));
-}
-
-function getWeekEnd(date: Date): Date {
-  const start = getWeekStart(date);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 6); // Sunday
-  return end;
 }
 
 function generateShortId(): string {

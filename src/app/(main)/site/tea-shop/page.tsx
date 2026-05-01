@@ -100,6 +100,7 @@ type CombinedEntryType =
   | { type: "holiday"; date: string; holiday: SiteHoliday }
   | { type: "no_entry"; date: string; attendanceCount: { named: number; market: number } };
 import dayjs from "dayjs";
+import { weekStartStr } from "@/lib/utils/weekUtils";
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -205,7 +206,7 @@ export default function TeaShopPage() {
   const stats = useMemo(() => {
     // Use combined data when site is in a group
     if (isInGroup && combinedEntriesData) {
-      const weekStart = dayjs().startOf("week").format("YYYY-MM-DD");
+      const weekStart = weekStartStr(dayjs());
       const monthStart = dayjs().startOf("month").format("YYYY-MM-DD");
 
       // Filter entries by site when effectiveFilterBySiteId is set
@@ -302,7 +303,7 @@ export default function TeaShopPage() {
     const overpaidAmount = Math.max(0, allSettledTotal - allEntriesTotal);
 
     // This week
-    const weekStart = dayjs().startOf("week").format("YYYY-MM-DD");
+    const weekStart = weekStartStr(dayjs());
     const thisWeekTotal = entries
       .filter((e) => e.date >= weekStart)
       .reduce((sum, e) => sum + (e.total_amount || 0), 0);
