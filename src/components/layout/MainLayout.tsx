@@ -137,6 +137,11 @@ const siteNavCategories: NavCategory[] = [
     emoji: "👷",
     items: [
       {
+        text: "Trades",
+        icon: <ConstructionIcon />,
+        path: "/site/trades",
+      },
+      {
         text: "Attendance",
         icon: <AccessTimeIcon />,
         path: "/site/attendance",
