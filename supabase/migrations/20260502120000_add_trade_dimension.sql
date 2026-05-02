@@ -6,8 +6,19 @@
 -- attendance + settlement rows so every trade — civil included — is a
 -- first-class subcontract going forward.
 --
+-- ADOPT-YOURS strategy: production already has 10 active labor_categories
+-- (Civil, Electrical, Plumbing, Carpentry, Painting, Scaffolding, Fabrication,
+-- Flooring, Waterproofing, General) each with 2-7 labor_roles already seeded.
+-- This migration does NOT insert any new categories or roles; it only adds
+-- the is_system_seed flag and marks the existing 10 categories as system-seed.
+--
 -- Spec: docs/superpowers/specs/2026-05-02-trade-workspaces-design.md
 -- Plan: docs/superpowers/plans/2026-05-02-trade-workspaces-01-schema-and-hub.md
+--
+-- This file is the canonical source of the migration. It was applied to
+-- production via mcp__supabase__apply_migration on 2026-05-02 after read-only
+-- pre-flight checks confirmed clean state and 723 orphan attendance + 39
+-- orphan settlement rows would be backfilled across 3 sites.
 
 BEGIN;
 
@@ -21,56 +32,19 @@ ALTER TABLE public.labor_categories
   ADD COLUMN IF NOT EXISTS is_system_seed boolean NOT NULL DEFAULT false;
 
 COMMENT ON COLUMN public.labor_categories.is_system_seed IS
-  'True for the seven system-seeded trades (Civil, Painting, Tiling, Electrical, Plumbing, Carpentry, Other). System-seed rows can be deactivated (is_active=false) but never deleted by users.';
+  'True for system-seeded trades. System-seed rows can be deactivated (is_active=false) but never deleted by users. Custom rows added later can be deleted if unused.';
 
 -- ---------------------------------------------------------------
--- 2. Seed trade categories (idempotent on the unique name index)
+-- 2. Mark all currently-active categories as system-seed
+-- (adopt-yours strategy — no new INSERTs, no display_order overwrite)
 -- ---------------------------------------------------------------
-INSERT INTO public.labor_categories (name, description, display_order, is_active, is_system_seed)
-VALUES
-  ('Civil',      'Civil construction work — masonry, concrete, foundation',     10, true, true),
-  ('Painting',   'Surface preparation and painting',                             20, true, true),
-  ('Tiling',     'Floor and wall tile laying',                                   30, true, true),
-  ('Electrical', 'Wiring, switchgear, fixtures',                                 40, true, true),
-  ('Plumbing',   'Water supply, drainage, fittings',                             50, true, true),
-  ('Carpentry',  'Wood and panel work',                                          60, true, true),
-  ('Other',      'Trades that do not fit the standard taxonomy',                 70, true, true)
-ON CONFLICT (name) DO UPDATE SET
-  is_system_seed = true,
-  display_order  = EXCLUDED.display_order;
+UPDATE public.labor_categories
+   SET is_system_seed = true
+ WHERE is_active = true
+   AND is_system_seed = false;
 
 -- ---------------------------------------------------------------
--- 3. Seed default roles per non-civil trade (idempotent via NOT EXISTS guard)
--- Civil already has Mason / Helper / Centering Worker roles in production data.
--- ---------------------------------------------------------------
-WITH cats AS (
-  SELECT id, name FROM public.labor_categories
-   WHERE name IN ('Painting','Tiling','Electrical','Plumbing','Carpentry')
-)
-INSERT INTO public.labor_roles (category_id, name, default_daily_rate, is_market_role, display_order, is_active)
-SELECT c.id, r.name, r.rate, false, r.display_order, true
-  FROM cats c
-  JOIN (VALUES
-    ('Painting',   'Technical Painter',      800::numeric, 10),
-    ('Painting',   'Helper Painter',         500::numeric, 20),
-    ('Tiling',     'Technical Tiler',       1000::numeric, 10),
-    ('Tiling',     'Helper Tiler',           600::numeric, 20),
-    ('Electrical', 'Technical Electrician', 1200::numeric, 10),
-    ('Electrical', 'Wireman',                900::numeric, 20),
-    ('Electrical', 'Helper Electrician',     600::numeric, 30),
-    ('Plumbing',   'Plumber',               1000::numeric, 10),
-    ('Plumbing',   'Helper Plumber',         600::numeric, 20),
-    ('Carpentry',  'Carpenter',             1100::numeric, 10),
-    ('Carpentry',  'Helper Carpenter',       600::numeric, 20)
-  ) AS r(category_name, name, rate, display_order)
-    ON r.category_name = c.name
- WHERE NOT EXISTS (
-   SELECT 1 FROM public.labor_roles lr
-    WHERE lr.category_id = c.id AND lr.name = r.name
- );
-
--- ---------------------------------------------------------------
--- 4. Trade dimension on subcontracts
+-- 3. Trade dimension on subcontracts
 -- ---------------------------------------------------------------
 ALTER TABLE public.subcontracts
   ADD COLUMN IF NOT EXISTS trade_category_id uuid REFERENCES public.labor_categories(id),
@@ -80,13 +54,13 @@ ALTER TABLE public.subcontracts
   ADD COLUMN IF NOT EXISTS is_in_house boolean NOT NULL DEFAULT false;
 
 COMMENT ON COLUMN public.subcontracts.trade_category_id IS
-  'FK to labor_categories — the trade this contract belongs to (Civil, Painting, etc). NULL on legacy rows; set by backfill for in-house Civil and required on new rows by application logic.';
+  'FK to labor_categories — the trade this contract belongs to (Civil, Painting, etc).';
 COMMENT ON COLUMN public.subcontracts.labor_tracking_mode IS
   'How attendance is recorded: detailed (per-laborer + in/out time, today''s civil flow), headcount (per-role daily count via subcontract_headcount_attendance), mesthri_only (no daily count).';
 COMMENT ON COLUMN public.subcontracts.is_in_house IS
-  'True for the auto-created "Civil — In-house" contract per site that adopts orphan civil attendance + settlements. UI surfaces these without a mesthri name and without a "close contract" action.';
+  'True for the auto-created Civil — In-house contract per site that adopts orphan civil attendance + settlements. UI surfaces these without a mesthri name and without a "close contract" action.';
 
--- 4b. Relax contract_party_check so in-house contracts are exempt from
+-- 3b. Relax contract_party_check so in-house contracts are exempt from
 -- requiring a team_id or laborer_id. They represent the site's own labor
 -- pool, not an external mesthri or specialist.
 ALTER TABLE public.subcontracts DROP CONSTRAINT IF EXISTS contract_party_check;
@@ -97,7 +71,7 @@ ALTER TABLE public.subcontracts ADD CONSTRAINT contract_party_check CHECK (
 );
 
 -- ---------------------------------------------------------------
--- 5. Per-contract role rate card
+-- 4. Per-contract role rate card
 -- ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.subcontract_role_rates (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -112,7 +86,7 @@ COMMENT ON TABLE public.subcontract_role_rates IS
   'Per-contract daily rate per role. Defaults sourced from labor_roles.default_daily_rate at creation; engineer can override per contract. Drives the reconciliation calculation (units × rate).';
 
 -- ---------------------------------------------------------------
--- 6. Per-day per-role headcount attendance
+-- 5. Per-day per-role headcount attendance
 -- ---------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.subcontract_headcount_attendance (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -132,39 +106,69 @@ COMMENT ON TABLE public.subcontract_headcount_attendance IS
   'One row per role per day per contract. Used when subcontracts.labor_tracking_mode = ''headcount''. Units can be fractional (e.g. 1.5 = one full + one half day).';
 
 -- ---------------------------------------------------------------
--- 7. Reconciliation snapshot view
+-- 6. Reconciliation snapshot view
+--
+-- Real schema notes:
+--  - subcontract_payments uses contract_id (NOT subcontract_id) and has is_deleted
+--  - daily_attendance has daily_earnings (precomputed; respects salary_override) and is_deleted
+--  - settlement_groups has total_amount and is_cancelled
+--
+-- amount_paid sums BOTH subcontract_payments (mesthri-direct) AND settlement_groups
+-- (multi-laborer settlements). For in-house Civil contracts all money flows
+-- through settlement_groups; for external mesthri contracts mostly through
+-- subcontract_payments. The view captures both so the banner is accurate
+-- regardless of which path the engineer used.
 -- ---------------------------------------------------------------
 CREATE OR REPLACE VIEW public.v_subcontract_reconciliation AS
+WITH
+  payments AS (
+    SELECT contract_id AS subcontract_id, SUM(amount) AS amount
+      FROM public.subcontract_payments
+     WHERE is_deleted = false
+     GROUP BY contract_id
+  ),
+  settlements AS (
+    SELECT subcontract_id, SUM(total_amount) AS amount
+      FROM public.settlement_groups
+     WHERE is_cancelled = false AND subcontract_id IS NOT NULL
+     GROUP BY subcontract_id
+  ),
+  detailed_labor AS (
+    SELECT subcontract_id, SUM(daily_earnings) AS amount
+      FROM public.daily_attendance
+     WHERE is_deleted = false AND subcontract_id IS NOT NULL
+     GROUP BY subcontract_id
+  ),
+  headcount_labor AS (
+    SELECT sha.subcontract_id, SUM(sha.units * srr.daily_rate) AS amount
+      FROM public.subcontract_headcount_attendance sha
+      JOIN public.subcontract_role_rates srr
+        ON srr.subcontract_id = sha.subcontract_id
+       AND srr.role_id        = sha.role_id
+     GROUP BY sha.subcontract_id
+  )
 SELECT
   sc.id                                       AS subcontract_id,
   sc.site_id,
   sc.trade_category_id,
   sc.labor_tracking_mode,
   sc.total_value                              AS quoted_amount,
-  COALESCE(SUM(sp.amount), 0)                 AS amount_paid,
-  COALESCE((
-    SELECT SUM(sha.units * srr.daily_rate)
-      FROM public.subcontract_headcount_attendance sha
-      JOIN public.subcontract_role_rates srr
-        ON srr.subcontract_id = sha.subcontract_id
-       AND srr.role_id        = sha.role_id
-     WHERE sha.subcontract_id = sc.id
-  ), 0)                                       AS implied_labor_value_headcount,
-  COALESCE((
-    SELECT SUM(da.units_worked * COALESCE(da.daily_rate, l.daily_rate))
-      FROM public.daily_attendance da
-      LEFT JOIN public.laborers l ON l.id = da.laborer_id
-     WHERE da.subcontract_id = sc.id
-  ), 0)                                       AS implied_labor_value_detailed
+  COALESCE(p.amount, 0) + COALESCE(s.amount, 0) AS amount_paid,
+  COALESCE(p.amount, 0)                       AS amount_paid_subcontract_payments,
+  COALESCE(s.amount, 0)                       AS amount_paid_settlements,
+  COALESCE(hl.amount, 0)                      AS implied_labor_value_headcount,
+  COALESCE(dl.amount, 0)                      AS implied_labor_value_detailed
 FROM public.subcontracts sc
-LEFT JOIN public.subcontract_payments sp ON sp.subcontract_id = sc.id
-GROUP BY sc.id, sc.site_id, sc.trade_category_id, sc.labor_tracking_mode, sc.total_value;
+LEFT JOIN payments        p  ON p.subcontract_id  = sc.id
+LEFT JOIN settlements     s  ON s.subcontract_id  = sc.id
+LEFT JOIN detailed_labor  dl ON dl.subcontract_id = sc.id
+LEFT JOIN headcount_labor hl ON hl.subcontract_id = sc.id;
 
 COMMENT ON VIEW public.v_subcontract_reconciliation IS
-  'One row per subcontract with quoted, paid, and implied labor value (both modes). Used by the reconciliation banner — Plan 03 wires the UI.';
+  'One row per subcontract: quoted vs paid (payments + settlements) vs implied labor value (both modes). Drives the reconciliation banner — Plan 03 wires the UI.';
 
 -- ---------------------------------------------------------------
--- 8. Backfill: in-house Civil subcontract per site with orphan civil work
+-- 7. Backfill: in-house Civil subcontract per site with orphan civil work
 --
 -- For every site that has daily_attendance or settlement_groups rows with
 -- NULL subcontract_id, create one "Civil — In-house" subcontract
@@ -182,31 +186,27 @@ sites_needing_backfill AS (
       SELECT site_id FROM public.settlement_groups WHERE subcontract_id IS NULL
     ) u
    WHERE u.site_id IS NOT NULL
-),
-inserted_civil AS (
-  INSERT INTO public.subcontracts (
-    id, site_id, trade_category_id, contract_type,
-    title, is_in_house, labor_tracking_mode, status, total_value, is_rate_based
-  )
-  SELECT
-    gen_random_uuid(),
-    s.site_id,
-    (SELECT id FROM civil_cat),
-    'mesthri',                 -- nominal; in_house exempts the party-check
-    'Civil — In-house',
-    true,
-    'detailed',
-    'active',
-    0,
-    false
-    FROM sites_needing_backfill s
-   WHERE NOT EXISTS (
-     SELECT 1 FROM public.subcontracts sc
-      WHERE sc.site_id = s.site_id AND sc.is_in_house = true
-   )
-  RETURNING id, site_id
 )
-SELECT 1;  -- materialise the CTE so the INSERT runs even though we don't read it.
+INSERT INTO public.subcontracts (
+  id, site_id, trade_category_id, contract_type,
+  title, is_in_house, labor_tracking_mode, status, total_value, is_rate_based
+)
+SELECT
+  gen_random_uuid(),
+  s.site_id,
+  (SELECT id FROM civil_cat),
+  'mesthri',                 -- nominal; in_house exempts the party-check
+  'Civil — In-house',
+  true,
+  'detailed',
+  'active',
+  0,
+  false
+  FROM sites_needing_backfill s
+ WHERE NOT EXISTS (
+   SELECT 1 FROM public.subcontracts sc
+    WHERE sc.site_id = s.site_id AND sc.is_in_house = true
+ );
 
 -- Re-link orphan attendance to the in-house Civil contract for that site.
 UPDATE public.daily_attendance da
