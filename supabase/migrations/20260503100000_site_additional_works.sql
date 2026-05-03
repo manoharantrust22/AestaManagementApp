@@ -40,14 +40,12 @@ create index if not exists site_additional_works_status_idx
   on public.site_additional_works (status);
 
 -- 3. updated_at trigger ---------------------------------------------------
-create or replace function public.set_updated_at()
-returns trigger language plpgsql as $$
-begin new.updated_at = now(); return new; end $$;
-
-drop trigger if exists trg_site_additional_works_updated_at on public.site_additional_works;
-create trigger trg_site_additional_works_updated_at
+-- Reuse the project-standard helper (defined in 00000000000000_initial_schema.sql)
+-- already used by ~12 other tables. Keeps the trigger surface consistent.
+drop trigger if exists update_site_additional_works_updated_at on public.site_additional_works;
+create trigger update_site_additional_works_updated_at
   before update on public.site_additional_works
-  for each row execute function public.set_updated_at();
+  for each row execute function public.update_updated_at_column();
 
 -- 4. RLS ------------------------------------------------------------------
 alter table public.site_additional_works enable row level security;
