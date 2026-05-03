@@ -63,6 +63,21 @@ export function formatDateShort(date: string | Date | null | undefined): string 
 }
 
 /**
+ * Format a date as "03 May 26" — day, abbreviated month, 2-digit year.
+ * Used across the client-payments feature per user preference.
+ */
+export function formatDateDDMMMYY(date: string | Date | null | undefined): string {
+  if (!date) return "-";
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "2-digit",
+  });
+}
+
+/**
  * Format date and time
  */
 export function formatDateTime(date: string | Date | null | undefined): string {

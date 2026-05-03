@@ -4,6 +4,7 @@ import {
   formatCurrencyFull,
   formatDate,
   formatDateShort,
+  formatDateDDMMMYY,
   formatRelativeTime,
   formatNumber,
   formatPercent,
@@ -210,6 +211,23 @@ describe('Formatters', () => {
     it('formats quantity with unit', () => {
       expect(formatQuantity(100, 'kg')).toBe('100 kg');
       expect(formatQuantity(1000, 'pcs')).toBe('1,000 pcs');
+    });
+  });
+
+  describe('formatDateDDMMMYY', () => {
+    it('returns "-" for null/undefined/invalid', () => {
+      expect(formatDateDDMMMYY(null)).toBe('-');
+      expect(formatDateDDMMMYY(undefined)).toBe('-');
+      expect(formatDateDDMMMYY('not-a-date')).toBe('-');
+    });
+
+    it('formats a date string as DD MMM YY', () => {
+      expect(formatDateDDMMMYY('2026-05-03')).toBe('03 May 26');
+      expect(formatDateDDMMMYY('2026-12-31')).toBe('31 Dec 26');
+    });
+
+    it('accepts a Date object', () => {
+      expect(formatDateDDMMMYY(new Date('2026-01-09'))).toBe('09 Jan 26');
     });
   });
 });
