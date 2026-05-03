@@ -139,30 +139,35 @@ export default function TeamsPage() {
   };
 
   const handleSubmit = async () => {
-    if (!form.name) {
+    if (!form.name.trim()) {
       setError("Team name is required");
+      return;
+    }
+    if (!form.leader_name.trim()) {
+      setError("Leader (Mesthri) name is required");
       return;
     }
     try {
       setLoading(true);
       const payload = {
-        name: form.name,
-        leader_name: form.leader_name || null,
-        leader_phone: form.leader_phone || null,
+        name: form.name.trim(),
+        leader_name: form.leader_name.trim(),
+        leader_phone: form.leader_phone.trim() || null,
         status: form.status,
       };
 
-      if (editingTeam) {
-        await (supabase.from("teams") as any)
-          .update(payload)
-          .eq("id", editingTeam.id);
-      } else {
-        await (supabase.from("teams") as any).insert(payload);
-      }
+      const { error: writeError } = editingTeam
+        ? await (supabase.from("teams") as any)
+            .update(payload)
+            .eq("id", editingTeam.id)
+        : await (supabase.from("teams") as any).insert(payload);
+
+      if (writeError) throw writeError;
+
       setDialogOpen(false);
       await fetchTeams();
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || "Failed to save team");
     } finally {
       setLoading(false);
     }
@@ -175,10 +180,14 @@ export default function TeamsPage() {
     }
     if (!confirm("Delete this team?")) return;
     try {
-      await supabase.from("teams").delete().eq("id", id);
+      const { error: deleteError } = await supabase
+        .from("teams")
+        .delete()
+        .eq("id", id);
+      if (deleteError) throw deleteError;
       await fetchTeams();
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || "Failed to delete team");
     }
   };
 
@@ -223,20 +232,26 @@ export default function TeamsPage() {
 
   const handleAddMember = async (laborerId: string) => {
     if (!selectedTeam) return;
-    // Associate laborer with this Mesthri's team
-    await (supabase.from("laborers") as any)
+    const { error: updateError } = await (supabase.from("laborers") as any)
       .update({ associated_team_id: selectedTeam.id })
       .eq("id", laborerId);
+    if (updateError) {
+      setError(updateError.message || "Failed to add member");
+      return;
+    }
     await handleOpenMembers(selectedTeam);
     await fetchTeams();
   };
 
   const handleRemoveMember = async (laborerId: string) => {
     if (!selectedTeam) return;
-    // Remove association from this Mesthri's team
-    await (supabase.from("laborers") as any)
+    const { error: updateError } = await (supabase.from("laborers") as any)
       .update({ associated_team_id: null })
       .eq("id", laborerId);
+    if (updateError) {
+      setError(updateError.message || "Failed to remove member");
+      return;
+    }
     await handleOpenMembers(selectedTeam);
     await fetchTeams();
   };
@@ -385,6 +400,7 @@ export default function TeamsPage() {
               onChange={(e) =>
                 setForm({ ...form, leader_name: e.target.value })
               }
+              required
             />
             <TextField
               fullWidth
