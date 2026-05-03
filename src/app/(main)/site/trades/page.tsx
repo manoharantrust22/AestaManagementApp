@@ -51,6 +51,9 @@ export default function TradesPage() {
     tradeName: string;
   } | null>(null);
 
+  // Single-expanded state across all trade cards
+  const [expandedContractId, setExpandedContractId] = useState<string | null>(null);
+
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [snackbar, setSnackbar] = useState<{
@@ -79,10 +82,11 @@ export default function TradesPage() {
     return () => bc.close();
   }, [siteId, queryClient]);
 
+  // Click on contract row: toggle expand/collapse in-place. Power-users can
+  // still open the full Subcontracts page via the 3-dot menu's "Open in
+  // Subcontracts page" action (handled by handleContractView below).
   const handleContractClick = (contractId: string) => {
-    // Bridge: open the existing /site/subcontracts page focused on this contract.
-    // Plan 02 will replace this with a dedicated /site/trades/[slug]/[id] workspace.
-    router.push(`/site/subcontracts?contractId=${contractId}`);
+    setExpandedContractId((curr) => (curr === contractId ? null : contractId));
   };
 
   const handleAddClick = (tradeCategoryId: string) => {
@@ -182,6 +186,7 @@ export default function TradesPage() {
                 trade={trade}
                 reconciliations={reconciliations}
                 activity={activity}
+                expandedContractId={expandedContractId}
                 onContractClick={handleContractClick}
                 onAddClick={handleAddClick}
                 onContractView={handleContractView}

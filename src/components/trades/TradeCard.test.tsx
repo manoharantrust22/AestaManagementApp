@@ -1,6 +1,28 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+// Mock Supabase client used inside ExpandableContractRow's hooks so tests
+// don't require env vars and don't make real network calls.
+vi.mock("@/lib/supabase/client", () => ({
+  createClient: () => ({
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          eq: () => ({
+            order: () => ({
+              order: () => Promise.resolve({ data: [], error: null }),
+            }),
+            limit: () => Promise.resolve({ data: [], error: null }),
+          }),
+        }),
+      }),
+    }),
+    rpc: vi.fn().mockResolvedValue({ data: {}, error: null }),
+  }),
+}));
+
 import { TradeCard } from "./TradeCard";
 import type { Trade, TradeCategory } from "@/types/trade.types";
 
@@ -19,26 +41,25 @@ function makeTrade(overrides: Partial<Trade> = {}): Trade {
   };
 }
 
+function renderWithClient(ui: React.ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
+
 describe("TradeCard", () => {
   it("shows trade name", () => {
-    render(
-      <TradeCard
-        trade={makeTrade()}
-        onContractClick={() => {}}
-        onAddClick={() => {}}
-      />
+    renderWithClient(
+      <TradeCard trade={makeTrade()} onAddClick={() => {}} />
     );
     expect(screen.getByText("Painting")).toBeInTheDocument();
   });
 
   it("shows 'Add contract' CTA when no contracts and fires onAddClick", () => {
     const onAddClick = vi.fn();
-    render(
-      <TradeCard
-        trade={makeTrade()}
-        onContractClick={() => {}}
-        onAddClick={onAddClick}
-      />
+    renderWithClient(
+      <TradeCard trade={makeTrade()} onAddClick={onAddClick} />
     );
     fireEvent.click(screen.getByRole("button", { name: /add contract/i }));
     expect(onAddClick).toHaveBeenCalledWith("p1");
@@ -62,15 +83,10 @@ describe("TradeCard", () => {
         },
       ],
     });
-    render(
-      <TradeCard
-        trade={trade}
-        onContractClick={() => {}}
-        onAddClick={() => {}}
-      />
+    renderWithClient(
+      <TradeCard trade={trade} onAddClick={() => {}} />
     );
     expect(screen.getByText("Asis Mesthri")).toBeInTheDocument();
-    // Quoted figure appears in the row's Quoted column
     expect(screen.getAllByText(/2,50,000/).length).toBeGreaterThan(0);
   });
 
@@ -106,21 +122,19 @@ describe("TradeCard", () => {
         },
       ],
     ]);
-    render(
+    renderWithClient(
       <TradeCard
         trade={trade}
         reconciliations={reconciliations}
-        onContractClick={() => {}}
         onAddClick={() => {}}
       />
     );
-    // Both "₹50,000" (Paid) and "₹1,50,000" (Balance) appear; use getAllByText
-    // since "50,000" matches both. Distinct rendering is the visual guarantee.
+    // Both 50,000 and 1,50,000 contain "50,000"
     expect(screen.getAllByText(/50,000/).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText(/1,50,000/)).toBeInTheDocument();  // Balance
+    expect(screen.getByText(/1,50,000/)).toBeInTheDocument();
   });
 
-  it("fires onContractClick when an active contract row is clicked", () => {
+  it("toggles expand when a contract row is clicked", () => {
     const onContractClick = vi.fn();
     const trade = makeTrade({
       contracts: [
@@ -139,7 +153,7 @@ describe("TradeCard", () => {
         },
       ],
     });
-    render(
+    renderWithClient(
       <TradeCard
         trade={trade}
         onContractClick={onContractClick}
@@ -174,12 +188,8 @@ describe("TradeCard", () => {
         },
       ],
     });
-    render(
-      <TradeCard
-        trade={trade}
-        onContractClick={() => {}}
-        onAddClick={() => {}}
-      />
+    renderWithClient(
+      <TradeCard trade={trade} onAddClick={() => {}} />
     );
     expect(screen.getByText(/in-house/i)).toBeInTheDocument();
   });
