@@ -27,7 +27,7 @@
 | `src/hooks/queries/useSiteAdditionalWorks.test.tsx` | 2 | **New** — vitest hook test |
 | `src/hooks/queries/useSiteFinancialSummary.ts` | 2 | **New** — combined rollup hook for the hero |
 | `src/hooks/queries/useSiteFinancialSummary.test.tsx` | 2 | **New** — vitest hook test |
-| `src/hooks/queries/useClientPayments.ts` | 2 | Edit — add `taggedAdditionalWorkId` and `taggedPhaseId` to create/update payloads |
+| `src/hooks/queries/useClientPayments.ts` | 2 | Edit — add `taggedAdditionalWorkId` (and surface existing `paymentPhaseId`) on create/update payloads |
 | `src/components/client-payments/SiteMoneyOverviewHero.tsx` | 3 | **New** — 6-KpiTile hero + collected-progress bar, wrapped in `MobileCollapsibleHero` |
 | `src/components/client-payments/SiteMoneyOverviewHero.test.tsx` | 3 | **New** — RTL render test for math + labels |
 | `src/components/client-payments/ContractTab.tsx` | 4 | **New** — base contract summary + optional phases list |
@@ -123,7 +123,8 @@ Adds the `site_additional_works` table, two nullable tagging columns on `client_
   -- 2. site_additional_works table + indexes
   -- 3. updated_at trigger
   -- 4. RLS policies (mirror client_payments)
-  -- 5. ALTER client_payments: add tagged_additional_work_id, tagged_phase_id, mutex check
+  -- 5. ALTER client_payments: add tagged_additional_work_id, mutex check
+  --    against the EXISTING payment_phase_id column (do not duplicate)
   -- 6. get_site_supervisor_cost(uuid) function
 
   -- 1. Enum -----------------------------------------------------------------
@@ -195,33 +196,28 @@ Adds the `site_additional_works` table, two nullable tagging columns on `client_
     on public.site_additional_works for delete
     using (auth.role() = 'authenticated');
 
-  -- 5. Tag client_payments to a phase OR an additional work (mutually exclusive)
+  -- 5. Tag client_payments to an additional work (mutually exclusive with the
+  --    EXISTING payment_phase_id column on client_payments — do NOT add a
+  --    second phase-tag column).
   alter table public.client_payments
     add column if not exists tagged_additional_work_id uuid
       references public.site_additional_works(id) on delete set null;
-
-  alter table public.client_payments
-    add column if not exists tagged_phase_id uuid
-      references public.payment_phases(id) on delete set null;
 
   alter table public.client_payments
     drop constraint if exists client_payments_tag_mutex;
 
   alter table public.client_payments
     add constraint client_payments_tag_mutex check (
-      tagged_additional_work_id is null or tagged_phase_id is null
+      tagged_additional_work_id is null or payment_phase_id is null
     );
 
   create index if not exists client_payments_tagged_additional_work_idx
     on public.client_payments (tagged_additional_work_id)
     where tagged_additional_work_id is not null;
 
-  create index if not exists client_payments_tagged_phase_idx
-    on public.client_payments (tagged_phase_id)
-    where tagged_phase_id is not null;
-
   -- 6. Supervisor cost rollup ----------------------------------------------
   -- Sums subcontract_payments.amount for all mesthri subcontracts on a site.
+  -- subcontract_payments FK is named contract_id (not subcontract_id).
   -- Daily attendance wages NOT included in v1 (documented limitation).
   create or replace function public.get_site_supervisor_cost(p_site_id uuid)
   returns numeric
@@ -231,7 +227,7 @@ Adds the `site_additional_works` table, two nullable tagging columns on `client_
   as $$
     select coalesce(sum(sp.amount), 0)::numeric
     from public.subcontract_payments sp
-    join public.subcontracts s on s.id = sp.subcontract_id
+    join public.subcontracts s on s.id = sp.contract_id
     where s.site_id = p_site_id
       and s.contract_type = 'mesthri';
   $$;
@@ -239,12 +235,12 @@ Adds the `site_additional_works` table, two nullable tagging columns on `client_
   grant execute on function public.get_site_supervisor_cost(uuid) to authenticated;
   ```
 
-  **CRITICAL — verify column names match your local schema before saving:**
-  - `client_payments.site_id` — confirm via `\d client_payments`
-  - `subcontracts.site_id` and `subcontracts.contract_type` — confirm via `\d subcontracts`
-  - `subcontract_payments.amount` and `subcontract_payments.subcontract_id` — confirm via `\d subcontract_payments`
-
-  If any name differs, edit the migration before applying.
+  **Verified column names (from `supabase/migrations/00000000000000_initial_schema.sql`):**
+  - `client_payments.site_id` ✓ (line 4270, NOT NULL)
+  - `client_payments.payment_phase_id` ✓ (line 4271, already exists — reuse for phase tagging)
+  - `subcontracts.site_id` ✓ (line 6310), `subcontracts.contract_type` ✓ (line 6307, enum mesthri/specialist)
+  - `subcontract_payments.contract_id` ✓ (line 6255, FK to subcontracts.id), `.amount` ✓ (line 6258)
+  - `payment_phases.phase_name` (line 5447), `.amount` (line 5450), `.expected_date` (line 5451), `.sequence_order` (line 5452) — used by ContractTab in Phase 4
 
 - [ ] **Step 3: Confirm RLS policy helpers**
 
@@ -281,7 +277,7 @@ Adds the `site_additional_works` table, two nullable tagging columns on `client_
   ```bash
   psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -c "\d client_payments"
   ```
-  Expected: two new nullable columns (`tagged_additional_work_id`, `tagged_phase_id`), check constraint `client_payments_tag_mutex`, two new partial indexes.
+  Expected: ONE new nullable column (`tagged_additional_work_id`) — the existing `payment_phase_id` is reused for phase tagging. Check constraint `client_payments_tag_mutex` enforces mutex of `tagged_additional_work_id` against `payment_phase_id`. One new partial index (`client_payments_tagged_additional_work_idx`).
 
 - [ ] **Step 4: Smoke-test the function**
 
@@ -294,11 +290,13 @@ Adds the `site_additional_works` table, two nullable tagging columns on `client_
 
   ```bash
   psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -c "
-    insert into client_payments (id, site_id, amount, payment_date, payment_mode, tagged_additional_work_id, tagged_phase_id)
+    insert into client_payments (id, site_id, amount, payment_date, payment_mode, tagged_additional_work_id, payment_phase_id)
     values (gen_random_uuid(), (select id from sites limit 1), 1, current_date, 'cash', gen_random_uuid(), gen_random_uuid());
   "
   ```
   Expected: ERROR mentioning `client_payments_tag_mutex`. Confirms the constraint blocks dual-tagging.
+
+  Note: Windows hosts without `psql` on PATH can run the same statement via the Supabase MCP `execute_sql` tool against the **local** project, or via `docker exec` into the supabase Postgres container.
 
 ## Task 1.3: Regenerate `database.types.ts`
 
@@ -809,21 +807,23 @@ Three React Query hooks plus tagging-field extension on `useClientPayments`.
 
   Read: `src/hooks/queries/useClientPayments.ts`. Locate the input type/schema for the create and update mutations (look for `useMutation` and the shape of `mutationFn`'s `input` parameter).
 
-- [ ] **Step 2: Add the two optional fields**
+- [ ] **Step 2: Surface the tagging fields**
 
   Wherever the create/update payload type is defined, add:
   ```ts
   taggedAdditionalWorkId?: string | null;
-  taggedPhaseId?: string | null;
+  paymentPhaseId?: string | null;   // EXISTING column on client_payments — pass through if present
   ```
 
   In the `insert` / `update` body sent to Supabase, include:
   ```ts
   tagged_additional_work_id: input.taggedAdditionalWorkId ?? null,
-  tagged_phase_id: input.taggedPhaseId ?? null,
+  payment_phase_id:          input.paymentPhaseId          ?? null,
   ```
 
   Make sure `mutationFn` invalidates BOTH `["site-financial-summary", siteId]` AND any pre-existing `["client-payments", siteId]` key on success.
+
+  Note: the DB check constraint `client_payments_tag_mutex` (added in Phase 1) prevents both fields being set simultaneously — surface that as a friendly error in the catch block.
 
 - [ ] **Step 3: Build to verify types are happy**
 
@@ -1106,7 +1106,7 @@ A self-contained component the page and the dashboard both consume.
                   const settled = phaseAmount > 0 && paid >= phaseAmount;
                   return (
                     <TableRow key={phase.id} hover>
-                      <TableCell>{phase.name ?? `Phase ${phase.phase_order ?? ""}`}</TableCell>
+                      <TableCell>{phase.phase_name ?? `Phase ${phase.sequence_order ?? ""}`}</TableCell>
                       <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
                         {formatINR(phaseAmount)}
                       </TableCell>
@@ -1135,7 +1135,7 @@ A self-contained component the page and the dashboard both consume.
   export default ContractTab;
   ```
 
-  Note: column names like `phase.name`, `phase.amount`, `phase.expected_date`, `phase.phase_order` must match the actual `payment_phases` schema. Confirm with `\d payment_phases` and adjust before saving.
+  Note: `payment_phases` columns confirmed against `00000000000000_initial_schema.sql`: `phase_name`, `amount`, `expected_date`, `sequence_order`. (If the schema later changes, re-confirm.)
 
 ## Task 4.2: `AdditionalWorkDialog`
 
@@ -1517,7 +1517,7 @@ A self-contained component the page and the dashboard both consume.
       { value: "general", label: "General (untagged)" },
       ...phases.map((p) => ({
         value: `phase:${p.id}`,
-        label: `Base Phase: ${p.name ?? `#${p.phase_order}`}`,
+        label: `Base Phase: ${p.phase_name ?? `#${p.sequence_order}`}`,
       })),
       ...additionalWorks
         .filter((w) => w.status !== "cancelled")
@@ -1531,7 +1531,7 @@ A self-contained component the page and the dashboard both consume.
         setError("Amount must be a positive number");
         return;
       }
-      const taggedPhaseId = applyTo.startsWith("phase:") ? applyTo.slice("phase:".length) : null;
+      const paymentPhaseId = applyTo.startsWith("phase:") ? applyTo.slice("phase:".length) : null;
       const taggedAdditionalWorkId = applyTo.startsWith("work:") ? applyTo.slice("work:".length) : null;
 
       try {
@@ -1541,7 +1541,7 @@ A self-contained component the page and the dashboard both consume.
           paymentDate,
           paymentMode: mode,
           notes: notes || null,
-          taggedPhaseId,
+          paymentPhaseId,
           taggedAdditionalWorkId,
         } as never);
         onClose();
@@ -1630,9 +1630,9 @@ A self-contained component the page and the dashboard both consume.
       const w = works.find((x) => x.id === payment.tagged_additional_work_id);
       return { label: w ? `Extra: ${w.title}` : "Extra (deleted)", color: "info" };
     }
-    if (payment.tagged_phase_id) {
-      const p = phases.find((x) => x.id === payment.tagged_phase_id);
-      return { label: p ? `Phase: ${p.name ?? `#${p.phase_order}`}` : "Phase (deleted)", color: "primary" };
+    if (payment.payment_phase_id) {
+      const p = phases.find((x) => x.id === payment.payment_phase_id);
+      return { label: p ? `Phase: ${p.phase_name ?? `#${p.sequence_order}`}` : "Phase (deleted)", color: "primary" };
     }
     return { label: "General", color: "default" };
   }
