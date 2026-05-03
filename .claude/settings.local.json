@@ -172,7 +172,12 @@
       "Bash(python -c \"f=open\\('src/types/database.types.ts'\\).read\\(\\); print\\('len:', len\\(f\\)\\); print\\('contains trade_category_id:', 'trade_category_id' in f\\)\")",
       "Bash(python -c \"f=open\\('src/types/database.types.ts'\\).read\\(\\); print\\('len:', len\\(f\\)\\); print\\('contains trade_category_id:', 'trade_category_id' in f\\); print\\('contains v_subcontract_recon:', 'v_subcontract_recon' in f\\)\")",
       "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('lint-staged:', d.get\\('lint-staged','none'\\)\\); print\\('scripts.types-related:', {k:v for k,v in d.get\\('scripts',{}\\).items\\(\\) if 'type' in k.lower\\(\\) or 'gen' in k.lower\\(\\)}\\)\")",
-      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\" -Recurse -Filter \"*payments*\" -Directory)"
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\" -Recurse -Filter \"*payments*\" -Directory)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\" -Directory)",
+      "mcp__playwright__browser_network_requests",
+      "Bash(python3 -c ' *)",
+      "Read(//c/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp/**)",
+      "Read(//tmp/**)"
     ],
     "deny": [],
     "ask": []
