@@ -16,20 +16,35 @@ import { withTimeout } from "@/lib/utils/timeout";
 // holding the InspectPane skeleton for the global 30s default.
 const PER_DAY_TIMEOUT_MS = 8_000;
 
+export interface AttendanceLaborerRow {
+  id: string;
+  name: string;
+  role: string;
+  fullDay: boolean;
+  amount: number;
+  isOverridden: boolean;
+  overrideReason: string | null;
+  laborerId: string | null;
+  // 'daily' | 'contract' | null (legacy rows). Surfaced so the
+  // InspectPane can bucket contract attendance separately from daily
+  // when rendering the Daily + Market settlement view (contract rows
+  // show as informational "not in this calculation").
+  laborerType: string | null;
+}
+
 export interface AttendanceForDateData {
   dailyTotal: number;
   marketTotal: number;
   teaShopTotal: number;
-  dailyLaborers: Array<{
-    id: string;
-    name: string;
-    role: string;
-    fullDay: boolean;
-    amount: number;
-    isOverridden: boolean;
-    overrideReason: string | null;
-    laborerId: string | null;
-  }>;
+  // All daily-attendance rows for the date, regardless of laborer_type.
+  // Kept for backward compatibility with existing callers.
+  dailyLaborers: Array<AttendanceLaborerRow>;
+  // Subset of dailyLaborers where laborer_type !== 'contract'. This is
+  // the "primary" set for Daily + Market totals.
+  dailyLaborersByType: {
+    daily: AttendanceLaborerRow[];   // laborer_type === 'daily' or NULL
+    contract: AttendanceLaborerRow[]; // laborer_type === 'contract'
+  };
   marketLaborers: Array<{
     id: string;
     role: string;
@@ -85,23 +100,40 @@ export function useAttendanceForDate(siteId: string, date: string) {
         }
         console.warn(`${tag} ok +${ms}ms`);
         const r: any = data || {};
+        const dailyLaborers: AttendanceLaborerRow[] = (
+          r.daily_laborers ?? []
+        ).map((l: any) => ({
+          id: String(l.id),
+          name: String(l.name ?? "").trim(),
+          role: String(l.role ?? ""),
+          fullDay: Boolean(l.full_day),
+          amount: toNumber(l.amount),
+          isOverridden: Boolean(l.is_overridden),
+          overrideReason:
+            typeof l.override_reason === "string" && l.override_reason.length > 0
+              ? l.override_reason
+              : null,
+          laborerId: l.laborer_id ? String(l.laborer_id) : null,
+          laborerType:
+            typeof l.laborer_type === "string" && l.laborer_type.length > 0
+              ? l.laborer_type
+              : null,
+        }));
+        const contractBucket: AttendanceLaborerRow[] = [];
+        const dailyBucket: AttendanceLaborerRow[] = [];
+        for (const lab of dailyLaborers) {
+          if (lab.laborerType === "contract") contractBucket.push(lab);
+          else dailyBucket.push(lab);
+        }
         return {
           dailyTotal: toNumber(r.daily_total),
           marketTotal: toNumber(r.market_total),
           teaShopTotal: toNumber(r.tea_shop_total),
-          dailyLaborers: (r.daily_laborers ?? []).map((l: any) => ({
-            id: String(l.id),
-            name: String(l.name ?? "").trim(),
-            role: String(l.role ?? ""),
-            fullDay: Boolean(l.full_day),
-            amount: toNumber(l.amount),
-            isOverridden: Boolean(l.is_overridden),
-            overrideReason:
-              typeof l.override_reason === "string" && l.override_reason.length > 0
-                ? l.override_reason
-                : null,
-            laborerId: l.laborer_id ? String(l.laborer_id) : null,
-          })),
+          dailyLaborers,
+          dailyLaborersByType: {
+            daily: dailyBucket,
+            contract: contractBucket,
+          },
           marketLaborers: (r.market_laborers ?? []).map((m: any) => ({
             id: String(m.id),
             role: String(m.role ?? ""),

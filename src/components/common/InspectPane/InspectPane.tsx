@@ -86,6 +86,9 @@ export function InspectPane(props: InspectPaneProps) {
     if (entity.kind === "weekly-aggregate") {
       return entity.subcontractId ? "Subcontract scope" : "All subcontracts";
     }
+    if (entity.kind === "daily-market-weekly") {
+      return "Daily + Market";
+    }
     if (entity.kind === "advance") {
       return entity.settlementRef ?? "Advance";
     }
@@ -148,7 +151,8 @@ export function InspectPane(props: InspectPaneProps) {
       >
         <Box sx={{ minWidth: 0 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-            {entity.kind === "daily-date" ? (
+            {entity.kind === "daily-date" ||
+            entity.kind === "daily-market-weekly" ? (
               <CalendarIcon fontSize="small" color="action" />
             ) : (
               <PersonIcon fontSize="small" color="action" />

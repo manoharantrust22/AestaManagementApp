@@ -6,12 +6,16 @@ import dayjs from "dayjs";
 import { entitySettlementRef, type InspectEntity } from "./types";
 import { useSettlementAudit } from "@/hooks/useSettlementAudit";
 import { useSalaryWaterfall } from "@/hooks/queries/useSalaryWaterfall";
+import { usePaymentsLedger } from "@/hooks/queries/usePaymentsLedger";
 
 export default function AuditTab({ entity }: { entity: InspectEntity }) {
-  // weekly-aggregate has no single ref; render one audit section per
-  // filled_by ref pulled from the waterfall.
+  // weekly-aggregate / daily-market-weekly have no single ref; render
+  // one audit section per ref discovered for the week.
   if (entity.kind === "weekly-aggregate") {
     return <WeeklyAggregateAudit entity={entity} />;
+  }
+  if (entity.kind === "daily-market-weekly") {
+    return <DailyMarketWeeklyAudit entity={entity} />;
   }
   return <SingleRefAudit entity={entity} />;
 }
@@ -166,6 +170,73 @@ function WeeklyAggregateAudit({
             settlementRef={f.ref}
             amount={f.amount}
           />
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
+function DailyMarketWeeklyAudit({
+  entity,
+}: {
+  entity: Extract<InspectEntity, { kind: "daily-market-weekly" }>;
+}) {
+  const { data: rows, isLoading } = usePaymentsLedger({
+    siteId: entity.siteId,
+    dateFrom: entity.weekStart,
+    dateTo: entity.weekEnd,
+    type: "daily-market",
+    status: "all",
+  });
+
+  if (isLoading) {
+    return (
+      <Box sx={{ p: 2 }}>
+        <Skeleton variant="rounded" width="100%" height={64} />
+      </Box>
+    );
+  }
+
+  // Aggregate amount per distinct settlement_ref so each audit section
+  // shows a meaningful "₹X allocated".
+  const refTotals = new Map<string, number>();
+  for (const r of rows ?? []) {
+    if (!r.settlementRef) continue;
+    refTotals.set(r.settlementRef, (refTotals.get(r.settlementRef) ?? 0) + r.amount);
+  }
+  const refs = Array.from(refTotals.entries()).sort((a, b) =>
+    a[0] < b[0] ? -1 : 1
+  );
+
+  if (refs.length === 0) {
+    return (
+      <Box sx={{ p: 2 }}>
+        <Typography variant="body2" color="text.secondary">
+          No settlements have touched this week yet — nothing to audit.
+        </Typography>
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{ p: 2 }}>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{
+          display: "block",
+          fontSize: 9,
+          textTransform: "uppercase",
+          letterSpacing: 0.4,
+          fontWeight: 600,
+          mb: 1,
+        }}
+      >
+        Audit history · {refs.length} settlement{refs.length === 1 ? "" : "s"}
+      </Typography>
+      <Stack spacing={2}>
+        {refs.map(([ref, amount]) => (
+          <RefAuditSection key={ref} settlementRef={ref} amount={amount} />
         ))}
       </Stack>
     </Box>

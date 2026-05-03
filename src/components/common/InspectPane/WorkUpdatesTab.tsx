@@ -28,13 +28,16 @@ export default function WorkUpdatesTab({ entity }: { entity: InspectEntity }) {
   const [lightbox, setLightbox] = useState<LightboxState | null>(null);
 
   // Daily-date entity → updates for that single date.
-  // Weekly-week / weekly-aggregate entity → updates for the week's date range.
+  // Weekly-week / weekly-aggregate / daily-market-weekly entity → updates
+  // for the week's date range.
   // Advance entity → InspectPane.tsx hides this tab; defensive fallback to a
   // single-day query that returns no rows.
   const { siteId, dateFrom, dateTo } =
     entity.kind === "daily-date"
       ? { siteId: entity.siteId, dateFrom: entity.date, dateTo: entity.date }
-      : entity.kind === "weekly-week" || entity.kind === "weekly-aggregate"
+      : entity.kind === "weekly-week" ||
+          entity.kind === "weekly-aggregate" ||
+          entity.kind === "daily-market-weekly"
         ? {
             siteId: entity.siteId,
             dateFrom: entity.weekStart,

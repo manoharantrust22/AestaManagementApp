@@ -1,10 +1,14 @@
-// Identifies the "thing" the pane is showing. Four shapes:
-// - daily-date       : one date (settled or pending), all laborers paid that day
-// - weekly-week      : one laborer × one week (Sun-Sat)
-// - weekly-aggregate : one subcontract (or all) × one week (Sun-Sat);
-//                      per-day attendance roll-up across all contract laborers
-// - advance          : a single outside-waterfall advance settlement;
-//                      Attendance + Work Updates tabs are hidden for this kind
+// Identifies the "thing" the pane is showing. Five shapes:
+// - daily-date          : one date (settled or pending), all laborers paid that day
+// - weekly-week         : one laborer × one week (Sun-Sat)
+// - weekly-aggregate    : one subcontract (or all) × one week (Sun-Sat);
+//                          per-day attendance roll-up across all contract laborers
+// - daily-market-weekly : one site × one week (Sun-Sat) on the Daily + Market tab;
+//                          per-day attendance roll-up across daily + market laborers
+//                          (contract laborers surfaced as informational only inside
+//                          the per-day expansion)
+// - advance             : a single outside-waterfall advance settlement;
+//                          Attendance + Work Updates tabs are hidden for this kind
 export type InspectEntity =
   | {
       kind: "daily-date";
@@ -31,6 +35,16 @@ export type InspectEntity =
       // omits later settlements that legitimately filled earlier weeks,
       // so the pane re-runs the algorithm over the same range the page
       // saw and then picks the matching week from the result.
+      scopeFrom: string | null;
+      scopeTo: string | null;
+    }
+  | {
+      kind: "daily-market-weekly";
+      siteId: string;
+      weekStart: string;               // YYYY-MM-DD (Sunday)
+      weekEnd: string;                 // YYYY-MM-DD (Saturday)
+      // Page-level scope, mirrors weekly-aggregate. Used by Settlement
+      // tab to enumerate all settlements that touched dates in this week.
       scopeFrom: string | null;
       scopeTo: string | null;
     }
@@ -62,6 +76,8 @@ export function entityKey(e: InspectEntity): string {
     return `w:${e.siteId}:${e.laborerId}:${e.weekStart}`;
   if (e.kind === "weekly-aggregate")
     return `wa:${e.siteId}:${e.subcontractId ?? "_"}:${e.weekStart}`;
+  if (e.kind === "daily-market-weekly")
+    return `dmw:${e.siteId}:${e.weekStart}`;
   // 'advance'
   return `a:${e.siteId}:${e.settlementId}`;
 }

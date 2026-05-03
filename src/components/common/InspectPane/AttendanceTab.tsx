@@ -103,10 +103,13 @@ function DailyShape({
     );
   }
 
-  const dailyTotal = data?.dailyTotal ?? 0;
-  const marketTotal = data?.marketTotal ?? 0;
   const teaTotal = data?.teaShopTotal ?? 0;
-  const dailyLaborers = data?.dailyLaborers ?? [];
+  // The Daily + Market drawer treats contract attendance as informational
+  // only — split it out so the "DAILY" tile reflects daily-only earnings.
+  const dailyOnlyList = data?.dailyLaborersByType?.daily ?? [];
+  const contractList = data?.dailyLaborersByType?.contract ?? [];
+  const dailyTotal = dailyOnlyList.reduce((s, l) => s + l.amount, 0);
+  const marketTotal = data?.marketTotal ?? 0;
   const marketLaborers = data?.marketLaborers ?? [];
 
   return (
@@ -131,10 +134,10 @@ function DailyShape({
         color="text.secondary"
         sx={SECTION_LABEL_SX}
       >
-        Daily Laborers ({dailyLaborers.length})
+        Daily Laborers ({dailyOnlyList.length})
       </Typography>
       <Stack spacing={0.5} sx={{ mb: 2 }}>
-        {dailyLaborers.slice(0, 4).map((lab) => (
+        {dailyOnlyList.slice(0, 4).map((lab) => (
           <Box
             key={lab.id}
             sx={{
@@ -161,16 +164,16 @@ function DailyShape({
             </Typography>
           </Box>
         ))}
-        {dailyLaborers.length > 4 && (
+        {dailyOnlyList.length > 4 && (
           <Typography
             variant="caption"
             color="text.secondary"
             sx={{ pl: 1 }}
           >
-            … {dailyLaborers.length - 4} more
+            … {dailyOnlyList.length - 4} more
           </Typography>
         )}
-        {dailyLaborers.length === 0 && (
+        {dailyOnlyList.length === 0 && (
           <Typography variant="caption" color="text.secondary" sx={{ pl: 1 }}>
             No daily laborers recorded for this date.
           </Typography>
@@ -184,7 +187,7 @@ function DailyShape({
       >
         Market Laborers ({marketLaborers.length})
       </Typography>
-      <Stack spacing={0.5}>
+      <Stack spacing={0.5} sx={{ mb: contractList.length > 0 ? 2 : 0 }}>
         {marketLaborers.slice(0, 4).map((mkt) => (
           <Box
             key={mkt.id}
@@ -227,6 +230,87 @@ function DailyShape({
           </Typography>
         )}
       </Stack>
+
+      {/* Contract laborers — informational only. Hidden when no contract
+          attendance for the date so the drawer stays compact. */}
+      {contractList.length > 0 && (
+        <Box sx={{ opacity: 0.7 }}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={SECTION_LABEL_SX}
+          >
+            Contract Laborers ({contractList.length})
+          </Typography>
+          <Box
+            sx={{
+              display: "block",
+              mb: 0.5,
+              px: 0.5,
+              fontSize: 10,
+              fontStyle: "italic",
+              color: "text.secondary",
+            }}
+          >
+            Not included in this settlement&apos;s calculation — settled
+            separately under Contract Settlement.
+          </Box>
+          <Stack spacing={0.5}>
+            {contractList.slice(0, 4).map((lab) => (
+              <Box
+                key={lab.id}
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  p: 0.5,
+                  px: 1.25,
+                  bgcolor: theme.palette.background.default,
+                  border: `1px dashed ${theme.palette.divider}`,
+                  borderRadius: 1,
+                }}
+              >
+                <Box>
+                  <Typography
+                    variant="body2"
+                    fontWeight={500}
+                    sx={{ fontSize: 12.5 }}
+                  >
+                    {lab.name}
+                  </Typography>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ fontSize: 10.5 }}
+                  >
+                    {lab.role} · {lab.fullDay ? "Full day" : "Half day"}
+                  </Typography>
+                </Box>
+                <Typography
+                  variant="caption"
+                  fontWeight={600}
+                  color="text.secondary"
+                  sx={{
+                    fontSize: 12,
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  ₹{lab.amount.toLocaleString("en-IN")}
+                </Typography>
+              </Box>
+            ))}
+            {contractList.length > 4 && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ pl: 1 }}
+              >
+                … {contractList.length - 4} more
+              </Typography>
+            )}
+          </Stack>
+        </Box>
+      )}
     </Box>
   );
 }
@@ -756,6 +840,7 @@ function WeeklyAggregateShape({
 // ----------------------------------------------------------------
 
 import type { WeekHoliday } from "@/hooks/queries/useWeekAggregateAttendance";
+import { useDailyMarketWeekAggregate } from "@/hooks/queries/useDailyMarketWeekAggregate";
 import { useWorkUpdates } from "@/hooks/queries/useWorkUpdates";
 import PhotoFullscreenDialog from "@/components/attendance/work-updates/PhotoFullscreenDialog";
 import type { WorkPhoto } from "@/types/work-updates.types";
@@ -767,16 +852,27 @@ interface DayLightboxState {
   title: string;
 }
 
+// "contract-primary": original layout (used by WeeklyAggregateShape).
+//                     Contract + Daily commingled in one section, market
+//                     surfaced as "not part of the contract waterfall".
+// "daily-market-primary": for the new Daily + Market drawer. Daily and
+//                     market are primary; contract attendance is
+//                     surfaced last as informational ("not included in
+//                     this settlement's calculation").
+type DayDetailMode = "contract-primary" | "daily-market-primary";
+
 function DayDetailExpansion({
   siteId,
   subcontractId,
   date,
   holiday,
+  mode = "contract-primary",
 }: {
   siteId: string;
   subcontractId: string | null;
   date: string;
   holiday?: WeekHoliday;
+  mode?: DayDetailMode;
 }) {
   void subcontractId; // Per-day RPC is not subcontract-scoped today; whole site
   const theme = useTheme();
@@ -788,16 +884,27 @@ function DayDetailExpansion({
   );
   const [lightbox, setLightbox] = React.useState<DayLightboxState | null>(null);
 
-  const dailyCount = data?.dailyLaborers?.length ?? 0;
+  // contract-primary uses the legacy commingled list; daily-market-primary
+  // splits daily vs contract and demotes the contract bucket.
+  const isDailyMarketPrimary = mode === "daily-market-primary";
+  const dailyOnlyList = data?.dailyLaborersByType?.daily ?? [];
+  const contractList = data?.dailyLaborersByType?.contract ?? [];
+  const dailyCount = isDailyMarketPrimary
+    ? dailyOnlyList.length
+    : data?.dailyLaborers?.length ?? 0;
   const marketCount = data?.marketLaborers?.length ?? 0;
-  const dailyTotal = (data?.dailyLaborers ?? []).reduce(
-    (s, l) => s + l.amount,
-    0
-  );
+  const contractCount = contractList.length;
+  const dailyTotal = isDailyMarketPrimary
+    ? dailyOnlyList.reduce((s, l) => s + l.amount, 0)
+    : (data?.dailyLaborers ?? []).reduce((s, l) => s + l.amount, 0);
   const marketTotal = (data?.marketLaborers ?? []).reduce(
     (s, l) => s + l.amount,
     0
   );
+  const contractTotal = contractList.reduce((s, l) => s + l.amount, 0);
+  const primaryRows = isDailyMarketPrimary
+    ? dailyOnlyList
+    : (data?.dailyLaborers ?? []);
 
   return (
     <Box
@@ -830,17 +937,24 @@ function DayDetailExpansion({
           {dayjs(date).format("dddd, DD MMM")}
           {holiday && " · Holiday"}
         </Typography>
-        {!isLoading && dailyCount + marketCount > 0 && (
-          <Typography
-            variant="caption"
-            sx={{
-              fontSize: 11,
-              color: "text.secondary",
-            }}
-          >
-            {dailyCount + marketCount} worked on this day
-          </Typography>
-        )}
+        {!isLoading &&
+          dailyCount +
+            marketCount +
+            (isDailyMarketPrimary ? contractCount : 0) >
+            0 && (
+            <Typography
+              variant="caption"
+              sx={{
+                fontSize: 11,
+                color: "text.secondary",
+              }}
+            >
+              {dailyCount +
+                marketCount +
+                (isDailyMarketPrimary ? contractCount : 0)}{" "}
+              worked on this day
+            </Typography>
+          )}
       </Box>
 
       {holiday && (
@@ -861,7 +975,9 @@ function DayDetailExpansion({
         <Skeleton variant="rounded" height={64} />
       ) : (
         <>
-          {dailyCount === 0 && marketCount === 0 ? (
+          {dailyCount === 0 &&
+          marketCount === 0 &&
+          (!isDailyMarketPrimary || contractCount === 0) ? (
             <Typography variant="caption" color="text.disabled">
               No attendance recorded on this day.
             </Typography>
@@ -888,7 +1004,9 @@ function DayDetailExpansion({
                         fontWeight: 600,
                       }}
                     >
-                      Contract / Daily Laborers ({dailyCount})
+                      {isDailyMarketPrimary
+                        ? `Daily Laborers (${dailyCount})`
+                        : `Contract / Daily Laborers (${dailyCount})`}
                     </Typography>
                     <Typography
                       variant="caption"
@@ -903,7 +1021,7 @@ function DayDetailExpansion({
                     </Typography>
                   </Box>
                   <Stack spacing={0.5}>
-                    {data!.dailyLaborers.map((lab) => (
+                    {primaryRows.map((lab) => (
                       <Box
                         key={lab.id}
                         sx={{
@@ -1008,26 +1126,30 @@ function DayDetailExpansion({
                       sx={{
                         fontSize: 10.5,
                         fontWeight: 600,
-                        color: "warning.dark",
+                        color: isDailyMarketPrimary
+                          ? "success.dark"
+                          : "warning.dark",
                         fontVariantNumeric: "tabular-nums",
                       }}
                     >
                       ₹{marketTotal.toLocaleString("en-IN")}
                     </Typography>
                   </Box>
-                  <Box
-                    sx={{
-                      display: "block",
-                      mb: 0.5,
-                      px: 0.5,
-                      fontSize: 10,
-                      fontStyle: "italic",
-                      color: "warning.dark",
-                    }}
-                  >
-                    Not part of the contract waterfall — paid separately
-                    under Daily + Market.
-                  </Box>
+                  {!isDailyMarketPrimary && (
+                    <Box
+                      sx={{
+                        display: "block",
+                        mb: 0.5,
+                        px: 0.5,
+                        fontSize: 10,
+                        fontStyle: "italic",
+                        color: "warning.dark",
+                      }}
+                    >
+                      Not part of the contract waterfall — paid separately
+                      under Daily + Market.
+                    </Box>
+                  )}
                   <Stack spacing={0.5}>
                     {data!.marketLaborers.map((mkt) => (
                       <Box
@@ -1037,8 +1159,14 @@ function DayDetailExpansion({
                           justifyContent: "space-between",
                           p: 0.75,
                           px: 1.25,
-                          bgcolor: alpha(theme.palette.warning.main, 0.06),
-                          border: `1px solid ${alpha(theme.palette.warning.main, 0.4)}`,
+                          bgcolor: isDailyMarketPrimary
+                            ? theme.palette.background.default
+                            : alpha(theme.palette.warning.main, 0.06),
+                          border: `1px solid ${
+                            isDailyMarketPrimary
+                              ? theme.palette.divider
+                              : alpha(theme.palette.warning.main, 0.4)
+                          }`,
                           borderRadius: 1,
                         }}
                       >
@@ -1057,7 +1185,11 @@ function DayDetailExpansion({
                         <Typography
                           variant="body2"
                           fontWeight={600}
-                          color="warning.dark"
+                          color={
+                            isDailyMarketPrimary
+                              ? "success.main"
+                              : "warning.dark"
+                          }
                         >
                           ₹{mkt.amount.toLocaleString("en-IN")}
                         </Typography>
@@ -1065,6 +1197,103 @@ function DayDetailExpansion({
                     ))}
                   </Stack>
                 </>
+              )}
+
+              {/* Contract laborers — informational only in daily-market mode */}
+              {isDailyMarketPrimary && contractCount > 0 && (
+                <Box sx={{ mt: 1.5, opacity: 0.7 }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "baseline",
+                      justifyContent: "space-between",
+                      mb: 0.5,
+                    }}
+                  >
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{
+                        fontSize: 9,
+                        textTransform: "uppercase",
+                        letterSpacing: 0.4,
+                        fontWeight: 600,
+                      }}
+                    >
+                      Contract Laborers ({contractCount})
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: "text.secondary",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      ₹{contractTotal.toLocaleString("en-IN")}
+                    </Typography>
+                  </Box>
+                  <Box
+                    sx={{
+                      display: "block",
+                      mb: 0.5,
+                      px: 0.5,
+                      fontSize: 10,
+                      fontStyle: "italic",
+                      color: "text.secondary",
+                    }}
+                  >
+                    Not included in this settlement&apos;s calculation —
+                    settled separately under Contract Settlement.
+                  </Box>
+                  <Stack spacing={0.5}>
+                    {contractList.map((lab) => (
+                      <Box
+                        key={lab.id}
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          p: 0.5,
+                          px: 1.25,
+                          bgcolor: theme.palette.background.default,
+                          border: `1px dashed ${theme.palette.divider}`,
+                          borderRadius: 1,
+                        }}
+                      >
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Typography
+                            variant="body2"
+                            fontWeight={500}
+                            sx={{ fontSize: 12.5 }}
+                          >
+                            {lab.name}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ fontSize: 10.5 }}
+                          >
+                            {lab.role} ·{" "}
+                            {lab.fullDay ? "Full day" : "Half day"}
+                          </Typography>
+                        </Box>
+                        <Typography
+                          variant="caption"
+                          fontWeight={600}
+                          color="text.secondary"
+                          sx={{
+                            fontSize: 12,
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          ₹{lab.amount.toLocaleString("en-IN")}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Stack>
+                </Box>
               )}
             </>
           )}
@@ -1249,6 +1478,248 @@ function DayDetailExpansion({
 }
 
 // ----------------------------------------------------------------
+// Daily-Market-Weekly shape: site × week, daily + market primary,
+// contract laborers surfaced as informational inside per-day expansion.
+// Mirrors WeeklyAggregateShape but pulls data from
+// useDailyMarketWeekAggregate (daily+market only) and passes
+// mode="daily-market-primary" to DayDetailExpansion.
+// ----------------------------------------------------------------
+
+function DailyMarketWeeklyShape({
+  entity,
+}: {
+  entity: Extract<InspectEntity, { kind: "daily-market-weekly" }>;
+}) {
+  const theme = useTheme();
+  const { data, isLoading } = useDailyMarketWeekAggregate(
+    entity.siteId,
+    entity.weekStart,
+    entity.weekEnd
+  );
+
+  const [expandedDate, setExpandedDate] = React.useState<string | null>(null);
+
+  if (isLoading) {
+    return (
+      <Box sx={{ p: 2 }}>
+        <Skeleton variant="rounded" height={56} sx={{ mb: 2 }} />
+        <Skeleton variant="rounded" height={140} />
+      </Box>
+    );
+  }
+
+  const days = data?.days ?? [];
+  const holidays = data?.holidays ?? [];
+
+  return (
+    <Box sx={{ p: 2 }}>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={SECTION_LABEL_SX}
+      >
+        Per-day daily + market attendance · {data?.totalLaborers ?? 0} laborers worked · tap a day for details
+      </Typography>
+
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "repeat(7, 1fr)",
+          gap: 0.5,
+          mb: 2,
+        }}
+      >
+        {Array.from({ length: 7 }).map((_, i) => {
+          const dt = dayjs(entity.weekStart).add(i, "day").format("YYYY-MM-DD");
+          const day = days.find((d) => d.date === dt);
+          const holiday = holidays.find((h) => h.date === dt);
+          const isExpanded = expandedDate === dt;
+          const bg = day
+            ? alpha(theme.palette.success.main, 0.12)
+            : holiday
+              ? alpha(theme.palette.info.main, 0.12)
+              : "background.default";
+          const borderColor = isExpanded
+            ? theme.palette.primary.main
+            : day
+              ? theme.palette.success.main
+              : holiday
+                ? theme.palette.info.main
+                : theme.palette.divider;
+          return (
+            <Box
+              key={dt}
+              role="button"
+              tabIndex={0}
+              aria-pressed={isExpanded}
+              onClick={() =>
+                setExpandedDate((prev) => (prev === dt ? null : dt))
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setExpandedDate((prev) => (prev === dt ? null : dt));
+                }
+              }}
+              sx={{
+                p: 0.75,
+                borderRadius: 1,
+                textAlign: "center",
+                bgcolor: bg,
+                border: `${isExpanded ? 2 : 1}px solid ${borderColor}`,
+                minHeight: 80,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "space-between",
+                cursor: "pointer",
+                transition: "transform 80ms ease",
+                "&:hover": { transform: "translateY(-1px)" },
+                "&:focus-visible": {
+                  outline: `2px solid ${theme.palette.primary.main}`,
+                  outlineOffset: 1,
+                },
+              }}
+            >
+              <Box>
+                <Typography
+                  sx={{
+                    fontSize: 8.5,
+                    color: "text.secondary",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {dayjs(dt).format("ddd")}
+                </Typography>
+                <Typography sx={{ fontWeight: 700 }}>
+                  {dayjs(dt).format("DD")}
+                </Typography>
+              </Box>
+              {day ? (
+                <Box>
+                  <Typography
+                    sx={{
+                      fontSize: 8.5,
+                      color: "success.dark",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {day.laborersWorked} lab.
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontSize: 9,
+                      color: "success.main",
+                      fontWeight: 600,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    ₹{day.totalEarnings.toLocaleString("en-IN")}
+                  </Typography>
+                </Box>
+              ) : holiday ? (
+                <Box>
+                  <Typography
+                    sx={{
+                      fontSize: 8.5,
+                      color: "info.dark",
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.3,
+                    }}
+                  >
+                    Holiday
+                  </Typography>
+                  {holiday.reason && (
+                    <Typography
+                      sx={{
+                        fontSize: 8,
+                        color: "info.dark",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {holiday.reason}
+                    </Typography>
+                  )}
+                </Box>
+              ) : (
+                <Typography sx={{ fontSize: 9, color: "text.disabled" }}>
+                  —
+                </Typography>
+              )}
+            </Box>
+          );
+        })}
+      </Box>
+
+      {/* Expanded per-day breakdown — daily-market-primary mode pushes
+          contract laborers into a de-emphasized informational section. */}
+      {expandedDate && (
+        <Box sx={{ mb: 2 }}>
+          <DayDetailExpansion
+            siteId={entity.siteId}
+            subcontractId={null}
+            date={expandedDate}
+            holiday={holidays.find((h) => h.date === expandedDate)}
+            mode="daily-market-primary"
+          />
+        </Box>
+      )}
+
+      <Box
+        sx={{
+          bgcolor: "background.paper",
+          border: `1px solid ${theme.palette.divider}`,
+          borderRadius: 1.5,
+          p: 1.25,
+          fontSize: 12.5,
+        }}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            py: 0.5,
+          }}
+        >
+          <span style={{ color: theme.palette.text.secondary }}>
+            Worked this week (daily + market)
+          </span>
+          <span
+            style={{
+              fontWeight: 600,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {data?.totalLaborers ?? 0} laborers
+          </span>
+        </Box>
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            py: 0.5,
+          }}
+        >
+          <span style={{ color: theme.palette.text.secondary }}>
+            Total wages this week
+          </span>
+          <span
+            style={{
+              fontWeight: 600,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            ₹{(data?.totalEarnings ?? 0).toLocaleString("en-IN")}
+          </span>
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
+// ----------------------------------------------------------------
 // Default export: branch by entity.kind
 // ----------------------------------------------------------------
 
@@ -1257,6 +1728,8 @@ export default function AttendanceTab({ entity }: { entity: InspectEntity }) {
   if (entity.kind === "weekly-week") return <WeeklyShape entity={entity} />;
   if (entity.kind === "weekly-aggregate")
     return <WeeklyAggregateShape entity={entity} />;
+  if (entity.kind === "daily-market-weekly")
+    return <DailyMarketWeeklyShape entity={entity} />;
   // 'advance' — Attendance tab is not surfaced for this kind by InspectPane.tsx
   return null;
 }
