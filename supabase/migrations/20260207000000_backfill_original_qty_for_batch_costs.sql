@@ -6,13 +6,13 @@ UPDATE material_purchase_expenses mpe
 SET original_qty = (
   SELECT COALESCE(SUM(quantity), 0)
   FROM material_purchase_expense_items
-  WHERE expense_id = mpe.id
+  WHERE purchase_expense_id = mpe.id
 )
 WHERE original_qty IS NULL
 AND EXISTS (
   SELECT 1
   FROM material_purchase_expense_items
-  WHERE expense_id = mpe.id
+  WHERE purchase_expense_id = mpe.id
 );
 
 -- Step 2: For records still NULL (no items), try to infer from remaining_qty
