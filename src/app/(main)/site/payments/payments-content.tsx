@@ -59,7 +59,8 @@ import { useInspectPane } from "@/hooks/useInspectPane";
 import { InspectPane } from "@/components/common/InspectPane";
 import type { InspectEntity } from "@/components/common/InspectPane";
 import { useSiteAuditState } from "@/hooks/queries/useSiteAuditState";
-import { LegacyAuditBanner, LegacyBand, ReconcileDialog } from "@/components/audit";
+import { useOpeningBalances } from "@/hooks/queries/useOpeningBalances";
+import { LegacyAuditBanner, LegacyBand, OpeningBalanceRow, ReconcileDialog } from "@/components/audit";
 
 type ActiveTab = "all" | "contract" | "daily-market";
 // "default"        — natural default for each tab (waterfall for contract,
@@ -290,6 +291,14 @@ export default function PaymentsContent() {
     legacyPaymentSummaryQuery.data?.pendingDatesCount ?? 0;
   const legacyDailyMarketPendingAmount =
     legacyPaymentSummaryQuery.data?.pendingAmount ?? 0;
+
+  // Opening balances — populated by a Mode B reconcile. Empty array for sites
+  // that haven't been reconciled-via-rollup. Drives the OpeningBalanceRow shown
+  // above the live timeline once a site is in 'reconciled' state.
+  const openingBalancesQuery = useOpeningBalances(
+    auditState.isReconciled ? selectedSite?.id : undefined
+  );
+  const openingBalances = openingBalancesQuery.data ?? [];
 
   const advancesQuery = useAdvances({
     siteId: selectedSite?.id,
@@ -614,6 +623,15 @@ export default function PaymentsContent() {
               }}
             />
           </LegacyBand>
+        </Box>
+      )}
+
+      {auditState.isReconciled && auditState.dataStartedAt && openingBalances.length > 0 && (
+        <Box sx={{ flexShrink: 0, px: 1.5, pt: 1 }}>
+          <OpeningBalanceRow
+            cutoffDate={auditState.dataStartedAt}
+            balances={openingBalances}
+          />
         </Box>
       )}
 
