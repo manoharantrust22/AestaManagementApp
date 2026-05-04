@@ -225,10 +225,17 @@ export default function PaymentsContent() {
   // as "aggregate across all subcontracts".
   const selectedSubcontractId: string | null = null;
 
+  // For sites in audit mode, the existing tab content (Contract waterfall,
+  // Daily+Market ledger, All ledger, KPI strip) scopes to 'current' so the
+  // pre-cutoff weeks live exclusively in the LegacyBand above. Non-auditing
+  // sites use 'all' (a no-op server-side; behaves like before this feature).
+  const tabPeriod = auditState.isAuditing ? "current" : "all";
+
   const summaryQuery = usePaymentSummary(
     selectedSite?.id,
     effectiveFrom,
-    effectiveTo
+    effectiveTo,
+    tabPeriod
   );
 
   const salarySummaryQuery = useSalarySliceSummary({
@@ -236,6 +243,7 @@ export default function PaymentsContent() {
     subcontractId: selectedSubcontractId,
     dateFrom: effectiveFrom,
     dateTo: effectiveTo,
+    period: tabPeriod,
   });
 
   const waterfallQuery = useSalaryWaterfall({
@@ -243,6 +251,7 @@ export default function PaymentsContent() {
     subcontractId: selectedSubcontractId,
     dateFrom: effectiveFrom,
     dateTo: effectiveTo,
+    period: tabPeriod,
   });
 
   // Legacy-scoped waterfall (only fetched when the site is in audit mode).
@@ -275,6 +284,7 @@ export default function PaymentsContent() {
     dateTo: effectiveTo,
     status: "all",
     type: "daily-market",
+    period: tabPeriod,
   });
 
   // Client-side weekly roll-up over the same ledger rows. Cheap; no extra
@@ -284,6 +294,7 @@ export default function PaymentsContent() {
     siteId: selectedSite?.id,
     dateFrom: effectiveFrom,
     dateTo: effectiveTo,
+    period: tabPeriod,
   });
 
   const allLedgerQuery = usePaymentsLedger({
@@ -292,6 +303,7 @@ export default function PaymentsContent() {
     dateTo: effectiveTo,
     status: "all",
     type: "all",
+    period: tabPeriod,
   });
 
   // Chronological flat list of settlement_groups. Filter follows the active

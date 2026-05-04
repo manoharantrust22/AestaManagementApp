@@ -47,6 +47,7 @@ export function useDailyMarketWeeklyList(
     dateTo: args.dateTo,
     type: "daily-market",
     status: "all",
+    period: args.period,
   });
 
   const data = useMemo<DailyMarketWeekRow[]>(() => {
