@@ -47,6 +47,7 @@ describe("useSalaryWaterfall", () => {
         wagesDue: 52400,
         paid: 38200,
         status: "underpaid",
+        period: "current",
         filledBy: [
           { ref: "SET-260423-001", amount: 38200, grossAmount: 38200, settledAt: "2026-04-23" },
         ],

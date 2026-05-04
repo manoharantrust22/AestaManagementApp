@@ -8,15 +8,21 @@ const settledWeek: WaterfallWeek = {
   weekStart: "2026-04-05", weekEnd: "2026-04-11",
   daysWorked: 7, laborerCount: 4,
   wagesDue: 52000, paid: 52000, status: "settled",
-  filledBy: [{ ref: "SET-260408-001", amount: 40000, settledAt: "2026-04-08" },
-             { ref: "SET-260411-001", amount: 12000, settledAt: "2026-04-11" }],
+  filledBy: [
+    { ref: "SET-260408-001", amount: 40000, grossAmount: 40000, settledAt: "2026-04-08" },
+    { ref: "SET-260411-001", amount: 12000, grossAmount: 12000, settledAt: "2026-04-11" },
+  ],
+  period: "current",
 };
 
 const underpaidWeek: WaterfallWeek = {
   weekStart: "2026-04-19", weekEnd: "2026-04-25",
   daysWorked: 6, laborerCount: 4,
   wagesDue: 52400, paid: 38200, status: "underpaid",
-  filledBy: [{ ref: "SET-260423-001", amount: 38200, settledAt: "2026-04-23" }],
+  filledBy: [
+    { ref: "SET-260423-001", amount: 38200, grossAmount: 38200, settledAt: "2026-04-23" },
+  ],
+  period: "current",
 };
 
 const pendingWeek: WaterfallWeek = {
@@ -24,6 +30,7 @@ const pendingWeek: WaterfallWeek = {
   daysWorked: 0, laborerCount: 0,
   wagesDue: 0, paid: 0, status: "pending",
   filledBy: [],
+  period: "current",
 };
 
 describe("SalaryWaterfallList", () => {

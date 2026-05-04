@@ -50,6 +50,7 @@ describe("useSalarySliceSummary", () => {
       p_subcontract_id: "sub-1",
       p_date_from: "2026-04-01",
       p_date_to: "2026-04-26",
+      p_period: "all",
     });
     expect(result.current.data).toEqual({
       wagesDue: 234400,

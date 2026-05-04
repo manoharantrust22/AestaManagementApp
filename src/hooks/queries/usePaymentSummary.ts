@@ -2,15 +2,18 @@ import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 import type { PaymentScopeSummary } from "@/types/payment.types";
+import type { AuditPeriod } from "./useSiteAuditState";
 
 export function usePaymentSummary(
   siteId: string | undefined,
   dateFrom: string | null,
   dateTo: string | null,
+  /** Period scope. Defaults to 'all'. Non-auditing sites ignore this. */
+  period: AuditPeriod = "all",
 ) {
   const supabase = createClient();
   return useQuery<PaymentScopeSummary>({
-    queryKey: ["payment-summary", siteId, dateFrom, dateTo],
+    queryKey: ["payment-summary", siteId, dateFrom, dateTo, period],
     enabled: Boolean(siteId),
     queryFn: async () => {
       const { data, error } = await withTimeout(
@@ -18,6 +21,7 @@ export function usePaymentSummary(
           p_site_id:   siteId,
           p_date_from: dateFrom,
           p_date_to:   dateTo,
+          p_period:    period,
         })),
         TIMEOUTS.QUERY,
         "Payment summary query timed out. Please retry.",

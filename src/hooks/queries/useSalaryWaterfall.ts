@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
+import type { AuditPeriod } from "./useSiteAuditState";
 
 export interface WaterfallFilledBy {
   ref: string;
@@ -22,6 +23,9 @@ export interface WaterfallWeek {
   paid: number;
   status: "settled" | "underpaid" | "pending";
   filledBy: WaterfallFilledBy[];
+  /** 'legacy' or 'current' — only meaningful for sites in audit mode. Defaults
+   *  to 'current' for non-auditing sites. */
+  period: "legacy" | "current";
 }
 
 export interface UseSalaryWaterfallArgs {
@@ -29,13 +33,16 @@ export interface UseSalaryWaterfallArgs {
   subcontractId: string | null;
   dateFrom: string | null;
   dateTo: string | null;
+  /** Period scope ('all' | 'legacy' | 'current'). Defaults to 'all'.
+   *  Non-auditing sites ignore this server-side. */
+  period?: AuditPeriod;
 }
 
 export function useSalaryWaterfall(args: UseSalaryWaterfallArgs) {
   const supabase = createClient();
-  const { siteId, subcontractId, dateFrom, dateTo } = args;
+  const { siteId, subcontractId, dateFrom, dateTo, period = "all" } = args;
   return useQuery<WaterfallWeek[]>({
-    queryKey: ["salary-waterfall", siteId, subcontractId, dateFrom, dateTo],
+    queryKey: ["salary-waterfall", siteId, subcontractId, dateFrom, dateTo, period],
     enabled: Boolean(siteId),
     staleTime: 15_000,
     queryFn: async () => {
@@ -50,6 +57,7 @@ export function useSalaryWaterfall(args: UseSalaryWaterfallArgs) {
           p_subcontract_id: subcontractId,
           p_date_from:      dateFrom,
           p_date_to:        dateTo,
+          p_period:         period,
         })),
         TIMEOUTS.QUERY,
         "Salary waterfall query timed out. Please retry.",
@@ -64,6 +72,7 @@ export function useSalaryWaterfall(args: UseSalaryWaterfallArgs) {
         wagesDue:     Number(r.wages_due) || 0,
         paid:         Number(r.paid) || 0,
         status:       r.status as WaterfallWeek["status"],
+        period:       (r.period === "legacy" ? "legacy" : "current") as WaterfallWeek["period"],
         filledBy:     Array.isArray(r.filled_by)
           ? r.filled_by.map((f: any) => {
               const amount = Number(f.amount) || 0;

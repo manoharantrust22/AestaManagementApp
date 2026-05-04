@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
+import type { AuditPeriod } from "./useSiteAuditState";
 
 export interface SalarySliceSummary {
   wagesDue: number;
@@ -19,6 +20,8 @@ export interface UseSalarySliceSummaryArgs {
   subcontractId: string | null;
   dateFrom: string | null;
   dateTo: string | null;
+  /** Period scope. Defaults to 'all'. Non-auditing sites ignore this. */
+  period?: AuditPeriod;
 }
 
 const ZERO: SalarySliceSummary = {
@@ -35,9 +38,9 @@ const ZERO: SalarySliceSummary = {
 
 export function useSalarySliceSummary(args: UseSalarySliceSummaryArgs) {
   const supabase = createClient();
-  const { siteId, subcontractId, dateFrom, dateTo } = args;
+  const { siteId, subcontractId, dateFrom, dateTo, period = "all" } = args;
   return useQuery<SalarySliceSummary>({
-    queryKey: ["salary-slice-summary", siteId, subcontractId, dateFrom, dateTo],
+    queryKey: ["salary-slice-summary", siteId, subcontractId, dateFrom, dateTo, period],
     enabled: Boolean(siteId),
     staleTime: 15_000,
     queryFn: async () => {
@@ -47,6 +50,7 @@ export function useSalarySliceSummary(args: UseSalarySliceSummaryArgs) {
           p_subcontract_id: subcontractId,
           p_date_from:      dateFrom,
           p_date_to:        dateTo,
+          p_period:         period,
         })),
         TIMEOUTS.QUERY,
         "Salary summary query timed out. Please retry.",

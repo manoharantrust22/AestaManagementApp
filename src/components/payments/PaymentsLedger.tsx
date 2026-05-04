@@ -23,6 +23,9 @@ export interface PaymentsLedgerRow {
   isPending: boolean;
   laborerId?: string;
   siteId: string;
+  /** 'legacy' or 'current' — populated by get_payments_ledger. Non-auditing
+   *  sites always get 'current'. Used to bucket rows into legacy/current bands. */
+  period: "legacy" | "current";
   // Set on synthetic parent rows produced by the same-week + same-subtype
   // grouping below. Children retain their original flat shape.
   subRows?: PaymentsLedgerRow[];
@@ -109,6 +112,8 @@ export default function PaymentsLedger({
         isPending: children.some((c) => c.isPending),
         laborerId: undefined,
         siteId: first.siteId,
+        // All grouped children share a date+weekEnd, so they share a period.
+        period: first.period,
         subRows: children,
       });
     }

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 import type { PaymentsLedgerRow } from "@/components/payments/PaymentsLedger";
+import type { AuditPeriod } from "./useSiteAuditState";
 
 export interface UsePaymentsLedgerArgs {
   siteId: string | undefined;
@@ -9,13 +10,15 @@ export interface UsePaymentsLedgerArgs {
   dateTo: string | null;
   status?: "all" | "pending" | "completed";
   type?: "all" | "daily-market" | "weekly";
+  /** Period scope. Defaults to 'all'. Non-auditing sites ignore this. */
+  period?: AuditPeriod;
 }
 
 export function usePaymentsLedger(args: UsePaymentsLedgerArgs) {
   const supabase = createClient();
-  const { siteId, dateFrom, dateTo, status = "all", type = "all" } = args;
+  const { siteId, dateFrom, dateTo, status = "all", type = "all", period = "all" } = args;
   return useQuery<PaymentsLedgerRow[]>({
-    queryKey: ["payments-ledger", siteId, dateFrom, dateTo, status, type],
+    queryKey: ["payments-ledger", siteId, dateFrom, dateTo, status, type, period],
     enabled: Boolean(siteId),
     staleTime: 15_000,
     queryFn: async () => {
@@ -26,6 +29,7 @@ export function usePaymentsLedger(args: UsePaymentsLedgerArgs) {
           p_date_to:   dateTo,
           p_status:    status,
           p_type:      type,
+          p_period:    period,
         })),
         TIMEOUTS.QUERY,
         "Payments ledger query timed out. Please retry.",
@@ -43,6 +47,7 @@ export function usePaymentsLedger(args: UsePaymentsLedgerArgs) {
         is_paid: boolean;
         is_pending: boolean;
         laborer_id: string | null;
+        period: string | null;
       }>;
       return rows.map<PaymentsLedgerRow>((r) => ({
         id:            r.id,
@@ -57,6 +62,7 @@ export function usePaymentsLedger(args: UsePaymentsLedgerArgs) {
         isPending:     Boolean(r.is_pending),
         laborerId:     r.laborer_id ?? undefined,
         siteId:        siteId as string,
+        period:        (r.period === "legacy" ? "legacy" : "current"),
       }));
     },
   });

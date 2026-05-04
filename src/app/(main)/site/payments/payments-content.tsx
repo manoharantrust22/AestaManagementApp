@@ -58,6 +58,8 @@ import { useSettlementsList } from "@/hooks/queries/useSettlementsList";
 import { useInspectPane } from "@/hooks/useInspectPane";
 import { InspectPane } from "@/components/common/InspectPane";
 import type { InspectEntity } from "@/components/common/InspectPane";
+import { useSiteAuditState } from "@/hooks/queries/useSiteAuditState";
+import { LegacyAuditBanner, LegacyBand, ReconcileDialog } from "@/components/audit";
 
 type ActiveTab = "all" | "contract" | "daily-market";
 // "default"        — natural default for each tab (waterfall for contract,
@@ -202,6 +204,14 @@ export default function PaymentsContent() {
   // the records hook can fetch its pending entries; null = closed.
   const [dayDialog, setDayDialog] = useState<null | { date: string }>(null);
 
+  // Per-site audit lifecycle (legacy_status + data_started_at). Drives the
+  // LegacyAuditBanner + LegacyBand visibility. Slice 2 minimum: banner +
+  // collapsible legacy waterfall above the tabs. Slice 3 will make the
+  // existing tab content period-aware (currently 'all', should be 'current'
+  // when site is in audit).
+  const auditState = useSiteAuditState();
+  const [reconcileOpen, setReconcileOpen] = useState(false);
+
   const pane = useInspectPane();
   const queryClient = useQueryClient();
 
@@ -234,6 +244,24 @@ export default function PaymentsContent() {
     dateFrom: effectiveFrom,
     dateTo: effectiveTo,
   });
+
+  // Legacy-scoped waterfall (only fetched when the site is in audit mode).
+  // Drives the LegacyBand body + the Reconcile dialog's pre-flight stats.
+  // Date scope intentionally NOT applied here — the legacy band always shows
+  // the full pre-cutoff history regardless of the page's date filter.
+  const legacyWaterfallQuery = useSalaryWaterfall({
+    siteId: auditState.isAuditing ? selectedSite?.id : undefined,
+    subcontractId: null,
+    dateFrom: null,
+    dateTo: null,
+    period: "legacy",
+  });
+  const legacyWeeks = legacyWaterfallQuery.data ?? [];
+  const legacyWagesOwed = legacyWeeks.reduce((sum, w) => sum + w.wagesDue, 0);
+  const legacyPaid = legacyWeeks.reduce((sum, w) => sum + w.paid, 0);
+  const legacyWeeksPending = legacyWeeks.filter(
+    (w) => w.status !== "settled"
+  ).length;
 
   const advancesQuery = useAdvances({
     siteId: selectedSite?.id,
@@ -424,6 +452,13 @@ export default function PaymentsContent() {
             Highlighting: {highlightRef}
           </Box>
         )}
+        {auditState.isAuditing && auditState.dataStartedAt && selectedSite && (
+          <LegacyAuditBanner
+            siteName={selectedSite.name}
+            cutoffDate={auditState.dataStartedAt}
+            legacyPendingCount={legacyWeeksPending}
+          />
+        )}
       </Box>
 
       <Box sx={{ flexShrink: 0, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
@@ -493,6 +528,60 @@ export default function PaymentsContent() {
           />
         </Tabs>
       </Box>
+
+      {auditState.isAuditing && auditState.dataStartedAt && selectedSite && (
+        <Box sx={{ flexShrink: 0, px: 1.5, pt: 1 }}>
+          <LegacyBand
+            cutoffDate={auditState.dataStartedAt}
+            storageKey={`legacy-band:payments:${selectedSite.id}`}
+            summary={
+              <Box
+                component="span"
+                sx={{
+                  display: "flex",
+                  gap: 1.5,
+                  alignItems: "center",
+                  fontSize: 12,
+                  color: "text.secondary",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                <span>{legacyWeeks.length} {legacyWeeks.length === 1 ? "week" : "weeks"}</span>
+                <span aria-hidden>·</span>
+                <span>₹{legacyWagesOwed.toLocaleString("en-IN")} owed</span>
+                <span aria-hidden>·</span>
+                <span>₹{legacyPaid.toLocaleString("en-IN")} paid</span>
+              </Box>
+            }
+            onReconcileClick={canEditSettlements ? () => setReconcileOpen(true) : undefined}
+          >
+            <SalaryWaterfallList
+              weeks={legacyWeeks}
+              futureCredit={0}
+              isLoading={legacyWaterfallQuery.isLoading}
+              onRowClick={(week) => {
+                if (!selectedSite) return;
+                pane.open({
+                  kind: "weekly-aggregate",
+                  siteId: selectedSite.id,
+                  subcontractId: selectedSubcontractId,
+                  weekStart: week.weekStart,
+                  weekEnd: week.weekEnd,
+                  scopeFrom: null,
+                  scopeTo: null,
+                });
+              }}
+              onSettleClick={(week) => {
+                setSettleDialog({
+                  weekStart: week.weekStart,
+                  weekEnd: week.weekEnd,
+                  suggestedAmount: Math.max(0, week.wagesDue - week.paid),
+                });
+              }}
+            />
+          </LegacyBand>
+        </Box>
+      )}
 
       <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         {(salarySummaryQuery.isError || waterfallQuery.isError || advancesQuery.isError) &&
@@ -876,6 +965,19 @@ export default function PaymentsContent() {
           </Box>
         )}
       </Box>
+
+      {reconcileOpen && auditState.dataStartedAt && selectedSite && (
+        <ReconcileDialog
+          open={reconcileOpen}
+          onClose={() => setReconcileOpen(false)}
+          siteId={selectedSite.id}
+          siteName={selectedSite.name}
+          cutoffDate={auditState.dataStartedAt}
+          legacyWagesOwed={legacyWagesOwed}
+          legacyPaid={legacyPaid}
+          legacyWeeksPending={legacyWeeksPending}
+        />
+      )}
 
       {settleDialog && (
         <MestriSettleDialog
