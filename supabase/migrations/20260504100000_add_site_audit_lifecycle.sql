@@ -3,7 +3,8 @@
 --   1. sites.data_started_at + sites.legacy_status        (lifecycle state machine)
 --   2. is_archived flag on 4 waterfall tables             (Mode B reconcile soft-delete)
 --   3. laborer_opening_balances table                     (Mode B carry-forward)
--- Backfills Padmavathy + Mathur to 'auditing' @ 2025-11-15. Srinivasan stays default 'none'.
+-- Backfills Padmavathy + Mathur to 'auditing' @ 2025-11-09 (Sunday — first day of the
+-- live-app week). Srinivasan stays default 'none'.
 -- Idempotent: safe to replay on a fresh local DB.
 
 BEGIN;
@@ -99,11 +100,14 @@ CREATE POLICY allow_anon_delete_laborer_opening_balances           ON public.lab
 CREATE POLICY allow_authenticated_delete_laborer_opening_balances  ON public.laborer_opening_balances FOR DELETE TO authenticated USING (true);
 
 -- ─── 4. Backfill audit state for the two known legacy sites ────────────────
--- Padmavathy Apartments + Mathur went live with the app on 2025-11-15 (per user spec).
+-- Padmavathy Apartments + Mathur went live with the app the week of 2025-11-09
+-- (Sunday — first day of the Sun-Sat week containing the launch). Picking the
+-- Sunday boundary avoids straddle bucketing (a week is fully legacy or fully
+-- current; never half-and-half).
 -- Srinivasan House & Shop has no pre-app data, so it stays at the 'none' default.
 UPDATE public.sites
    SET legacy_status   = 'auditing',
-       data_started_at = DATE '2025-11-15'
+       data_started_at = DATE '2025-11-09'
  WHERE name IN ('Padmavathy Apartments', 'Mathur')
    AND legacy_status = 'none';   -- idempotent: do not clobber a manually-set state
 
