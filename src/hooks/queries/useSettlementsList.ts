@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
+import type { AuditPeriod } from "./useSiteAuditState";
 
 /**
  * A row in the chronological settlement-list view. Mirrors what the user
@@ -33,14 +34,20 @@ export interface UseSettlementsListArgs {
   filter: SettlementsListFilter;
   dateFrom: string | null;
   dateTo: string | null;
+  /** When set with cutoffDate, filters rows by settlement_date relative to cutoff.
+   *  'legacy' = settlement_date < cutoff. 'current' = settlement_date >= cutoff.
+   *  'all' or undefined = no period filter. */
+  period?: AuditPeriod;
+  /** ISO YYYY-MM-DD. Required for period='legacy' or 'current' to take effect. */
+  cutoffDate?: string | null;
 }
 
 export function useSettlementsList(args: UseSettlementsListArgs) {
   const supabase = createClient();
-  const { siteId, filter, dateFrom, dateTo } = args;
+  const { siteId, filter, dateFrom, dateTo, period = "all", cutoffDate = null } = args;
 
   return useQuery<SettlementListRow[]>({
-    queryKey: ["settlements-list", siteId, filter, dateFrom, dateTo],
+    queryKey: ["settlements-list", siteId, filter, dateFrom, dateTo, period, cutoffDate],
     enabled: Boolean(siteId),
     staleTime: 15_000,
     queryFn: async () => {
@@ -70,11 +77,18 @@ export function useSettlementsList(args: UseSettlementsListArgs) {
           `
         )
         .eq("site_id", siteId)
+        .eq("is_archived", false)
         .order("settlement_date", { ascending: false })
         .order("created_at", { ascending: false });
 
       if (dateFrom) q = q.gte("settlement_date", dateFrom);
       if (dateTo) q = q.lte("settlement_date", dateTo);
+
+      if (cutoffDate && period === "legacy") {
+        q = q.lt("settlement_date", cutoffDate);
+      } else if (cutoffDate && period === "current") {
+        q = q.gte("settlement_date", cutoffDate);
+      }
 
       const { data, error } = await withTimeout(
         Promise.resolve(q),

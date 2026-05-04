@@ -295,6 +295,7 @@ export default function PaymentsContent() {
     siteId: selectedSite?.id,
     dateFrom: effectiveFrom,
     dateTo: effectiveTo,
+    period: tabPeriod,
   });
 
   const dailyMarketLedgerQuery = usePaymentsLedger({
@@ -338,6 +339,8 @@ export default function PaymentsContent() {
           : "all",
     dateFrom: effectiveFrom,
     dateTo: effectiveTo,
+    period: tabPeriod,
+    cutoffDate: auditState.dataStartedAt,
   });
 
   const pendingDailyMarketCount = (dailyMarketLedgerQuery.data ?? []).filter(

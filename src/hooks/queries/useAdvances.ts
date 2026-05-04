@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
+import type { AuditPeriod } from "./useSiteAuditState";
 
 export interface AdvanceRow {
   id: string;
@@ -15,13 +16,14 @@ export interface UseAdvancesArgs {
   siteId: string | undefined;
   dateFrom: string | null;
   dateTo: string | null;
+  period?: AuditPeriod;
 }
 
 export function useAdvances(args: UseAdvancesArgs) {
   const supabase = createClient();
-  const { siteId, dateFrom, dateTo } = args;
+  const { siteId, dateFrom, dateTo, period = "all" } = args;
   return useQuery<AdvanceRow[]>({
-    queryKey: ["advances", siteId, dateFrom, dateTo],
+    queryKey: ["advances", siteId, dateFrom, dateTo, period],
     enabled: Boolean(siteId),
     staleTime: 15_000,
     queryFn: async () => {
@@ -32,6 +34,7 @@ export function useAdvances(args: UseAdvancesArgs) {
           p_date_to:   dateTo,
           p_status:    "completed",
           p_type:      "weekly",
+          p_period:    period,
         })),
         TIMEOUTS.QUERY,
         "Advances query timed out. Please retry.",
