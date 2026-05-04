@@ -236,6 +236,12 @@ export function useAttendanceData(
 /**
  * Hook to manually invalidate attendance data cache.
  * Use after mutations (add, edit, delete) to refresh the data.
+ *
+ * Also invalidates salary/payments caches because wages_due in
+ * get_salary_waterfall is derived live from daily_attendance × rate — any
+ * attendance edit can shift a week's status (Settled / Underpaid / Pending)
+ * and the hero KPIs on /site/payments. Without this, the waterfall renders
+ * stale numbers until the next focus refetch.
  */
 export function useInvalidateAttendanceData() {
   const queryClient = useQueryClient();
@@ -247,5 +253,10 @@ export function useInvalidateAttendanceData() {
         queryKey: ["attendance", "site", selectedSite.id],
       });
     }
+    queryClient.invalidateQueries({ queryKey: ["salary-waterfall"] });
+    queryClient.invalidateQueries({ queryKey: ["salary-slice-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["payments-ledger"] });
+    queryClient.invalidateQueries({ queryKey: ["payment-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["settlements-list"] });
   };
 }

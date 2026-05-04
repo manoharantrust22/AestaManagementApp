@@ -1863,8 +1863,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   };
 
   const handleOpenEditDialog = useCallback((record: AttendanceRecord) => {
-    // Check if record is paid - prevent editing paid records
-    if (record.is_paid) {
+    // Daily/market are paid 1:1 with attendance — block edit while is_paid.
+    // Contract rows are reconciled via the waterfall (wages_due is recomputed
+    // live from attendance × rate), so an edit is safe even when is_paid=true.
+    if (record.is_paid && record.laborer_type !== "contract") {
       setPaidRecordDialog({
         open: true,
         record,
@@ -1935,7 +1937,14 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     setLoading(true);
     try {
       const daily_earnings = editForm.work_days * editForm.daily_rate_applied;
-      const hasSettlement = editingRecord.engineer_transaction_id || editingRecord.expense_id;
+      // Contract rows participate in the waterfall: keep is_paid /
+      // settlement_group_id / engineer_transaction_id / expense_id linkage
+      // intact and let get_salary_waterfall recompute wages_due from the new
+      // daily_earnings. Resetting payment fields here would break per-week
+      // provenance and double-count the row in pending.
+      const isContract = editingRecord.laborer_type === "contract";
+      const hasSettlement =
+        !isContract && (editingRecord.engineer_transaction_id || editingRecord.expense_id);
 
       // Update attendance fields
       const { error, data } = await supabase
@@ -2239,8 +2248,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
 
   const handleDelete = useCallback(
     async (record: AttendanceRecord) => {
-      // Check if record is paid - prevent deleting paid records
-      if (record.is_paid) {
+      // Same waterfall carve-out as handleOpenEditDialog: contract rows can be
+      // deleted even when is_paid — the week's wages_due drops and the
+      // waterfall re-allocates the existing settlement_groups stream.
+      if (record.is_paid && record.laborer_type !== "contract") {
         setPaidRecordDialog({
           open: true,
           record,
@@ -2731,7 +2742,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
               onClick={() => handleOpenEditDialog(row.original)}
               disabled={!canEdit}
             >
-              {row.original.is_paid ? (
+              {row.original.is_paid && row.original.laborer_type !== "contract" ? (
                 <Tooltip title="Paid - Cancel payment first to edit">
                   <LockIcon fontSize="small" color="disabled" />
                 </Tooltip>
@@ -2741,11 +2752,15 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
             </IconButton>
             <IconButton
               size="small"
-              color={row.original.is_paid ? "default" : "error"}
+              color={
+                row.original.is_paid && row.original.laborer_type !== "contract"
+                  ? "default"
+                  : "error"
+              }
               onClick={() => handleDelete(row.original)}
               disabled={!canEdit}
             >
-              {row.original.is_paid ? (
+              {row.original.is_paid && row.original.laborer_type !== "contract" ? (
                 <Tooltip title="Paid - Cancel payment first to delete">
                   <LockIcon fontSize="small" color="disabled" />
                 </Tooltip>
@@ -4959,7 +4974,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                                   }}
                                                   disabled={!canEdit}
                                                 >
-                                                  {record.is_paid ? (
+                                                  {record.is_paid && record.laborer_type !== "contract" ? (
                                                     <Tooltip title="Paid - Cancel payment first to edit">
                                                       <LockIcon fontSize="small" color="disabled" />
                                                     </Tooltip>
@@ -4969,14 +4984,18 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                                 </IconButton>
                                                 <IconButton
                                                   size="small"
-                                                  color={record.is_paid ? "default" : "error"}
+                                                  color={
+                                                    record.is_paid && record.laborer_type !== "contract"
+                                                      ? "default"
+                                                      : "error"
+                                                  }
                                                   onClick={(e) => {
                                                     e.stopPropagation();
                                                     handleDelete(record);
                                                   }}
                                                   disabled={!canEdit}
                                                 >
-                                                  {record.is_paid ? (
+                                                  {record.is_paid && record.laborer_type !== "contract" ? (
                                                     <Tooltip title="Paid - Cancel payment first to delete">
                                                       <LockIcon fontSize="small" color="disabled" />
                                                     </Tooltip>
