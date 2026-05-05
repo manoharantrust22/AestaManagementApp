@@ -177,7 +177,16 @@
       "mcp__playwright__browser_network_requests",
       "Bash(python3 -c ' *)",
       "Read(//c/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp/**)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\supabase\\\\migrations\" -Filter \"*.sql\")",
+      "Bash(Sort-Object Name -Descending)",
+      "Bash(Head-20)",
+      "PowerShell(supabase status 2>&1)",
+      "PowerShell(npx supabase status 2>&1)",
+      "PowerShell(docker version --format \"Server: {{.Server.Version}}\" 2>&1)",
+      "PowerShell(npx supabase start 2>&1)",
+      "PowerShell(docker version --format '{{.Server.Version}}')",
+      "PowerShell(npx --no-install supabase stop --no-backup 2>&1)"
     ],
     "deny": [],
     "ask": []

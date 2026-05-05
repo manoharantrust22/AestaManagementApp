@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { queryKeys, cacheTTL } from "@/lib/cache/keys";
 import { useSelectedSite } from "@/contexts/SiteContext";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 import { useEffect, useRef } from "react";
 
 export interface AttendanceQueryParams {
@@ -95,15 +96,21 @@ async function fetchAttendanceData(
     .select("allocated_amount, allocation_percentage, entry_id, entry:tea_shop_entries!inner(id, date, total_amount, is_group_entry, site_group_id)")
     .eq("site_id", siteId);
 
-  // Execute all queries in parallel
+  // Execute all queries in parallel, with a hard timeout so a hung
+  // upstream (e.g. saturated Cloudflare proxy connection pool) surfaces as
+  // an error instead of an indefinite loading spinner.
   const [attendanceResult, marketResult, summaryResult, teaShopResult, teaShopAllocationsResult] =
-    await Promise.all([
-      attendanceQuery,
-      marketQuery,
-      summaryQuery,
-      teaShopQuery,
-      teaShopAllocationsQuery,
-    ]);
+    await withTimeout(
+      Promise.all([
+        attendanceQuery,
+        marketQuery,
+        summaryQuery,
+        teaShopQuery,
+        teaShopAllocationsQuery,
+      ]),
+      TIMEOUTS.QUERY,
+      "Attendance data fetch timed out. Please refresh and try again."
+    );
 
   // Check for critical errors
   if (attendanceResult.error) {

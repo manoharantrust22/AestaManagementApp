@@ -67,13 +67,31 @@ export default {
       const headers = new Headers(request.headers);
       headers.set("Host", supabaseOrigin.host);
 
-      // Cloudflare handles WebSocket proxying automatically when you fetch
-      // with the Upgrade header - just use https:// (not wss://)
-      return fetch(targetUrl.toString(), {
-        method: request.method,
-        headers,
-        body: request.body,
-      });
+      // WS upgrade MUST be a bodyless GET. Passing `body: request.body` (a
+      // ReadableStream) on the upgrade fetch causes Cloudflare to reject the
+      // upgrade intermittently — failed upgrades leave half-open sockets in
+      // the browser's per-host pool, which then starves REST traffic to this
+      // same host and produces silent infinite spinners on page navigation.
+      try {
+        return await fetch(targetUrl.toString(), {
+          method: "GET",
+          headers,
+        });
+      } catch (error) {
+        return new Response(
+          JSON.stringify({
+            error: "WebSocket upgrade failed",
+            message: error instanceof Error ? error.message : "Unknown error",
+          }),
+          {
+            status: 502,
+            headers: {
+              "Content-Type": "application/json",
+              ...getCorsHeadersObj(request),
+            },
+          }
+        );
+      }
     }
 
     // For regular HTTP requests
