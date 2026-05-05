@@ -25,6 +25,11 @@ export interface SettlementListRow {
   notes: string | null;
   isCancelled: boolean;
   hasProof: boolean;
+  /** Subcontract this settlement is linked to. NULL when the user skipped the
+   *  link at create time — surfaced in the "Unlinked settlements" group at
+   *  the top of each tab so the user can review and assign one inline. */
+  subcontractId: string | null;
+  subcontractTitle: string | null;
 }
 
 export type SettlementsListFilter = "contract" | "daily-market" | "all";
@@ -73,6 +78,8 @@ export function useSettlementsList(args: UseSettlementsListArgs) {
           is_cancelled,
           proof_url,
           proof_urls,
+          subcontract_id,
+          subcontract:subcontracts ( title ),
           labor_payments!labor_payments_settlement_group_id_fkey ( is_under_contract )
           `
         )
@@ -122,6 +129,11 @@ export function useSettlementsList(args: UseSettlementsListArgs) {
           notes: sg.notes ?? null,
           isCancelled: Boolean(sg.is_cancelled),
           hasProof,
+          subcontractId: sg.subcontract_id ?? null,
+          subcontractTitle:
+            sg.subcontract && typeof sg.subcontract === "object"
+              ? ((sg.subcontract as { title?: string | null }).title ?? null)
+              : null,
         };
       });
 

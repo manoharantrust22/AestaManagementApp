@@ -110,6 +110,12 @@ export default function PaymentDialog({
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Soft confirmation when the user tries to save without a subcontract link.
+  // Daily/market settlements can legitimately be unlinked, but it's rare —
+  // most are tied to a subcontract. We pre-fill from attendance when we can
+  // (see open-effect below) and warn before saving with a NULL link.
+  const [showNoLinkConfirm, setShowNoLinkConfirm] = useState(false);
+
   // Determine if this is a weekly payment or daily/market
   const isWeeklyPayment = !!weeklyPayment;
 
@@ -231,11 +237,24 @@ export default function PaymentDialog({
       // Set default subcontract for weekly payment
       if (weeklyPayment?.laborer.subcontractId) {
         setSubcontractId(weeklyPayment.laborer.subcontractId);
+      } else if (!defaultSubcontractId && dailyRecords.length > 0) {
+        // Auto-suggest from the attendance rows being settled. If every
+        // record shares the same subcontract, pre-select it. Mixed or all-
+        // null means we leave it empty so the user makes a deliberate pick.
+        const distinct = new Set<string>();
+        for (const r of dailyRecords) {
+          if (r.subcontractId) distinct.add(r.subcontractId);
+        }
+        if (distinct.size === 1) {
+          setSubcontractId(Array.from(distinct)[0] as string);
+        }
       }
-    }
-  }, [open, defaultSubcontractId, weeklyPayment]);
 
-  const handleSubmit = async () => {
+      setShowNoLinkConfirm(false);
+    }
+  }, [open, defaultSubcontractId, weeklyPayment, dailyRecords]);
+
+  const handleSubmit = async (bypassNoLinkConfirm = false) => {
     if (!selectedSite?.id || !userProfile) return;
 
     // Validation
@@ -246,6 +265,19 @@ export default function PaymentDialog({
 
     if (isPartialPayment && partialAmount <= 0) {
       setError("Please enter a valid payment amount");
+      return;
+    }
+
+    // Soft confirm before saving without a subcontract link. Only applies to
+    // the daily/market path — weekly contract payments are handled by
+    // MestriSettleDialog (which hard-requires a mestri/subcontract).
+    if (
+      allowSubcontractLink &&
+      !subcontractId &&
+      !isWeeklyPayment &&
+      !bypassNoLinkConfirm
+    ) {
+      setShowNoLinkConfirm(true);
       return;
     }
 
@@ -979,7 +1011,7 @@ export default function PaymentDialog({
         </Button>
         <Button
           variant="contained"
-          onClick={handleSubmit}
+          onClick={() => handleSubmit()}
           disabled={
             processing ||
             (paymentChannel === "engineer_wallet" && !selectedEngineerId) ||
@@ -992,6 +1024,43 @@ export default function PaymentDialog({
             : `Confirm Settlement Rs.${paymentAmount.toLocaleString()}`}
         </Button>
       </DialogActions>
+
+      {/* Soft confirm before saving with no subcontract link. Stacked dialog
+          so the user can either go back and pick one (most cases) or proceed
+          deliberately for the rare unlinked settlement. */}
+      <Dialog
+        open={showNoLinkConfirm}
+        onClose={() => setShowNoLinkConfirm(false)}
+        maxWidth="xs"
+      >
+        <DialogTitle>Settle without subcontract link?</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            This settlement isn&apos;t linked to any subcontract. Most
+            settlements should be tied to one — leaving it unlinked makes the
+            payment harder to reconcile against subcontract balances later.
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            If this is intentional (e.g. a one-off site expense), continue.
+            Otherwise, go back and pick a subcontract.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 1.5 }}>
+          <Button onClick={() => setShowNoLinkConfirm(false)}>
+            Go back
+          </Button>
+          <Button
+            color="warning"
+            variant="contained"
+            onClick={() => {
+              setShowNoLinkConfirm(false);
+              handleSubmit(true);
+            }}
+          >
+            Yes, settle anyway
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 }

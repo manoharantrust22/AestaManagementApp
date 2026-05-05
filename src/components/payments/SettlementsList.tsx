@@ -197,6 +197,19 @@ export function SettlementsList({
                       }}
                     />
                   )}
+                  {!r.subcontractId && !r.isCancelled && (
+                    <Chip
+                      size="small"
+                      label="⚠ Unlinked"
+                      sx={{
+                        height: 16,
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                        bgcolor: alpha(theme.palette.warning.main, 0.16),
+                        color: theme.palette.warning.dark,
+                      }}
+                    />
+                  )}
                 </Box>
               </Box>
 

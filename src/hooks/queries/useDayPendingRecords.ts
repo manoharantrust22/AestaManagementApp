@@ -47,22 +47,53 @@ interface MarketAttendanceRow {
   labor_roles: { name: string | null } | null;
 }
 
+export interface UseDayPendingRecordsOptions {
+  /** Restrict to one slice of the date's wages. 'all' (default) returns
+   *  both daily and market entries (legacy behaviour for paid-row deep
+   *  links). Set from the originating ledger row so the Settle dialog
+   *  total matches the row total. */
+  laborerType?: "daily" | "market" | "all";
+  /** Restrict to legacy (pre-cutoff) or current (post-cutoff) records on
+   *  audit-mode sites. 'all' (default) skips the filter; non-audit sites
+   *  pass 'all' transparently. */
+  period?: "legacy" | "current" | "all";
+  /** Site's `data_started_at` (audit cutoff). Only consulted when `period`
+   *  is "legacy" or "current"; ignored otherwise. Pass null when the site
+   *  is not in audit mode (the period filter then degrades to "all"). */
+  dataStartedAt?: string | null;
+}
+
 export function useDayPendingRecords(
   siteId: string | undefined,
-  date: string | undefined
+  date: string | undefined,
+  options: UseDayPendingRecordsOptions = {}
 ) {
   const supabase = createClient();
+  const laborerType = options.laborerType ?? "all";
+  const period = options.period ?? "all";
+  const dataStartedAt = options.dataStartedAt ?? null;
+  // Only enforce the period filter when we have a real cutoff date AND a
+  // non-"all" period. Without a cutoff, "legacy"/"current" are meaningless
+  // (non-audit site) and we fall through to no filter.
+  const effectivePeriod = dataStartedAt ? period : "all";
+
   return useQuery<DailyPaymentRecord[]>({
-    queryKey: ["payments", "day-pending-records", siteId, date],
+    queryKey: [
+      "payments",
+      "day-pending-records",
+      siteId,
+      date,
+      laborerType,
+      effectivePeriod,
+      dataStartedAt,
+    ],
     enabled: Boolean(siteId && date),
     staleTime: 15_000,
     queryFn: async (): Promise<DailyPaymentRecord[]> => {
-      const [{ data: dailyData, error: dailyError }, { data: marketData, error: marketError }] =
-        await Promise.all([
-          supabase
-            .from("daily_attendance")
-            .select(
-              `
+      const fetchDaily = laborerType === "market" ? null : supabase
+        .from("daily_attendance")
+        .select(
+          `
               id, date, laborer_id, daily_earnings, is_paid, payment_notes, subcontract_id,
               laborers!inner(
                 name, laborer_type,
@@ -71,21 +102,47 @@ export function useDayPendingRecords(
               ),
               subcontracts(title)
               `
-            )
-            .eq("site_id", siteId!)
-            .eq("date", date!)
-            .eq("is_paid", false),
-          (supabase.from("market_laborer_attendance") as any)
-            .select(
-              "id, date, count, total_cost, is_paid, payment_notes, labor_roles(name)"
-            )
-            .eq("site_id", siteId!)
-            .eq("date", date!)
-            .eq("is_paid", false),
-        ]);
+        )
+        .eq("site_id", siteId!)
+        .eq("date", date!)
+        .eq("is_paid", false);
+
+      const fetchMarket = laborerType === "daily" ? null : (
+        supabase.from("market_laborer_attendance") as any
+      )
+        .select(
+          "id, date, count, total_cost, is_paid, payment_notes, labor_roles(name)"
+        )
+        .eq("site_id", siteId!)
+        .eq("date", date!)
+        .eq("is_paid", false);
+
+      const [dailyResult, marketResult] = await Promise.all([
+        fetchDaily ?? Promise.resolve({ data: [] as any[], error: null }),
+        fetchMarket ?? Promise.resolve({ data: [] as any[], error: null }),
+      ]);
+      const { data: dailyData, error: dailyError } = dailyResult as {
+        data: any[] | null;
+        error: any;
+      };
+      const { data: marketData, error: marketError } = marketResult as {
+        data: any[] | null;
+        error: any;
+      };
 
       if (dailyError) throw dailyError;
       if (marketError) throw marketError;
+
+      // Period filter — the date itself decides the bucket because every row
+      // for a given date shares that date's bucket. Apply once on the input
+      // date rather than per-row to keep things obvious.
+      if (effectivePeriod !== "all" && dataStartedAt) {
+        const isCurrent = date! >= dataStartedAt;
+        const wantCurrent = effectivePeriod === "current";
+        if (isCurrent !== wantCurrent) {
+          return [];
+        }
+      }
 
       const dailyRecords: DailyPaymentRecord[] = ((dailyData ?? []) as unknown as DailyAttendanceRow[]).map(
         (r) => {

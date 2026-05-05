@@ -186,7 +186,8 @@
       "PowerShell(docker version --format \"Server: {{.Server.Version}}\" 2>&1)",
       "PowerShell(npx supabase start 2>&1)",
       "PowerShell(docker version --format '{{.Server.Version}}')",
-      "PowerShell(npx --no-install supabase stop --no-backup 2>&1)"
+      "PowerShell(npx --no-install supabase stop --no-backup 2>&1)",
+      "Bash(wait b1c7ju6gk *)"
     ],
     "deny": [],
     "ask": []

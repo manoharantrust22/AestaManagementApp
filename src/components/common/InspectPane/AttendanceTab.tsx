@@ -311,6 +311,11 @@ function DailyShape({
           </Stack>
         </Box>
       )}
+
+      {/* Inline Work Updates for this date — morning vs evening side by side.
+          Mirrors the inline section already shown on Contract Settlement's
+          per-day expansion so Daily+Mkt has the same context at a glance. */}
+      <WorkUpdatesInline siteId={entity.siteId} date={entity.date} />
     </Box>
   );
 }
@@ -852,6 +857,201 @@ interface DayLightboxState {
   title: string;
 }
 
+// Inline work-updates section (morning vs evening side-by-side) used by both
+// DayDetailExpansion (Contract Settlement) and DailyShape (Daily+Market).
+// Owns its own work-updates fetch + lightbox state so it's drop-in renderable.
+function WorkUpdatesInline({
+  siteId,
+  date,
+}: {
+  siteId: string;
+  date: string;
+}) {
+  const theme = useTheme();
+  const { data: workUpdates, isLoading: workLoading } = useWorkUpdates(
+    siteId,
+    date,
+    date
+  );
+  const [lightbox, setLightbox] = React.useState<DayLightboxState | null>(null);
+
+  if (workLoading) return null;
+  if ((workUpdates?.updates?.length ?? 0) === 0) return null;
+
+  return (
+    <>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{
+          display: "block",
+          fontSize: 9,
+          textTransform: "uppercase",
+          letterSpacing: 0.4,
+          fontWeight: 600,
+          mt: 1.5,
+          mb: 0.5,
+        }}
+      >
+        Work updates on this day · morning vs evening
+      </Typography>
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+          gap: 0.75,
+          alignItems: "start",
+        }}
+      >
+        {workUpdates!.updates.map((u) => {
+          const photos: WorkPhoto[] = (u.photoUrls ?? []).map((url, i) => ({
+            id: `${u.id}-${i}`,
+            url,
+            uploadedAt: "",
+          }));
+          const period: "morning" | "evening" =
+            u.timeOfDay === "Morning" ? "morning" : "evening";
+          const accent =
+            period === "morning"
+              ? theme.palette.warning.main
+              : theme.palette.info.main;
+          const title = `${u.timeOfDay} · ${dayjs(date).format("DD MMM")}`;
+          return (
+            <Box
+              key={u.id}
+              sx={{
+                p: 1,
+                borderRadius: 1,
+                border: `1px solid ${theme.palette.divider}`,
+                borderLeft: `3px solid ${accent}`,
+                bgcolor: theme.palette.background.default,
+              }}
+            >
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: "block", fontSize: 10.5, mb: 0.5 }}
+              >
+                {u.timeOfDay} ·{" "}
+                {dayjs(u.createdAt).format("hh:mm A")} · by{" "}
+                {u.createdByName}
+              </Typography>
+              {u.note && (
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontSize: 12.5,
+                    whiteSpace: "pre-wrap",
+                    mb: photos.length > 0 ? 0.75 : 0,
+                  }}
+                >
+                  {u.note}
+                </Typography>
+              )}
+              {photos.length > 0 && (
+                <Stack
+                  direction="row"
+                  spacing={0.5}
+                  sx={{ flexWrap: "wrap", gap: 0.5 }}
+                >
+                  {photos.slice(0, 6).map((photo, i) => (
+                    <Box
+                      key={photo.id}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Open photo ${i + 1} fullscreen`}
+                      onClick={() =>
+                        setLightbox({ photos, index: i, period, title })
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setLightbox({ photos, index: i, period, title });
+                        }
+                      }}
+                      sx={{
+                        width: 56,
+                        height: 56,
+                        borderRadius: 0.75,
+                        overflow: "hidden",
+                        bgcolor: theme.palette.action.hover,
+                        border: `1px solid ${theme.palette.divider}`,
+                        cursor: "pointer",
+                        flex: "0 0 auto",
+                        transition:
+                          "transform 120ms ease, box-shadow 120ms ease",
+                        "&:hover": {
+                          transform: "scale(1.05)",
+                          boxShadow: theme.shadows[2],
+                        },
+                        "&:focus-visible": {
+                          outline: `2px solid ${theme.palette.primary.main}`,
+                          outlineOffset: 2,
+                        },
+                      }}
+                    >
+                      <Box
+                        component="img"
+                        src={photo.url}
+                        alt={`Photo ${i + 1}`}
+                        loading="eager"
+                        sx={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                          display: "block",
+                        }}
+                      />
+                    </Box>
+                  ))}
+                  {photos.length > 6 && (
+                    <Box
+                      role="button"
+                      tabIndex={0}
+                      onClick={() =>
+                        setLightbox({
+                          photos,
+                          index: 6,
+                          period,
+                          title,
+                        })
+                      }
+                      sx={{
+                        width: 56,
+                        height: 56,
+                        borderRadius: 0.75,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        bgcolor: theme.palette.action.hover,
+                        border: `1px solid ${theme.palette.divider}`,
+                        fontSize: 12,
+                        color: "text.secondary",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      +{photos.length - 6}
+                    </Box>
+                  )}
+                </Stack>
+              )}
+            </Box>
+          );
+        })}
+      </Box>
+      <PhotoFullscreenDialog
+        open={lightbox !== null}
+        onClose={() => setLightbox(null)}
+        photos={lightbox?.photos ?? []}
+        initialIndex={lightbox?.index ?? 0}
+        period={lightbox?.period}
+        title={lightbox?.title}
+      />
+    </>
+  );
+}
+
 // "contract-primary": original layout (used by WeeklyAggregateShape).
 //                     Contract + Daily commingled in one section, market
 //                     surfaced as "not part of the contract waterfall".
@@ -877,12 +1077,6 @@ function DayDetailExpansion({
   void subcontractId; // Per-day RPC is not subcontract-scoped today; whole site
   const theme = useTheme();
   const { data, isLoading } = useAttendanceForDate(siteId, date);
-  const { data: workUpdates, isLoading: workLoading } = useWorkUpdates(
-    siteId,
-    date,
-    date
-  );
-  const [lightbox, setLightbox] = React.useState<DayLightboxState | null>(null);
 
   // contract-primary uses the legacy commingled list; daily-market-primary
   // splits daily vs contract and demotes the contract bucket.
@@ -1301,178 +1495,7 @@ function DayDetailExpansion({
       )}
 
       {/* Inline Work Updates for this day — morning vs evening side by side */}
-      {!workLoading && (workUpdates?.updates?.length ?? 0) > 0 && (
-        <>
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{
-              display: "block",
-              fontSize: 9,
-              textTransform: "uppercase",
-              letterSpacing: 0.4,
-              fontWeight: 600,
-              mt: 1.5,
-              mb: 0.5,
-            }}
-          >
-            Work updates on this day · morning vs evening
-          </Typography>
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
-              gap: 0.75,
-              alignItems: "start",
-            }}
-          >
-            {workUpdates!.updates.map((u) => {
-              const photos: WorkPhoto[] = (u.photoUrls ?? []).map((url, i) => ({
-                id: `${u.id}-${i}`,
-                url,
-                uploadedAt: "",
-              }));
-              const period: "morning" | "evening" =
-                u.timeOfDay === "Morning" ? "morning" : "evening";
-              const accent =
-                period === "morning"
-                  ? theme.palette.warning.main
-                  : theme.palette.info.main;
-              const title = `${u.timeOfDay} · ${dayjs(date).format("DD MMM")}`;
-              return (
-                <Box
-                  key={u.id}
-                  sx={{
-                    p: 1,
-                    borderRadius: 1,
-                    border: `1px solid ${theme.palette.divider}`,
-                    borderLeft: `3px solid ${accent}`,
-                    bgcolor: theme.palette.background.default,
-                  }}
-                >
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ display: "block", fontSize: 10.5, mb: 0.5 }}
-                  >
-                    {u.timeOfDay} ·{" "}
-                    {dayjs(u.createdAt).format("hh:mm A")} · by{" "}
-                    {u.createdByName}
-                  </Typography>
-                  {u.note && (
-                    <Typography
-                      variant="body2"
-                      sx={{
-                        fontSize: 12.5,
-                        whiteSpace: "pre-wrap",
-                        mb: photos.length > 0 ? 0.75 : 0,
-                      }}
-                    >
-                      {u.note}
-                    </Typography>
-                  )}
-                  {photos.length > 0 && (
-                    <Stack
-                      direction="row"
-                      spacing={0.5}
-                      sx={{ flexWrap: "wrap", gap: 0.5 }}
-                    >
-                      {photos.slice(0, 6).map((photo, i) => (
-                        <Box
-                          key={photo.id}
-                          role="button"
-                          tabIndex={0}
-                          aria-label={`Open photo ${i + 1} fullscreen`}
-                          onClick={() =>
-                            setLightbox({ photos, index: i, period, title })
-                          }
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              setLightbox({ photos, index: i, period, title });
-                            }
-                          }}
-                          sx={{
-                            width: 56,
-                            height: 56,
-                            borderRadius: 0.75,
-                            overflow: "hidden",
-                            bgcolor: theme.palette.action.hover,
-                            border: `1px solid ${theme.palette.divider}`,
-                            cursor: "pointer",
-                            flex: "0 0 auto",
-                            transition:
-                              "transform 120ms ease, box-shadow 120ms ease",
-                            "&:hover": {
-                              transform: "scale(1.05)",
-                              boxShadow: theme.shadows[2],
-                            },
-                            "&:focus-visible": {
-                              outline: `2px solid ${theme.palette.primary.main}`,
-                              outlineOffset: 2,
-                            },
-                          }}
-                        >
-                          <Box
-                            component="img"
-                            src={photo.url}
-                            alt={`Photo ${i + 1}`}
-                            loading="eager"
-                            sx={{
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "cover",
-                              display: "block",
-                            }}
-                          />
-                        </Box>
-                      ))}
-                      {photos.length > 6 && (
-                        <Box
-                          role="button"
-                          tabIndex={0}
-                          onClick={() =>
-                            setLightbox({
-                              photos,
-                              index: 6,
-                              period,
-                              title,
-                            })
-                          }
-                          sx={{
-                            width: 56,
-                            height: 56,
-                            borderRadius: 0.75,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            bgcolor: theme.palette.action.hover,
-                            border: `1px solid ${theme.palette.divider}`,
-                            fontSize: 12,
-                            color: "text.secondary",
-                            fontWeight: 600,
-                            cursor: "pointer",
-                          }}
-                        >
-                          +{photos.length - 6}
-                        </Box>
-                      )}
-                    </Stack>
-                  )}
-                </Box>
-              );
-            })}
-          </Box>
-          <PhotoFullscreenDialog
-            open={lightbox !== null}
-            onClose={() => setLightbox(null)}
-            photos={lightbox?.photos ?? []}
-            initialIndex={lightbox?.index ?? 0}
-            period={lightbox?.period}
-            title={lightbox?.title}
-          />
-        </>
-      )}
+      <WorkUpdatesInline siteId={siteId} date={date} />
     </Box>
   );
 }

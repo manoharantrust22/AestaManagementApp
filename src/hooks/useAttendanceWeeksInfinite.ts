@@ -33,6 +33,10 @@ export interface AttendanceWeekPage {
   weekEnd: string;
   /** Number of consecutive empty weeks observed up to and including this page. */
   emptyStreak: number;
+  /** Count of site_holidays rows in this week. A week with only holidays is
+   *  not "empty" for streak-cutoff purposes — work paused for a holiday
+   *  shouldn't kill pagination before older attendance loads. */
+  holidayCount: number;
   data: RawAttendanceData;
 }
 
@@ -59,7 +63,7 @@ async function fetchAttendanceWeek(
   weekEnd: string,
   scopeFrom: string | null,
   scopeTo: string | null
-): Promise<RawAttendanceData> {
+): Promise<{ data: RawAttendanceData; holidayCount: number }> {
   // Clamp the week to the user-selected date scope so the very first
   // and very last pages respect the filter (e.g. "Month" should not
   // bleed into the prior month at the bottom edge).
@@ -119,18 +123,29 @@ async function fetchAttendanceWeek(
     )
     .eq("site_id", siteId);
 
+  // Count holidays in this week so the empty-streak cutoff in
+  // getNextPageParam doesn't trip on weeks that only had holidays — those
+  // aren't "dead" weeks, work was just paused.
+  const holidaysQuery = (supabase.from("site_holidays") as any)
+    .select("id", { count: "exact", head: true })
+    .eq("site_id", siteId)
+    .gte("date", from)
+    .lte("date", to);
+
   const [
     attendanceResult,
     marketResult,
     summaryResult,
     teaShopResult,
     teaShopAllocationsResult,
+    holidaysResult,
   ] = await Promise.all([
     attendanceQuery,
     marketQuery,
     summaryQuery,
     teaShopQuery,
     teaShopAllocationsQuery,
+    holidaysQuery,
   ]);
 
   if (attendanceResult.error) {
@@ -144,6 +159,9 @@ async function fetchAttendanceWeek(
   if (teaShopAllocationsResult.error) {
     console.warn("Tea shop allocations query failed:", teaShopAllocationsResult.error);
   }
+  if (holidaysResult.error) {
+    console.warn("Site holidays count failed:", holidaysResult.error);
+  }
 
   const filteredAllocations = (teaShopAllocationsResult.data || []).filter(
     (allocation: any) => {
@@ -153,11 +171,14 @@ async function fetchAttendanceWeek(
   );
 
   return {
-    dailyAttendance: attendanceResult.data || [],
-    marketAttendance: marketResult.data || [],
-    workSummaries: summaryResult.data || [],
-    teaShopEntries: teaShopResult.data || [],
-    teaShopAllocations: filteredAllocations,
+    data: {
+      dailyAttendance: attendanceResult.data || [],
+      marketAttendance: marketResult.data || [],
+      workSummaries: summaryResult.data || [],
+      teaShopEntries: teaShopResult.data || [],
+      teaShopAllocations: filteredAllocations,
+    },
+    holidayCount: holidaysResult.count || 0,
   };
 }
 
@@ -215,7 +236,7 @@ export function useAttendanceWeeksInfinite(
     queryFn: async ({ pageParam }): Promise<AttendanceWeekPage> => {
       const weekStart = pageParam as string;
       const weekEnd = weekEndStr(weekStart);
-      const data = await fetchAttendanceWeek(
+      const { data, holidayCount } = await fetchAttendanceWeek(
         supabase,
         siteId!,
         weekStart,
@@ -225,17 +246,21 @@ export function useAttendanceWeeksInfinite(
       );
 
       // Empty-streak bookkeeping piggybacks on the page so getNextPageParam
-      // can decide whether to keep walking. A week is "empty" if it brought
-      // back zero attendance and zero market rows.
+      // can decide whether to keep walking. A week is "empty" only if it
+      // had zero attendance, zero market rows, AND zero holidays — work
+      // paused for a holiday isn't a dead week.
       // Note: previous page's streak is read in getNextPageParam, so we only
       // need to know whether THIS page is empty here. Default to 0; the
       // accumulator is computed in getNextPageParam below.
       const isEmpty =
-        data.dailyAttendance.length === 0 && data.marketAttendance.length === 0;
+        data.dailyAttendance.length === 0 &&
+        data.marketAttendance.length === 0 &&
+        holidayCount === 0;
       return {
         weekStart,
         weekEnd,
         emptyStreak: isEmpty ? 1 : 0,
+        holidayCount,
         data,
       };
     },

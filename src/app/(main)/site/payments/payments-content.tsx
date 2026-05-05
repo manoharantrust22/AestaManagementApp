@@ -36,13 +36,16 @@ import { SalaryWaterfallList } from "@/components/payments/SalaryWaterfallList";
 import { AdvancesList } from "@/components/payments/AdvancesList";
 import { DailyMarketLedger } from "@/components/payments/DailyMarketLedger";
 import { DailyMarketWeeklyList } from "@/components/payments/DailyMarketWeeklyList";
-import PaymentsLedger from "@/components/payments/PaymentsLedger";
+import PaymentsLedger, {
+  derivePendingLaborerType,
+} from "@/components/payments/PaymentsLedger";
 import { MestriSettleDialog } from "@/components/payments/MestriSettleDialog";
 import PaymentDialog from "@/components/payments/PaymentDialog";
 import SettlementRefDetailDialog, {
   type SettlementDetails,
 } from "@/components/payments/SettlementRefDetailDialog";
 import { SettlementsList } from "@/components/payments/SettlementsList";
+import { UnlinkedSettlementsGroup } from "@/components/payments/UnlinkedSettlementsGroup";
 import ContractSettlementEditDialog from "@/components/payments/ContractSettlementEditDialog";
 import DeleteContractSettlementDialog from "@/components/payments/DeleteContractSettlementDialog";
 import DailySettlementEditDialog from "@/components/payments/DailySettlementEditDialog";
@@ -201,9 +204,15 @@ export default function PaymentsContent() {
   // Date-only ledger entry (not bound to a week). The user picks any date
   // in the dialog; the waterfall RPC handles allocation downstream.
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
-  // In-page settle dialog for a single Daily+Market date. Holds the date so
-  // the records hook can fetch its pending entries; null = closed.
-  const [dayDialog, setDayDialog] = useState<null | { date: string }>(null);
+  // In-page settle dialog for a single Daily+Market date. Holds the date AND
+  // the slice context from the originating row (laborer type + period) so the
+  // records hook fetches the same slice the user clicked, keeping the dialog
+  // total in lock-step with the row total. null = closed.
+  const [dayDialog, setDayDialog] = useState<null | {
+    date: string;
+    laborerType: "daily" | "market" | "all";
+    period: "legacy" | "current" | "all";
+  }>(null);
 
   // Per-site audit lifecycle (legacy_status + data_started_at). Drives the
   // LegacyAuditBanner + LegacyBand visibility. Slice 2 minimum: banner +
@@ -218,7 +227,12 @@ export default function PaymentsContent() {
 
   const dayPendingQuery = useDayPendingRecords(
     dayDialog ? selectedSite?.id : undefined,
-    dayDialog?.date
+    dayDialog?.date,
+    {
+      laborerType: dayDialog?.laborerType ?? "all",
+      period: dayDialog?.period ?? "all",
+      dataStartedAt: auditState.dataStartedAt,
+    }
   );
 
   // Subcontract scoping picker isn't surfaced on this page yet — the page
@@ -395,10 +409,18 @@ export default function PaymentsContent() {
       }
       // daily-date: open the in-page PaymentDialog. The date's per-laborer
       // pending records are fetched by useDayPendingRecords keyed off
-      // dayDialog.date and fed into the dialog's `dailyRecords` mode.
+      // dayDialog.date and fed into the dialog's `dailyRecords` mode. The
+      // entity's pendingLaborerType + pendingPeriod (set when the originating
+      // row was pending) are forwarded so the dialog fetches the same slice
+      // the user clicked — otherwise the dialog over-fetches and its total
+      // mismatches the row total.
       if (entity.kind === "daily-date") {
         pane.close();
-        setDayDialog({ date: entity.date });
+        setDayDialog({
+          date: entity.date,
+          laborerType: entity.pendingLaborerType ?? "all",
+          period: entity.pendingPeriod ?? "all",
+        });
         return;
       }
       // weekly-week (per-laborer-week): currently no pending entries are
@@ -747,6 +769,13 @@ export default function PaymentsContent() {
               </Button>
             </Box>
             <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+              <UnlinkedSettlementsGroup
+                rows={(settlementsListQuery.data ?? []).filter(
+                  (r) => !r.subcontractId,
+                )}
+                siteId={selectedSite.id}
+                onRowClick={(row) => setRefDetail(row.ref)}
+              />
               {viewMode === "default" ? (
                 <>
                   <SalaryWaterfallList
@@ -884,6 +913,13 @@ export default function PaymentsContent() {
               </ToggleButtonGroup>
             </Box>
             <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+              <UnlinkedSettlementsGroup
+                rows={(settlementsListQuery.data ?? []).filter(
+                  (r) => !r.subcontractId,
+                )}
+                siteId={selectedSite.id}
+                onRowClick={(row) => setRefDetail(row.ref)}
+              />
               {viewMode === "by-week" ? (
                 <DailyMarketWeeklyList
                   rows={dailyMarketWeeklyListQuery.data}
@@ -915,6 +951,10 @@ export default function PaymentsContent() {
                       siteId: selectedSite.id,
                       date: row.date,
                       settlementRef: row.settlementRef,
+                      pendingLaborerType: row.isPending
+                        ? derivePendingLaborerType(row)
+                        : "all",
+                      pendingPeriod: row.isPending ? row.period : "all",
                     });
                   }}
                   onSettleClick={(row) =>
@@ -923,6 +963,10 @@ export default function PaymentsContent() {
                       siteId: selectedSite.id,
                       date: row.date,
                       settlementRef: row.settlementRef,
+                      pendingLaborerType: row.isPending
+                        ? derivePendingLaborerType(row)
+                        : "all",
+                      pendingPeriod: row.isPending ? row.period : "all",
                     })
                   }
                 />
@@ -1007,7 +1051,14 @@ export default function PaymentsContent() {
               </ToggleButtonGroup>
             </Box>
             {viewMode === "default" ? (
-              <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+              <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "auto" }}>
+                <UnlinkedSettlementsGroup
+                  rows={(settlementsListQuery.data ?? []).filter(
+                    (r) => !r.subcontractId,
+                  )}
+                  siteId={selectedSite.id}
+                  onRowClick={(row) => setRefDetail(row.ref)}
+                />
                 <PaymentsLedger
                   rows={allLedgerQuery.data ?? []}
                   isLoading={allLedgerQuery.isLoading}
@@ -1018,6 +1069,13 @@ export default function PaymentsContent() {
               </Box>
             ) : (
               <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+                <UnlinkedSettlementsGroup
+                  rows={(settlementsListQuery.data ?? []).filter(
+                    (r) => !r.subcontractId,
+                  )}
+                  siteId={selectedSite.id}
+                  onRowClick={(row) => setRefDetail(row.ref)}
+                />
                 <SettlementsList
                   rows={settlementsListQuery.data ?? []}
                   isLoading={settlementsListQuery.isLoading}

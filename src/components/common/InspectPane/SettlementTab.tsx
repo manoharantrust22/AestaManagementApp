@@ -141,6 +141,26 @@ function SingleRefSettlement({
           }
         />
         <Row
+          label="Amount"
+          value={
+            data?.totalAmount != null ? (
+              <Typography
+                variant="body2"
+                component="span"
+                sx={{
+                  fontWeight: 700,
+                  fontVariantNumeric: "tabular-nums",
+                  color: "success.dark",
+                }}
+              >
+                {formatINR(data.totalAmount)}
+              </Typography>
+            ) : (
+              "—"
+            )
+          }
+        />
+        <Row
           label="Settled on"
           value={
             data?.settledOn
@@ -169,13 +189,10 @@ function SingleRefSettlement({
             color="text.secondary"
             sx={{ display: "block" }}
           >
-            Linked expense
+            Linked subcontract
           </Typography>
-          <Typography
-            variant="body2"
-            sx={{ fontFamily: "ui-monospace, monospace" }}
-          >
-            {data.linkedExpenseRef}
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>
+            {data.subcontractTitle ?? "—"}
           </Typography>
         </Box>
       )}

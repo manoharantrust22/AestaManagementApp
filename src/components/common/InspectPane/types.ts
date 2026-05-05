@@ -15,6 +15,12 @@ export type InspectEntity =
       siteId: string;
       date: string;                    // YYYY-MM-DD
       settlementRef?: string | null;   // null when pending
+      // When the entity originates from a pending Daily+Market ledger row,
+      // these carry the row's bucket so the Settle dialog fetches the same
+      // slice (otherwise the dialog over-fetches and its total mismatches
+      // the row total). 'all' = no slice filter (e.g. paid-row deep links).
+      pendingLaborerType?: "daily" | "market" | "all";
+      pendingPeriod?: "legacy" | "current" | "all";
     }
   | {
       kind: "weekly-week";

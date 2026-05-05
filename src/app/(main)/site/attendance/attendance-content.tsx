@@ -809,6 +809,39 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     weeksQuery.data?.pages.length,
   ]);
 
+  // Eager auto-paginate on initial mount until the table has a few weeks of
+  // real attendance to show. Without this, the load-more sentinel is pushed
+  // far off-screen by the ±30 days of pre-loaded holiday rows and the
+  // unfilled-day groups, so IntersectionObserver never fires and the user
+  // sees a table dominated by holidays even though paid attendance exists.
+  // Caps:
+  //   - stop once 3 loaded weeks contain attendance (enough to fill the
+  //     viewport and prove data is there), OR
+  //   - hard cap at 12 fetched weeks (~3 months) so a brand-new or dormant
+  //     site doesn't trigger an unbounded request burst. Beyond that, normal
+  //     scroll-driven pagination takes over.
+  const AUTO_PAGINATE_TARGET_WEEKS_WITH_ATTENDANCE = 3;
+  const AUTO_PAGINATE_HARD_CAP_PAGES = 12;
+  useEffect(() => {
+    if (!weeksQuery.hasNextPage) return;
+    if (weeksQuery.isFetchingNextPage) return;
+
+    const pages = weeksQuery.data?.pages ?? [];
+    if (pages.length >= AUTO_PAGINATE_HARD_CAP_PAGES) return;
+
+    const weeksWithAttendance = pages.filter(
+      (p) => p.data.dailyAttendance.length > 0 || p.data.marketAttendance.length > 0
+    ).length;
+    if (weeksWithAttendance >= AUTO_PAGINATE_TARGET_WEEKS_WITH_ATTENDANCE) return;
+
+    weeksQuery.fetchNextPage();
+  }, [
+    weeksQuery.hasNextPage,
+    weeksQuery.isFetchingNextPage,
+    weeksQuery.fetchNextPage,
+    weeksQuery.data?.pages,
+  ]);
+
   // Track previous site ID to detect site changes and clear stale data
   const previousSiteIdRef = useRef<string | null>(null);
 

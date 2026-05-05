@@ -35,6 +35,23 @@ function isGroupParent(r: PaymentsLedgerRow): boolean {
   return Array.isArray(r.subRows) && r.subRows.length > 0;
 }
 
+// Derive the laborer-type slice for a daily-market ledger row from its
+// human-facing `forLabel` (e.g. "2 mkt", "3 lab", "1 lab + 2 mkt"). Used by
+// the InspectPane → Settle dialog flow to ensure the dialog fetches the same
+// slice as the clicked row. Mixed labels and unknown formats fall back to
+// "all" (no filter), preserving prior behaviour.
+export function derivePendingLaborerType(
+  row: PaymentsLedgerRow
+): "daily" | "market" | "all" {
+  if (row.type !== "daily-market") return "all";
+  const label = (row.forLabel ?? "").toLowerCase();
+  const hasMkt = /\bmkt\b/.test(label);
+  const hasDaily = /\blab\b/.test(label);
+  if (hasMkt && !hasDaily) return "market";
+  if (hasDaily && !hasMkt) return "daily";
+  return "all";
+}
+
 function rowToEntity(r: PaymentsLedgerRow): InspectEntity {
   if (r.type === "daily-market") {
     return {
@@ -42,6 +59,8 @@ function rowToEntity(r: PaymentsLedgerRow): InspectEntity {
       siteId: r.siteId,
       date: r.date,
       settlementRef: r.settlementRef ?? null,
+      pendingLaborerType: r.isPending ? derivePendingLaborerType(r) : "all",
+      pendingPeriod: r.isPending ? r.period : "all",
     };
   }
   // Weekly: laborerId may be null for group settlements; the InspectPane

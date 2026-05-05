@@ -22,6 +22,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSiteSubcontracts } from "@/hooks/queries/useSubcontracts";
+import { useWeekContractSubcontracts } from "@/hooks/queries/useWeekContractSubcontracts";
 import { processContractPayment } from "@/lib/services/settlementService";
 import FileUploader, { type UploadedFile } from "@/components/common/FileUploader";
 import type {
@@ -96,6 +97,16 @@ export function MestriSettleDialog({
   const supabase = useMemo(() => createClient(), []);
   const { data: subcontracts, isLoading: subcontractsLoading } =
     useSiteSubcontracts(siteId);
+
+  // Auto-suggest the subcontract from contract-laborer attendance for this
+  // week. Only meaningful in fill-week mode — date-only entries don't have
+  // a week to derive from. The hook is enabled lazily by passing undefined
+  // for the date args when not applicable.
+  const { data: weekSubcontractIds } = useWeekContractSubcontracts(
+    siteId,
+    isDateOnly ? undefined : weekStart,
+    isDateOnly ? undefined : weekEnd,
+  );
 
   // Form state
   const [subcontractId, setSubcontractId] = useState<string | null>(
@@ -189,6 +200,22 @@ export function MestriSettleDialog({
       setSubcontractId(subcontracts[0].id);
     }
   }, [open, subcontractId, subcontracts]);
+
+  // Week-scoped auto-pick: if every contract attendance row for this week
+  // points to the same subcontract, pre-select it. Layered AFTER the single-
+  // subcontract-on-site heuristic above so the simpler one wins for sites
+  // with only one subcontract (avoids a churn between the two effects).
+  useEffect(() => {
+    if (
+      open &&
+      !subcontractId &&
+      !isDateOnly &&
+      weekSubcontractIds &&
+      weekSubcontractIds.length === 1
+    ) {
+      setSubcontractId(weekSubcontractIds[0]);
+    }
+  }, [open, subcontractId, isDateOnly, weekSubcontractIds]);
 
   const selectedSubcontract = subcontracts?.find((s) => s.id === subcontractId);
 

@@ -16,11 +16,13 @@ import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 
 export interface SettlementDetailsData {
   settledOn: string | null; // settlement_date (YYYY-MM-DD)
+  totalAmount: number | null; // settlement_groups.total_amount (rupees)
   payerName: string | null;
   paymentMode: string | null; // raw enum value, formatted at the view layer
   channel: string | null; // payment_channel (raw enum value)
   recordedByName: string | null;
-  linkedExpenseRef: string | null; // subcontract_id or similar reference
+  subcontractTitle: string | null; // joined from subcontracts(title) — null when no subcontract link
+  linkedExpenseRef: string | null; // subcontract_id (legacy field, kept for back-compat)
 }
 
 function getPaymentModeLabel(mode: string | null | undefined): string | null {
@@ -92,7 +94,7 @@ export function useSettlementDetails(
         Promise.resolve(
           (supabase.from("settlement_groups") as any)
             .select(
-              "settlement_date, payer_source, payer_name, payment_mode, payment_channel, created_by_name, subcontract_id"
+              "settlement_date, total_amount, payer_source, payer_name, payment_mode, payment_channel, created_by_name, subcontract_id, subcontracts(title)"
             )
             .eq("settlement_reference", settlementRef)
             .single()
@@ -111,10 +113,13 @@ export function useSettlementDetails(
       const r: any = data;
       return {
         settledOn: r.settlement_date ?? null,
+        totalAmount:
+          r.total_amount != null ? Number(r.total_amount) : null,
         payerName: getPayerSourceLabel(r.payer_source, r.payer_name),
         paymentMode: getPaymentModeLabel(r.payment_mode),
         channel: getPaymentChannelLabel(r.payment_channel),
         recordedByName: r.created_by_name ?? null,
+        subcontractTitle: r.subcontracts?.title ?? null,
         linkedExpenseRef: r.subcontract_id ?? null,
       };
     },
