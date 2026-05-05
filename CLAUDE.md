@@ -25,7 +25,12 @@ When the user says **"move to prod"** or similar (e.g., "push to production", "d
 1. **Run `npm run build`** - Ensure production build passes with no errors
 2. **Run `git status`** - Check ALL uncommitted changes (staged, unstaged, and untracked)
 3. **Commit ALL changes** - Stage and commit everything with appropriate commit message(s)
-4. **Push to remote** - Push all commits to the remote repository
+4. **Push to remote** - Push all commits to the remote repository (triggers the Next.js pipeline)
+5. **Deploy the Cloudflare Worker if `cloudflare-proxy/` has changes in this push** - The Next.js pipeline does NOT deploy the Worker. Run:
+   ```
+   cd cloudflare-proxy && npx wrangler deploy
+   ```
+   The Worker (`aesta-supabase-proxy.aestabuilders.workers.dev`) sits in front of all Supabase traffic — REST, Auth, Storage, and Realtime WebSocket — to bypass ISP-level blocks of `*.supabase.co` in India. A bug in the Worker silently breaks the production app even when the Next.js code is fine. To check if a deploy is needed: `git log -1 --name-only | grep '^cloudflare-proxy/'` — if any files match, deploy. Verify after with `npx wrangler tail` (or check the printed Version ID).
 
 **Important:** Do NOT selectively commit only some files. ALL pending changes must be included when "move to prod" is requested.
 
