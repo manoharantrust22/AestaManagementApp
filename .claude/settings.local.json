@@ -196,9 +196,21 @@
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\" -Recurse -Filter \"*payment*\" -ErrorAction SilentlyContinue)",
       "Bash(jobs)",
       "PowerShell(try { \\(Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://localhost:3000/dev-login\\).StatusCode } catch { $_.Exception.Message }; try { \\(Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://localhost:3001/dev-login\\).StatusCode } catch { $_.Exception.Message })",
-      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\" -Recurse -Include \"*legacy*\", \"*audit*\" -Filter \"*.tsx\")"
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\" -Recurse -Include \"*legacy*\", \"*audit*\" -Filter \"*.tsx\")",
+      "PowerShell(Stop-Process -Id 31400 -Force -ErrorAction SilentlyContinue)",
+      "PowerShell(\"stopped\")",
+      "Bash(rm -rf \"C:/Users/Haribabu/AppData/Local/ms-playwright/mcp-chrome-8c851e6/SingletonLock\" \"C:/Users/Haribabu/AppData/Local/ms-playwright/mcp-chrome-8c851e6/SingletonCookie\" \"C:/Users/Haribabu/AppData/Local/ms-playwright/mcp-chrome-8c851e6/SingletonSocket\" 2>&1; echo \"done\")",
+      "PowerShell(Stop-Process -Id 19992 -Force -ErrorAction SilentlyContinue)",
+      "Bash(disown)",
+      "PowerShell(Rename-Item \"C:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\supabase\\\\migrations\\\\20260502130000_trade_dimension_security_followup.sql\" \"20260502131000_trade_dimension_security_followup.sql\")",
+      "PowerShell(Get-Command psql -ErrorAction SilentlyContinue)",
+      "PowerShell(docker exec supabase_db_AestaManagementApp psql -U postgres -d postgres -c \"\\\\d companies\" 2>&1)",
+      "PowerShell(docker exec supabase_db_AestaManagementApp psql -U postgres -d postgres -c \"SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE '%compan%';\" 2>&1)"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "additionalDirectories": [
+      "C:\\Users\\Haribabu\\AppData\\Local\\ms-playwright\\mcp-chrome-8c851e6"
+    ]
   }
 }

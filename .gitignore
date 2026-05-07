@@ -87,3 +87,6 @@ supabase/.temp/
 
 # Claude scheduled-tasks runtime lock
 .claude/scheduled_tasks.lock
+
+# Local dev-server output captured by Playwright/MCP runs
+dev-server.log
