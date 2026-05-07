@@ -594,10 +594,13 @@ export function QuickCreateContractDialog({
                   control={<Radio />}
                   label={
                     <Box>
-                      <Typography variant="body2">Mesthri-only (just track payments to me)</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        No daily attendance. Use this for lump-sum subcontracts where the mesthri
-                        manages their own crew. Payments alone drive the balance.
+                      <Typography variant="body2">
+                        Mesthri-only — just track money I give him
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" component="div">
+                        Payments alone drive the balance. You&apos;ll see Quoted vs Paid only —
+                        the app can&apos;t tell you whether the lump sum was a fair quote.
+                        Best for trusted contractors where you accept the price at face value.
                       </Typography>
                     </Box>
                   }
@@ -607,12 +610,15 @@ export function QuickCreateContractDialog({
                   control={<Radio />}
                   label={
                     <Box>
-                      <Typography variant="body2">Headcount (count per role per day)</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        e.g. &quot;1 technical + 2 helpers today&quot;. Reconciliation banner compares
-                        labor done vs paid. Role rate card seeded from defaults; editable later.
-                        <strong> Headcount entry UI ships in Plan 03 — for now you can record the
-                        contract but not enter daily counts yet.</strong>
+                      <Typography variant="body2">
+                        Headcount — record how many came each day, by role <strong>(recommended for new lump-sum contracts)</strong>
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" component="div">
+                        e.g. &quot;1 technical painter + 2 helpers today&quot;. Takes 5 seconds per
+                        day. Role rate card seeded from defaults (e.g. Painter ₹650, Helper ₹400);
+                        editable later. <strong>At end of contract the app tells you whether you
+                        overpaid, underpaid, or quoted right</strong> — comparing total paid vs
+                        implied labor cost (units × rates).
                       </Typography>
                     </Box>
                   }
@@ -622,10 +628,13 @@ export function QuickCreateContractDialog({
                   control={<Radio />}
                   label={
                     <Box>
-                      <Typography variant="body2">Detailed (per-laborer attendance)</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Today&apos;s civil attendance flow. Use when you record each laborer
-                        individually with in/out time and rate.
+                      <Typography variant="body2">
+                        Detailed — per-laborer attendance with in/out time
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" component="div">
+                        Today&apos;s civil attendance flow. Use when the painters/electricians are
+                        on YOUR books (you pay them directly, not the mesthri), or for
+                        cost-plus-actual-hours contracts.
                       </Typography>
                     </Box>
                   }
