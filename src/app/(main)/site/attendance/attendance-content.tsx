@@ -152,6 +152,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { useDateRange } from "@/contexts/DateRangeContext";
 import PageHeader from "@/components/layout/PageHeader";
+import { TradeChipFilter } from "@/components/attendance/TradeChipFilter";
 import { useSiteAuditState } from "@/hooks/queries/useSiteAuditState";
 import { LegacyAuditBanner } from "@/components/audit";
 import AttendanceSkeleton from "./attendance-skeleton";
@@ -2893,6 +2894,13 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
             cutoffDate={auditState.dataStartedAt}
           />
         )}
+        {/* Slice C — trade chip filter. Default Civil chip preserves the
+            existing flow on this page; non-civil chips navigate to
+            /site/trades?focus=<trade> where each contract has its own
+            richer entry experience (work updates, headcount, payments,
+            settle). The bar self-hides when no non-civil contracts exist
+            on this site, so civil-only sites stay clutter-free. */}
+        <TradeChipFilter siteId={selectedSite?.id} />
       </Box>
 
       {/* Back button when coming from settlement page */}
