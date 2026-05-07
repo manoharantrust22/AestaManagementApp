@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Box, Chip, Tooltip, Typography, alpha, useTheme } from "@mui/material";
 import {
   Whatshot as FireIcon,
@@ -53,6 +53,10 @@ export function MaterialGridCard({
 }: MaterialGridCardProps) {
   const theme = useTheme();
   const unitLabel = UNIT_LABELS[material.unit] || material.unit;
+  const [imgFailed, setImgFailed] = useState(false);
+  useEffect(() => {
+    setImgFailed(false);
+  }, [material.image_url]);
 
   return (
     <Box
@@ -98,12 +102,13 @@ export function MaterialGridCard({
           borderColor: "divider",
         }}
       >
-        {material.image_url ? (
+        {material.image_url && !imgFailed ? (
           <Box
             component="img"
             src={material.image_url}
             alt={material.name}
             loading="lazy"
+            onError={() => setImgFailed(true)}
             sx={{
               width: "100%",
               height: "100%",

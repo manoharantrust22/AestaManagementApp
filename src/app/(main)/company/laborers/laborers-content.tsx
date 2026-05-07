@@ -7,6 +7,9 @@ import {
   Button,
   Chip,
   IconButton,
+  Stack,
+  Tab,
+  Tabs,
   Typography,
   Dialog,
   DialogTitle,
@@ -89,6 +92,89 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
     [profileLaborerId, laborers]
   );
 
+  // Tabs along the work-category axis. "all" = no category filter; the rest
+  // are dynamic, one tab per labor_category present in initialData ordered by
+  // display_order then name.
+  const [activeTabId, setActiveTabId] = useState<string>("all");
+
+  // Orthogonal type chips: filter on top of the active tab.
+  const [typeFilters, setTypeFilters] = useState<{
+    daily_market: boolean;
+    contract: boolean;
+    mesthris: boolean;
+  }>({ daily_market: false, contract: false, mesthris: false });
+
+  // Mesthri detection: a laborer is a mesthri iff their id appears as
+  // teams.leader_laborer_id (canonical link) OR their name matches some
+  // teams.leader_name text (legacy bridge for teams created before
+  // leader_laborer_id was wired).
+  const { mesthriFkSet, mesthriNameSet } = useMemo(() => {
+    const fk = new Set<string>();
+    const names = new Set<string>();
+    for (const t of teams as Array<Team & { leader_laborer_id?: string | null }>) {
+      if (t.leader_laborer_id) {
+        fk.add(t.leader_laborer_id);
+      } else if (t.leader_name) {
+        names.add(t.leader_name.trim().toLowerCase());
+      }
+    }
+    return { mesthriFkSet: fk, mesthriNameSet: names };
+  }, [teams]);
+
+  const isMesthri = useCallback(
+    (l: LaborerWithDetails) =>
+      mesthriFkSet.has(l.id) ||
+      mesthriNameSet.has((l.name || "").trim().toLowerCase()),
+    [mesthriFkSet, mesthriNameSet]
+  );
+
+  // Multi-skill aware: a laborer is "in" a category if it's their primary
+  // category_id OR appears in their skills list. The primary skill is also
+  // present in skills (backfilled), so the second check alone would suffice,
+  // but we keep both for resilience against any backfill drift.
+  const isInCategory = useCallback(
+    (l: LaborerWithDetails, categoryId: string) =>
+      l.category_id === categoryId ||
+      (l.skills ?? []).some((s) => s.category_id === categoryId),
+    []
+  );
+
+  const filteredLaborers = useMemo(() => {
+    return laborers.filter((l) => {
+      // Tab filter (category)
+      if (activeTabId !== "all" && !isInCategory(l, activeTabId)) return false;
+      // Type chips (intersection — all active chips must match)
+      if (typeFilters.daily_market && l.laborer_type !== "daily_market")
+        return false;
+      if (typeFilters.contract && l.laborer_type !== "contract") return false;
+      if (typeFilters.mesthris && !isMesthri(l)) return false;
+      return true;
+    });
+  }, [laborers, activeTabId, typeFilters, isInCategory, isMesthri]);
+
+  // Counts for tab labels
+  const tabCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: laborers.length };
+    for (const c of categories) {
+      counts[c.id] = laborers.filter((l) => isInCategory(l, c.id)).length;
+    }
+    return counts;
+  }, [laborers, categories, isInCategory]);
+
+  // Counts for type chips (apply current tab filter, not other chips)
+  const chipCounts = useMemo(() => {
+    const baseList =
+      activeTabId === "all"
+        ? laborers
+        : laborers.filter((l) => isInCategory(l, activeTabId));
+    return {
+      daily_market: baseList.filter((l) => l.laborer_type === "daily_market")
+        .length,
+      contract: baseList.filter((l) => l.laborer_type === "contract").length,
+      mesthris: baseList.filter((l) => isMesthri(l)).length,
+    };
+  }, [laborers, activeTabId, isInCategory, isMesthri]);
+
   const { userProfile } = useAuth();
   const { selectedCompany } = useSelectedCompany();
   const supabase = useMemo(() => createClient(), []);
@@ -109,26 +195,45 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
     status: "active" as "active" | "inactive",
     joining_date: dayjs().format("YYYY-MM-DD"),
     photo_url: null as string | null,
+    additional_skill_ids: [] as string[],
   });
 
   const fetchLaborers = useCallback(async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from("laborers")
-        .select(
-          `*, category:labor_categories(name), role:labor_roles(name), team:teams!laborers_team_id_fkey(name), associated_team:teams!laborers_associated_team_id_fkey(name)`
-        )
-        .order("name");
+      const [laborersRes, skillsRes] = await Promise.all([
+        supabase
+          .from("laborers")
+          .select(
+            `*, category:labor_categories(name), role:labor_roles(name), team:teams!laborers_team_id_fkey(name), associated_team:teams!laborers_associated_team_id_fkey(name)`
+          )
+          .order("name"),
+        (supabase.from("laborer_skills" as any) as any).select(
+          "laborer_id, category_id, is_primary"
+        ),
+      ]);
 
-      if (error) throw error;
+      if (laborersRes.error) throw laborersRes.error;
+      if (skillsRes.error) throw skillsRes.error;
+
+      const skillsByLaborer = new Map<string, LaborerWithDetails["skills"]>();
+      for (const s of (skillsRes.data || []) as any[]) {
+        const arr = skillsByLaborer.get(s.laborer_id) ?? [];
+        arr.push({
+          category_id: s.category_id,
+          is_primary: !!s.is_primary,
+        });
+        skillsByLaborer.set(s.laborer_id, arr);
+      }
+
       setLaborers(
-        data.map((l: any) => ({
+        (laborersRes.data || []).map((l: any) => ({
           ...l,
           category_name: l.category?.name || "",
           role_name: l.role?.name || "",
           team_name: l.team?.name || null,
           associated_team_name: l.associated_team?.name || null,
+          skills: skillsByLaborer.get(l.id) ?? [],
         }))
       );
     } catch (err: any) {
@@ -141,6 +246,10 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
   const handleOpenDialog = (laborer?: LaborerWithDetails) => {
     if (laborer) {
       setEditingLaborer(laborer);
+      // additional_skill_ids = skills minus the primary (which equals category_id)
+      const additional = (laborer.skills ?? [])
+        .filter((s) => !s.is_primary && s.category_id !== laborer.category_id)
+        .map((s) => s.category_id);
       setFormData({
         name: laborer.name,
         phone: laborer.phone || "",
@@ -155,6 +264,7 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
         status: laborer.status,
         joining_date: laborer.joining_date || dayjs().format("YYYY-MM-DD"),
         photo_url: laborer.photo_url || null,
+        additional_skill_ids: additional,
       });
     } else {
       setEditingLaborer(null);
@@ -172,10 +282,98 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
         status: "active",
         joining_date: dayjs().format("YYYY-MM-DD"),
         photo_url: null,
+        additional_skill_ids: [],
       });
     }
     setOpenDialog(true);
   };
+
+  /**
+   * Sync laborer_skills: ensure exactly one primary row matching category_id,
+   * plus is_primary=false rows for each additional_skill_ids entry. Rows for
+   * categories no longer in the set are deleted.
+   */
+  const syncLaborerSkills = useCallback(
+    async (
+      laborerId: string,
+      primaryCategoryId: string,
+      additionalCategoryIds: string[]
+    ) => {
+      const desired = new Set<string>([primaryCategoryId, ...additionalCategoryIds]);
+      // Read existing
+      const { data: existing, error: readErr } = await (
+        supabase.from("laborer_skills" as any) as any
+      )
+        .select("category_id, is_primary")
+        .eq("laborer_id", laborerId);
+      if (readErr) throw readErr;
+      const existingByCat = new Map<string, { is_primary: boolean }>();
+      for (const r of (existing || []) as any[]) {
+        existingByCat.set(r.category_id, { is_primary: !!r.is_primary });
+      }
+
+      // Delete rows that are no longer in the desired set
+      const toDelete = Array.from(existingByCat.keys()).filter(
+        (c) => !desired.has(c)
+      );
+      if (toDelete.length > 0) {
+        const { error: delErr } = await (
+          supabase.from("laborer_skills" as any) as any
+        )
+          .delete()
+          .eq("laborer_id", laborerId)
+          .in("category_id", toDelete);
+        if (delErr) throw delErr;
+      }
+
+      // Demote any current primary that isn't the new primary, BEFORE upserting
+      // the new primary, to avoid the partial-unique-index conflict.
+      const oldPrimaryCat = Array.from(existingByCat.entries()).find(
+        ([cat, v]) => v.is_primary && cat !== primaryCategoryId
+      )?.[0];
+      if (oldPrimaryCat) {
+        const { error: demoteErr } = await (
+          supabase.from("laborer_skills" as any) as any
+        )
+          .update({ is_primary: false })
+          .eq("laborer_id", laborerId)
+          .eq("category_id", oldPrimaryCat);
+        if (demoteErr) throw demoteErr;
+      }
+
+      // Upsert primary
+      {
+        const { error: upErr } = await (
+          supabase.from("laborer_skills" as any) as any
+        ).upsert(
+          {
+            laborer_id: laborerId,
+            category_id: primaryCategoryId,
+            is_primary: true,
+          },
+          { onConflict: "laborer_id,category_id" }
+        );
+        if (upErr) throw upErr;
+      }
+
+      // Upsert each additional skill (is_primary=false)
+      for (const cat of additionalCategoryIds) {
+        if (cat === primaryCategoryId) continue;
+        const { error: upErr } = await (
+          supabase.from("laborer_skills" as any) as any
+        ).upsert(
+          {
+            laborer_id: laborerId,
+            category_id: cat,
+            is_primary: false,
+          },
+          { onConflict: "laborer_id,category_id" }
+        );
+        if (upErr) throw upErr;
+      }
+    },
+    [supabase]
+  );
 
   const handleSubmit = async () => {
     if (!formData.name || !formData.category_id || !formData.role_id) {
@@ -188,11 +386,13 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
     }
     try {
       setLoading(true);
+      // Strip skills field — laborers table doesn't have it.
+      const { additional_skill_ids, ...laborerFields } = formData;
       const payload = {
-        ...formData,
-        team_id: formData.team_id || null,
-        associated_team_id: formData.associated_team_id || null,
-        phone: formData.phone || null,
+        ...laborerFields,
+        team_id: laborerFields.team_id || null,
+        associated_team_id: laborerFields.associated_team_id || null,
+        phone: laborerFields.phone || null,
         company_id: selectedCompany.id,
       };
 
@@ -214,6 +414,13 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
           .eq("id", editingLaborer.id);
         if (error) throw error;
 
+        // Sync skills regardless of rate change
+        await syncLaborerSkills(
+          editingLaborer.id,
+          formData.category_id,
+          additional_skill_ids
+        );
+
         if (rateChanged) {
           // Defer the rate change + history cascade to the confirmation dialog.
           setRateCascadeContext({
@@ -230,10 +437,18 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
 
         setSuccess("Laborer updated");
       } else {
-        const { error } = await (supabase.from("laborers") as any).insert(
-          payload
-        );
+        const { data: inserted, error } = await (supabase.from("laborers") as any)
+          .insert(payload)
+          .select("id")
+          .single();
         if (error) throw error;
+        if (inserted?.id) {
+          await syncLaborerSkills(
+            inserted.id,
+            formData.category_id,
+            additional_skill_ids
+          );
+        }
         setSuccess("Laborer added");
       }
       setOpenDialog(false);
@@ -536,9 +751,75 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
         </Alert>
       )}
 
+      {/* Category tabs */}
+      <Box
+        sx={{
+          mb: 1,
+          borderBottom: 1,
+          borderColor: "divider",
+        }}
+      >
+        <Tabs
+          value={activeTabId}
+          onChange={(_e, value) => setActiveTabId(value)}
+          variant="scrollable"
+          scrollButtons="auto"
+          allowScrollButtonsMobile
+        >
+          <Tab
+            value="all"
+            label={`All (${tabCounts.all})`}
+            sx={{ textTransform: "none", fontWeight: 600 }}
+          />
+          {categories.map((c) => (
+            <Tab
+              key={c.id}
+              value={c.id}
+              label={`${c.name} (${tabCounts[c.id] ?? 0})`}
+              sx={{ textTransform: "none", fontWeight: 600 }}
+            />
+          ))}
+        </Tabs>
+      </Box>
+
+      {/* Secondary type chips */}
+      <Stack
+        direction="row"
+        spacing={1}
+        sx={{ mb: 1.5, flexWrap: "wrap", gap: 0.75 }}
+      >
+        <Chip
+          label={`Daily Market (${chipCounts.daily_market})`}
+          size="small"
+          color={typeFilters.daily_market ? "primary" : "default"}
+          variant={typeFilters.daily_market ? "filled" : "outlined"}
+          onClick={() =>
+            setTypeFilters((f) => ({ ...f, daily_market: !f.daily_market }))
+          }
+        />
+        <Chip
+          label={`Contract (${chipCounts.contract})`}
+          size="small"
+          color={typeFilters.contract ? "primary" : "default"}
+          variant={typeFilters.contract ? "filled" : "outlined"}
+          onClick={() =>
+            setTypeFilters((f) => ({ ...f, contract: !f.contract }))
+          }
+        />
+        <Chip
+          label={`Mesthris (${chipCounts.mesthris})`}
+          size="small"
+          color={typeFilters.mesthris ? "primary" : "default"}
+          variant={typeFilters.mesthris ? "filled" : "outlined"}
+          onClick={() =>
+            setTypeFilters((f) => ({ ...f, mesthris: !f.mesthris }))
+          }
+        />
+      </Stack>
+
       <DataTable
         columns={columns}
-        data={laborers}
+        data={filteredLaborers}
         isLoading={loading}
         pageSize={20}
         showRecordCount
@@ -680,6 +961,44 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
                 </FormControl>
               </Grid>
             </Grid>
+            <Box>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: "block", mb: 0.5 }}
+              >
+                Additional skills (optional) — categories this laborer can also
+                work in beyond their primary
+              </Typography>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+                {categories
+                  .filter((c) => c.id !== formData.category_id)
+                  .map((c) => {
+                    const selected = formData.additional_skill_ids.includes(
+                      c.id
+                    );
+                    return (
+                      <Chip
+                        key={c.id}
+                        label={c.name}
+                        size="small"
+                        color={selected ? "primary" : "default"}
+                        variant={selected ? "filled" : "outlined"}
+                        onClick={() =>
+                          setFormData((f) => ({
+                            ...f,
+                            additional_skill_ids: selected
+                              ? f.additional_skill_ids.filter(
+                                  (id) => id !== c.id
+                                )
+                              : [...f.additional_skill_ids, c.id],
+                          }))
+                        }
+                      />
+                    );
+                  })}
+              </Box>
+            </Box>
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <FormControl fullWidth required>
@@ -1024,6 +1343,7 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
         open={Boolean(profileLaborerId)}
         laborer={profileLaborer}
         teams={teams}
+        categories={categories}
         canEdit={canEdit}
         onClose={() => setProfileLaborerId(null)}
         onEdit={(l) => {

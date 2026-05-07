@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Box, Typography, useTheme, alpha } from "@mui/material";
 
 type TintColor = "primary" | "secondary" | "info" | "success" | "warning" | "error";
@@ -35,13 +35,22 @@ export function EntityImageAvatar({
   const bg = alpha(palette.main, 0.12);
   const fg = palette.dark;
 
-  if (src) {
+  // Track per-src failures so we can fall back to the initials avatar when an
+  // image URL is broken (404, CORB-blocked, dead Google image search redirect,
+  // etc.) instead of showing the browser's broken-image icon.
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
+
+  if (src && !failed) {
     return (
       <Box
         component="img"
         src={src}
         alt={name}
         loading="lazy"
+        onError={() => setFailed(true)}
         sx={{
           width: size,
           height: size,

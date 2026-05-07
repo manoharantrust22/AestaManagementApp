@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Box,
   Chip,
@@ -96,9 +96,30 @@ export function MaterialInspectPane({
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
 
   const { data: material, isLoading } = useMaterial(materialId ?? undefined);
-  const { data: vendors = [], isLoading: vendorsLoading } = useMaterialVendors(
+  const { data: rawVendors = [], isLoading: vendorsLoading } = useMaterialVendors(
     activeTab === "vendors" ? materialId ?? undefined : undefined
   );
+
+  // Dedupe by (vendor_id, brand_id): same vendor + same brand should only
+  // appear once. Keep the row with the most recent price update.
+  const vendors = useMemo(() => {
+    const map = new Map<string, (typeof rawVendors)[number]>();
+    for (const row of rawVendors) {
+      const key = `${row.vendor_id}::${row.brand_id ?? "no-brand"}`;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, row);
+        continue;
+      }
+      const a = existing.last_price_update || existing.updated_at || "";
+      const b = row.last_price_update || row.updated_at || "";
+      if (b > a) map.set(key, row);
+    }
+    // Re-sort by current_price ascending (matches server order)
+    return Array.from(map.values()).sort(
+      (x, y) => (x.current_price ?? 0) - (y.current_price ?? 0)
+    );
+  }, [rawVendors]);
   const { data: variants = [], isLoading: variantsLoading } = useMaterialVariants(
     activeTab === "variants" ? materialId ?? undefined : undefined
   );

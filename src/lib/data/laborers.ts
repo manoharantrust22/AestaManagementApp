@@ -6,11 +6,17 @@ type LaborCategory = Tables<"labor_categories">;
 type LaborRole = Tables<"labor_roles">;
 type Team = Tables<"teams">;
 
+export interface LaborerSkill {
+  category_id: string;
+  is_primary: boolean;
+}
+
 export type LaborerWithDetails = Laborer & {
   category_name: string;
   role_name: string;
   team_name: string | null;
   associated_team_name?: string | null;
+  skills: LaborerSkill[];
 };
 
 export interface LaborersPageData {
@@ -28,7 +34,7 @@ export async function getLaborersPageData(): Promise<LaborersPageData> {
   const supabase = await createClient();
 
   // Fetch all data in parallel
-  const [laborersResult, categoriesResult, rolesResult, teamsResult] =
+  const [laborersResult, categoriesResult, rolesResult, teamsResult, skillsResult] =
     await Promise.all([
       supabase
         .from("laborers")
@@ -38,10 +44,24 @@ export async function getLaborersPageData(): Promise<LaborersPageData> {
         .order("name"),
       supabase.from("labor_categories").select("*").order("name"),
       supabase.from("labor_roles").select("*").order("name"),
-      supabase.from("teams").select("*").eq("status", "active").order("name"),
+      supabase
+        .from("teams")
+        .select("*")
+        .eq("status", "active")
+        .order("name"),
+      supabase
+        .from("laborer_skills" as any)
+        .select("laborer_id, category_id, is_primary"),
     ]);
 
-  // Transform laborers to include flattened relation names
+  const skillsByLaborer = new Map<string, LaborerSkill[]>();
+  for (const s of (skillsResult.data || []) as any[]) {
+    const arr = skillsByLaborer.get(s.laborer_id) ?? [];
+    arr.push({ category_id: s.category_id, is_primary: !!s.is_primary });
+    skillsByLaborer.set(s.laborer_id, arr);
+  }
+
+  // Transform laborers to include flattened relation names + skills.
   const laborers: LaborerWithDetails[] = (laborersResult.data || []).map(
     (l: any) => ({
       ...l,
@@ -49,6 +69,7 @@ export async function getLaborersPageData(): Promise<LaborersPageData> {
       role_name: l.role?.name || "",
       team_name: l.team?.name || null,
       associated_team_name: l.associated_team?.name || null,
+      skills: skillsByLaborer.get(l.id) ?? [],
     })
   );
 

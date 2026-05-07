@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Box,
   Chip,
@@ -80,9 +80,28 @@ export function VendorInspectPane({
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
 
   const { data: vendor, isLoading } = useVendor(vendorId ?? undefined);
-  const { data: inventory = [], isLoading: invLoading } = useVendorInventory(
+  const { data: rawInventory = [], isLoading: invLoading } = useVendorInventory(
     activeTab === "materials" ? vendorId ?? undefined : undefined
   );
+
+  // Dedupe by (material_id, brand_id): same material + same brand should
+  // only appear once. Keep the row with the most recent price update.
+  const inventory = useMemo(() => {
+    const map = new Map<string, (typeof rawInventory)[number]>();
+    for (const row of rawInventory) {
+      const matKey = row.material_id ?? row.custom_material_name ?? "unknown";
+      const key = `${matKey}::${row.brand_id ?? "no-brand"}`;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, row);
+        continue;
+      }
+      const a = existing.last_price_update || existing.updated_at || "";
+      const b = row.last_price_update || row.updated_at || "";
+      if (b > a) map.set(key, row);
+    }
+    return Array.from(map.values());
+  }, [rawInventory]);
   const { data: priceHistory = [], isLoading: historyLoading } = useVendorPriceHistory(
     activeTab === "price-history" ? vendorId ?? undefined : undefined
   );

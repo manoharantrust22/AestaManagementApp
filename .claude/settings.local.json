@@ -205,7 +205,9 @@
       "PowerShell(Rename-Item \"C:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\supabase\\\\migrations\\\\20260502130000_trade_dimension_security_followup.sql\" \"20260502131000_trade_dimension_security_followup.sql\")",
       "PowerShell(Get-Command psql -ErrorAction SilentlyContinue)",
       "PowerShell(docker exec supabase_db_AestaManagementApp psql -U postgres -d postgres -c \"\\\\d companies\" 2>&1)",
-      "PowerShell(docker exec supabase_db_AestaManagementApp psql -U postgres -d postgres -c \"SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE '%compan%';\" 2>&1)"
+      "PowerShell(docker exec supabase_db_AestaManagementApp psql -U postgres -d postgres -c \"SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE '%compan%';\" 2>&1)",
+      "mcp__playwright__browser_type",
+      "mcp__playwright__browser_run_code_unsafe"
     ],
     "deny": [],
     "ask": [],

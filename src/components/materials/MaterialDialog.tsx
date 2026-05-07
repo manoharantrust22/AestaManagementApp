@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
-  DialogTitle,
   DialogContent,
   DialogActions,
   Button,
@@ -12,36 +11,36 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Grid,
   Box,
   Typography,
   IconButton,
   Chip,
-  Divider,
   Alert,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
   FormControlLabel,
   Switch,
   Autocomplete,
   InputAdornment,
   Tooltip,
+  Collapse,
+  alpha,
+  useTheme,
 } from "@mui/material";
 import {
   Close as CloseIcon,
   ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
   Add as AddIcon,
-  Star as StarIcon,
-  StarBorder as StarBorderIcon,
   AccountTree as AccountTreeIcon,
   Edit as EditIcon,
   Translate as TranslateIcon,
   Description as DescriptionIcon,
   Image as ImageIcon,
+  Inventory2 as InventoryIcon,
+  Storefront as BrandIcon,
 } from "@mui/icons-material";
 import CategoryAutocomplete from "@/components/common/CategoryAutocomplete";
 import FileUploader from "@/components/common/FileUploader";
+import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
 import { createClient } from "@/lib/supabase/client";
 import { calculatePieceWeight } from "@/lib/weightCalculation";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -71,7 +70,6 @@ import VariantInlineTable from "./VariantInlineTable";
 import BrandVariantEditor from "./BrandVariantEditor";
 import CategoryDialog, { type CategoryFormData } from "@/components/categories/CategoryDialog";
 
-// Category patterns that should hide certain fields
 const CEMENT_CATEGORY_PATTERNS = ["cement", "ppc", "opc"];
 const TMT_CATEGORY_PATTERNS = ["tmt", "steel", "bar", "rod"];
 
@@ -109,6 +107,7 @@ export default function MaterialDialog({
   categories,
   onEditVariant,
 }: MaterialDialogProps) {
+  const theme = useTheme();
   const isMobile = useIsMobile();
   const isEdit = !!material;
 
@@ -122,12 +121,9 @@ export default function MaterialDialog({
   const createCategory = useCreateMaterialCategory();
   const addVariant = useAddVariantToMaterial();
 
-  // Fetch fresh material data to get updated brands after mutations
   const { data: freshMaterial } = useMaterial(material?.id);
-  // Use fresh data for brands (falls back to prop if query not ready)
   const materialForBrands = freshMaterial || material;
 
-  // Fetch variants when editing a parent material (not a variant itself)
   const { data: materialVariants = [] } = useMaterialVariants(
     isEdit && material && !material.parent_id ? material.id : undefined
   );
@@ -138,20 +134,19 @@ export default function MaterialDialog({
   const [variants, setVariants] = useState<VariantFormData[]>([]);
   const [showVariantSection, setShowVariantSection] = useState(false);
   const [showWeightSection, setShowWeightSection] = useState(false);
-  // UX improvement toggles
   const [customizeCode, setCustomizeCode] = useState(false);
   const [showLocalName, setShowLocalName] = useState(false);
   const [showDescription, setShowDescription] = useState(false);
   const [showImageUpload, setShowImageUpload] = useState(false);
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [brandsExpanded, setBrandsExpanded] = useState(false);
+  const [variantsExpanded, setVariantsExpanded] = useState(false);
   const [addVariantDialogOpen, setAddVariantDialogOpen] = useState(false);
   const [newVariantName, setNewVariantName] = useState("");
   const [newVariantWeight, setNewVariantWeight] = useState<string>("");
   const [newVariantLength, setNewVariantLength] = useState<string>("");
   const supabase = createClient();
 
-  // Memoize initial form data based on material prop
   const initialFormData = useMemo<MaterialFormData>(
     () => ({
       name: material?.name || "",
@@ -174,11 +169,9 @@ export default function MaterialDialog({
     [material]
   );
 
-  // Use form draft hook for persistence
   const {
     formData,
     updateField,
-    isDirty,
     hasRestoredDraft,
     clearDraft,
     discardDraft,
@@ -189,7 +182,6 @@ export default function MaterialDialog({
     entityId: material?.id || null,
   });
 
-  // Sync UI state when dialog opens (doesn't affect form data)
   useEffect(() => {
     if (open) {
       if (material) {
@@ -212,45 +204,39 @@ export default function MaterialDialog({
       setVariants([]);
       setError("");
       setNewBrandName("");
-      // Initialize brands accordion expansion based on whether there are brands
       const hasBrands = (material?.brands?.filter(b => b.is_active)?.length || 0) > 0;
       setBrandsExpanded(hasBrands);
+      setVariantsExpanded(false);
     }
   }, [material, open]);
 
-  // Get parent categories only
   const parentCategories = useMemo(
     () => categories.filter((c) => !c.parent_id),
     [categories]
   );
 
-  // Get sub-categories for selected parent
-  const subCategories = useMemo(() => {
+  // Note: subCategories computed but not currently surfaced in the new UI — the
+  // CategoryAutocomplete handles parent + sub selection internally. Kept around
+  // so that future field-driven branches can still derive it.
+  const _subCategoriesUnused = useMemo(() => {
     const parentId = formData.category_id;
     if (!parentId) return [];
-    // Check if selected is a parent category
     const isParent = parentCategories.some((c) => c.id === parentId);
-    if (isParent) {
-      return categories.filter((c) => c.parent_id === parentId);
-    }
+    if (isParent) return categories.filter((c) => c.parent_id === parentId);
     return [];
   }, [categories, parentCategories, formData.category_id]);
 
-  // Get available parent materials (exclude current material and materials that already have variants)
   const availableParentMaterials = useMemo(() => {
     if (isEdit && material) {
-      // Exclude the current material from being its own parent
       return parentMaterials.filter((m) => m.id !== material.id);
     }
     return parentMaterials;
   }, [parentMaterials, isEdit, material]);
 
-  // Get current category name for field visibility rules
   const currentCategoryName = useMemo(() => {
     if (!formData.category_id) return null;
     const category = categories.find(c => c.id === formData.category_id);
     if (!category) return null;
-    // If it's a sub-category, also check the parent
     if (category.parent_id) {
       const parent = categories.find(c => c.id === category.parent_id);
       return `${parent?.name || ""} ${category.name}`.toLowerCase();
@@ -258,7 +244,6 @@ export default function MaterialDialog({
     return category.name.toLowerCase();
   }, [formData.category_id, categories]);
 
-  // Determine which fields to show based on category
   const fieldVisibility = useMemo(() => {
     const isCement = currentCategoryName
       ? CEMENT_CATEGORY_PATTERNS.some(p => currentCategoryName.includes(p))
@@ -266,25 +251,19 @@ export default function MaterialDialog({
     const isTMT = currentCategoryName
       ? TMT_CATEGORY_PATTERNS.some(p => currentCategoryName.includes(p))
       : false;
-
     return {
-      showHsnCode: !isCement, // Hide HSN for cement
-      showMinOrderQty: !isCement, // Hide Min Order Qty for cement
-      showWeightLengthToggle: isTMT, // Only show weight/length toggle for TMT
-      defaultShowBrands: isCement, // Auto-expand brands for cement
+      showHsnCode: !isCement,
+      showMinOrderQty: !isCement,
+      showWeightLengthToggle: isTMT,
     };
   }, [currentCategoryName]);
 
-  // When parent material changes, inherit properties
   const handleParentChange = (parentId: string) => {
     handleChange("parent_id", parentId);
     if (parentId) {
       const parent = parentMaterials.find((m) => m.id === parentId);
       if (parent) {
-        // Inherit category and unit from parent
-        if (parent.category_id) {
-          handleChange("category_id", parent.category_id);
-        }
+        if (parent.category_id) handleChange("category_id", parent.category_id);
         handleChange("unit", parent.unit);
       }
     }
@@ -300,45 +279,31 @@ export default function MaterialDialog({
       setError("Material name is required");
       return;
     }
-
     if (isVariant && !formData.parent_id) {
       setError("Please select a parent material for this variant");
       return;
     }
-
     try {
       const dataToSubmit = {
         ...formData,
         parent_id: isVariant ? formData.parent_id : null,
       };
-
       if (isEdit) {
-        await updateMaterial.mutateAsync({
-          id: material.id,
-          data: dataToSubmit,
-        });
+        await updateMaterial.mutateAsync({ id: material.id, data: dataToSubmit });
       } else if (variants.length > 0 && !isVariant) {
-        // Create material with variants
-        await createMaterialWithVariants.mutateAsync({
-          ...dataToSubmit,
-          variants,
-        });
+        await createMaterialWithVariants.mutateAsync({ ...dataToSubmit, variants });
       } else {
         await createMaterial.mutateAsync(dataToSubmit);
       }
-      clearDraft(); // Clear draft on successful save
+      clearDraft();
       onClose();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to save material";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Failed to save material");
     }
   };
 
   const handleCreateCategory = async (data: CategoryFormData) => {
-    const newCategory = await createCategory.mutateAsync({
-      ...data,
-      is_active: true,
-    });
+    const newCategory = await createCategory.mutateAsync({ ...data, is_active: true });
     handleChange("category_id", newCategory.id);
     setCategoryDialogOpen(false);
   };
@@ -346,7 +311,6 @@ export default function MaterialDialog({
   const handleAddBrand = async (brandName?: string, variantName?: string | null) => {
     const name = brandName || newBrandName;
     if (!material || !name.trim()) return;
-
     try {
       await createBrand.mutateAsync({
         material_id: material.id,
@@ -354,24 +318,9 @@ export default function MaterialDialog({
         variant_name: variantName || null,
         is_preferred: false,
       });
-      if (!brandName) {
-        setNewBrandName("");
-      }
+      if (!brandName) setNewBrandName("");
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to add brand";
-      setError(message);
-    }
-  };
-
-  const handleTogglePreferred = async (brand: MaterialBrand) => {
-    if (!material) return;
-    try {
-      await updateBrand.mutateAsync({
-        id: brand.id,
-        data: { is_preferred: !brand.is_preferred },
-      });
-    } catch (err) {
-      console.error("Failed to update brand:", err);
+      setError(err instanceof Error ? err.message : "Failed to add brand");
     }
   };
 
@@ -379,10 +328,7 @@ export default function MaterialDialog({
     if (!material) return;
     if (!confirm(`Delete brand "${brand.brand_name}"?`)) return;
     try {
-      await deleteBrand.mutateAsync({
-        id: brand.id,
-        materialId: material.id,
-      });
+      await deleteBrand.mutateAsync({ id: brand.id, materialId: material.id });
     } catch (err) {
       console.error("Failed to delete brand:", err);
     }
@@ -421,206 +367,254 @@ export default function MaterialDialog({
       maxWidth="md"
       fullWidth
       fullScreen={isMobile}
+      PaperProps={{ sx: { borderRadius: isMobile ? 0 : 2 } }}
     >
-      <DialogTitle
+      {/* Header */}
+      <Box
         sx={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
+          px: 2.5,
+          pt: 2,
+          pb: 1.5,
+          borderBottom: 1,
+          borderColor: "divider",
+          flexShrink: 0,
         }}
       >
-        <Typography variant="h6" component="span">
-          {isEdit ? "Edit Material" : "Add New Material"}
-        </Typography>
-        <IconButton onClick={onClose} size="small">
-          <CloseIcon />
-        </IconButton>
-      </DialogTitle>
-
-      <DialogContent dividers>
-        {hasRestoredDraft && (
-          <Alert
-            severity="info"
-            sx={{ mb: 2 }}
-            action={
-              <Button size="small" color="inherit" onClick={discardDraft}>
-                Discard
-              </Button>
-            }
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 1,
+            mb: 1.25,
+          }}
+        >
+          <Typography
+            sx={{
+              fontSize: 9.5,
+              fontWeight: 700,
+              color: "text.secondary",
+              textTransform: "uppercase",
+              letterSpacing: 0.6,
+            }}
           >
-            Restored from previous session
-          </Alert>
-        )}
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
+            {isEdit ? "Edit material" : "New material"}
+          </Typography>
+          <IconButton onClick={onClose} size="small" aria-label="Close">
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Box>
+        <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
+          <EntityImageAvatar
+            src={formData.image_url || null}
+            name={formData.name || "?"}
+            size={48}
+            fallbackIcon={<InventoryIcon />}
+            tint="primary"
+          />
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography sx={{ fontSize: 16, fontWeight: 700, lineHeight: 1.25 }}>
+              {formData.name || (isEdit ? material?.name : "Untitled material")}
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: 11,
+                color: "text.secondary",
+                textTransform: "uppercase",
+                letterSpacing: 0.4,
+                mt: 0.25,
+              }}
+            >
+              {[material?.code, formData.unit, currentCategoryName].filter(Boolean).join(" · ") ||
+                "Fill in basics below"}
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
 
-        <Grid container spacing={2}>
-          {/* Basic Info */}
-          <Grid size={{ xs: 12, md: customizeCode ? 6 : 8 }}>
-            <TextField
-              fullWidth
-              label="Material Name"
-              value={formData.name}
-              onChange={(e) => handleChange("name", e.target.value)}
-              required
-              autoFocus
-              helperText={
-                !customizeCode && (
-                  <Box component="span" sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                    Code will be auto-generated
-                    <Button
-                      size="small"
-                      onClick={() => setCustomizeCode(true)}
-                      sx={{ minWidth: "auto", p: 0, ml: 0.5, textTransform: "none", fontSize: "0.75rem" }}
-                      startIcon={<EditIcon sx={{ fontSize: 14 }} />}
-                    >
-                      Customize
-                    </Button>
-                  </Box>
-                )
+      <DialogContent sx={{ p: 0, bgcolor: alpha(theme.palette.background.default, 0.4) }}>
+        <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2 }}>
+          {hasRestoredDraft && (
+            <Alert
+              severity="info"
+              sx={{ fontSize: 12 }}
+              action={
+                <Button size="small" color="inherit" onClick={discardDraft}>
+                  Discard
+                </Button>
               }
-            />
-          </Grid>
-          {customizeCode && (
-            <Grid size={{ xs: 12, md: 2 }}>
-              <TextField
-                fullWidth
-                label="Code"
-                value={formData.code}
-                onChange={(e) =>
-                  handleChange("code", e.target.value.toUpperCase())
-                }
-                placeholder="Auto"
-                helperText="Auto if empty"
-              />
-            </Grid>
+            >
+              Restored from previous session
+            </Alert>
+          )}
+          {error && (
+            <Alert severity="error" sx={{ fontSize: 12 }}>
+              {error}
+            </Alert>
           )}
 
-          <Grid size={{ xs: 12, md: 4 }}>
-            <Box sx={{ display: "flex", gap: 0.5, alignItems: "flex-start" }}>
-              <Box sx={{ flex: 1 }}>
-                <CategoryAutocomplete
-                  value={formData.category_id || null}
-                  onChange={(value) => handleChange("category_id", value || "")}
-                  parentOnly={false}
-                  disabled={isVariant && !!formData.parent_id}
-                  label="Category"
-                  placeholder="Search categories..."
+          {/* Basics */}
+          <Section title="Basics">
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr", md: customizeCode ? "1.5fr 1fr 1.5fr" : "2fr 1.5fr" },
+                gap: 1.5,
+              }}
+            >
+              <TextField
+                size="small"
+                label="Material name"
+                value={formData.name}
+                onChange={(e) => handleChange("name", e.target.value)}
+                required
+                autoFocus
+                helperText={
+                  !customizeCode ? (
+                    <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+                      Code auto-generated
+                      <Box
+                        component="span"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setCustomizeCode(true)}
+                        sx={{
+                          color: "primary.main",
+                          cursor: "pointer",
+                          fontWeight: 600,
+                          ml: 0.5,
+                          "&:hover": { textDecoration: "underline" },
+                        }}
+                      >
+                        Customize
+                      </Box>
+                    </Box>
+                  ) : undefined
+                }
+              />
+              {customizeCode && (
+                <TextField
+                  size="small"
+                  label="Code"
+                  value={formData.code}
+                  onChange={(e) => handleChange("code", e.target.value.toUpperCase())}
+                  placeholder="Auto if empty"
                 />
+              )}
+              <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.5 }}>
+                <Box sx={{ flex: 1 }}>
+                  <CategoryAutocomplete
+                    value={formData.category_id || null}
+                    onChange={(value) => handleChange("category_id", value || "")}
+                    parentOnly={false}
+                    disabled={isVariant && !!formData.parent_id}
+                    label="Category"
+                    placeholder="Search categories..."
+                  />
+                </Box>
+                <Tooltip title="Add new category">
+                  <span>
+                    <IconButton
+                      onClick={() => setCategoryDialogOpen(true)}
+                      disabled={isVariant && !!formData.parent_id}
+                      size="small"
+                      color="primary"
+                      sx={{ mt: 0.5 }}
+                    >
+                      <AddIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
               </Box>
-              <Tooltip title="Add new category">
-                <IconButton
-                  onClick={() => setCategoryDialogOpen(true)}
-                  disabled={isVariant && !!formData.parent_id}
-                  sx={{ mt: 1 }}
-                  size="small"
-                  color="primary"
-                >
-                  <AddIcon />
-                </IconButton>
-              </Tooltip>
             </Box>
-          </Grid>
 
-          {/* Optional Fields - Local Name and Description as toggle buttons */}
-          <Grid size={12}>
-            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+            {/* Optional toggle buttons */}
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mt: 1.5 }}>
               {!showLocalName && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<TranslateIcon />}
+                <ToggleAddButton
+                  icon={<TranslateIcon sx={{ fontSize: 14 }} />}
+                  label="Add local name"
                   onClick={() => setShowLocalName(true)}
-                  sx={{ textTransform: "none" }}
-                >
-                  Add Local Name (Tamil)
-                </Button>
+                />
               )}
               {!showDescription && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<DescriptionIcon />}
+                <ToggleAddButton
+                  icon={<DescriptionIcon sx={{ fontSize: 14 }} />}
+                  label="Add description"
                   onClick={() => setShowDescription(true)}
-                  sx={{ textTransform: "none" }}
-                >
-                  Add Description
-                </Button>
+                />
               )}
               {!showImageUpload && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<ImageIcon />}
+                <ToggleAddButton
+                  icon={<ImageIcon sx={{ fontSize: 14 }} />}
+                  label="Add product image"
                   onClick={() => setShowImageUpload(true)}
-                  sx={{ textTransform: "none" }}
-                >
-                  Add Product Image
-                </Button>
+                />
               )}
             </Box>
-          </Grid>
 
-          {showLocalName && (
-            <Grid size={{ xs: 12, md: 6 }}>
-              <TextField
-                fullWidth
-                label="Local Name (Tamil)"
-                value={formData.local_name}
-                onChange={(e) => handleChange("local_name", e.target.value)}
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        size="small"
-                        onClick={() => {
-                          setShowLocalName(false);
-                          handleChange("local_name", "");
-                        }}
-                      >
-                        <CloseIcon fontSize="small" />
-                      </IconButton>
-                    </InputAdornment>
-                  ),
+            {(showLocalName || showDescription) && (
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: { xs: "1fr", md: showLocalName && showDescription ? "1fr 1fr" : "1fr" },
+                  gap: 1.5,
+                  mt: 1.5,
                 }}
-              />
-            </Grid>
-          )}
+              >
+                {showLocalName && (
+                  <TextField
+                    size="small"
+                    label="Local name (Tamil)"
+                    value={formData.local_name}
+                    onChange={(e) => handleChange("local_name", e.target.value)}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              setShowLocalName(false);
+                              handleChange("local_name", "");
+                            }}
+                          >
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                )}
+                {showDescription && (
+                  <TextField
+                    size="small"
+                    label="Description"
+                    value={formData.description}
+                    onChange={(e) => handleChange("description", e.target.value)}
+                    multiline
+                    rows={2}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end" sx={{ alignSelf: "flex-start", mt: 1 }}>
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              setShowDescription(false);
+                              handleChange("description", "");
+                            }}
+                          >
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                )}
+              </Box>
+            )}
 
-          {showDescription && (
-            <Grid size={{ xs: 12, md: showLocalName ? 6 : 12 }}>
-              <TextField
-                fullWidth
-                label="Description"
-                value={formData.description}
-                onChange={(e) => handleChange("description", e.target.value)}
-                multiline
-                rows={2}
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end" sx={{ alignSelf: "flex-start", mt: 1 }}>
-                      <IconButton
-                        size="small"
-                        onClick={() => {
-                          setShowDescription(false);
-                          handleChange("description", "");
-                        }}
-                      >
-                        <CloseIcon fontSize="small" />
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Grid>
-          )}
-
-          {showImageUpload && (
-            <Grid size={12}>
-              <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+            {showImageUpload && (
+              <Box sx={{ mt: 1.5, display: "flex", alignItems: "flex-start", gap: 1 }}>
                 <Box sx={{ flex: 1 }}>
                   <FileUploader
                     supabase={supabase}
@@ -628,7 +622,7 @@ export default function MaterialDialog({
                     folderPath="product-photos"
                     fileNamePrefix="material"
                     accept="image"
-                    label="Product Image"
+                    label="Product image"
                     value={formData.image_url ? { url: formData.image_url, name: "Product Image", size: 0 } : null}
                     onUpload={(file) => handleChange("image_url", file.url)}
                     onRemove={() => handleChange("image_url", "")}
@@ -642,437 +636,368 @@ export default function MaterialDialog({
                     setShowImageUpload(false);
                     handleChange("image_url", "");
                   }}
-                  sx={{ mt: 1 }}
+                  sx={{ mt: 0.5 }}
                 >
                   <CloseIcon fontSize="small" />
                 </IconButton>
               </Box>
-            </Grid>
-          )}
+            )}
+          </Section>
 
-          {/* Variant Section */}
-          <Grid size={12}>
-            <Divider sx={{ my: 1 }}>
-              <Typography variant="caption" color="text.secondary">
-                Material Variant
-              </Typography>
-            </Divider>
-          </Grid>
-
-          <Grid size={12}>
+          {/* Variant of */}
+          <Section title="Material variant">
             <FormControlLabel
               control={
                 <Switch
+                  size="small"
                   checked={isVariant}
                   onChange={(e) => {
                     setIsVariant(e.target.checked);
-                    if (!e.target.checked) {
-                      handleChange("parent_id", "");
-                    }
+                    if (!e.target.checked) handleChange("parent_id", "");
                   }}
                   disabled={isEdit && (material?.variant_count || 0) > 0}
                 />
               }
               label={
                 <Box>
-                  <Typography variant="body2">
-                    This is a variant of another material
-                  </Typography>
+                  <Typography sx={{ fontSize: 13 }}>This is a variant of another material</Typography>
                   {isEdit && (material?.variant_count || 0) > 0 && (
-                    <Typography variant="caption" color="text.secondary">
-                      Cannot convert to variant: this material has {material?.variant_count} variants
+                    <Typography sx={{ fontSize: 11, color: "text.secondary" }}>
+                      Cannot convert: this material has {material?.variant_count} variants
                     </Typography>
                   )}
                 </Box>
               }
             />
-          </Grid>
+            {isVariant && (
+              <Box sx={{ mt: 1.5 }}>
+                <Autocomplete
+                  size="small"
+                  options={availableParentMaterials}
+                  getOptionLabel={(option) =>
+                    `${option.name}${option.code ? ` (${option.code})` : ""}`
+                  }
+                  value={
+                    availableParentMaterials.find((m) => m.id === formData.parent_id) || null
+                  }
+                  onChange={(_, newValue) => handleParentChange(newValue?.id || "")}
+                  slotProps={{ popper: { disablePortal: false } }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Parent material"
+                      placeholder="Search parent material..."
+                      helperText="Select the parent material this variant belongs to"
+                      required
+                      size="small"
+                    />
+                  )}
+                  isOptionEqualToValue={(option, value) => option.id === value.id}
+                />
+              </Box>
+            )}
+          </Section>
 
-          {isVariant && (
-            <Grid size={12}>
-              <Autocomplete
-                options={availableParentMaterials}
-                getOptionLabel={(option) =>
-                  `${option.name}${option.code ? ` (${option.code})` : ""}`
-                }
-                value={
-                  availableParentMaterials.find((m) => m.id === formData.parent_id) || null
-                }
-                onChange={(_, newValue) => {
-                  handleParentChange(newValue?.id || "");
-                }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Parent Material"
-                    placeholder="Search parent material..."
-                    helperText="Select the parent material this variant belongs to"
-                    required
-                  />
-                )}
-                isOptionEqualToValue={(option, value) => option.id === value.id}
-              />
-            </Grid>
-          )}
-
-          <Grid size={12}>
-            <Divider sx={{ my: 1 }}>
-              <Typography variant="caption" color="text.secondary">
-                Units & Specifications
-              </Typography>
-            </Divider>
-          </Grid>
-
-          <Grid size={{ xs: 6, md: 4 }}>
-            <FormControl fullWidth required>
-              <InputLabel>Primary Unit</InputLabel>
-              <Select
-                value={formData.unit}
-                onChange={(e) =>
-                  handleChange("unit", e.target.value as MaterialUnit)
-                }
-                label="Primary Unit"
-              >
-                {UNITS.map((unit) => (
-                  <MenuItem key={unit.value} value={unit.value}>
-                    {unit.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-
-          {fieldVisibility.showHsnCode && (
-            <Grid size={{ xs: 6, md: 4 }}>
-              <TextField
-                fullWidth
-                label="HSN Code"
-                value={formData.hsn_code}
-                onChange={(e) => handleChange("hsn_code", e.target.value)}
-              />
-            </Grid>
-          )}
-
-          <Grid size={{ xs: 6, md: fieldVisibility.showHsnCode ? 4 : 6 }}>
-            <TextField
-              fullWidth
-              label="GST Rate (%)"
-              type="number"
-              value={formData.gst_rate}
-              onChange={(e) =>
-                handleChange("gst_rate", parseFloat(e.target.value) || 0)
-              }
-              slotProps={{
-                input: {
-                  inputProps: { min: 0, max: 100, step: 0.5 },
-                },
+          {/* Units & specs */}
+          <Section title="Units & specifications">
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr 1fr", md: "1fr 1fr 1fr" },
+                gap: 1.5,
               }}
-            />
-          </Grid>
-
-          <Grid size={{ xs: 6, md: fieldVisibility.showMinOrderQty ? 6 : 12 }}>
-            <TextField
-              fullWidth
-              label={`Reorder Level (${formData.unit})`}
-              type="number"
-              value={formData.reorder_level}
-              onChange={(e) =>
-                handleChange("reorder_level", parseFloat(e.target.value) || 0)
-              }
-              helperText="Alert when stock falls below this level"
-              slotProps={{
-                input: {
+            >
+              <FormControl size="small" required>
+                <InputLabel>Primary unit</InputLabel>
+                <Select
+                  value={formData.unit}
+                  onChange={(e) => handleChange("unit", e.target.value as MaterialUnit)}
+                  label="Primary unit"
+                  MenuProps={{ disablePortal: false }}
+                >
+                  {UNITS.map((unit) => (
+                    <MenuItem key={unit.value} value={unit.value} sx={{ fontSize: 13 }}>
+                      {unit.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              {fieldVisibility.showHsnCode && (
+                <TextField
+                  size="small"
+                  label="HSN code"
+                  value={formData.hsn_code}
+                  onChange={(e) => handleChange("hsn_code", e.target.value)}
+                />
+              )}
+              <TextField
+                size="small"
+                label="GST rate (%)"
+                type="number"
+                value={formData.gst_rate}
+                onChange={(e) => handleChange("gst_rate", parseFloat(e.target.value) || 0)}
+                InputProps={{
+                  inputProps: { min: 0, max: 100, step: 0.5 },
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+              />
+              <TextField
+                size="small"
+                label={`Reorder level`}
+                type="number"
+                value={formData.reorder_level}
+                onChange={(e) => handleChange("reorder_level", parseFloat(e.target.value) || 0)}
+                helperText="Stock alert threshold"
+                InputProps={{
                   inputProps: { min: 0, step: 1 },
                   endAdornment: <InputAdornment position="end">{formData.unit}</InputAdornment>,
-                },
-              }}
-            />
-          </Grid>
-
-          {fieldVisibility.showMinOrderQty && (
-            <Grid size={{ xs: 6, md: 6 }}>
-              <TextField
-                fullWidth
-                label={`Min Order Quantity (${formData.unit})`}
-                type="number"
-                value={formData.min_order_qty}
-                onChange={(e) =>
-                  handleChange("min_order_qty", parseFloat(e.target.value) || 1)
-                }
-                helperText="Minimum quantity when placing orders"
-                slotProps={{
-                  input: {
-                    inputProps: { min: 1, step: 1 },
-                    endAdornment: <InputAdornment position="end">{formData.unit}</InputAdornment>,
-                  },
                 }}
               />
-            </Grid>
-          )}
+              {fieldVisibility.showMinOrderQty && (
+                <TextField
+                  size="small"
+                  label={`Min order qty`}
+                  type="number"
+                  value={formData.min_order_qty}
+                  onChange={(e) => handleChange("min_order_qty", parseFloat(e.target.value) || 1)}
+                  helperText="Minimum per order"
+                  InputProps={{
+                    inputProps: { min: 1, step: 1 },
+                    endAdornment: <InputAdornment position="end">{formData.unit}</InputAdornment>,
+                  }}
+                />
+              )}
+            </Box>
 
-          {/* Weight & Length Section - Only show toggle for TMT/Steel materials */}
-          {fieldVisibility.showWeightLengthToggle && (
-            <Grid size={12}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1, my: 1 }}>
+            {fieldVisibility.showWeightLengthToggle && (
+              <Box sx={{ mt: 1.5 }}>
                 <FormControlLabel
                   control={
                     <Switch
+                      size="small"
                       checked={showWeightSection}
                       onChange={(e) => setShowWeightSection(e.target.checked)}
-                      size="small"
                     />
                   }
                   label={
-                    <Typography variant="body2" color="text.secondary">
-                      Enable Weight & Length Tracking
-                    </Typography>
+                    <Typography sx={{ fontSize: 13 }}>Enable weight & length tracking</Typography>
                   }
                 />
-              </Box>
-            </Grid>
-          )}
-
-          {fieldVisibility.showWeightLengthToggle && showWeightSection && (
-            <>
-              <Grid size={12}>
-                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
-                  Common Settings (Applied to All Variants)
-                </Typography>
-              </Grid>
-
-              <Grid size={{ xs: 6, md: 3 }}>
-                <TextField
-                  fullWidth
-                  label="Length per Piece"
-                  type="number"
-                  value={formData.length_per_piece ?? ""}
-                  onChange={(e) =>
-                    handleChange(
-                      "length_per_piece",
-                      e.target.value ? parseFloat(e.target.value) : null
-                    )
-                  }
-                  helperText="e.g., 40ft for TMT bars"
-                  slotProps={{
-                    input: {
-                      inputProps: { min: 0, step: 0.1 },
-                    },
-                  }}
-                />
-              </Grid>
-
-              <Grid size={{ xs: 6, md: 3 }}>
-                <FormControl fullWidth>
-                  <InputLabel>Length Unit</InputLabel>
-                  <Select
-                    value={formData.length_unit || "ft"}
-                    onChange={(e) => handleChange("length_unit", e.target.value)}
-                    label="Length Unit"
+                <Collapse in={showWeightSection} unmountOnExit>
+                  <Box
+                    sx={{
+                      display: "grid",
+                      gridTemplateColumns: { xs: "1fr 1fr", md: "1fr 1fr 1fr 1fr" },
+                      gap: 1.5,
+                      mt: 1.5,
+                    }}
                   >
-                    <MenuItem value="ft">Feet (ft)</MenuItem>
-                    <MenuItem value="m">Meter (m)</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              <Grid size={{ xs: 6, md: 3 }}>
-                <FormControl fullWidth>
-                  <InputLabel>Weight Unit</InputLabel>
-                  <Select
-                    value={formData.weight_unit || "kg"}
-                    onChange={(e) => handleChange("weight_unit", e.target.value)}
-                    label="Weight Unit"
-                  >
-                    <MenuItem value="kg">Kilogram (kg)</MenuItem>
-                    <MenuItem value="g">Gram (g)</MenuItem>
-                    <MenuItem value="ton">Ton</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              <Grid size={{ xs: 6, md: 3 }}>
-                <TextField
-                  fullWidth
-                  label="Weight per Unit"
-                  type="number"
-                  value={formData.weight_per_unit ?? ""}
-                  onChange={(e) =>
-                    handleChange(
-                      "weight_per_unit",
-                      e.target.value ? parseFloat(e.target.value) : null
-                    )
-                  }
-                  helperText="Standard weight - actual may vary ±5%"
-                  slotProps={{
-                    input: {
-                      inputProps: { min: 0, step: 0.001 },
-                    },
-                  }}
-                />
-              </Grid>
-            </>
-          )}
-
-          {/* Inline Variants Section - Only for new parent materials (not editing, not variants) */}
-          {!isEdit && !isVariant && (
-            <Grid size={12}>
-              <Accordion
-                expanded={showVariantSection}
-                onChange={(_, expanded) => setShowVariantSection(expanded)}
-              >
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                    <AccountTreeIcon fontSize="small" color="action" />
-                    <Typography>
-                      Add Variants{" "}
-                      {variants.length > 0 && `(${variants.length})`}
-                    </Typography>
+                    <TextField
+                      size="small"
+                      label="Length per piece"
+                      type="number"
+                      value={formData.length_per_piece ?? ""}
+                      onChange={(e) =>
+                        handleChange(
+                          "length_per_piece",
+                          e.target.value ? parseFloat(e.target.value) : null
+                        )
+                      }
+                      InputProps={{ inputProps: { min: 0, step: 0.1 } }}
+                    />
+                    <FormControl size="small">
+                      <InputLabel>Length unit</InputLabel>
+                      <Select
+                        value={formData.length_unit || "ft"}
+                        onChange={(e) => handleChange("length_unit", e.target.value)}
+                        label="Length unit"
+                        MenuProps={{ disablePortal: false }}
+                      >
+                        <MenuItem value="ft" sx={{ fontSize: 13 }}>Feet (ft)</MenuItem>
+                        <MenuItem value="m" sx={{ fontSize: 13 }}>Meter (m)</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <FormControl size="small">
+                      <InputLabel>Weight unit</InputLabel>
+                      <Select
+                        value={formData.weight_unit || "kg"}
+                        onChange={(e) => handleChange("weight_unit", e.target.value)}
+                        label="Weight unit"
+                        MenuProps={{ disablePortal: false }}
+                      >
+                        <MenuItem value="kg" sx={{ fontSize: 13 }}>Kilogram (kg)</MenuItem>
+                        <MenuItem value="g" sx={{ fontSize: 13 }}>Gram (g)</MenuItem>
+                        <MenuItem value="ton" sx={{ fontSize: 13 }}>Ton</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <TextField
+                      size="small"
+                      label="Weight per unit"
+                      type="number"
+                      value={formData.weight_per_unit ?? ""}
+                      onChange={(e) =>
+                        handleChange(
+                          "weight_per_unit",
+                          e.target.value ? parseFloat(e.target.value) : null
+                        )
+                      }
+                      helperText="±5% may vary"
+                      InputProps={{ inputProps: { min: 0, step: 0.001 } }}
+                    />
                   </Box>
-                </AccordionSummary>
-                <AccordionDetails>
-                  <VariantInlineTable
-                    parentName={formData.name}
-                    parentCode={formData.code}
-                    parentUnit={formData.unit}
-                    variants={variants}
-                    onVariantsChange={setVariants}
-                    categoryId={formData.category_id}
-                    categories={categories}
-                  />
-                </AccordionDetails>
-              </Accordion>
-            </Grid>
+                </Collapse>
+              </Box>
+            )}
+          </Section>
+
+          {/* Inline variants on creation */}
+          {!isEdit && !isVariant && (
+            <CollapsibleSection
+              title={`Add variants${variants.length > 0 ? ` (${variants.length})` : ""}`}
+              icon={<AccountTreeIcon sx={{ fontSize: 16, color: "action.active" }} />}
+              expanded={showVariantSection}
+              onToggle={() => setShowVariantSection((v) => !v)}
+            >
+              <VariantInlineTable
+                parentName={formData.name}
+                parentCode={formData.code}
+                parentUnit={formData.unit}
+                variants={variants}
+                onVariantsChange={setVariants}
+                categoryId={formData.category_id}
+                categories={categories}
+              />
+            </CollapsibleSection>
           )}
 
-          {/* Material Variants Section - Show for all parent materials (not variants themselves) */}
+          {/* Existing variants on edit */}
           {isEdit && material && !material.parent_id && (
-            <Grid size={12}>
-              <Accordion defaultExpanded={materialVariants.length > 0}>
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Typography>
-                    Material Variants ({materialVariants.length})
-                  </Typography>
-                </AccordionSummary>
-                <AccordionDetails>
-                  <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                    {materialVariants.length > 0 ? (
-                      <>
-                        {materialVariants.map((variant) => (
-                          <Box
-                            key={variant.id}
-                            sx={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 1,
-                              p: 1,
-                              bgcolor: "grey.50",
-                              borderRadius: 1,
+            <CollapsibleSection
+              title={`Material variants (${materialVariants.length})`}
+              icon={<AccountTreeIcon sx={{ fontSize: 16, color: "action.active" }} />}
+              expanded={variantsExpanded || materialVariants.length > 0}
+              onToggle={() => setVariantsExpanded((v) => !v)}
+              defaultOpen={materialVariants.length > 0}
+            >
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+                {materialVariants.length > 0 ? (
+                  <>
+                    {materialVariants.map((variant) => (
+                      <Box
+                        key={variant.id}
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1,
+                          px: 1.25,
+                          py: 0.75,
+                          border: 1,
+                          borderColor: "divider",
+                          borderRadius: 1,
+                          bgcolor: "background.paper",
+                        }}
+                      >
+                        <Typography sx={{ fontSize: 13, fontWeight: 600, flex: 1 }}>
+                          {variant.name}
+                        </Typography>
+                        {variant.code && (
+                          <Typography sx={{ fontSize: 11, color: "text.secondary" }}>
+                            {variant.code}
+                          </Typography>
+                        )}
+                        {variant.weight_per_unit && variant.length_per_piece && (
+                          <Chip
+                            label={`~${calculatePieceWeight(variant.weight_per_unit, variant.length_per_piece, variant.length_unit || "ft")?.toFixed(2) || variant.weight_per_unit} kg/pc`}
+                            size="small"
+                            sx={{ height: 20, fontSize: 10.5 }}
+                          />
+                        )}
+                        {variant.length_per_piece && (
+                          <Chip
+                            label={`${variant.length_per_piece} ${variant.length_unit || "ft"}`}
+                            size="small"
+                            sx={{ height: 20, fontSize: 10.5 }}
+                          />
+                        )}
+                        <Tooltip title="Edit variant">
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              onClose();
+                              onEditVariant?.(variant);
                             }}
                           >
-                            <Typography variant="body2" fontWeight={500} sx={{ flex: 1 }}>
-                              {variant.name}
-                            </Typography>
-                            {variant.code && (
-                              <Typography variant="caption" color="text.secondary">
-                                ({variant.code})
-                              </Typography>
-                            )}
-                            {variant.weight_per_unit && variant.length_per_piece && (
-                              <Chip
-                                label={`~${calculatePieceWeight(variant.weight_per_unit, variant.length_per_piece, variant.length_unit || "ft")?.toFixed(2) || variant.weight_per_unit} kg/pc`}
-                                size="small"
-                                variant="outlined"
-                              />
-                            )}
-                            {variant.length_per_piece && (
-                              <Chip
-                                label={`${variant.length_per_piece} ${variant.length_unit || "ft"}`}
-                                size="small"
-                                variant="outlined"
-                              />
-                            )}
-                            <Tooltip title="Edit variant">
-                              <IconButton
-                                size="small"
-                                onClick={() => {
-                                  onClose();
-                                  onEditVariant?.(variant);
-                                }}
-                              >
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </Box>
-                        ))}
-                        <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                          Click the edit icon to modify individual variants.
-                        </Typography>
-                      </>
-                    ) : (
-                      <Typography variant="body2" color="text.secondary">
-                        No variants yet. Add variants to track different sizes or specifications.
-                      </Typography>
-                    )}
-                    <Button
-                      startIcon={<AddIcon />}
-                      onClick={() => setAddVariantDialogOpen(true)}
-                      size="small"
-                      sx={{ alignSelf: "flex-start", mt: 1 }}
-                    >
-                      Add Variant
-                    </Button>
-                  </Box>
-                </AccordionDetails>
-              </Accordion>
-            </Grid>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    ))}
+                  </>
+                ) : (
+                  <Typography sx={{ fontSize: 12, color: "text.secondary" }}>
+                    No variants yet. Add variants to track different sizes or specs.
+                  </Typography>
+                )}
+                <Button
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={() => setAddVariantDialogOpen(true)}
+                  sx={{ alignSelf: "flex-start", mt: 0.5, textTransform: "none" }}
+                >
+                  Add variant
+                </Button>
+              </Box>
+            </CollapsibleSection>
           )}
 
-          {/* Brands Section - Only show for existing materials */}
+          {/* Brands */}
           {isEdit && material && (
-            <Grid size={12}>
-              <Accordion
-                expanded={brandsExpanded}
-                onChange={(_, isExpanded) => setBrandsExpanded(isExpanded)}
-              >
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Typography>
-                    Brands ({activeBrands.length})
-                  </Typography>
-                </AccordionSummary>
-                <AccordionDetails>
-                  <BrandVariantEditor
-                    materialId={material.id}
-                    brands={activeBrands}
-                    categoryName={currentCategoryName}
-                    supabase={supabase}
-                    onAddBrand={handleAddBrand}
-                    onUpdateBrand={async (brandId, data) => {
-                      await updateBrand.mutateAsync({ id: brandId, data });
-                    }}
-                    onDeleteBrand={handleDeleteBrand}
-                    disabled={createBrand.isPending || updateBrand.isPending || deleteBrand.isPending}
-                  />
-                </AccordionDetails>
-              </Accordion>
-            </Grid>
+            <CollapsibleSection
+              title={`Brands (${activeBrands.length})`}
+              icon={<BrandIcon sx={{ fontSize: 16, color: "action.active" }} />}
+              expanded={brandsExpanded}
+              onToggle={() => setBrandsExpanded((v) => !v)}
+            >
+              <BrandVariantEditor
+                materialId={material.id}
+                brands={activeBrands}
+                categoryName={currentCategoryName}
+                supabase={supabase}
+                onAddBrand={handleAddBrand}
+                onUpdateBrand={async (brandId, data) => {
+                  await updateBrand.mutateAsync({ id: brandId, data });
+                }}
+                onDeleteBrand={handleDeleteBrand}
+                disabled={createBrand.isPending || updateBrand.isPending || deleteBrand.isPending}
+              />
+            </CollapsibleSection>
           )}
-        </Grid>
+        </Box>
       </DialogContent>
 
-      <DialogActions sx={{ px: 3, py: 2 }}>
-        <Button onClick={onClose} disabled={isSubmitting}>
+      <DialogActions
+        sx={{
+          px: 2.5,
+          py: 1.5,
+          borderTop: 1,
+          borderColor: "divider",
+          flexShrink: 0,
+        }}
+      >
+        <Button onClick={onClose} disabled={isSubmitting} sx={{ textTransform: "none" }}>
           Cancel
         </Button>
         <Button
           variant="contained"
           onClick={handleSubmit}
           disabled={isSubmitting || !formData.name.trim()}
+          sx={{ textTransform: "none" }}
         >
-          {isSubmitting ? "Saving..." : isEdit ? "Update" : "Create"}
+          {isSubmitting ? "Saving…" : isEdit ? "Save changes" : "Create material"}
         </Button>
       </DialogActions>
 
-      {/* Inline Category Creation Dialog */}
+      {/* Inline category creation */}
       <CategoryDialog
         open={categoryDialogOpen}
         onClose={() => setCategoryDialogOpen(false)}
@@ -1081,60 +1006,237 @@ export default function MaterialDialog({
         isLoading={createCategory.isPending}
       />
 
-      {/* Add Variant Dialog */}
+      {/* Add variant nested dialog */}
       <Dialog
         open={addVariantDialogOpen}
         onClose={(_event, reason) => { if (reason !== "backdropClick") setAddVariantDialogOpen(false); }}
-        maxWidth="sm"
+        maxWidth="xs"
         fullWidth
+        PaperProps={{ sx: { borderRadius: 2 } }}
       >
-        <DialogTitle>Add Variant</DialogTitle>
-        <DialogContent>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
+        <Box sx={{ px: 2.5, pt: 2, pb: 1, borderBottom: 1, borderColor: "divider" }}>
+          <Typography
+            sx={{
+              fontSize: 9.5,
+              fontWeight: 700,
+              color: "text.secondary",
+              textTransform: "uppercase",
+              letterSpacing: 0.6,
+            }}
+          >
+            New variant
+          </Typography>
+          <Typography sx={{ fontSize: 16, fontWeight: 700, mt: 0.25 }}>
+            Add variant for {material?.name}
+          </Typography>
+        </Box>
+        <DialogContent sx={{ pt: 2 }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
             <TextField
-              label="Variant Name"
+              size="small"
+              label="Variant name"
               value={newVariantName}
               onChange={(e) => setNewVariantName(e.target.value)}
               fullWidth
               required
               placeholder="e.g., 8mm, Priya Brick, Chamber Brick"
-              helperText="Enter a name to identify this variant"
             />
             <TextField
-              label="Weight per Unit"
+              size="small"
+              label="Weight per unit"
               value={newVariantWeight}
               onChange={(e) => setNewVariantWeight(e.target.value)}
               type="number"
               fullWidth
               InputProps={{
                 endAdornment: <InputAdornment position="end">kg</InputAdornment>,
+                inputProps: { min: 0, step: 0.001 },
               }}
-              helperText="Optional: Weight per piece/unit"
+              helperText="Optional"
             />
             <TextField
-              label="Length per Piece"
+              size="small"
+              label="Length per piece"
               value={newVariantLength}
               onChange={(e) => setNewVariantLength(e.target.value)}
               type="number"
               fullWidth
               InputProps={{
                 endAdornment: <InputAdornment position="end">{material?.length_unit || "ft"}</InputAdornment>,
+                inputProps: { min: 0, step: 0.1 },
               }}
-              helperText="Optional: Standard length per piece"
+              helperText="Optional"
             />
           </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAddVariantDialogOpen(false)}>Cancel</Button>
+        <DialogActions sx={{ px: 2.5, py: 1.5, borderTop: 1, borderColor: "divider" }}>
+          <Button onClick={() => setAddVariantDialogOpen(false)} sx={{ textTransform: "none" }}>
+            Cancel
+          </Button>
           <Button
             variant="contained"
             onClick={handleAddVariant}
             disabled={!newVariantName.trim() || addVariant.isPending}
+            sx={{ textTransform: "none" }}
           >
-            {addVariant.isPending ? "Adding..." : "Add Variant"}
+            {addVariant.isPending ? "Adding…" : "Add variant"}
           </Button>
         </DialogActions>
       </Dialog>
     </Dialog>
+  );
+}
+
+// ============================================================
+// Section components — match the InspectPane visual vocabulary
+// ============================================================
+
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Box
+      sx={{
+        bgcolor: "background.paper",
+        border: 1,
+        borderColor: "divider",
+        borderRadius: 1.5,
+        p: 1.75,
+      }}
+    >
+      <Typography
+        sx={{
+          fontSize: 9.5,
+          fontWeight: 700,
+          color: "text.secondary",
+          textTransform: "uppercase",
+          letterSpacing: 0.6,
+          mb: 1.25,
+        }}
+      >
+        {title}
+      </Typography>
+      {children}
+    </Box>
+  );
+}
+
+function CollapsibleSection({
+  title,
+  icon,
+  expanded,
+  onToggle,
+  children,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  expanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const theme = useTheme();
+  return (
+    <Box
+      sx={{
+        bgcolor: "background.paper",
+        border: 1,
+        borderColor: "divider",
+        borderRadius: 1.5,
+        overflow: "hidden",
+      }}
+    >
+      <Box
+        role="button"
+        tabIndex={0}
+        onClick={onToggle}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          px: 1.75,
+          py: 1.25,
+          cursor: "pointer",
+          transition: "background-color 120ms",
+          "&:hover": { bgcolor: alpha(theme.palette.primary.main, 0.04) },
+          ...(expanded && { borderBottom: 1, borderColor: "divider" }),
+        }}
+      >
+        {icon}
+        <Typography
+          sx={{
+            fontSize: 13,
+            fontWeight: 700,
+            flex: 1,
+            color: "text.primary",
+          }}
+        >
+          {title}
+        </Typography>
+        {expanded ? (
+          <ExpandLessIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+        ) : (
+          <ExpandMoreIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+        )}
+      </Box>
+      <Collapse in={expanded} unmountOnExit>
+        <Box sx={{ p: 1.75 }}>{children}</Box>
+      </Collapse>
+    </Box>
+  );
+}
+
+function ToggleAddButton({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Box
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      sx={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 0.5,
+        px: 1,
+        py: 0.5,
+        border: 1,
+        borderColor: alpha(theme.palette.primary.main, 0.4),
+        borderStyle: "dashed",
+        borderRadius: 1,
+        cursor: "pointer",
+        color: theme.palette.primary.dark,
+        fontSize: 12,
+        fontWeight: 600,
+        transition: "background-color 120ms",
+        "&:hover": { bgcolor: alpha(theme.palette.primary.main, 0.06) },
+      }}
+    >
+      {icon}
+      {label}
+    </Box>
   );
 }

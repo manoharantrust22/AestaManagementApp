@@ -31,11 +31,13 @@ import ActiveSubcontracts from "./ActiveSubcontracts";
 import PersonalDetails from "./PersonalDetails";
 
 type Team = Tables<"teams">;
+type LaborCategory = Tables<"labor_categories">;
 
 interface LaborerProfileDrawerProps {
   open: boolean;
   laborer: LaborerWithDetails | null;
   teams: Team[];
+  categories?: LaborCategory[];
   canEdit: boolean;
   onClose: () => void;
   onEdit: (laborer: LaborerWithDetails) => void;
@@ -56,6 +58,7 @@ export default function LaborerProfileDrawer({
   open,
   laborer,
   teams,
+  categories = [],
   canEdit,
   onClose,
   onEdit,
@@ -144,6 +147,29 @@ export default function LaborerProfileDrawer({
                         sx={{ height: 20 }}
                       />
                     )}
+                    {/* Additional skills (multi-skill laborers) */}
+                    {(laborer.skills ?? [])
+                      .filter(
+                        (s) =>
+                          !s.is_primary &&
+                          s.category_id !== laborer.category_id
+                      )
+                      .map((s) => {
+                        const cat = categories.find(
+                          (c) => c.id === s.category_id
+                        );
+                        if (!cat) return null;
+                        return (
+                          <Chip
+                            key={s.category_id}
+                            size="small"
+                            variant="outlined"
+                            color="secondary"
+                            label={`+ ${cat.name}`}
+                            sx={{ height: 20 }}
+                          />
+                        );
+                      })}
                     <Chip
                       size="small"
                       color={laborer.status === "active" ? "success" : "default"}

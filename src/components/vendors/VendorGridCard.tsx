@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Box, Chip, Typography, alpha, useTheme } from "@mui/material";
 import {
   Storefront as StorefrontIcon,
@@ -26,6 +26,10 @@ export function VendorGridCard({
   const theme = useTheme();
   const cats = vendor.categories || [];
   const firstCat = cats[0];
+  const [imgFailed, setImgFailed] = useState(false);
+  useEffect(() => {
+    setImgFailed(false);
+  }, [vendor.shop_photo_url]);
 
   return (
     <Box
@@ -71,12 +75,13 @@ export function VendorGridCard({
           borderColor: "divider",
         }}
       >
-        {vendor.shop_photo_url ? (
+        {vendor.shop_photo_url && !imgFailed ? (
           <Box
             component="img"
             src={vendor.shop_photo_url}
             alt={vendor.name}
             loading="lazy"
+            onError={() => setImgFailed(true)}
             sx={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
         ) : (
