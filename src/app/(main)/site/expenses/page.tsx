@@ -2,7 +2,14 @@
 
 export const dynamic = "force-dynamic";
 
+// Feature flag for the redesigned expenses page (Labor / Building groups, single
+// scrollbar, sticky filter bar). Set NEXT_PUBLIC_FF_EXPENSES_REDESIGN=true in
+// .env.local to enable. Same pattern as NEXT_PUBLIC_FF_ATTENDANCE_REFACTOR.
+const USE_EXPENSES_REDESIGN =
+  process.env.NEXT_PUBLIC_FF_EXPENSES_REDESIGN === "true";
+
 import React, { useState, useEffect, useMemo } from "react";
+import ExpensesPageV2 from "./page.v2";
 import {
   Box,
   Button,
@@ -97,6 +104,13 @@ interface ExpenseWithCategory extends Expense {
 }
 
 export default function ExpensesPage() {
+  if (USE_EXPENSES_REDESIGN) {
+    return <ExpensesPageV2 />;
+  }
+  return <ExpensesPageV1 />;
+}
+
+function ExpensesPageV1() {
   const { selectedSite } = useSite();
   const auditState = useSiteAuditState();
   const { userProfile } = useAuth();
