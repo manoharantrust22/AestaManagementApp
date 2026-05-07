@@ -40,6 +40,7 @@ import { ReconciliationStrip } from "./ReconciliationStrip";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
 import { HeadcountEntryInline } from "./HeadcountEntryInline";
 import { WeeklyHeadcountSettleDialog } from "./WeeklyHeadcountSettleDialog";
+import { ContractWorkUpdatesPanel } from "./ContractWorkUpdatesPanel";
 import MiscExpenseDialog from "@/components/expenses/MiscExpenseDialog";
 import { MestriSettleDialog } from "@/components/payments/MestriSettleDialog";
 
@@ -337,6 +338,17 @@ export function ExpandableContractRow({
             fallbackQuoted={contract.totalValue}
             extrasTotal={extrasTotal}
           />
+
+          {/* Today's work updates (morning + evening photos + plan/summary).
+              Hidden for in-house Civil since per-contract photos for the
+              auto-created in-house pool aren't useful — civil photos
+              already live at the site level via daily_work_summary. */}
+          {!contract.isInHouse && (
+            <ContractWorkUpdatesPanel
+              siteId={contract.siteId}
+              contractId={contract.id}
+            />
+          )}
 
           {/* Headcount entry — only for headcount mode */}
           {contract.laborTrackingMode === "headcount" && (
