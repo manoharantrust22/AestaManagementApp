@@ -21,10 +21,13 @@ import dayjs from "dayjs";
 import PageHeader from "@/components/layout/PageHeader";
 import { useSelectedSite } from "@/contexts/SiteContext";
 import { TradeChipFilter, type TradeChipSelection } from "@/components/attendance/TradeChipFilter";
+import { getTradeColor } from "@/theme/tradeColors";
 import { useSiteTrades } from "@/hooks/queries/useTrades";
 import { useTradeAttendanceSummary } from "@/hooks/queries/useTradeAttendanceSummary";
 import { TradeAttendanceKpiStrip } from "./TradeAttendanceKpiStrip";
 import { HeadcountAttendanceTable } from "./HeadcountAttendanceTable";
+import { CivilStyleTradeKpiStrip } from "./CivilStyleTradeKpiStrip";
+import { CivilStyleTradeTable } from "./CivilStyleTradeTable";
 import { TradeAttendanceEntryDrawer } from "./TradeAttendanceEntryDrawer";
 import { RecordPaymentDialog } from "@/components/trades/RecordPaymentDialog";
 import MiscExpenseDialog from "@/components/expenses/MiscExpenseDialog";
@@ -54,6 +57,11 @@ export function TradeAttendanceView({
     trades
       ?.find((t) => t.category.id === selection.categoryId)
       ?.contracts.find((c) => c.id === selection.contractId) ?? null;
+
+  const tradeColor = React.useMemo(
+    () => getTradeColor(selection.tradeName),
+    [selection.tradeName]
+  );
 
   const { data: summary, isLoading: summaryLoading } = useTradeAttendanceSummary(
     contract?.id
@@ -173,42 +181,60 @@ export function TradeAttendanceView({
 
       <TradeChipFilter siteId={siteId} selected={selection} onChange={onChipChange} />
 
-      <TradeAttendanceKpiStrip
-        summary={summary}
-        mode={contract.laborTrackingMode}
-        isLoading={summaryLoading}
-      />
+      {contract.laborTrackingMode === "headcount" ? (
+        <>
+          <CivilStyleTradeKpiStrip
+            summary={summary}
+            tradeColor={tradeColor}
+            isLoading={summaryLoading}
+          />
+          <CivilStyleTradeTable
+            siteId={contract.siteId}
+            contractId={contract.id}
+            contractTitle={contractTitle}
+            tradeColor={tradeColor}
+            onPickDate={handlePickDate}
+          />
+        </>
+      ) : (
+        <>
+          <TradeAttendanceKpiStrip
+            summary={summary}
+            mode={contract.laborTrackingMode}
+            isLoading={summaryLoading}
+          />
 
-      {contract.laborTrackingMode === "headcount" && (
-        <HeadcountAttendanceTable
-          siteId={contract.siteId}
-          contractId={contract.id}
-          contractTitle={contractTitle}
-          onPickDate={handlePickDate}
-        />
-      )}
+          {contract.laborTrackingMode === "mesthri_only" && (
+            <Alert severity="info">
+              <strong>Mesthri-only mode</strong> — daily money entries appear here in
+              the next slice. For now use the FAB → Record payment to log money
+              given to {contractDisplay}, or visit{" "}
+              <strong>/site/trades</strong> for the full ledger.
+            </Alert>
+          )}
 
-      {contract.laborTrackingMode === "mesthri_only" && (
-        <Alert severity="info">
-          <strong>Mesthri-only mode</strong> — daily money entries appear here in
-          the next slice. For now use the FAB → Record payment to log money
-          given to {contractDisplay}, or visit{" "}
-          <strong>/site/trades</strong> for the full ledger.
-        </Alert>
-      )}
-
-      {contract.laborTrackingMode === "detailed" && (
-        <Alert severity="info">
-          <strong>Detailed (per-laborer) mode</strong> for non-civil contracts
-          ships in the next slice. For now visit <strong>/site/trades</strong>{" "}
-          and expand this contract for the full picture.
-        </Alert>
+          {contract.laborTrackingMode === "detailed" && (
+            <Alert severity="info">
+              <strong>Detailed (per-laborer) mode</strong> for non-civil contracts
+              ships in the next slice. For now visit <strong>/site/trades</strong>{" "}
+              and expand this contract for the full picture.
+            </Alert>
+          )}
+        </>
       )}
 
       {/* Mode-aware FAB */}
       <SpeedDial
         ariaLabel="Add for this contract"
-        sx={{ position: "fixed", bottom: { xs: 24, md: 32 }, right: { xs: 16, md: 32 } }}
+        sx={{
+          position: "fixed",
+          bottom: { xs: 24, md: 32 },
+          right: { xs: 16, md: 32 },
+          "& .MuiFab-primary": {
+            bgcolor: tradeColor.main,
+            "&:hover": { bgcolor: tradeColor.dark },
+          },
+        }}
         icon={<SpeedDialIcon />}
       >
         {speedDialActions.map((a) => (

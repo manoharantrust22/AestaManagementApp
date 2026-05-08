@@ -157,6 +157,7 @@ import {
   type TradeChipSelection,
 } from "@/components/attendance/TradeChipFilter";
 import { TradeAttendanceView } from "@/components/attendance/trade-view/TradeAttendanceView";
+import { getTradeColor } from "@/theme/tradeColors";
 import { useSiteAuditState } from "@/hooks/queries/useSiteAuditState";
 import { LegacyAuditBanner } from "@/components/audit";
 import AttendanceSkeleton from "./attendance-skeleton";
@@ -346,6 +347,14 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   // (preserves the existing 7000-line page exactly as before).
   const [tradeChipSelection, setTradeChipSelection] =
     React.useState<TradeChipSelection>({ kind: "civil" });
+  // Per-trade color tokens for chips/header strip/FAB. Civil → existing primary blue.
+  const tradeColor = React.useMemo(
+    () =>
+      getTradeColor(
+        tradeChipSelection.kind === "trade" ? tradeChipSelection.tradeName : "Civil"
+      ),
+    [tradeChipSelection]
+  );
   const router = useRouter();
   const theme = useTheme();
 
@@ -3423,14 +3432,14 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                 sx={{ minWidth: { xs: 600, sm: 800 } }}
               >
                 <TableHead>
-                  <TableRow sx={{ bgcolor: "primary.dark" }}>
+                  <TableRow sx={{ bgcolor: tradeColor.dark }}>
                     {/* Sticky expand column */}
                     <TableCell
                       sx={{
                         width: 40,
                         minWidth: 40,
-                        bgcolor: "primary.dark",
-                        color: "primary.contrastText",
+                        bgcolor: tradeColor.dark,
+                        color: tradeColor.contrastText,
                         fontWeight: 700,
                         position: "sticky",
                         left: 0,
@@ -3440,8 +3449,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                     {/* Sticky date column with holiday toggle */}
                     <TableCell
                       sx={{
-                        bgcolor: "primary.dark",
-                        color: "primary.contrastText",
+                        bgcolor: tradeColor.dark,
+                        color: tradeColor.contrastText,
                         fontWeight: 700,
                         position: "sticky",
                         left: 40,
@@ -3505,8 +3514,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: "primary.dark",
-                        color: "primary.contrastText",
+                        bgcolor: tradeColor.dark,
+                        color: tradeColor.contrastText,
                         fontWeight: 700,
                         minWidth: { xs: 30, sm: 50 },
                         px: { xs: 0.5, sm: 1 },
@@ -3522,8 +3531,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: "primary.dark",
-                        color: "primary.contrastText",
+                        bgcolor: tradeColor.dark,
+                        color: tradeColor.contrastText,
                         fontWeight: 700,
                         minWidth: { xs: 30, sm: 55 },
                         px: { xs: 0.5, sm: 1 },
@@ -3539,8 +3548,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: "primary.dark",
-                        color: "primary.contrastText",
+                        bgcolor: tradeColor.dark,
+                        color: tradeColor.contrastText,
                         fontWeight: 700,
                         minWidth: { xs: 30, sm: 50 },
                         px: { xs: 0.5, sm: 1 },
@@ -3556,8 +3565,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: "primary.dark",
-                        color: "primary.contrastText",
+                        bgcolor: tradeColor.dark,
+                        color: tradeColor.contrastText,
                         fontWeight: 700,
                         minWidth: { xs: 30, sm: 45 },
                         px: { xs: 0.5, sm: 1 },
@@ -3573,8 +3582,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: "primary.dark",
-                        color: "primary.contrastText",
+                        bgcolor: tradeColor.dark,
+                        color: tradeColor.contrastText,
                         fontWeight: 700,
                         minWidth: 45,
                         display: { xs: "none", md: "table-cell" },
@@ -3585,8 +3594,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: "primary.dark",
-                        color: "primary.contrastText",
+                        bgcolor: tradeColor.dark,
+                        color: tradeColor.contrastText,
                         fontWeight: 700,
                         minWidth: 45,
                         display: { xs: "none", md: "table-cell" },
@@ -3597,8 +3606,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: "primary.dark",
-                        color: "primary.contrastText",
+                        bgcolor: tradeColor.dark,
+                        color: tradeColor.contrastText,
                         fontWeight: 700,
                         minWidth: { xs: 55, sm: 70 },
                         px: { xs: 0.5, sm: 1 },
@@ -3614,8 +3623,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: "primary.dark",
-                        color: "primary.contrastText",
+                        bgcolor: tradeColor.dark,
+                        color: tradeColor.contrastText,
                         fontWeight: 700,
                         minWidth: { xs: 50, sm: 80 },
                         px: { xs: 0.5, sm: 1 },
@@ -3631,8 +3640,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: "primary.dark",
-                        color: "primary.contrastText",
+                        bgcolor: tradeColor.dark,
+                        color: tradeColor.contrastText,
                         fontWeight: 700,
                         minWidth: { xs: 55, sm: 70 },
                         px: { xs: 0.5, sm: 1 },
@@ -3648,8 +3657,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: "primary.dark",
-                        color: "primary.contrastText",
+                        bgcolor: tradeColor.dark,
+                        color: tradeColor.contrastText,
                         fontWeight: 700,
                         minWidth: 120,
                         display: { xs: "none", md: "table-cell" },
@@ -3659,8 +3668,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                     </TableCell>
                     <TableCell
                       sx={{
-                        bgcolor: "primary.dark",
-                        color: "primary.contrastText",
+                        bgcolor: tradeColor.dark,
+                        color: tradeColor.contrastText,
                         fontWeight: 700,
                         minWidth: { xs: 50, sm: 120 },
                         px: { xs: 0.5, sm: 1 },
@@ -3911,7 +3920,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                             bgcolor: entry.weeklySummary.isCurrentWeek ? "info.50" : "grey.100",
                             borderTop: 2,
                             borderBottom: 2,
-                            borderColor: entry.weeklySummary.isCurrentWeek ? "info.main" : "primary.main",
+                            borderColor: entry.weeklySummary.isCurrentWeek ? "info.main" : tradeColor.main,
                           }}
                         >
                           <TableCell
@@ -3929,10 +3938,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                             >
                               {/* Week Info */}
                               <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                                <CalendarMonth sx={{ color: entry.weeklySummary.isCurrentWeek ? "info.main" : "primary.main", fontSize: 24 }} />
+                                <CalendarMonth sx={{ color: entry.weeklySummary.isCurrentWeek ? "info.main" : tradeColor.main, fontSize: 24 }} />
                                 <Box>
                                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                                    <Typography variant="subtitle2" fontWeight={700} color={entry.weeklySummary.isCurrentWeek ? "info.main" : "primary.main"}>
+                                    <Typography variant="subtitle2" fontWeight={700} sx={{ color: entry.weeklySummary.isCurrentWeek ? "info.main" : tradeColor.main }}>
                                       {entry.weeklySummary.isCurrentWeek ? entry.weeklySummary.weekLabel : `Week: ${entry.weeklySummary.weekLabel}`}
                                     </Typography>
                                     {entry.weeklySummary.isCurrentWeek && (
@@ -6789,8 +6798,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
             bottom: { xs: 150, md: 90 },
             right: { xs: 16, md: 24 },
             "& .MuiFab-primary": {
-              bgcolor: "primary.main",
-              "&:hover": { bgcolor: "primary.dark" },
+              bgcolor: tradeColor.main,
+              "&:hover": { bgcolor: tradeColor.dark },
             },
           }}
           icon={<SpeedDialIcon openIcon={<CloseIcon />} />}
@@ -6826,8 +6835,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
             sx={{
               "& .MuiSpeedDialAction-staticTooltipLabel": {
                 whiteSpace: "nowrap",
-                bgcolor: "primary.main",
-                color: "primary.contrastText",
+                bgcolor: tradeColor.main,
+                color: tradeColor.contrastText,
               },
             }}
           />

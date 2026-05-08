@@ -4,6 +4,7 @@ import React from "react";
 import { Box, Stack, Chip, Typography, Skeleton } from "@mui/material";
 import { useSiteTrades } from "@/hooks/queries/useTrades";
 import type { TradeContract } from "@/types/trade.types";
+import { getTradeColor } from "@/theme/tradeColors";
 
 /**
  * Slice E — controlled trade chip filter at the top of /site/attendance.
@@ -97,13 +98,23 @@ export function TradeChipFilter({
           const isSelected = isCivil
             ? selected.kind === "civil"
             : selected.kind === "trade" && selected.categoryId === trade.category.id;
+          const chipColor = getTradeColor(trade.category.name);
+          const selectedSx = isSelected
+            ? {
+                bgcolor: chipColor.main,
+                color: chipColor.contrastText,
+                "&:hover": { bgcolor: chipColor.dark },
+              }
+            : {
+                color: chipColor.main,
+                borderColor: chipColor.main,
+              };
           return (
             <Chip
               key={trade.category.id}
               label={
                 isCivil ? "Civil" : `${trade.category.name} (${trade.contracts.length})`
               }
-              color={isSelected ? "primary" : "default"}
               variant={isSelected ? "filled" : "outlined"}
               onClick={
                 isCivil
@@ -115,50 +126,64 @@ export function TradeChipFilter({
                         trade.contracts
                       )
               }
-              sx={{ cursor: "pointer" }}
+              sx={{ cursor: "pointer", ...selectedSx }}
               data-testid={isCivil ? "trade-chip-civil" : `trade-chip-${trade.category.name.toLowerCase()}`}
             />
           );
         })}
       </Stack>
 
-      {showSubPicker && selected.kind === "trade" && (
-        <Stack
-          direction="row"
-          spacing={1}
-          flexWrap="wrap"
-          useFlexGap
-          sx={{ mt: 1, pl: 1.5, borderLeft: "2px solid", borderColor: "primary.light" }}
-        >
-          <Typography variant="caption" sx={{ alignSelf: "center", mr: 0.5 }}>
-            Contract:
-          </Typography>
-          {(selectedTradeContracts ?? []).map((c) => {
-            const label = c.isInHouse
-              ? "In-house"
-              : c.mesthriOrSpecialistName ?? c.title;
-            const isPicked = selected.contractId === c.id;
-            return (
-              <Chip
-                key={c.id}
-                label={label}
-                size="small"
-                color={isPicked ? "primary" : "default"}
-                variant={isPicked ? "filled" : "outlined"}
-                onClick={() =>
-                  onChange({
-                    kind: "trade",
-                    categoryId: selected.categoryId,
-                    tradeName: selected.tradeName,
-                    contractId: c.id,
-                  })
-                }
-                sx={{ cursor: "pointer" }}
-              />
-            );
-          })}
-        </Stack>
-      )}
+      {showSubPicker && selected.kind === "trade" && (() => {
+        const subColor = getTradeColor(selected.tradeName);
+        return (
+          <Stack
+            direction="row"
+            spacing={1}
+            flexWrap="wrap"
+            useFlexGap
+            sx={{ mt: 1, pl: 1.5, borderLeft: "2px solid", borderColor: subColor.light }}
+          >
+            <Typography variant="caption" sx={{ alignSelf: "center", mr: 0.5 }}>
+              Contract:
+            </Typography>
+            {(selectedTradeContracts ?? []).map((c) => {
+              const label = c.isInHouse
+                ? "In-house"
+                : c.mesthriOrSpecialistName ?? c.title;
+              const isPicked = selected.contractId === c.id;
+              return (
+                <Chip
+                  key={c.id}
+                  label={label}
+                  size="small"
+                  variant={isPicked ? "filled" : "outlined"}
+                  onClick={() =>
+                    onChange({
+                      kind: "trade",
+                      categoryId: selected.categoryId,
+                      tradeName: selected.tradeName,
+                      contractId: c.id,
+                    })
+                  }
+                  sx={{
+                    cursor: "pointer",
+                    ...(isPicked
+                      ? {
+                          bgcolor: subColor.main,
+                          color: subColor.contrastText,
+                          "&:hover": { bgcolor: subColor.dark },
+                        }
+                      : {
+                          color: subColor.main,
+                          borderColor: subColor.main,
+                        }),
+                  }}
+                />
+              );
+            })}
+          </Stack>
+        );
+      })()}
 
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
         {helperText}
