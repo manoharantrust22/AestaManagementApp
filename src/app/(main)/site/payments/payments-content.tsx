@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -8,13 +8,16 @@ import {
   Box,
   Button,
   Chip,
+  FormControlLabel,
   IconButton,
   Snackbar,
+  Switch,
   Tab,
   Tabs,
   ToggleButton,
   ToggleButtonGroup,
   Tooltip,
+  Typography,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -50,6 +53,7 @@ import ContractSettlementEditDialog from "@/components/payments/ContractSettleme
 import DeleteContractSettlementDialog from "@/components/payments/DeleteContractSettlementDialog";
 import DailySettlementEditDialog from "@/components/payments/DailySettlementEditDialog";
 import DeleteDailySettlementDialog from "@/components/payments/DeleteDailySettlementDialog";
+import HardDeleteCancelledDialog from "@/components/payments/HardDeleteCancelledDialog";
 import { usePaymentSummary } from "@/hooks/queries/usePaymentSummary";
 import { usePaymentsLedger } from "@/hooks/queries/usePaymentsLedger";
 import { useDailyMarketWeeklyList } from "@/hooks/queries/useDailyMarketWeeklyList";
@@ -57,7 +61,11 @@ import { useSalarySliceSummary } from "@/hooks/queries/useSalarySliceSummary";
 import { useSalaryWaterfall } from "@/hooks/queries/useSalaryWaterfall";
 import { useAdvances } from "@/hooks/queries/useAdvances";
 import { useDayPendingRecords } from "@/hooks/queries/useDayPendingRecords";
-import { useSettlementsList } from "@/hooks/queries/useSettlementsList";
+import {
+  useSettlementsList,
+  type SettlementListRow,
+} from "@/hooks/queries/useSettlementsList";
+import { useCancelledSettlementCounts } from "@/hooks/queries/useCancelledSettlementCounts";
 import { useInspectPane } from "@/hooks/useInspectPane";
 import { InspectPane } from "@/components/common/InspectPane";
 import type { InspectEntity } from "@/components/common/InspectPane";
@@ -195,6 +203,22 @@ export default function PaymentsContent() {
   const [deleteTarget, setDeleteTarget] = useState<SettlementDetails | null>(
     null
   );
+  // Hard-delete target — populated by the trash icon on a cancelled row in
+  // SettlementsList. The dialog calls the hard_delete_cancelled_settlement
+  // RPC, which atomically cleans up FK-linked rows and writes audit_log.
+  const [hardDeleteTarget, setHardDeleteTarget] =
+    useState<SettlementListRow | null>(null);
+  // Hide cancelled rows in the by-settlement view. Default ON so cancelled
+  // rows stay out of the way during normal review; persisted per session so
+  // mid-session navigation doesn't reset the user's choice.
+  const [hideCancelled, setHideCancelled] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return sessionStorage.getItem("payments:hideCancelled") !== "false";
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    sessionStorage.setItem("payments:hideCancelled", String(hideCancelled));
+  }, [hideCancelled]);
   const { userProfile } = useAuth();
   const canEditSettlements = hasEditPermission(userProfile?.role);
   const [settleDialog, setSettleDialog] = useState<null | {
@@ -373,6 +397,34 @@ export default function PaymentsContent() {
     period: tabPeriod,
     cutoffDate: auditState.dataStartedAt,
   });
+
+  // Per-tab cancelled counts — drives the small red badge on each main tab
+  // and the inline "X cancelled" summary in the by-settlement strip. One
+  // cheap query, shared across all three tabs.
+  const cancelledCountsQuery = useCancelledSettlementCounts({
+    siteId: selectedSite?.id,
+    dateFrom: effectiveFrom,
+    dateTo: effectiveTo,
+    period: tabPeriod,
+    cutoffDate: auditState.dataStartedAt,
+  });
+  const cancelledForTab = (tab: ActiveTab): number => {
+    const c = cancelledCountsQuery.data;
+    if (!c) return 0;
+    if (tab === "contract") return c.contract;
+    if (tab === "daily-market") return c.dailyMarket;
+    return c.total;
+  };
+
+  // The full list of settlement rows for the active tab, and the
+  // user-visible subset after applying the Hide-cancelled toggle. Both are
+  // used to render the strip summary "N settlements · M cancelled" plus the
+  // filtered list itself.
+  const settlementRowsAll = settlementsListQuery.data ?? [];
+  const settlementRowsVisible = hideCancelled
+    ? settlementRowsAll.filter((r) => !r.isCancelled)
+    : settlementRowsAll;
+  const tabCancelledCount = cancelledForTab(activeTab);
 
   const pendingDailyMarketCount = (dailyMarketLedgerQuery.data ?? []).filter(
     (r) => r.isPending
@@ -565,6 +617,14 @@ export default function PaymentsContent() {
                   }
                   sx={{ height: 18, fontSize: 10, fontWeight: 700 }}
                 />
+                {cancelledForTab("contract") > 0 && (
+                  <Chip
+                    size="small"
+                    color="error"
+                    label={`⊘ ${cancelledForTab("contract")}`}
+                    sx={{ height: 18, fontSize: 10, fontWeight: 700 }}
+                  />
+                )}
               </Box>
             }
           />
@@ -582,6 +642,14 @@ export default function PaymentsContent() {
                   label={pendingDailyMarketCount}
                   sx={{ height: 18, fontSize: 10, fontWeight: 700 }}
                 />
+                {cancelledForTab("daily-market") > 0 && (
+                  <Chip
+                    size="small"
+                    color="error"
+                    label={`⊘ ${cancelledForTab("daily-market")}`}
+                    sx={{ height: 18, fontSize: 10, fontWeight: 700 }}
+                  />
+                )}
               </Box>
             }
           />
@@ -596,6 +664,14 @@ export default function PaymentsContent() {
                   label={allLedgerQuery.data?.length ?? 0}
                   sx={{ height: 18, fontSize: 10, fontWeight: 700 }}
                 />
+                {cancelledForTab("all") > 0 && (
+                  <Chip
+                    size="small"
+                    color="error"
+                    label={`⊘ ${cancelledForTab("all")}`}
+                    sx={{ height: 18, fontSize: 10, fontWeight: 700 }}
+                  />
+                )}
               </Box>
             }
           />
@@ -767,6 +843,56 @@ export default function PaymentsContent() {
                   </Box>
                 </ToggleButton>
               </ToggleButtonGroup>
+              {viewMode === "by-settlement" && (
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: { xs: 0.5, sm: 1.25 },
+                    flex: 1,
+                    minWidth: 0,
+                    flexWrap: "nowrap",
+                    overflow: "hidden",
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: "text.secondary",
+                      whiteSpace: "nowrap",
+                      fontVariantNumeric: "tabular-nums",
+                      ml: 1,
+                    }}
+                  >
+                    {settlementRowsAll.length} settlements
+                    {tabCancelledCount > 0 && (
+                      <Box
+                        component="span"
+                        sx={{ color: "error.main", ml: 0.75 }}
+                      >
+                        · {tabCancelledCount} cancelled
+                      </Box>
+                    )}
+                  </Typography>
+                  <Box sx={{ ml: "auto" }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          size="small"
+                          checked={hideCancelled}
+                          onChange={(_, v) => setHideCancelled(v)}
+                        />
+                      }
+                      label={
+                        <Typography variant="caption">
+                          Hide cancelled
+                        </Typography>
+                      }
+                      sx={{ m: 0 }}
+                    />
+                  </Box>
+                </Box>
+              )}
               <Button
                 variant="contained"
                 color="primary"
@@ -843,10 +969,19 @@ export default function PaymentsContent() {
                 </>
               ) : (
                 <SettlementsList
-                  rows={settlementsListQuery.data ?? []}
+                  rows={settlementRowsVisible}
                   isLoading={settlementsListQuery.isLoading}
                   onRowClick={(row) => setRefDetail(row.ref)}
-                  emptyMessage="No contract settlements recorded for this period."
+                  onHardDelete={
+                    canEditSettlements
+                      ? (row) => setHardDeleteTarget(row)
+                      : undefined
+                  }
+                  emptyMessage={
+                    hideCancelled && tabCancelledCount > 0
+                      ? "No active contract settlements. Toggle 'Hide cancelled' off to see cancelled rows."
+                      : "No contract settlements recorded for this period."
+                  }
                 />
               )}
             </Box>
@@ -938,6 +1073,54 @@ export default function PaymentsContent() {
                   </Box>
                 </ToggleButton>
               </ToggleButtonGroup>
+              {viewMode === "by-settlement" && (
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1.25,
+                    flex: 1,
+                    minWidth: 0,
+                    ml: 1,
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: "text.secondary",
+                      whiteSpace: "nowrap",
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {settlementRowsAll.length} settlements
+                    {tabCancelledCount > 0 && (
+                      <Box
+                        component="span"
+                        sx={{ color: "error.main", ml: 0.75 }}
+                      >
+                        · {tabCancelledCount} cancelled
+                      </Box>
+                    )}
+                  </Typography>
+                  <Box sx={{ ml: "auto" }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          size="small"
+                          checked={hideCancelled}
+                          onChange={(_, v) => setHideCancelled(v)}
+                        />
+                      }
+                      label={
+                        <Typography variant="caption">
+                          Hide cancelled
+                        </Typography>
+                      }
+                      sx={{ m: 0 }}
+                    />
+                  </Box>
+                </Box>
+              )}
             </Box>
             <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
               <UnlinkedSettlementsGroup
@@ -999,10 +1182,19 @@ export default function PaymentsContent() {
                 />
               ) : (
                 <SettlementsList
-                  rows={settlementsListQuery.data ?? []}
+                  rows={settlementRowsVisible}
                   isLoading={settlementsListQuery.isLoading}
                   onRowClick={(row) => setRefDetail(row.ref)}
-                  emptyMessage="No daily/market settlements recorded for this period."
+                  onHardDelete={
+                    canEditSettlements
+                      ? (row) => setHardDeleteTarget(row)
+                      : undefined
+                  }
+                  emptyMessage={
+                    hideCancelled && tabCancelledCount > 0
+                      ? "No active daily/market settlements. Toggle 'Hide cancelled' off to see cancelled rows."
+                      : "No daily/market settlements recorded for this period."
+                  }
                 />
               )}
             </Box>
@@ -1080,6 +1272,54 @@ export default function PaymentsContent() {
                   </Box>
                 </ToggleButton>
               </ToggleButtonGroup>
+              {viewMode === "by-settlement" && (
+                <Box
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1.25,
+                    flex: 1,
+                    minWidth: 0,
+                    ml: 1,
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      color: "text.secondary",
+                      whiteSpace: "nowrap",
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {settlementRowsAll.length} settlements
+                    {tabCancelledCount > 0 && (
+                      <Box
+                        component="span"
+                        sx={{ color: "error.main", ml: 0.75 }}
+                      >
+                        · {tabCancelledCount} cancelled
+                      </Box>
+                    )}
+                  </Typography>
+                  <Box sx={{ ml: "auto" }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          size="small"
+                          checked={hideCancelled}
+                          onChange={(_, v) => setHideCancelled(v)}
+                        />
+                      }
+                      label={
+                        <Typography variant="caption">
+                          Hide cancelled
+                        </Typography>
+                      }
+                      sx={{ m: 0 }}
+                    />
+                  </Box>
+                </Box>
+              )}
             </Box>
             {viewMode === "default" ? (
               <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "auto" }}>
@@ -1108,10 +1348,19 @@ export default function PaymentsContent() {
                   onRowClick={(row) => setRefDetail(row.ref)}
                 />
                 <SettlementsList
-                  rows={settlementsListQuery.data ?? []}
+                  rows={settlementRowsVisible}
                   isLoading={settlementsListQuery.isLoading}
                   onRowClick={(row) => setRefDetail(row.ref)}
-                  emptyMessage="No settlements recorded for this period."
+                  onHardDelete={
+                    canEditSettlements
+                      ? (row) => setHardDeleteTarget(row)
+                      : undefined
+                  }
+                  emptyMessage={
+                    hideCancelled && tabCancelledCount > 0
+                      ? "No active settlements. Toggle 'Hide cancelled' off to see cancelled rows."
+                      : "No settlements recorded for this period."
+                  }
                 />
               </Box>
             )}
@@ -1236,6 +1485,22 @@ export default function PaymentsContent() {
             setDeleteTarget(null);
             invalidateSettlementsCaches(queryClient);
             setNotice("Settlement deleted");
+          }}
+        />
+      )}
+
+      {hardDeleteTarget && (
+        <HardDeleteCancelledDialog
+          open
+          settlement={hardDeleteTarget}
+          onClose={() => setHardDeleteTarget(null)}
+          onSuccess={() => {
+            setHardDeleteTarget(null);
+            invalidateSettlementsCaches(queryClient);
+            void queryClient.invalidateQueries({
+              queryKey: ["settlement-cancelled-counts"],
+            });
+            setNotice("Settlement permanently deleted");
           }}
         />
       )}

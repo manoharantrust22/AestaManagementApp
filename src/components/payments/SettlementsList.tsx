@@ -1,7 +1,18 @@
 "use client";
 
 import React from "react";
-import { Box, Chip, Skeleton, Stack, Typography, alpha, useTheme } from "@mui/material";
+import {
+  Box,
+  Chip,
+  IconButton,
+  Skeleton,
+  Stack,
+  Tooltip,
+  Typography,
+  alpha,
+  useTheme,
+} from "@mui/material";
+import { DeleteForever as DeleteForeverIcon } from "@mui/icons-material";
 import dayjs from "dayjs";
 import type { SettlementListRow } from "@/hooks/queries/useSettlementsList";
 
@@ -11,6 +22,8 @@ interface SettlementsListProps {
   onRowClick: (row: SettlementListRow) => void;
   /** Empty-state message tailored to the active filter. */
   emptyMessage?: string;
+  /** When provided, cancelled rows render a trash icon that calls this. */
+  onHardDelete?: (row: SettlementListRow) => void;
 }
 
 function formatINR(n: number): string {
@@ -50,6 +63,7 @@ export function SettlementsList({
   isLoading,
   onRowClick,
   emptyMessage,
+  onHardDelete,
 }: SettlementsListProps) {
   const theme = useTheme();
 
@@ -91,7 +105,10 @@ export function SettlementsList({
             <Box
               sx={{
                 display: "grid",
-                gridTemplateColumns: { xs: "1fr auto", md: "150px 170px 1fr 110px 100px" },
+                gridTemplateColumns: {
+                  xs: "1fr auto",
+                  md: "150px 170px 1fr 110px 100px 36px",
+                },
                 gap: { xs: 1, md: 1.5 },
                 alignItems: "center",
               }}
@@ -258,6 +275,34 @@ export function SettlementsList({
                 </Typography>
               </Box>
 
+              {/* Hard-delete icon (cancelled rows only) — desktop column */}
+              <Box
+                sx={{
+                  display: { xs: "none", md: "flex" },
+                  justifyContent: "center",
+                }}
+              >
+                {r.isCancelled && onHardDelete ? (
+                  <Tooltip title="Permanently delete this cancelled settlement">
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onHardDelete(r);
+                      }}
+                      sx={{
+                        color: "error.main",
+                        opacity: 0.85,
+                        "&:hover": { opacity: 1, bgcolor: alpha(theme.palette.error.main, 0.1) },
+                      }}
+                      aria-label="Permanently delete cancelled settlement"
+                    >
+                      <DeleteForeverIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                ) : null}
+              </Box>
+
               {/* Mobile-only: ref + chips line */}
               <Box
                 sx={{
@@ -281,7 +326,7 @@ export function SettlementsList({
                 >
                   {r.ref}
                 </Box>
-                <Box sx={{ display: "flex", gap: 0.5 }}>
+                <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
                   <Chip
                     size="small"
                     label={getPaymentModeLabel(r.paymentMode)}
@@ -299,6 +344,19 @@ export function SettlementsList({
                       label="Daily"
                       sx={{ height: 16, fontSize: 9.5 }}
                     />
+                  )}
+                  {r.isCancelled && onHardDelete && (
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onHardDelete(r);
+                      }}
+                      sx={{ p: 0.25, color: "error.main" }}
+                      aria-label="Permanently delete cancelled settlement"
+                    >
+                      <DeleteForeverIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
                   )}
                 </Box>
               </Box>
