@@ -15,6 +15,10 @@ import {
   Payment as PaymentIcon,
   ReceiptLong as ReceiptIcon,
   TaskAlt as SettleIcon,
+  WbSunny,
+  EventNote,
+  EventBusy as HolidayIcon,
+  Close as CloseIcon,
 } from "@mui/icons-material";
 import { useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
@@ -116,29 +120,60 @@ export function TradeAttendanceView({
     setEntryDate(dateISO);
   };
 
-  // Mode-aware FAB actions
-  const speedDialActions = (() => {
+  // FAB actions — match Civil's 3 actions exactly for the unified headcount
+  // shell (Start Day / Full Day / Mark Holiday). For mesthri_only and
+  // detailed (placeholder) modes, keep the trade-specific Payment+Extra
+  // actions since those modes don't yet have the unified attendance flow.
+  type FabAction = {
+    icon: React.ReactNode;
+    name: string;
+    onClick: () => void;
+    tooltipSx?: object;
+  };
+  const speedDialActions: FabAction[] = (() => {
     if (contract.laborTrackingMode === "headcount") {
+      const today = dayjs().format("YYYY-MM-DD");
       return [
         {
-          icon: <PeopleIcon />,
-          name: "Today's headcount",
-          onClick: () => setEntryDate(dayjs().format("YYYY-MM-DD")),
+          icon: <WbSunny />,
+          name: "Start Day Attendance",
+          onClick: () => setEntryDate(today),
+          tooltipSx: {
+            "& .MuiSpeedDialAction-staticTooltipLabel": {
+              whiteSpace: "nowrap",
+              bgcolor: "warning.main",
+              color: "warning.contrastText",
+            },
+          },
         },
         {
-          icon: <PhotoIcon />,
-          name: "Today's photos",
-          onClick: () => setEntryDate(dayjs().format("YYYY-MM-DD")),
+          icon: <EventNote />,
+          name: "Full Day Attendance",
+          onClick: () => setEntryDate(today),
+          tooltipSx: {
+            "& .MuiSpeedDialAction-staticTooltipLabel": {
+              whiteSpace: "nowrap",
+              bgcolor: tradeColor.main,
+              color: tradeColor.contrastText,
+            },
+          },
         },
         {
-          icon: <ReceiptIcon />,
-          name: "Add extra (snacks, fuel)",
-          onClick: () => setExtraOpen(true),
-        },
-        {
-          icon: <PaymentIcon />,
-          name: "Record payment",
-          onClick: () => setPaymentOpen(true),
+          icon: <HolidayIcon />,
+          name: "Mark as Holiday",
+          onClick: () =>
+            setSnackbar({
+              open: true,
+              message:
+                "Holiday for trade contracts is coming soon — record headcount = 0 for now",
+            }),
+          tooltipSx: {
+            "& .MuiSpeedDialAction-staticTooltipLabel": {
+              whiteSpace: "nowrap",
+              bgcolor: "success.main",
+              color: "success.contrastText",
+            },
+          },
         },
       ];
     }
@@ -223,9 +258,11 @@ export function TradeAttendanceView({
         </>
       )}
 
-      {/* Mode-aware FAB */}
+      {/* FAB — Civil-style for headcount mode (Start Day / Full Day / Mark
+          Holiday); trade-specific (Record payment / Add extra) for mesthri /
+          detailed placeholder modes. Tinted with the trade's color. */}
       <SpeedDial
-        ariaLabel="Add for this contract"
+        ariaLabel="Attendance actions"
         sx={{
           position: "fixed",
           bottom: { xs: 24, md: 32 },
@@ -235,7 +272,7 @@ export function TradeAttendanceView({
             "&:hover": { bgcolor: tradeColor.dark },
           },
         }}
-        icon={<SpeedDialIcon />}
+        icon={<SpeedDialIcon openIcon={<CloseIcon />} />}
       >
         {speedDialActions.map((a) => (
           <SpeedDialAction
@@ -244,6 +281,7 @@ export function TradeAttendanceView({
             tooltipTitle={a.name}
             tooltipOpen
             onClick={a.onClick}
+            sx={a.tooltipSx}
           />
         ))}
       </SpeedDial>

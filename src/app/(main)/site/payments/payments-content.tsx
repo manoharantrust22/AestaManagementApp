@@ -1073,6 +1073,37 @@ export default function PaymentsContent() {
                   </Box>
                 </ToggleButton>
               </ToggleButtonGroup>
+              {viewMode !== "by-settlement" && (
+                <Typography
+                  variant="caption"
+                  sx={{
+                    ml: 1,
+                    color: "text.secondary",
+                    whiteSpace: "nowrap",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  <Box
+                    component="span"
+                    sx={{ color: "success.main", fontWeight: 600 }}
+                  >
+                    {summaryQuery.data?.dailyMarketCount ?? 0} settled
+                  </Box>
+                  {" · "}
+                  <Box
+                    component="span"
+                    sx={{
+                      color:
+                        (summaryQuery.data?.pendingDatesCount ?? 0) > 0
+                          ? "warning.main"
+                          : "text.secondary",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {summaryQuery.data?.pendingDatesCount ?? 0} unsettled
+                  </Box>
+                </Typography>
+              )}
               {viewMode === "by-settlement" && (
                 <Box
                   sx={{

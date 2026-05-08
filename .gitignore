@@ -90,3 +90,6 @@ supabase/.temp/
 
 # Local dev-server output captured by Playwright/MCP runs
 dev-server.log
+
+# Playwright/MCP accessibility snapshots dumped at repo root
+/*-snapshot.yml
