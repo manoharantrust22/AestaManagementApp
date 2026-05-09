@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   RentalItem,
   RentalItemWithDetails,
@@ -181,7 +182,7 @@ export function usePaginatedRentalItems(
 
   return useQuery({
     queryKey: ["rentals", "items", "paginated", { pageIndex, pageSize, rentalType, searchTerm, sortBy }],
-    queryFn: async (): Promise<RentalPaginatedResult<RentalItemWithDetails>> => {
+    queryFn: wrapQueryFn<RentalPaginatedResult<RentalItemWithDetails>>(async () => {
       // Get total count
       let countQuery = supabase
         .from("rental_items")
@@ -244,7 +245,7 @@ export function usePaginatedRentalItems(
         totalCount: totalCount || 0,
         pageCount: Math.ceil((totalCount || 0) / pageSize),
       };
-    },
+    }, { operationName: "usePaginatedRentalItems" }),
     placeholderData: (previousData) => previousData,
   });
 }
@@ -467,7 +468,6 @@ export function useRentalOrders(
           ? now > expectedReturnDate && order.status !== "completed"
           : false;
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const accruedRentalCost = (order.items || []).reduce(
           (sum: number, item: any) => {
             // For hourly rate items, use hours_used instead of days
@@ -497,7 +497,6 @@ export function useRentalOrders(
           0
         );
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const totalAdvancePaid = (order.advances || []).reduce(
           (sum: number, adv: any) => sum + adv.amount,
           0
@@ -557,7 +556,6 @@ export function useOngoingRentals(siteId: string) {
           : null;
         const isOverdue = expectedReturnDate ? now > expectedReturnDate : false;
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const accruedRentalCost = (order.items || []).reduce(
           (sum: number, item: any) => {
             const itemDays = item.item_start_date
@@ -576,7 +574,6 @@ export function useOngoingRentals(siteId: string) {
           0
         );
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const totalAdvancePaid = (order.advances || []).reduce(
           (sum: number, adv: any) => sum + (adv.amount || 0),
           0
@@ -673,7 +670,6 @@ export function useRentalOrder(id: string | undefined) {
       // Get all returns to calculate proper end dates for cost calculation
       const allReturns = data.returns || [];
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const accruedRentalCost = (data.items || []).reduce(
         (sum: number, item: any) => {
           const itemStartDate = item.item_start_date
@@ -717,7 +713,6 @@ export function useRentalOrder(id: string | undefined) {
         0
       );
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const totalAdvancePaid = (data.advances || []).reduce(
         (sum: number, adv: any) => sum + (adv.amount || 0),
         0
@@ -1000,11 +995,9 @@ export function useRecordRentalReturn() {
         .eq("rental_order_id", data.rental_order_id);
 
       if (orderItems) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const allReturned = orderItems.every(
           (i: any) => (i.quantity_returned || 0) >= i.quantity
         );
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const partiallyReturned = orderItems.some(
           (i: any) => (i.quantity_returned || 0) > 0
         );
@@ -1254,9 +1247,7 @@ export function useRentalPriceComparison(rentalItemId: string) {
         .order("recorded_date", { ascending: false });
 
       // Build comparison result
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const vendors = (inventory || []).map((inv: any) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const lastHistory = (priceHistory || []).find(
           (ph: any) => ph.vendor_id === inv.vendor_id
         );
@@ -1387,7 +1378,6 @@ export function useRentalSummary(siteId: string) {
         }
 
         // Sum advances
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         totalAdvancesPaid += (order.advances || []).reduce(
           (sum: number, adv: any) => sum + (adv.amount || 0),
           0
@@ -1402,7 +1392,6 @@ export function useRentalSummary(siteId: string) {
           )
         );
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         totalAccruedCost += (order.items || []).reduce(
           (sum: number, item: any) => {
             // For hourly rate items, use hours_used instead of days
@@ -1440,7 +1429,6 @@ export function useRentalSummary(siteId: string) {
 
       for (const order of completedOrders || []) {
         completedCount++;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const settlement = order.settlement as any;
         if (settlement) {
           // Settlement exists - use negotiated or calculated amount
@@ -1603,7 +1591,6 @@ export function useRentalCostCalculation(
     const totalTransportCost = transportCostOutward + transportCostReturn;
 
     const damagesCost = (order.returns || []).reduce(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (sum: number, ret: any) => sum + (ret.damage_cost || 0),
       0
     );
@@ -1611,7 +1598,6 @@ export function useRentalCostCalculation(
     const grossTotal =
       subtotal - discountAmount + totalTransportCost + damagesCost;
     const advancesPaid = (order.advances || []).reduce(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (sum: number, adv: any) => sum + adv.amount,
       0
     );

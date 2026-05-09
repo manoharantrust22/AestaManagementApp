@@ -23,6 +23,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 import SectionAutocomplete from "../common/SectionAutocomplete";
 
 interface ActiveSection {
@@ -52,13 +53,22 @@ const ActiveSectionChip = memo(function ActiveSectionChip() {
     try {
       const supabase = createClient();
 
-      // Fetch site's default section with phase info
-      // Note: Using type assertion until migration is run and types regenerated
-      const { data: siteData } = await supabase
-        .from("sites")
-        .select("default_section_id")
-        .eq("id", selectedSite.id)
-        .single() as { data: { default_section_id: string | null } | null };
+      // Wrap both queries in withTimeout — without it, a stalled fetch through
+      // the Cloudflare proxy (or any network hiccup) leaves `loading=true`
+      // forever because the await never settles, so neither catch nor finally
+      // runs. The user sees a permanent spinner in the page header until they
+      // hard-refresh.
+      const { data: siteData } = (await withTimeout(
+        Promise.resolve(
+          supabase
+            .from("sites")
+            .select("default_section_id")
+            .eq("id", selectedSite.id)
+            .single()
+        ),
+        TIMEOUTS.QUERY,
+        "ActiveSectionChip: sites.default_section_id timed out",
+      )) as { data: { default_section_id: string | null } | null };
 
       if (!siteData?.default_section_id) {
         setActiveSection(null);
@@ -66,17 +76,21 @@ const ActiveSectionChip = memo(function ActiveSectionChip() {
         return;
       }
 
-      // Fetch section details
-      // Note: Using type assertion until migration is run and types regenerated
-      const { data: sectionData } = await supabase
-        .from("building_sections")
-        .select(`
-          id,
-          name,
-          construction_phases(name)
-        `)
-        .eq("id", siteData.default_section_id)
-        .single() as { data: { id: string; name: string; construction_phases: { name: string } | null } | null };
+      const { data: sectionData } = (await withTimeout(
+        Promise.resolve(
+          supabase
+            .from("building_sections")
+            .select(`
+              id,
+              name,
+              construction_phases(name)
+            `)
+            .eq("id", siteData.default_section_id)
+            .single()
+        ),
+        TIMEOUTS.QUERY,
+        "ActiveSectionChip: building_sections lookup timed out",
+      )) as { data: { id: string; name: string; construction_phases: { name: string } | null } | null };
 
       if (sectionData) {
         setActiveSection({
