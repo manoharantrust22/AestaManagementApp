@@ -31,7 +31,7 @@ import dayjs from "dayjs";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSelectedCompany } from "@/contexts/CompanyContext/SelectedCompanyContext";
 import {
-  useEngineerWalletBalance,
+  useEngineerSiteBalances,
   useEngineerWalletLedger,
   useWalletEnabledEngineers,
 } from "@/hooks/queries/useEngineerWalletV2";
@@ -53,8 +53,15 @@ export default function CompanyEngineerWalletPage() {
   const companyId = selectedCompany?.id ?? undefined;
 
   const [selectedEngineerId, setSelectedEngineerId] = useState<string | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
-  const [returnOpen, setReturnOpen] = useState(false);
+  // Per-site dialog state — siteId-scoped so each card opens locked to that site.
+  const [addState, setAddState] = useState<{ open: boolean; siteId: string }>({
+    open: false,
+    siteId: "",
+  });
+  const [returnState, setReturnState] = useState<{ open: boolean; siteId: string }>({
+    open: false,
+    siteId: "",
+  });
   const [tab, setTab] = useState<LedgerTab>("all");
 
   const engineersQuery = useWalletEnabledEngineers(companyId);
@@ -93,7 +100,7 @@ export default function CompanyEngineerWalletPage() {
           </Typography>
           <Typography variant="body2" color="text.secondary">
             {engineers.length} active wallet{engineers.length === 1 ? "" : "s"} • Total balance ₹
-            {fmt(engineers.reduce((s, e) => s + e.balance, 0))}
+            {fmt(engineers.reduce((s, e) => s + e.total_balance, 0))}
           </Typography>
         </Box>
       </Stack>
@@ -137,7 +144,10 @@ export default function CompanyEngineerWalletPage() {
                       </Box>
                       <Stack alignItems="flex-end">
                         <Typography variant="body2" fontWeight={700}>
-                          ₹ {fmt(eng.balance)}
+                          ₹ {fmt(eng.total_balance)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {eng.sites.length} site{eng.sites.length === 1 ? "" : "s"}
                         </Typography>
                       </Stack>
                     </CardContent>
@@ -161,11 +171,12 @@ export default function CompanyEngineerWalletPage() {
               engineerName={
                 engineers.find((e) => e.user_id === selectedEngineerId)?.name ?? "Engineer"
               }
+              companyId={companyId as string}
               tab={tab}
               setTab={setTab}
               onBack={isMobile ? () => setSelectedEngineerId(null) : undefined}
-              onAdd={() => setAddOpen(true)}
-              onReturn={() => setReturnOpen(true)}
+              onAdd={(siteId) => setAddState({ open: true, siteId })}
+              onReturn={(siteId) => setReturnState({ open: true, siteId })}
             />
           </Grid>
         )}
@@ -174,18 +185,19 @@ export default function CompanyEngineerWalletPage() {
       {selectedEngineerId && (
         <>
           <AddFundsDialog
-            open={addOpen}
-            onClose={() => setAddOpen(false)}
+            open={addState.open}
+            onClose={() => setAddState({ open: false, siteId: "" })}
             engineerId={selectedEngineerId}
             engineerName={
               engineers.find((e) => e.user_id === selectedEngineerId)?.name ?? "Engineer"
             }
             recordedBy={userProfile.name ?? "Office"}
             recordedByUserId={userProfile.id}
+            lockedSiteId={addState.siteId || undefined}
           />
           <AddFundsDialog
-            open={returnOpen}
-            onClose={() => setReturnOpen(false)}
+            open={returnState.open}
+            onClose={() => setReturnState({ open: false, siteId: "" })}
             mode="return"
             engineerId={selectedEngineerId}
             engineerName={
@@ -193,6 +205,7 @@ export default function CompanyEngineerWalletPage() {
             }
             recordedBy={userProfile.name ?? "Office"}
             recordedByUserId={userProfile.id}
+            lockedSiteId={returnState.siteId || undefined}
           />
         </>
       )}
@@ -203,6 +216,7 @@ export default function CompanyEngineerWalletPage() {
 function EngineerDetailPanel({
   engineerId,
   engineerName,
+  companyId,
   tab,
   setTab,
   onBack,
@@ -211,16 +225,17 @@ function EngineerDetailPanel({
 }: {
   engineerId: string;
   engineerName: string;
+  companyId: string;
   tab: LedgerTab;
   setTab: (t: LedgerTab) => void;
   onBack?: () => void;
-  onAdd: () => void;
-  onReturn: () => void;
+  onAdd: (siteId: string) => void;
+  onReturn: (siteId: string) => void;
 }) {
   const filters: Omit<WalletLedgerFilters, "cursor"> = {
     type: tab === "all" ? "all" : tab,
   };
-  const balance = useEngineerWalletBalance(engineerId);
+  const siteBalances = useEngineerSiteBalances(engineerId, companyId);
   const ledger = useEngineerWalletLedger(engineerId, filters);
 
   return (
@@ -231,49 +246,66 @@ function EngineerDetailPanel({
         </Button>
       )}
 
-      <WalletBalanceCard
-        engineerName={engineerName}
-        balance={balance.data}
-        isLoading={balance.isLoading}
-        actions={
-          <Stack direction="row" spacing={1}>
-            <Button
-              fullWidth
-              variant="contained"
-              size="small"
-              onClick={onAdd}
-              startIcon={<AddIcon />}
-              sx={{
-                bgcolor: "common.white",
-                color: "primary.dark",
-                "&:hover": { bgcolor: "rgba(255,255,255,0.9)" },
-              }}
-            >
-              Add funds
-            </Button>
-            <Button
-              fullWidth
-              variant="outlined"
-              size="small"
-              onClick={onReturn}
-              startIcon={<KeyboardReturn />}
-              sx={{
-                color: "common.white",
-                borderColor: "rgba(255,255,255,0.5)",
-                "&:hover": { borderColor: "common.white", bgcolor: "rgba(255,255,255,0.08)" },
-              }}
-            >
-              Return
-            </Button>
-          </Stack>
-        }
-      />
+      <Stack spacing={2}>
+        {siteBalances.isLoading && (
+          <>
+            <Skeleton variant="rounded" height={180} />
+            <Skeleton variant="rounded" height={180} />
+          </>
+        )}
+        {(siteBalances.data ?? []).map((siteBal) => (
+          <WalletBalanceCard
+            key={siteBal.site_id}
+            engineerName={engineerName}
+            siteName={siteBal.site_name}
+            balance={siteBal}
+            isLoading={false}
+            actions={
+              <Stack direction="row" spacing={1}>
+                <Button
+                  fullWidth
+                  variant="contained"
+                  size="small"
+                  onClick={() => onAdd(siteBal.site_id)}
+                  startIcon={<AddIcon />}
+                  sx={{
+                    bgcolor: "common.white",
+                    color: "primary.dark",
+                    "&:hover": { bgcolor: "rgba(255,255,255,0.9)" },
+                  }}
+                >
+                  Add funds
+                </Button>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                  onClick={() => onReturn(siteBal.site_id)}
+                  startIcon={<KeyboardReturn />}
+                  disabled={siteBal.balance <= 0}
+                  sx={{
+                    color: "common.white",
+                    borderColor: "rgba(255,255,255,0.5)",
+                    "&:hover": { borderColor: "common.white", bgcolor: "rgba(255,255,255,0.08)" },
+                    "&.Mui-disabled": { color: "rgba(255,255,255,0.4)", borderColor: "rgba(255,255,255,0.2)" },
+                  }}
+                >
+                  Return
+                </Button>
+              </Stack>
+            }
+          />
+        ))}
+        {!siteBalances.isLoading && (siteBalances.data?.length ?? 0) === 0 && (
+          <Alert severity="info">No active sites for this company.</Alert>
+        )}
+      </Stack>
 
       <Tabs
         value={tab}
         onChange={(_, v: LedgerTab) => setTab(v)}
         variant="fullWidth"
-        sx={{ mt: 2, borderBottom: 1, borderColor: "divider", minHeight: 40 }}
+        sx={{ mt: 3, borderBottom: 1, borderColor: "divider", minHeight: 40 }}
       >
         <Tab label="All" value="all" sx={{ minHeight: 40 }} />
         <Tab label="Deposits" value="deposit" sx={{ minHeight: 40 }} />

@@ -23,8 +23,11 @@ import type {
 } from "@/types/engineer-wallet-v2.types";
 
 function invalidateForEngineer(qc: ReturnType<typeof useQueryClient>, userId: string) {
-  qc.invalidateQueries({ queryKey: ENGINEER_WALLET_KEYS.balance(userId) });
-  // Ledger queries are keyed by (userId, filters) — invalidate the prefix.
+  // Per-(userId, siteId) balance keys — invalidate the prefix so all sites refresh.
+  qc.invalidateQueries({ queryKey: ["engineer-wallet", "balance", userId] });
+  // Per-engineer site-balance arrays (office detail panel).
+  qc.invalidateQueries({ queryKey: ["engineer-wallet", "site-balances", userId] });
+  // Ledger queries are keyed by (userId, filters).
   qc.invalidateQueries({ queryKey: ["engineer-wallet", "ledger", userId] });
   // The engineer picker shows balances per row — refresh those too.
   qc.invalidateQueries({ queryKey: ["engineer-wallet", "enabled-engineers"] });

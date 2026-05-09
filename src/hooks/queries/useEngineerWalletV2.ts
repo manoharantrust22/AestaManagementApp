@@ -16,11 +16,13 @@ import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { wrapQueryFn } from "@/lib/utils/timeout";
 import {
+  getEngineerSiteBalances,
   getWalletBalance,
   getWalletEnabledEngineers,
   getWalletLedger,
 } from "@/lib/services/engineerWalletV2";
 import type {
+  EngineerSiteBalance,
   WalletBalance,
   WalletEnabledEngineer,
   WalletLedgerFilters,
@@ -29,7 +31,10 @@ import type {
 
 export const ENGINEER_WALLET_KEYS = {
   all: ["engineer-wallet"] as const,
-  balance: (userId: string) => ["engineer-wallet", "balance", userId] as const,
+  balance: (userId: string, siteId: string) =>
+    ["engineer-wallet", "balance", userId, siteId] as const,
+  siteBalances: (userId: string, companyId: string) =>
+    ["engineer-wallet", "site-balances", userId, companyId] as const,
   ledger: (userId: string, filters: WalletLedgerFilters) =>
     ["engineer-wallet", "ledger", userId, filters] as const,
   enabledEngineers: (companyId: string) =>
@@ -51,19 +56,49 @@ function useCrossTabInvalidate(): void {
 }
 
 /**
- * Live balance + activity counters for an engineer. Returns 0 / nulls
- * when the user has no ledger rows yet (rather than 404-ing).
+ * Live balance + activity counters for an engineer's pool at one specific site.
+ * Returns 0 / nulls when the user has no ledger rows for that site yet.
  */
-export function useEngineerWalletBalance(userId: string | undefined) {
+export function useEngineerWalletBalance(
+  userId: string | undefined,
+  siteId: string | undefined
+) {
   useCrossTabInvalidate();
   const supabase = createClient();
+  const enabled = Boolean(userId && siteId);
   return useQuery<WalletBalance>({
-    queryKey: userId ? ENGINEER_WALLET_KEYS.balance(userId) : ["engineer-wallet", "balance", "_disabled"],
-    enabled: Boolean(userId),
+    queryKey: enabled
+      ? ENGINEER_WALLET_KEYS.balance(userId as string, siteId as string)
+      : ["engineer-wallet", "balance", "_disabled"],
+    enabled,
     staleTime: 30_000,
     queryFn: wrapQueryFn(
-      () => getWalletBalance(supabase, userId as string),
+      () => getWalletBalance(supabase, userId as string, siteId as string),
       { operationName: "useEngineerWalletBalance" }
+    ),
+  });
+}
+
+/**
+ * All sites of the engineer's company decorated with the engineer's per-site balance.
+ * Used by /company/engineer-wallet to render one balance card per site (stacked).
+ */
+export function useEngineerSiteBalances(
+  userId: string | undefined,
+  companyId: string | undefined
+) {
+  useCrossTabInvalidate();
+  const supabase = createClient();
+  const enabled = Boolean(userId && companyId);
+  return useQuery<EngineerSiteBalance[]>({
+    queryKey: enabled
+      ? ENGINEER_WALLET_KEYS.siteBalances(userId as string, companyId as string)
+      : ["engineer-wallet", "site-balances", "_disabled"],
+    enabled,
+    staleTime: 30_000,
+    queryFn: wrapQueryFn(
+      () => getEngineerSiteBalances(supabase, userId as string, companyId as string),
+      { operationName: "useEngineerSiteBalances" }
     ),
   });
 }

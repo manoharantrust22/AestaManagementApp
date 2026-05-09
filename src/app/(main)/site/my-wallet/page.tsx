@@ -13,8 +13,9 @@ import {
   Tabs,
   Typography,
 } from "@mui/material";
-import { KeyboardReturn } from "@mui/icons-material";
+import { KeyboardReturn, LocationOff } from "@mui/icons-material";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSelectedSite } from "@/contexts/SiteContext";
 import {
   useEngineerWalletBalance,
   useEngineerWalletLedger,
@@ -28,20 +29,36 @@ type LedgerTab = "all" | "deposit" | "spend" | "return";
 
 export default function MyWalletPage() {
   const { userProfile } = useAuth();
+  const { selectedSite } = useSelectedSite();
   const [tab, setTab] = useState<LedgerTab>("all");
   const [returnOpen, setReturnOpen] = useState(false);
 
   const filters: Omit<WalletLedgerFilters, "cursor"> = {
     type: tab === "all" ? "all" : tab,
+    site_id: selectedSite?.id ?? null,
   };
 
-  const balanceQuery = useEngineerWalletBalance(userProfile?.id);
+  const balanceQuery = useEngineerWalletBalance(userProfile?.id, selectedSite?.id);
   const ledgerQuery = useEngineerWalletLedger(userProfile?.id, filters);
 
   if (!userProfile) {
     return (
       <Container maxWidth="sm" sx={{ py: 4 }}>
         <Alert severity="warning">Not signed in</Alert>
+      </Container>
+    );
+  }
+
+  if (!selectedSite) {
+    return (
+      <Container maxWidth="sm" sx={{ py: 4 }}>
+        <Alert
+          severity="info"
+          icon={<LocationOff />}
+          sx={{ "& .MuiAlert-icon": { alignItems: "center" } }}
+        >
+          Pick a site from the header to see your wallet for that site.
+        </Alert>
       </Container>
     );
   }
@@ -67,6 +84,7 @@ export default function MyWalletPage() {
       >
         <WalletBalanceCard
           engineerName={userProfile.name ?? "Your"}
+          siteName={selectedSite.name}
           balance={balanceQuery.data}
           isLoading={balanceQuery.isLoading}
           actions={
@@ -75,11 +93,13 @@ export default function MyWalletPage() {
               size="small"
               variant="contained"
               onClick={() => setReturnOpen(true)}
+              disabled={(balanceQuery.data?.balance ?? 0) <= 0}
               startIcon={<KeyboardReturn />}
               sx={{
                 bgcolor: "rgba(255,255,255,0.18)",
                 color: "common.white",
                 "&:hover": { bgcolor: "rgba(255,255,255,0.28)" },
+                "&.Mui-disabled": { bgcolor: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.5)" },
               }}
             >
               Record return
@@ -118,6 +138,7 @@ export default function MyWalletPage() {
         engineerName={userProfile.name ?? "You"}
         recordedBy={userProfile.name ?? "Engineer"}
         recordedByUserId={userProfile.id}
+        lockedSiteId={selectedSite.id}
       />
     </Container>
   );

@@ -47,14 +47,29 @@ export interface WalletLedgerEntry {
   cancellation_reason: string | null;
 }
 
-/** Live wallet balance + activity counters from v_engineer_wallet_balance. */
+/** Live wallet balance + activity counters from v_engineer_wallet_balance.
+ *  Keyed by (user_id, site_id) — every engineer has one pool per site. */
 export interface WalletBalance {
   user_id: string;
+  site_id: string;
   balance: number;
   last_txn_at: string | null;
   deposit_count: number;
   spend_count: number;
   return_count: number;
+  total_deposited: number;
+  total_spent: number;
+  total_returned: number;
+}
+
+/** Per-site balance row decorated with the site's display name, used by the
+ *  office detail panel (one card per site). Sites with no ledger rows yet
+ *  are still surfaced (zero-filled) so operators can deposit into a fresh site. */
+export interface EngineerSiteBalance {
+  site_id: string;
+  site_name: string;
+  balance: number;
+  last_txn_at: string | null;
   total_deposited: number;
   total_spent: number;
   total_returned: number;
@@ -67,49 +82,54 @@ export interface WalletEnabledEngineer {
   email: string | null;
   avatar_url: string | null;
   company_id: string;
-  /** Live balance for use in pickers / cards. May be 0 if no deposits yet. */
-  balance: number;
+  /** Sum across all sites — convenience for the engineer-list rail. */
+  total_balance: number;
   last_txn_at: string | null;
+  /** Per-site breakdown. Includes every active site of the engineer's company. */
+  sites: EngineerSiteBalance[];
 }
 
-/** Inputs to recordDeposit. UPI mode requires proof_url. */
+/** Inputs to recordDeposit. UPI mode requires proof_url. site_id is required —
+ *  every deposit is tagged to a specific site pool. */
 export interface RecordDepositInput {
   engineer_id: string;
+  site_id: string;
   amount: number;
   payment_mode: WalletPaymentMode;
   payer_source: WalletPayerSourceKey;
   payer_name: string | null;
   proof_url: string | null;
-  transaction_date?: string; // defaults to today
-  site_id?: string | null;
+  transaction_date?: string;
   description?: string | null;
   notes?: string | null;
   recorded_by: string;
   recorded_by_user_id: string;
 }
 
-/** Inputs to recordReturn. UPI mode requires proof_url. */
+/** Inputs to recordReturn. UPI mode requires proof_url. site_id is required —
+ *  returns decrement the specific site pool that money is being handed back from. */
 export interface RecordReturnInput {
   engineer_id: string;
+  site_id: string;
   amount: number;
   payment_mode: WalletPaymentMode;
   proof_url?: string | null;
   transaction_date?: string;
-  site_id?: string | null;
   description?: string | null;
   notes?: string | null;
   recorded_by: string;
   recorded_by_user_id: string;
 }
 
-/** Inputs to recordSpend. Called only by domain settlement services, never directly by UI. */
+/** Inputs to recordSpend. Called only by domain settlement services. site_id is
+ *  the settlement's site — the RPC enforces that pool is sufficient. */
 export interface RecordSpendInput {
   engineer_id: string;
+  site_id: string;
   amount: number;
   payment_mode: WalletPaymentMode;
   proof_url?: string | null;
   transaction_date?: string;
-  site_id?: string | null;
   description?: string | null;
   notes?: string | null;
   recorded_by: string;

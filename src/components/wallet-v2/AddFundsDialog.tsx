@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Alert,
   Box,
@@ -11,6 +11,7 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  MenuItem,
   Stack,
   TextField,
   ToggleButton,
@@ -19,15 +20,17 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { Close, CloudUpload, Image as ImageIcon } from "@mui/icons-material";
+import { Close, CloudUpload, Image as ImageIcon, LocationOn } from "@mui/icons-material";
 import dayjs from "dayjs";
 import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
 import { useImageUpload } from "@/hooks/useImageUpload";
 import { createClient } from "@/lib/supabase/client";
+import { useSitesData } from "@/contexts/SiteContext";
 import {
   useRecordWalletDeposit,
   useRecordWalletReturn,
 } from "@/hooks/mutations/useEngineerWalletMutations";
+import { useEngineerWalletBalance } from "@/hooks/queries/useEngineerWalletV2";
 import { WalletValidationError } from "@/types/engineer-wallet-v2.types";
 import type {
   WalletPaymentMode,
@@ -44,7 +47,13 @@ interface AddFundsDialogProps {
   recordedByUserId: string;
   /** Defaults to "deposit" — pass "return" to reuse this dialog for returns. */
   mode?: "deposit" | "return";
+  /** When provided, the site picker is locked to this site (e.g. when the dialog
+   *  is opened from a per-site card's Add Funds button). */
+  lockedSiteId?: string;
 }
+
+const fmt = (n: number) =>
+  new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(Math.round(n));
 
 export default function AddFundsDialog({
   open,
@@ -54,12 +63,17 @@ export default function AddFundsDialog({
   recordedBy,
   recordedByUserId,
   mode = "deposit",
+  lockedSiteId,
 }: AddFundsDialogProps) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const supabase = createClient();
   const isReturn = mode === "return";
 
+  const { sites } = useSitesData();
+  const activeSites = sites.filter((s) => s.status === "active");
+
+  const [siteId, setSiteId] = useState<string>(lockedSiteId ?? "");
   const [amount, setAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState<WalletPaymentMode>("upi");
   const [payerSource, setPayerSource] = useState<PayerSource>("trust_account");
@@ -69,6 +83,19 @@ export default function AddFundsDialog({
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [proofPreview, setProofPreview] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // When the dialog opens, sync site state to the locked site if any.
+  useEffect(() => {
+    if (open) setSiteId(lockedSiteId ?? "");
+  }, [open, lockedSiteId]);
+
+  // Live balance preview for the chosen site (so the operator sees the resulting pool).
+  const balanceQuery = useEngineerWalletBalance(engineerId, siteId || undefined);
+  const currentBalance = balanceQuery.data?.balance ?? 0;
+  const numericAmount = Number(amount) || 0;
+  const previewAfter = isReturn
+    ? currentBalance - numericAmount
+    : currentBalance + numericAmount;
 
   const upload = useImageUpload({
     supabase,
@@ -80,6 +107,7 @@ export default function AddFundsDialog({
   const returnMutation = useRecordWalletReturn();
 
   const reset = () => {
+    setSiteId(lockedSiteId ?? "");
     setAmount("");
     setPaymentMode("upi");
     setPayerSource("trust_account");
@@ -111,19 +139,27 @@ export default function AddFundsDialog({
     }
   };
 
+  const siteMissing = !siteId;
   const upiProofMissing = paymentMode === "upi" && !proofUrl;
   const customNameMissing =
     (payerSource === "custom" || payerSource === "other_site_money") &&
     payerName.trim() === "" &&
     !isReturn;
   const amountInvalid = !amount || isNaN(Number(amount)) || Number(amount) <= 0;
-  const canSubmit = !amountInvalid && !upiProofMissing && !customNameMissing;
+  const returnExceedsBalance = isReturn && numericAmount > currentBalance;
+  const canSubmit =
+    !amountInvalid &&
+    !siteMissing &&
+    !upiProofMissing &&
+    !customNameMissing &&
+    !returnExceedsBalance;
 
   const handleSubmit = async () => {
     setSubmitError(null);
     try {
       const baseInput = {
         engineer_id: engineerId,
+        site_id: siteId,
         amount: Number(amount),
         payment_mode: paymentMode,
         proof_url: proofUrl,
@@ -181,6 +217,63 @@ export default function AddFundsDialog({
 
       <DialogContent dividers>
         <Stack spacing={2.5} sx={{ pt: 1 }}>
+          <TextField
+            select
+            label="Site"
+            value={siteId}
+            onChange={(e) => setSiteId(e.target.value)}
+            fullWidth
+            disabled={Boolean(lockedSiteId)}
+            helperText={
+              lockedSiteId
+                ? "This deposit is scoped to the site that opened the dialog."
+                : isReturn
+                ? "Pick which site's pool the engineer is returning money from."
+                : "Pick the site this money is earmarked for."
+            }
+            InputProps={{
+              startAdornment: (
+                <LocationOn fontSize="small" sx={{ mr: 1, color: "text.secondary" }} />
+              ),
+            }}
+          >
+            {activeSites.length === 0 && (
+              <MenuItem value="" disabled>
+                No active sites
+              </MenuItem>
+            )}
+            {activeSites.map((s) => (
+              <MenuItem key={s.id} value={s.id}>
+                {s.name}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          {siteId && balanceQuery.data && (
+            <Box
+              sx={{
+                px: 1.5,
+                py: 1,
+                bgcolor: "action.hover",
+                borderRadius: 1,
+                fontSize: "0.85rem",
+              }}
+            >
+              <Typography variant="caption" color="text.secondary" component="div">
+                Current pool: <strong>₹ {fmt(currentBalance)}</strong>
+                {numericAmount > 0 && (
+                  <>
+                    {" "}
+                    → after this {isReturn ? "return" : "deposit"}:{" "}
+                    <strong style={{ color: previewAfter < 0 ? "#d32f2f" : "inherit" }}>
+                      ₹ {fmt(previewAfter)}
+                    </strong>
+                  </>
+                )}
+              </Typography>
+            </Box>
+          )}
+
           <TextField
             label="Amount"
             value={amount}
@@ -286,6 +379,12 @@ export default function AddFundsDialog({
             minRows={2}
             placeholder="Optional context (e.g. 'For week 18 wages')"
           />
+
+          {returnExceedsBalance && (
+            <Alert severity="warning">
+              Return amount ₹{fmt(numericAmount)} exceeds current pool ₹{fmt(currentBalance)}.
+            </Alert>
+          )}
 
           {submitError && <Alert severity="error">{submitError}</Alert>}
         </Stack>

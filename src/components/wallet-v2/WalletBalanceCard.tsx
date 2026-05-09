@@ -11,7 +11,10 @@ const fmt = (n: number) =>
 
 interface WalletBalanceCardProps {
   engineerName: string;
-  balance: WalletBalance | undefined;
+  /** When supplied, rendered as the card heading instead of "<engineer>'s Wallet".
+   *  Used on the office detail panel where each card represents one site pool. */
+  siteName?: string;
+  balance: { balance: number; last_txn_at: string | null; total_deposited?: number; total_spent?: number; total_returned?: number } | undefined;
   isLoading: boolean;
   /** Optional CTAs rendered below the metrics — e.g. Add Funds / Return buttons. */
   actions?: React.ReactNode;
@@ -19,6 +22,7 @@ interface WalletBalanceCardProps {
 
 export default function WalletBalanceCard({
   engineerName,
+  siteName,
   balance,
   isLoading,
   actions,
@@ -52,10 +56,15 @@ export default function WalletBalanceCard({
         <Stack direction="row" alignItems="center" spacing={1} sx={{ opacity: 0.85, mb: 0.5 }}>
           <AccountBalanceWallet fontSize="small" />
           <Typography variant="caption" sx={{ textTransform: "uppercase", letterSpacing: 0.5 }}>
-            {engineerName}&apos;s Wallet
+            {siteName ?? `${engineerName}'s Wallet`}
           </Typography>
         </Stack>
 
+        {siteName && (
+          <Typography variant="caption" sx={{ opacity: 0.7, display: "block", mb: 0.5 }}>
+            {engineerName}
+          </Typography>
+        )}
         <Typography variant="caption" sx={{ opacity: 0.8 }}>
           Available balance
         </Typography>

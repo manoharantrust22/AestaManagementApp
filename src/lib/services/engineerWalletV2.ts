@@ -19,6 +19,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   WalletBalance,
+  EngineerSiteBalance,
   WalletEnabledEngineer,
   WalletLedgerEntry,
   WalletLedgerFilters,
@@ -40,14 +41,16 @@ const DEFAULT_LEDGER_PAGE = 30;
 
 export async function getWalletBalance(
   supabase: SupabaseClient,
-  userId: string
+  userId: string,
+  siteId: string
 ): Promise<WalletBalance> {
   const { data, error } = await supabase
     .from("v_engineer_wallet_balance")
     .select(
-      "user_id, balance, last_txn_at, deposit_count, spend_count, return_count, total_deposited, total_spent, total_returned"
+      "user_id, site_id, balance, last_txn_at, deposit_count, spend_count, return_count, total_deposited, total_spent, total_returned"
     )
     .eq("user_id", userId)
+    .eq("site_id", siteId)
     .maybeSingle();
 
   if (error) throw error;
@@ -55,6 +58,7 @@ export async function getWalletBalance(
   if (!data) {
     return {
       user_id: userId,
+      site_id: siteId,
       balance: 0,
       last_txn_at: null,
       deposit_count: 0,
@@ -66,6 +70,62 @@ export async function getWalletBalance(
     };
   }
   return data as WalletBalance;
+}
+
+/** All sites of the engineer's company, each row decorated with the engineer's
+ *  current pool for that site (zero when no ledger row exists yet). The office
+ *  detail panel renders one balance card per element. Inactive sites are excluded. */
+export async function getEngineerSiteBalances(
+  supabase: SupabaseClient,
+  userId: string,
+  companyId: string
+): Promise<EngineerSiteBalance[]> {
+  const [{ data: sites, error: sitesErr }, { data: balances, error: balErr }] =
+    await Promise.all([
+      supabase
+        .from("sites")
+        .select("id, name, status")
+        .eq("company_id", companyId)
+        .eq("status", "active")
+        .order("name", { ascending: true }),
+      supabase
+        .from("v_engineer_wallet_balance")
+        .select(
+          "site_id, balance, last_txn_at, total_deposited, total_spent, total_returned"
+        )
+        .eq("user_id", userId),
+    ]);
+
+  if (sitesErr) throw sitesErr;
+  if (balErr) throw balErr;
+
+  const balanceMap = new Map<string, EngineerSiteBalance>();
+  for (const b of balances ?? []) {
+    balanceMap.set(b.site_id as string, {
+      site_id: b.site_id as string,
+      site_name: "", // filled below from sites
+      balance: Number(b.balance ?? 0),
+      last_txn_at: (b.last_txn_at as string | null) ?? null,
+      total_deposited: Number(b.total_deposited ?? 0),
+      total_spent: Number(b.total_spent ?? 0),
+      total_returned: Number(b.total_returned ?? 0),
+    });
+  }
+
+  return (sites ?? []).map((s) => {
+    const existing = balanceMap.get(s.id as string);
+    return existing
+      ? { ...existing, site_name: s.name as string }
+      : {
+          site_id: s.id as string,
+          site_name: s.name as string,
+          balance: 0,
+          last_txn_at: null,
+          total_deposited: 0,
+          total_spent: 0,
+          total_returned: 0,
+        };
+  });
 }
 
 export async function getWalletLedger(
@@ -117,46 +177,94 @@ export async function getWalletEnabledEngineers(
   supabase: SupabaseClient,
   companyId: string
 ): Promise<WalletEnabledEngineer[]> {
-  const { data: members, error: membersErr } = await supabase
-    .from("company_members")
-    .select("user_id, company_id, users:users!inner(id, name, email, avatar_url)")
-    .eq("company_id", companyId)
-    .eq("wallet_enabled", true);
+  const [
+    { data: members, error: membersErr },
+    { data: sites, error: sitesErr },
+  ] = await Promise.all([
+    supabase
+      .from("company_members")
+      .select("user_id, company_id, users:users!inner(id, name, email, avatar_url)")
+      .eq("company_id", companyId)
+      .eq("wallet_enabled", true),
+    supabase
+      .from("sites")
+      .select("id, name, status")
+      .eq("company_id", companyId)
+      .eq("status", "active")
+      .order("name", { ascending: true }),
+  ]);
 
   if (membersErr) throw membersErr;
+  if (sitesErr) throw sitesErr;
   if (!members || members.length === 0) return [];
 
   const userIds = members.map((m) => m.user_id);
 
   const { data: balances, error: balErr } = await supabase
     .from("v_engineer_wallet_balance")
-    .select("user_id, balance, last_txn_at")
+    .select(
+      "user_id, site_id, balance, last_txn_at, total_deposited, total_spent, total_returned"
+    )
     .in("user_id", userIds);
-
   if (balErr) throw balErr;
 
-  const balanceMap = new Map<string, { balance: number; last_txn_at: string | null }>();
+  // Build a per-engineer site balance map, defaulting every active site to zero.
+  const siteList = (sites ?? []) as { id: string; name: string }[];
+  const perEngineerSites = new Map<string, Map<string, EngineerSiteBalance>>();
+
+  for (const m of members) {
+    const init = new Map<string, EngineerSiteBalance>();
+    for (const s of siteList) {
+      init.set(s.id, {
+        site_id: s.id,
+        site_name: s.name,
+        balance: 0,
+        last_txn_at: null,
+        total_deposited: 0,
+        total_spent: 0,
+        total_returned: 0,
+      });
+    }
+    perEngineerSites.set(m.user_id, init);
+  }
+
   for (const b of balances ?? []) {
-    balanceMap.set(b.user_id as string, {
+    const userMap = perEngineerSites.get(b.user_id as string);
+    if (!userMap) continue;
+    const existing = userMap.get(b.site_id as string);
+    const siteName =
+      siteList.find((s) => s.id === b.site_id)?.name ?? existing?.site_name ?? "";
+    userMap.set(b.site_id as string, {
+      site_id: b.site_id as string,
+      site_name: siteName,
       balance: Number(b.balance ?? 0),
       last_txn_at: (b.last_txn_at as string | null) ?? null,
+      total_deposited: Number(b.total_deposited ?? 0),
+      total_spent: Number(b.total_spent ?? 0),
+      total_returned: Number(b.total_returned ?? 0),
     });
   }
 
   return members.map((m) => {
-    // Supabase types this as object | object[] depending on relationship cardinality.
     const u = (Array.isArray(m.users) ? m.users[0] : m.users) as
       | { id: string; name: string; email: string | null; avatar_url: string | null }
       | null;
-    const bal = balanceMap.get(m.user_id) ?? { balance: 0, last_txn_at: null };
+    const sitesArr = Array.from(perEngineerSites.get(m.user_id)?.values() ?? []);
+    const total = sitesArr.reduce((s, x) => s + x.balance, 0);
+    const lastTxnAt = sitesArr
+      .map((x) => x.last_txn_at)
+      .filter((d): d is string => Boolean(d))
+      .sort()
+      .pop() ?? null;
     return {
       user_id: m.user_id,
       name: u?.name ?? "Unknown",
       email: u?.email ?? null,
       avatar_url: u?.avatar_url ?? null,
       company_id: m.company_id,
-      balance: bal.balance,
-      last_txn_at: bal.last_txn_at,
+      total_balance: total,
+      last_txn_at: lastTxnAt,
+      sites: sitesArr,
     };
   });
 }
@@ -185,6 +293,9 @@ export async function recordDeposit(
   if (!input.engineer_id) {
     throw new WalletValidationError("MISSING_ENGINEER", "Engineer is required");
   }
+  if (!input.site_id) {
+    throw new WalletValidationError("MISSING_SITE", "Site is required for deposits");
+  }
   if (!input.amount || input.amount <= 0) {
     throw new WalletValidationError("INVALID_AMOUNT", "Amount must be positive");
   }
@@ -200,7 +311,7 @@ export async function recordDeposit(
       transaction_type: "deposit",
       amount: input.amount,
       transaction_date: input.transaction_date ?? new Date().toISOString().slice(0, 10),
-      site_id: input.site_id ?? null,
+      site_id: input.site_id,
       description: input.description ?? null,
       payment_mode: input.payment_mode,
       proof_url: input.proof_url ?? null,
@@ -224,13 +335,16 @@ export async function recordReturn(
   if (!input.engineer_id) {
     throw new WalletValidationError("MISSING_ENGINEER", "Engineer is required");
   }
+  if (!input.site_id) {
+    throw new WalletValidationError("MISSING_SITE", "Site is required for returns");
+  }
   if (!input.amount || input.amount <= 0) {
     throw new WalletValidationError("INVALID_AMOUNT", "Amount must be positive");
   }
   validateProofForUpi(input.payment_mode, input.proof_url, "return");
 
-  // Block negative balance: a return greater than current balance is operator error.
-  const balance = await getWalletBalance(supabase, input.engineer_id);
+  // Block negative balance: a return greater than current site pool is operator error.
+  const balance = await getWalletBalance(supabase, input.engineer_id, input.site_id);
   if (input.amount > balance.balance) {
     throw new WalletInsufficientBalanceError(balance.balance, input.amount);
   }
@@ -242,7 +356,7 @@ export async function recordReturn(
       transaction_type: "return",
       amount: input.amount,
       transaction_date: input.transaction_date ?? new Date().toISOString().slice(0, 10),
-      site_id: input.site_id ?? null,
+      site_id: input.site_id,
       description: input.description ?? null,
       payment_mode: input.payment_mode,
       proof_url: input.proof_url ?? null,
@@ -268,12 +382,16 @@ export async function recordSpend(
   if (!input.engineer_id) {
     throw new WalletValidationError("MISSING_ENGINEER", "Engineer is required");
   }
+  if (!input.site_id) {
+    throw new WalletValidationError("MISSING_SITE", "Site is required for spends");
+  }
   if (!input.amount || input.amount <= 0) {
     throw new WalletValidationError("INVALID_AMOUNT", "Amount must be positive");
   }
 
   const { data, error } = await supabase.rpc("atomic_record_wallet_spend", {
     p_engineer_id: input.engineer_id,
+    p_site_id: input.site_id,
     p_amount: input.amount,
     p_transaction_date: input.transaction_date ?? new Date().toISOString().slice(0, 10),
     p_payment_mode: input.payment_mode,
@@ -281,7 +399,6 @@ export async function recordSpend(
     p_notes: input.notes ?? null,
     p_recorded_by: input.recorded_by,
     p_recorded_by_user_id: input.recorded_by_user_id,
-    p_site_id: input.site_id ?? null,
     p_description: input.description ?? null,
   });
 
