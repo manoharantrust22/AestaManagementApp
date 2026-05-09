@@ -9,11 +9,22 @@ import type { InspectEntity } from "./types";
 // rendering the pane shell in this test doesn't trigger real network.
 // (The hook's queryFn is gated behind enabled: Boolean(siteId && date),
 // which is true in these tests, so we still need the rpc() to resolve.)
-vi.mock("@/lib/supabase/client", () => ({
-  createClient: () => ({
-    rpc: vi.fn().mockResolvedValue({ data: {}, error: null }),
-  }),
-}));
+//
+// useAttendanceForDate.ts chains `.abortSignal(signal)` on the rpc builder
+// for cancel-on-unmount support; the mock returns a thenable that also
+// exposes `.abortSignal()` returning itself, so the chain resolves cleanly.
+vi.mock("@/lib/supabase/client", () => {
+  const makeRpcBuilder = () => {
+    const result: any = Promise.resolve({ data: {}, error: null });
+    result.abortSignal = vi.fn(() => result);
+    return result;
+  };
+  return {
+    createClient: () => ({
+      rpc: vi.fn(() => makeRpcBuilder()),
+    }),
+  };
+});
 
 const dailyEntity: InspectEntity = {
   kind: "daily-date",
