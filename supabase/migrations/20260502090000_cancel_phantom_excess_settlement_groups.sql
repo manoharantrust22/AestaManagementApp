@@ -60,7 +60,19 @@ DECLARE
   v_safety_count   int;
   v_safety_total   numeric;
   v_updated_count  int;
+  v_any_present    int;
 BEGIN
+  -- Skip on environments without the production rows (fresh local DB, etc.).
+  -- Production already ran this once and won't re-execute on file edit.
+  SELECT COUNT(*) INTO v_any_present
+  FROM public.settlement_groups
+  WHERE id = ANY(v_target_ids);
+
+  IF v_any_present = 0 THEN
+    RAISE NOTICE 'No phantom-excess target rows present; skipping migration body.';
+    RETURN;
+  END IF;
+
   -- Pre-flight safety check: every target row must still match its expected
   -- shape. If any row was already cancelled, deleted, or mutated (e.g. has
   -- gained labor_payments), abort without touching anything.

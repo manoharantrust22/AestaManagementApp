@@ -1,0 +1,1 @@
+COMMENT ON FUNCTION public.ingest_purchase_atomic IS 'AI ingest mode=Purchase. Resolves vendor/category/material/brand (find-or-create), then inserts purchase header + items + price_history rows in one transaction.';

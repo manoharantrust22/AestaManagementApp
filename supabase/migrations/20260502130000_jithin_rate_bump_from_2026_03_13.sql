@@ -58,7 +58,10 @@ BEGIN
   WHERE id = v_laborer_id;
 
   IF v_current_lab_rate IS NULL THEN
-    RAISE EXCEPTION 'Aborted: laborer % not found.', v_laborer_id;
+    -- Skip on environments without the production laborer (fresh local DB).
+    -- Production already ran this once and won't re-execute on file edit.
+    RAISE NOTICE 'Skipping Jithin rate-bump: laborer % not present in this environment.', v_laborer_id;
+    RETURN;
   END IF;
 
   IF v_current_lab_rate <> v_new_rate THEN

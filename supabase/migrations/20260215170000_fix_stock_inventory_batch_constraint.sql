@@ -26,109 +26,103 @@ UNIQUE NULLS NOT DISTINCT (site_id, location_id, material_id, brand_id, batch_co
 
 
 -- =====================================================
--- Part B: Repair Padmavathy Apartments data
+-- Parts B + C: Repair production-only merged batches
 -- =====================================================
--- Current: 1 row (CB41=110 bags) — merged from 3 PO deliveries
--- Expected: 3 rows (CB41=50, 724F=30, 8353=30)
+-- Hardcoded UUIDs reference real production rows (Padmavathy, Srinivasan).
+-- Guarded so a fresh local DB without those rows skips the data fix and the
+-- migration replay still succeeds. Production already ran this and won't
+-- re-execute on file edit.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM material_brands WHERE id = '76eecfa0-96b5-412d-a718-b9fee274368f'
+  ) THEN
+    -- Part B: Padmavathy Apartments (CB41=110 → 50, +724F=30, +8353=30)
+    UPDATE stock_inventory
+    SET current_qty = 50,
+        last_received_date = '2025-12-13',
+        updated_at = NOW()
+    WHERE id = '5fbbd1bc-9801-4bfd-9e89-a64c10cb351b'
+      AND batch_code = 'MAT-260214-CB41';
 
--- Step B1: Reduce CB41 from 110 to its correct 50 bags
-UPDATE stock_inventory
-SET current_qty = 50,
-    last_received_date = '2025-12-13',
-    updated_at = NOW()
-WHERE id = '5fbbd1bc-9801-4bfd-9e89-a64c10cb351b'
-  AND batch_code = 'MAT-260214-CB41';
+    INSERT INTO stock_inventory (
+      site_id, location_id, material_id, brand_id,
+      current_qty, avg_unit_cost, last_received_date,
+      pricing_mode, total_weight, batch_code
+    ) VALUES (
+      'ff893992-a276-47b7-8bd2-d2fe4f62f3b5', NULL,
+      'e03e4bf1-17de-4070-8f4d-262b83d0843d',
+      '76eecfa0-96b5-412d-a718-b9fee274368f',
+      30, 280.00, '2025-12-26',
+      'per_piece', NULL, 'MAT-260214-724F'
+    );
 
--- Step B2: Insert MAT-260214-724F (30 bags, delivered 2025-12-26)
-INSERT INTO stock_inventory (
-  site_id, location_id, material_id, brand_id,
-  current_qty, avg_unit_cost, last_received_date,
-  pricing_mode, total_weight, batch_code
-) VALUES (
-  'ff893992-a276-47b7-8bd2-d2fe4f62f3b5', NULL,
-  'e03e4bf1-17de-4070-8f4d-262b83d0843d',
-  '76eecfa0-96b5-412d-a718-b9fee274368f',
-  30, 280.00, '2025-12-26',
-  'per_piece', NULL, 'MAT-260214-724F'
-);
+    INSERT INTO stock_inventory (
+      site_id, location_id, material_id, brand_id,
+      current_qty, avg_unit_cost, last_received_date,
+      pricing_mode, total_weight, batch_code
+    ) VALUES (
+      'ff893992-a276-47b7-8bd2-d2fe4f62f3b5', NULL,
+      'e03e4bf1-17de-4070-8f4d-262b83d0843d',
+      '76eecfa0-96b5-412d-a718-b9fee274368f',
+      30, 280.00, '2025-12-31',
+      'per_piece', NULL, 'MAT-260214-8353'
+    );
 
--- Step B3: Insert MAT-260214-8353 (30 bags, delivered 2025-12-31)
-INSERT INTO stock_inventory (
-  site_id, location_id, material_id, brand_id,
-  current_qty, avg_unit_cost, last_received_date,
-  pricing_mode, total_weight, batch_code
-) VALUES (
-  'ff893992-a276-47b7-8bd2-d2fe4f62f3b5', NULL,
-  'e03e4bf1-17de-4070-8f4d-262b83d0843d',
-  '76eecfa0-96b5-412d-a718-b9fee274368f',
-  30, 280.00, '2025-12-31',
-  'per_piece', NULL, 'MAT-260214-8353'
-);
+    -- Part C: Srinivasan House & Shop (2D7D=150 → 0, +674E=30, +1BD3=30, +B915=30, +0A47=60)
+    UPDATE stock_inventory
+    SET current_qty = 0,
+        last_received_date = '2025-11-21',
+        updated_at = NOW()
+    WHERE id = '65030228-631e-4640-a301-fbc57faa76d6'
+      AND batch_code = 'MAT-260214-2D7D';
 
+    INSERT INTO stock_inventory (
+      site_id, location_id, material_id, brand_id,
+      current_qty, avg_unit_cost, last_received_date,
+      pricing_mode, total_weight, batch_code
+    ) VALUES (
+      '79bfcfb3-4b0d-4240-8fce-d1ab584ef972', NULL,
+      'e03e4bf1-17de-4070-8f4d-262b83d0843d',
+      '76eecfa0-96b5-412d-a718-b9fee274368f',
+      30, 280.00, '2025-12-08',
+      'per_piece', NULL, 'MAT-260214-674E'
+    );
 
--- =====================================================
--- Part C: Repair Srinivasan House & Shop data
--- =====================================================
--- Current: 1 row (2D7D=150 bags) — merged from 5 PO deliveries (200 total - 50 used)
--- Batch 2D7D is completed (50 original, 50 used), so set to 0
--- Expected: 2D7D=0, 674E=30, 1BD3=30, B915=30, 0A47=60
+    INSERT INTO stock_inventory (
+      site_id, location_id, material_id, brand_id,
+      current_qty, avg_unit_cost, last_received_date,
+      pricing_mode, total_weight, batch_code
+    ) VALUES (
+      '79bfcfb3-4b0d-4240-8fce-d1ab584ef972', NULL,
+      'e03e4bf1-17de-4070-8f4d-262b83d0843d',
+      '76eecfa0-96b5-412d-a718-b9fee274368f',
+      30, 280.00, '2025-12-17',
+      'per_piece', NULL, 'MAT-260214-1BD3'
+    );
 
--- Step C1: Set 2D7D to 0 (batch is completed, 50 bags fully consumed)
-UPDATE stock_inventory
-SET current_qty = 0,
-    last_received_date = '2025-11-21',
-    updated_at = NOW()
-WHERE id = '65030228-631e-4640-a301-fbc57faa76d6'
-  AND batch_code = 'MAT-260214-2D7D';
+    INSERT INTO stock_inventory (
+      site_id, location_id, material_id, brand_id,
+      current_qty, avg_unit_cost, last_received_date,
+      pricing_mode, total_weight, batch_code
+    ) VALUES (
+      '79bfcfb3-4b0d-4240-8fce-d1ab584ef972', NULL,
+      'e03e4bf1-17de-4070-8f4d-262b83d0843d',
+      '76eecfa0-96b5-412d-a718-b9fee274368f',
+      30, 280.00, '2026-01-22',
+      'per_piece', NULL, 'MAT-260214-B915'
+    );
 
--- Step C2: Insert MAT-260214-674E (30 bags, delivered 2025-12-08)
-INSERT INTO stock_inventory (
-  site_id, location_id, material_id, brand_id,
-  current_qty, avg_unit_cost, last_received_date,
-  pricing_mode, total_weight, batch_code
-) VALUES (
-  '79bfcfb3-4b0d-4240-8fce-d1ab584ef972', NULL,
-  'e03e4bf1-17de-4070-8f4d-262b83d0843d',
-  '76eecfa0-96b5-412d-a718-b9fee274368f',
-  30, 280.00, '2025-12-08',
-  'per_piece', NULL, 'MAT-260214-674E'
-);
-
--- Step C3: Insert MAT-260214-1BD3 (30 bags, delivered 2025-12-17)
-INSERT INTO stock_inventory (
-  site_id, location_id, material_id, brand_id,
-  current_qty, avg_unit_cost, last_received_date,
-  pricing_mode, total_weight, batch_code
-) VALUES (
-  '79bfcfb3-4b0d-4240-8fce-d1ab584ef972', NULL,
-  'e03e4bf1-17de-4070-8f4d-262b83d0843d',
-  '76eecfa0-96b5-412d-a718-b9fee274368f',
-  30, 280.00, '2025-12-17',
-  'per_piece', NULL, 'MAT-260214-1BD3'
-);
-
--- Step C4: Insert MAT-260214-B915 (30 bags, delivered 2026-01-22)
-INSERT INTO stock_inventory (
-  site_id, location_id, material_id, brand_id,
-  current_qty, avg_unit_cost, last_received_date,
-  pricing_mode, total_weight, batch_code
-) VALUES (
-  '79bfcfb3-4b0d-4240-8fce-d1ab584ef972', NULL,
-  'e03e4bf1-17de-4070-8f4d-262b83d0843d',
-  '76eecfa0-96b5-412d-a718-b9fee274368f',
-  30, 280.00, '2026-01-22',
-  'per_piece', NULL, 'MAT-260214-B915'
-);
-
--- Step C5: Insert MAT-260214-0A47 (60 bags, delivered 2026-02-07)
-INSERT INTO stock_inventory (
-  site_id, location_id, material_id, brand_id,
-  current_qty, avg_unit_cost, last_received_date,
-  pricing_mode, total_weight, batch_code
-) VALUES (
-  '79bfcfb3-4b0d-4240-8fce-d1ab584ef972', NULL,
-  'e03e4bf1-17de-4070-8f4d-262b83d0843d',
-  '76eecfa0-96b5-412d-a718-b9fee274368f',
-  60, 280.00, '2026-02-07',
-  'per_piece', NULL, 'MAT-260214-0A47'
-);
+    INSERT INTO stock_inventory (
+      site_id, location_id, material_id, brand_id,
+      current_qty, avg_unit_cost, last_received_date,
+      pricing_mode, total_weight, batch_code
+    ) VALUES (
+      '79bfcfb3-4b0d-4240-8fce-d1ab584ef972', NULL,
+      'e03e4bf1-17de-4070-8f4d-262b83d0843d',
+      '76eecfa0-96b5-412d-a718-b9fee274368f',
+      60, 280.00, '2026-02-07',
+      'per_piece', NULL, 'MAT-260214-0A47'
+    );
+  END IF;
+END $$;

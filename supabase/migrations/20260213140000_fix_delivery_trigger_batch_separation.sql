@@ -160,37 +160,52 @@ $function$;
 -- Current state: stock_inventory row 99fedf4e has batch_code=MAT-260213-E541 with
 -- current_qty=120 (merged from 3 deliveries: E541=30, FBFA=30, FD81=60)
 -- Expected: 3 separate rows (30, 30, 60)
+--
+-- Guarded so a fresh local DB (without the referenced material/brand/site UUIDs)
+-- can replay this migration without hitting FK violations. On production all
+-- referenced rows exist, so the original behaviour is preserved.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM stock_inventory
+    WHERE id = '99fedf4e-6cb3-472f-9ea3-83b106727ddf'
+      AND batch_code = 'MAT-260213-E541'
+  ) AND EXISTS (
+    SELECT 1 FROM material_brands WHERE id = '76eecfa0-96b5-412d-a718-b9fee274368f'
+  ) THEN
+    -- Step 2a: Reduce E541 from 120 to its correct 30 bags, fix last_received_date
+    UPDATE stock_inventory
+    SET current_qty = 30,
+        last_received_date = '2025-12-17',
+        updated_at = NOW()
+    WHERE id = '99fedf4e-6cb3-472f-9ea3-83b106727ddf'
+      AND batch_code = 'MAT-260213-E541';
 
--- Step 2a: Reduce E541 from 120 to its correct 30 bags, fix last_received_date
-UPDATE stock_inventory
-SET current_qty = 30,
-    last_received_date = '2025-12-17',
-    updated_at = NOW()
-WHERE id = '99fedf4e-6cb3-472f-9ea3-83b106727ddf'
-  AND batch_code = 'MAT-260213-E541';
+    -- Step 2b: Insert MAT-260213-FBFA (30 bags, PO dated 2026-01-22)
+    INSERT INTO stock_inventory (
+      site_id, location_id, material_id, brand_id,
+      current_qty, avg_unit_cost, last_received_date,
+      pricing_mode, total_weight, batch_code
+    ) VALUES (
+      '79bfcfb3-4b0d-4240-8fce-d1ab584ef972', NULL,
+      'e03e4bf1-17de-4070-8f4d-262b83d0843d',
+      '76eecfa0-96b5-412d-a718-b9fee274368f',
+      30, 280.00, '2026-01-22',
+      'per_piece', NULL, 'MAT-260213-FBFA'
+    );
 
--- Step 2b: Insert MAT-260213-FBFA (30 bags, PO dated 2026-01-22)
-INSERT INTO stock_inventory (
-  site_id, location_id, material_id, brand_id,
-  current_qty, avg_unit_cost, last_received_date,
-  pricing_mode, total_weight, batch_code
-) VALUES (
-  '79bfcfb3-4b0d-4240-8fce-d1ab584ef972', NULL,
-  'e03e4bf1-17de-4070-8f4d-262b83d0843d',
-  '76eecfa0-96b5-412d-a718-b9fee274368f',
-  30, 280.00, '2026-01-22',
-  'per_piece', NULL, 'MAT-260213-FBFA'
-);
-
--- Step 2c: Insert MAT-260213-FD81 (60 bags, PO dated 2026-02-07)
-INSERT INTO stock_inventory (
-  site_id, location_id, material_id, brand_id,
-  current_qty, avg_unit_cost, last_received_date,
-  pricing_mode, total_weight, batch_code
-) VALUES (
-  '79bfcfb3-4b0d-4240-8fce-d1ab584ef972', NULL,
-  'e03e4bf1-17de-4070-8f4d-262b83d0843d',
-  '76eecfa0-96b5-412d-a718-b9fee274368f',
-  60, 280.00, '2026-02-07',
-  'per_piece', NULL, 'MAT-260213-FD81'
-);
+    -- Step 2c: Insert MAT-260213-FD81 (60 bags, PO dated 2026-02-07)
+    INSERT INTO stock_inventory (
+      site_id, location_id, material_id, brand_id,
+      current_qty, avg_unit_cost, last_received_date,
+      pricing_mode, total_weight, batch_code
+    ) VALUES (
+      '79bfcfb3-4b0d-4240-8fce-d1ab584ef972', NULL,
+      'e03e4bf1-17de-4070-8f4d-262b83d0843d',
+      '76eecfa0-96b5-412d-a718-b9fee274368f',
+      60, 280.00, '2026-02-07',
+      'per_piece', NULL, 'MAT-260213-FD81'
+    );
+  END IF;
+END $$;

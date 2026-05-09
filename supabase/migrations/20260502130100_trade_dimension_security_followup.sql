@@ -14,12 +14,24 @@
 --       Supabase view behavior is treated as SECURITY DEFINER by the linter)
 --
 -- Applied to production via mcp__supabase__apply_migration on 2026-05-02
--- immediately after the parent migration.
+-- immediately after the parent migration. Originally filed under timestamp
+-- 20260502130000, but that collided with the Jithin-rate-bump migration's
+-- timestamp and broke local `supabase db reset`. Renamed to 20260502130100
+-- and made idempotent (DROP IF EXISTS before each CREATE POLICY) so a
+-- re-apply on prod (or any env where the policies already exist) is safe.
 
 BEGIN;
 
 -- (a) RLS on subcontract_role_rates
 ALTER TABLE public.subcontract_role_rates ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS allow_anon_select_subcontract_role_rates          ON public.subcontract_role_rates;
+DROP POLICY IF EXISTS allow_anon_insert_subcontract_role_rates          ON public.subcontract_role_rates;
+DROP POLICY IF EXISTS allow_anon_update_subcontract_role_rates          ON public.subcontract_role_rates;
+DROP POLICY IF EXISTS allow_anon_delete_subcontract_role_rates          ON public.subcontract_role_rates;
+DROP POLICY IF EXISTS allow_authenticated_select_subcontract_role_rates ON public.subcontract_role_rates;
+DROP POLICY IF EXISTS allow_authenticated_insert_subcontract_role_rates ON public.subcontract_role_rates;
+DROP POLICY IF EXISTS allow_authenticated_update_subcontract_role_rates ON public.subcontract_role_rates;
+DROP POLICY IF EXISTS allow_authenticated_delete_subcontract_role_rates ON public.subcontract_role_rates;
 CREATE POLICY allow_anon_select_subcontract_role_rates          ON public.subcontract_role_rates FOR SELECT TO anon          USING (true);
 CREATE POLICY allow_anon_insert_subcontract_role_rates          ON public.subcontract_role_rates FOR INSERT TO anon          WITH CHECK (true);
 CREATE POLICY allow_anon_update_subcontract_role_rates          ON public.subcontract_role_rates FOR UPDATE TO anon          USING (true) WITH CHECK (true);
@@ -31,6 +43,14 @@ CREATE POLICY allow_authenticated_delete_subcontract_role_rates ON public.subcon
 
 -- (b) RLS on subcontract_headcount_attendance
 ALTER TABLE public.subcontract_headcount_attendance ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS allow_anon_select_subcontract_headcount_attendance          ON public.subcontract_headcount_attendance;
+DROP POLICY IF EXISTS allow_anon_insert_subcontract_headcount_attendance          ON public.subcontract_headcount_attendance;
+DROP POLICY IF EXISTS allow_anon_update_subcontract_headcount_attendance          ON public.subcontract_headcount_attendance;
+DROP POLICY IF EXISTS allow_anon_delete_subcontract_headcount_attendance          ON public.subcontract_headcount_attendance;
+DROP POLICY IF EXISTS allow_authenticated_select_subcontract_headcount_attendance ON public.subcontract_headcount_attendance;
+DROP POLICY IF EXISTS allow_authenticated_insert_subcontract_headcount_attendance ON public.subcontract_headcount_attendance;
+DROP POLICY IF EXISTS allow_authenticated_update_subcontract_headcount_attendance ON public.subcontract_headcount_attendance;
+DROP POLICY IF EXISTS allow_authenticated_delete_subcontract_headcount_attendance ON public.subcontract_headcount_attendance;
 CREATE POLICY allow_anon_select_subcontract_headcount_attendance          ON public.subcontract_headcount_attendance FOR SELECT TO anon          USING (true);
 CREATE POLICY allow_anon_insert_subcontract_headcount_attendance          ON public.subcontract_headcount_attendance FOR INSERT TO anon          WITH CHECK (true);
 CREATE POLICY allow_anon_update_subcontract_headcount_attendance          ON public.subcontract_headcount_attendance FOR UPDATE TO anon          USING (true) WITH CHECK (true);

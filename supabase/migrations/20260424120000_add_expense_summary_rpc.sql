@@ -27,11 +27,11 @@ CREATE OR REPLACE FUNCTION "public"."get_expense_summary"(
   "totals" AS (
     SELECT
       COALESCE(SUM("amount"), 0)::"numeric" AS "total_amount",
-      COUNT(*)::"bigint" AS "total_count",
+      COUNT(*)::bigint AS "total_count",
       COALESCE(SUM("amount") FILTER (WHERE "is_cleared"), 0)::"numeric" AS "cleared_amount",
-      COUNT(*) FILTER (WHERE "is_cleared")::"bigint" AS "cleared_count",
+      COUNT(*) FILTER (WHERE "is_cleared")::bigint AS "cleared_count",
       COALESCE(SUM("amount") FILTER (WHERE NOT "is_cleared"), 0)::"numeric" AS "pending_amount",
-      COUNT(*) FILTER (WHERE NOT "is_cleared")::"bigint" AS "pending_count"
+      COUNT(*) FILTER (WHERE NOT "is_cleared")::bigint AS "pending_count"
     FROM "filtered"
   ),
   "by_type" AS (
@@ -46,7 +46,7 @@ CREATE OR REPLACE FUNCTION "public"."get_expense_summary"(
       SELECT
         COALESCE("expense_type", 'Other') AS "expense_type",
         SUM("amount")::"numeric" AS "amount_sum",
-        COUNT(*)::"bigint" AS "row_count"
+        COUNT(*)::bigint AS "row_count"
       FROM "filtered"
       GROUP BY "expense_type"
     ) "t"

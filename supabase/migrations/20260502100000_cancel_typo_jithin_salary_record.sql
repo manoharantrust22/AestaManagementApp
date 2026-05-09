@@ -48,7 +48,19 @@ DECLARE
   v_da_reset_count   int;
   v_remaining_lp     int;
   v_remaining_alloc  int;
+  v_target_present   int;
 BEGIN
+  -- Skip on environments without the production row (fresh local DB, etc.).
+  -- Production already ran this once and won't re-execute on file edit.
+  SELECT COUNT(*) INTO v_target_present
+  FROM public.settlement_groups
+  WHERE id = v_target_sg_id;
+
+  IF v_target_present = 0 THEN
+    RAISE NOTICE 'Cancel-typo target SG % not present; skipping migration body.', v_target_sg_id;
+    RETURN;
+  END IF;
+
   -- Pre-flight 1: settlement_group sanity
   PERFORM 1
   FROM public.settlement_groups

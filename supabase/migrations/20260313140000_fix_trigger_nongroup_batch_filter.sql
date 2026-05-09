@@ -162,60 +162,59 @@ $function$;
 -- ============================================================================
 -- Data Repair: Fix Padmavathy Apartments Mukkal (0.9) Jalli batch merging
 -- ============================================================================
--- Current state:
---   Site ff893992 (Padmavathy): stock 9c6c0e46 has batch_code=MAT-260303-413E, current_qty=6
---     (PO 5fba9259 was double-delivered: 2 GRNs of 3 CFT each merged into one stock row)
---   Site 79bfcfb3 (Srinivasan): NO stock_inventory row for batch MAT-260303-A895
---     (PO ea6c731f delivery verified but stock never created)
---
--- Expected state:
---   Site ff893992: MAT-260303-413E should have current_qty=3 (single PO's delivery)
---   Site 79bfcfb3: MAT-260303-A895 should have current_qty=3 (Srinivasan PO's delivery)
+-- Hardcoded UUIDs reference real production rows. Guarded so a fresh local DB
+-- without those rows skips the data fix; production already ran this and
+-- won't re-execute on file edit.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM materials WHERE id = '352040f8-dea3-4c61-a147-b916927466a8'
+  ) THEN
+    -- Step 1: Reduce MAT-260303-413E from 6 to 3 CFT
+    UPDATE stock_inventory
+    SET current_qty = 3,
+        avg_unit_cost = 3800.00,
+        updated_at = NOW()
+    WHERE id = '9c6c0e46-b462-470a-84e0-5e3675732af8'
+      AND batch_code = 'MAT-260303-413E'
+      AND current_qty = 6;
 
--- Step 1: Reduce MAT-260303-413E from 6 to 3 CFT (correct the double-delivery merge)
-UPDATE stock_inventory
-SET current_qty = 3,
-    avg_unit_cost = 3800.00,
-    updated_at = NOW()
-WHERE id = '9c6c0e46-b462-470a-84e0-5e3675732af8'
-  AND batch_code = 'MAT-260303-413E'
-  AND current_qty = 6;
+    -- Step 2: Create missing stock for Srinivasan batch MAT-260303-A895
+    INSERT INTO stock_inventory (
+      site_id, location_id, material_id, brand_id,
+      current_qty, avg_unit_cost, last_received_date,
+      pricing_mode, total_weight, batch_code
+    ) VALUES (
+      '79bfcfb3-4b0d-4240-8fce-d1ab584ef972', NULL,
+      '352040f8-dea3-4c61-a147-b916927466a8', NULL,
+      3, 3800.00, '2025-11-21',
+      'per_piece', NULL, 'MAT-260303-A895'
+    ) ON CONFLICT (site_id, location_id, material_id, brand_id, batch_code) DO NOTHING;
 
--- Step 2: Create missing stock for Srinivasan site batch MAT-260303-A895
--- (Idempotent: skip if already exists from earlier REST API fix)
-INSERT INTO stock_inventory (
-  site_id, location_id, material_id, brand_id,
-  current_qty, avg_unit_cost, last_received_date,
-  pricing_mode, total_weight, batch_code
-) VALUES (
-  '79bfcfb3-4b0d-4240-8fce-d1ab584ef972', NULL,
-  '352040f8-dea3-4c61-a147-b916927466a8', NULL,
-  3, 3800.00, '2025-11-21',
-  'per_piece', NULL, 'MAT-260303-A895'
-) ON CONFLICT (site_id, location_id, material_id, brand_id, batch_code) DO NOTHING;
+    -- Step 3: Stock transaction for the Srinivasan delivery
+    INSERT INTO stock_transactions (
+      site_id, inventory_id, transaction_type, transaction_date,
+      quantity, unit_cost, total_cost, reference_type, reference_id
+    )
+    SELECT
+      '79bfcfb3-4b0d-4240-8fce-d1ab584ef972',
+      si.id,
+      'purchase',
+      '2025-11-21',
+      3,
+      3800.00,
+      11400.00,
+      'delivery',
+      '3e1c35d5-d8c0-44d6-ab70-d18683e5a270'
+    FROM stock_inventory si
+    WHERE si.batch_code = 'MAT-260303-A895'
+      AND si.site_id = '79bfcfb3-4b0d-4240-8fce-d1ab584ef972'
+    LIMIT 1;
 
--- Step 3: Create stock_transaction for the Srinivasan delivery so it's properly tracked
-INSERT INTO stock_transactions (
-  site_id, inventory_id, transaction_type, transaction_date,
-  quantity, unit_cost, total_cost, reference_type, reference_id
-)
-SELECT
-  '79bfcfb3-4b0d-4240-8fce-d1ab584ef972',
-  si.id,
-  'purchase',
-  '2025-11-21',
-  3,
-  3800.00,
-  11400.00,
-  'delivery',
-  '3e1c35d5-d8c0-44d6-ab70-d18683e5a270'
-FROM stock_inventory si
-WHERE si.batch_code = 'MAT-260303-A895'
-  AND si.site_id = '79bfcfb3-4b0d-4240-8fce-d1ab584ef972'
-LIMIT 1;
-
--- Step 4: Fix PO item received_qty (was 12, should be 6 from 2 actual deliveries)
-UPDATE purchase_order_items
-SET received_qty = 6
-WHERE id = '8938f426-cf1f-44ba-a736-cccf3caede24'
-  AND received_qty = 12;
+    -- Step 4: Fix PO item received_qty
+    UPDATE purchase_order_items
+    SET received_qty = 6
+    WHERE id = '8938f426-cf1f-44ba-a736-cccf3caede24'
+      AND received_qty = 12;
+  END IF;
+END $$;
