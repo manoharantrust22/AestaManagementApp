@@ -149,7 +149,7 @@ export default function SiteTodayPage() {
           />
           <Chip
             icon={<InventoryIcon />}
-            label={`${awaitingDelivery.length} delivery${awaitingDelivery.length === 1 ? "" : "ies"} due`}
+            label={`${awaitingDelivery.length === 1 ? "1 delivery" : `${awaitingDelivery.length} deliveries`} due`}
             color={awaitingDelivery.length > 0 ? "info" : "default"}
             variant={awaitingDelivery.length > 0 ? "filled" : "outlined"}
             onClick={() => router.push("/site/delivery-verification")}
