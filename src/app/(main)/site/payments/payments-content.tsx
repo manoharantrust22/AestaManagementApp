@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -30,6 +30,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import { hasEditPermission } from "@/lib/permissions";
 import type { DateWiseSettlement } from "@/types/payment.types";
 import PageHeader from "@/components/layout/PageHeader";
+import {
+  TradeChipFilter,
+  type TradeChipSelection,
+} from "@/components/attendance/TradeChipFilter";
+import { TradeSettlementView } from "@/components/payments/TradeSettlementView";
+import { useSiteTrades } from "@/hooks/queries/useTrades";
+import { getTradeColor } from "@/theme/tradeColors";
 import ScopeChip from "@/components/common/ScopeChip";
 import UnsettledBanner from "@/components/payments/UnsettledBanner";
 import { SalarySliceHero } from "@/components/payments/SalarySliceHero";
@@ -179,6 +186,28 @@ export default function PaymentsContent() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>("contract");
+  // Trade chip — same pattern as /site/attendance. Civil = existing settlement
+  // tabs (Civil's per-laborer waterfall); trade = scoped TradeSettlementView.
+  const [tradeChipSelection, setTradeChipSelection] =
+    useState<TradeChipSelection>({ kind: "civil" });
+  const { data: sitTradesForChip } = useSiteTrades(selectedSite?.id);
+  const selectedTradeContract = useMemo(() => {
+    if (tradeChipSelection.kind !== "trade" || !sitTradesForChip) return null;
+    return (
+      sitTradesForChip
+        .find((t) => t.category.id === tradeChipSelection.categoryId)
+        ?.contracts.find((c) => c.id === tradeChipSelection.contractId) ?? null
+    );
+  }, [tradeChipSelection, sitTradesForChip]);
+  const selectedTradeColor = useMemo(
+    () =>
+      getTradeColor(
+        tradeChipSelection.kind === "trade"
+          ? tradeChipSelection.tradeName
+          : "Civil"
+      ),
+    [tradeChipSelection]
+  );
   // Per-tab view mode. "default" is the existing waterfall (Contract) /
   // ledger (Daily+Market, All) view; "by-settlement" shows a flat
   // chronological list of settlement_groups rows for verification.
@@ -584,8 +613,30 @@ export default function PaymentsContent() {
             legacyPendingCount={legacyWeeksPending}
           />
         )}
+        {/* Trade chip filter — same pattern as /site/attendance. Civil keeps
+            the existing 3-tab settlement UI; trade chip swaps to TradeSettlementView. */}
+        <Box sx={{ px: { xs: 1.5, sm: 2 }, pt: 1.5, pb: 1, bgcolor: "background.paper" }}>
+          <TradeChipFilter
+            siteId={selectedSite?.id}
+            selected={tradeChipSelection}
+            onChange={setTradeChipSelection}
+          />
+        </Box>
       </Box>
 
+      {tradeChipSelection.kind === "trade" ? (
+        <Box sx={{ flex: 1, overflow: "auto", p: { xs: 1.5, sm: 2 } }}>
+          {selectedTradeContract ? (
+            <TradeSettlementView
+              contract={selectedTradeContract}
+              tradeColor={selectedTradeColor}
+            />
+          ) : (
+            <Alert severity="info">Loading {tradeChipSelection.tradeName} contract…</Alert>
+          )}
+        </Box>
+      ) : (
+      <>
       <Box sx={{ flexShrink: 0, borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
         <Tabs
           value={activeTab}
@@ -1572,6 +1623,8 @@ export default function PaymentsContent() {
         message={notice}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       />
+      </>
+      )}
     </Box>
   );
 }
