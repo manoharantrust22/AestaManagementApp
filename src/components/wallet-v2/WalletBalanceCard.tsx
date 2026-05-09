@@ -28,13 +28,16 @@ export default function WalletBalanceCard({
   actions,
 }: WalletBalanceCardProps) {
   const value = balance?.balance ?? 0;
+  const isOwed = value < 0;
   const lastTxn = balance?.last_txn_at ? dayjs(balance.last_txn_at).format("D MMM YYYY") : null;
 
   return (
     <Card
       elevation={0}
       sx={{
-        background: "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
+        background: isOwed
+          ? "linear-gradient(135deg, #d97706 0%, #b45309 100%)"
+          : "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
         color: "common.white",
         borderRadius: 3,
         position: "relative",
@@ -65,8 +68,8 @@ export default function WalletBalanceCard({
             {engineerName}
           </Typography>
         )}
-        <Typography variant="caption" sx={{ opacity: 0.8 }}>
-          Available balance
+        <Typography variant="caption" sx={{ opacity: 0.85, fontWeight: isOwed ? 600 : 400 }}>
+          {isOwed ? "Office owes engineer" : "Available balance"}
         </Typography>
         {isLoading ? (
           <Skeleton variant="text" width={180} height={56} sx={{ bgcolor: "rgba(255,255,255,0.2)" }} />
@@ -76,7 +79,12 @@ export default function WalletBalanceCard({
             fontWeight={700}
             sx={{ fontFamily: "var(--font-numeric, inherit)", lineHeight: 1.1 }}
           >
-            ₹ {fmt(value)}
+            ₹ {fmt(Math.abs(value))}
+          </Typography>
+        )}
+        {isOwed && (
+          <Typography variant="caption" sx={{ opacity: 0.85, display: "block" }}>
+            Out-of-pocket spend exceeds the wallet pool — settle this with a deposit.
           </Typography>
         )}
 
