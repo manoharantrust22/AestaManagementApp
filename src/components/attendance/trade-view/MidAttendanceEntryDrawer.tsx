@@ -21,15 +21,19 @@ import {
   Save as SaveIcon,
   PersonAdd as PersonAddIcon,
 } from "@mui/icons-material";
-import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   useContractMidEntries,
   useSaveMidEntry,
 } from "@/hooks/queries/useContractMidEntries";
 import type { TradeColor } from "@/theme/tradeColors";
+import {
+  MidLaborerPickerDialog,
+  type PickerLaborer,
+} from "./MidLaborerPickerDialog";
 
 interface MidAttendanceEntryDrawerProps {
   open: boolean;
@@ -55,7 +59,7 @@ function useContractRoster(contractId: string | undefined) {
     queryKey: ["contract-roster", contractId],
     enabled: !!contractId,
     staleTime: 60 * 1000,
-    queryFn: async (): Promise<RosterLaborer[]> => {
+    queryFn: wrapQueryFn(async (): Promise<RosterLaborer[]> => {
       if (!contractId) return [];
       const sb = supabase as any;
       // 1. Fetch contract to know if it's team-based or specialist-based
@@ -88,7 +92,7 @@ function useContractRoster(contractId: string | undefined) {
       }
 
       return out.sort((a, b) => a.name.localeCompare(b.name));
-    },
+    }, { operationName: "useContractRoster" }),
   });
 }
 
@@ -112,7 +116,6 @@ export function MidAttendanceEntryDrawer({
   tradeColor,
 }: MidAttendanceEntryDrawerProps) {
   const isMobile = useIsMobile();
-  const router = useRouter();
   const { data: roster, isLoading: rosterLoading } = useContractRoster(
     open ? contractId : undefined
   );
@@ -128,6 +131,10 @@ export function MidAttendanceEntryDrawer({
   const [workDone, setWorkDone] = useState<string>("1.0");
   const [note, setNote] = useState<string>("");
   const [savedToast, setSavedToast] = useState(false);
+  // Cross-team laborers added on-the-fly for this entry. Persisted as part of
+  // laborer_ids on save; on next open we re-hydrate names by id.
+  const [extraLaborers, setExtraLaborers] = useState<RosterLaborer[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // Hydrate from existing entry whenever drawer opens or date changes
   useEffect(() => {
@@ -137,6 +144,63 @@ export function MidAttendanceEntryDrawer({
     setWorkDone(existing ? String(existing.workDoneUnits || 1) : "1.0");
     setNote(existing?.note ?? "");
   }, [open, existing, date]);
+
+  // Hydrate cross-team laborer names: for any IDs in the existing entry that
+  // aren't in the team roster, fetch their names so they show as chips.
+  useEffect(() => {
+    if (!open || !existing || !roster) return;
+    const teamIds = new Set(roster.map((r) => r.id));
+    const extraIds = existing.laborerIds.filter((id) => !teamIds.has(id));
+    if (extraIds.length === 0) {
+      setExtraLaborers([]);
+      return;
+    }
+    const supabase = createClient();
+    void (async () => {
+      const sb = supabase as any;
+      const { data, error } = await sb
+        .from("laborers")
+        .select("id, name")
+        .in("id", extraIds);
+      if (error) return;
+      setExtraLaborers(
+        ((data ?? []) as Array<{ id: string; name: string }>).map((r) => ({
+          id: r.id,
+          name: r.name,
+        }))
+      );
+    })();
+  }, [open, existing, roster]);
+
+  const displayRoster = useMemo<RosterLaborer[]>(() => {
+    const map = new Map<string, RosterLaborer>();
+    for (const l of roster ?? []) map.set(l.id, l);
+    for (const l of extraLaborers) map.set(l.id, l);
+    return Array.from(map.values()).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+  }, [roster, extraLaborers]);
+
+  const handlePickerConfirm = (selected: PickerLaborer[]) => {
+    // Add to extras (dedupe; never duplicate something already in team roster)
+    const teamIds = new Set((roster ?? []).map((r) => r.id));
+    const newExtras: RosterLaborer[] = [];
+    for (const s of selected) {
+      if (!teamIds.has(s.id)) newExtras.push({ id: s.id, name: s.name });
+    }
+    setExtraLaborers((curr) => {
+      const map = new Map<string, RosterLaborer>();
+      for (const l of curr) map.set(l.id, l);
+      for (const l of newExtras) map.set(l.id, l);
+      return Array.from(map.values());
+    });
+    // Auto-mark the newly-picked laborers as present for the day
+    setPresentIds((curr) => {
+      const next = new Set(curr);
+      for (const s of selected) next.add(s.id);
+      return next;
+    });
+  };
 
   const togglePresence = (id: string) => {
     setPresentIds((curr) => {
@@ -166,7 +230,7 @@ export function MidAttendanceEntryDrawer({
   };
 
   const presentCount = presentIds.size;
-  const totalCount = roster?.length ?? 0;
+  const totalCount = displayRoster.length;
 
   const drawerContent = (
     <Box sx={{ width: { xs: "100%", md: 480 }, height: "100%", display: "flex", flexDirection: "column" }}>
@@ -211,17 +275,25 @@ export function MidAttendanceEntryDrawer({
           </Stack>
         )}
 
-        {!rosterLoading && (!roster || roster.length === 0) && (
+        {!rosterLoading && displayRoster.length === 0 && (
           <Alert severity="info" sx={{ mb: 2 }}>
-            No laborers in this contract&apos;s team. Add laborers to the team in
-            Workforce settings, then come back here.
+            No laborers in this contract&apos;s team yet — tap{" "}
+            <strong>+ Add laborer</strong> below to pick from any team / category.
+            <Button
+              size="small"
+              startIcon={<PersonAddIcon />}
+              onClick={() => setPickerOpen(true)}
+              sx={{ mt: 1, display: "block" }}
+            >
+              Add laborer
+            </Button>
           </Alert>
         )}
 
-        {roster && roster.length > 0 && (
+        {displayRoster.length > 0 && (
           <Box sx={{ mb: 2 }}>
             <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mb: 1 }} alignItems="center">
-              {roster.map((l) => {
+              {displayRoster.map((l) => {
                 const present = presentIds.has(l.id);
                 return (
                   <Chip
@@ -255,7 +327,7 @@ export function MidAttendanceEntryDrawer({
                 size="small"
                 icon={<PersonAddIcon sx={{ fontSize: 16 }} />}
                 variant="outlined"
-                onClick={() => router.push("/company/laborers")}
+                onClick={() => setPickerOpen(true)}
                 sx={{
                   borderStyle: "dashed",
                   cursor: "pointer",
@@ -263,14 +335,9 @@ export function MidAttendanceEntryDrawer({
                 }}
               />
             </Stack>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="caption" color="text.secondary">
-                {presentCount} of {totalCount} present
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Roster pulls from the contract&apos;s team — add laborers to that team to see them here.
-              </Typography>
-            </Stack>
+            <Typography variant="caption" color="text.secondary">
+              {presentCount} of {totalCount} present
+            </Typography>
           </Box>
         )}
 
@@ -279,7 +346,7 @@ export function MidAttendanceEntryDrawer({
         {/* Day total + work done */}
         <Stack direction="row" spacing={1.5} sx={{ mb: 0.5 }}>
           <TextField
-            label="Day total ₹ paid"
+            label="Day's labor value (earned)"
             type="number"
             value={dayTotal}
             onChange={(e) => setDayTotal(e.target.value)}
@@ -290,7 +357,7 @@ export function MidAttendanceEntryDrawer({
             }}
             inputProps={{ min: 0, step: 100 }}
             placeholder="0"
-            helperText="What you paid the crew for today's work"
+            helperText="Implied earnings — settled via Salary Settlements, not paid today"
           />
           <TextField
             label="Work done"
@@ -348,7 +415,7 @@ export function MidAttendanceEntryDrawer({
       >
         <Box>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-            {presentCount} of {totalCount} came
+            {presentCount} of {totalCount} came · earned
           </Typography>
           <Typography variant="body2" fontWeight={600}>
             ₹{formatINR(Number(dayTotal) || 0)}
@@ -377,17 +444,26 @@ export function MidAttendanceEntryDrawer({
   );
 
   return (
-    <Drawer
-      anchor={isMobile ? "bottom" : "right"}
-      open={open}
-      onClose={onClose}
-      PaperProps={{
-        sx: isMobile
-          ? { height: "85vh", borderTopLeftRadius: 12, borderTopRightRadius: 12 }
-          : { width: 480 },
-      }}
-    >
-      {drawerContent}
-    </Drawer>
+    <>
+      <Drawer
+        anchor={isMobile ? "bottom" : "right"}
+        open={open}
+        onClose={onClose}
+        PaperProps={{
+          sx: isMobile
+            ? { height: "85vh", borderTopLeftRadius: 12, borderTopRightRadius: 12 }
+            : { width: 480 },
+        }}
+      >
+        {drawerContent}
+      </Drawer>
+
+      <MidLaborerPickerDialog
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        preSelectedIds={presentIds}
+        onConfirm={handlePickerConfirm}
+      />
+    </>
   );
 }
