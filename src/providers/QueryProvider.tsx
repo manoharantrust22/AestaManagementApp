@@ -75,6 +75,26 @@ function redirectToLogin(): void {
   }
 }
 
+/**
+ * Detects errors thrown by the wrapQueryFn timeout race — message shape is
+ * "<operationName> timed out after <ms>ms" (or the bare "Query timed out
+ * after <ms>ms" when no operationName was supplied).
+ */
+function isTimeoutError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const message = String((error as { message?: unknown }).message ?? "");
+  return /timed out after \d+ms/i.test(message);
+}
+
+// Module-level debounce for the timeout-recovery path. When a Cloudflare-proxy
+// stall fires one timeout, several other in-flight queries on the same page
+// will also time out within a few seconds — but they all share the same dead
+// connection-pool root cause, so we only want ONE recovery to run for that
+// burst. 10s window is long enough to coalesce a burst, short enough to not
+// suppress a genuinely separate stall later in the session.
+let _lastTimeoutRecoveryAt = 0;
+const TIMEOUT_RECOVERY_DEBOUNCE_MS = 10_000;
+
 export default function QueryProvider({
   children,
 }: {
@@ -85,36 +105,76 @@ export default function QueryProvider({
     const clientRef: { current: QueryClient | null } = { current: null };
 
     // Global query error handler: catches auth errors from ANY query,
-    // refreshes the session, and retries the specific failed query.
-    // This is the TanStack Query v5 replacement for defaultOptions.queries.onError.
+    // refreshes the session, and retries the specific failed query. Also
+    // catches wrapQueryFn timeouts and runs a connection-pool recovery so a
+    // stuck tab self-heals on the first timeout instead of needing the user
+    // to hard-refresh the browser. TanStack Query v5 replacement for
+    // defaultOptions.queries.onError.
     const queryCache = new QueryCache({
       onError: async (error: any, query) => {
-        if (!isSessionError(error)) return;
+        if (isSessionError(error)) {
+          console.warn(
+            "[QueryCache] Auth error on query:",
+            JSON.stringify(query.queryKey).substring(0, 100),
+            "- attempting session refresh"
+          );
 
-        console.warn(
-          "[QueryCache] Auth error on query:",
-          JSON.stringify(query.queryKey).substring(0, 100),
-          "- attempting session refresh"
-        );
+          // Single deduped refresh shared with SessionManager + every other handler.
+          // Concurrent calls return the same in-flight promise, preventing the
+          // refresh-token-rotation race that surfaces as 400 invalid_grant.
+          const refreshed = await refreshSessionDeduped();
 
-        // Single deduped refresh shared with SessionManager + every other handler.
-        // Concurrent calls return the same in-flight promise, preventing the
-        // refresh-token-rotation race that surfaces as 400 invalid_grant.
-        const refreshed = await refreshSessionDeduped();
+          if (!refreshed) {
+            // Hard failure (invalid_grant / expired refresh token). Redirect.
+            redirectToLogin();
+            return;
+          }
 
-        if (!refreshed) {
-          // Hard failure (invalid_grant / expired refresh token). Redirect.
-          redirectToLogin();
+          if (refreshed && clientRef.current) {
+            // Re-trigger just this failed query after token is ready
+            setTimeout(() => {
+              clientRef.current!.invalidateQueries({
+                queryKey: query.queryKey,
+                refetchType: "active",
+              });
+            }, 500);
+          }
           return;
         }
 
-        if (refreshed && clientRef.current) {
-          // Re-trigger just this failed query after token is ready
+        // Timeout-error path. Why this exists:
+        //   The Cloudflare proxy + browser per-host connection-pool can land
+        //   in a state where 6 sockets to aestabuilders.workers.dev are all
+        //   in CLOSE_WAIT / half-open after a network hiccup. New REST/RPC
+        //   queries queue behind those dead sockets and time out at 30s
+        //   (wrapQueryFn). Hard refresh tears down the pool — that's why
+        //   "browser refresh fixes it" was the only known recovery. This
+        //   handler reproduces that recovery in-place: cancel the in-flight
+        //   queries (so the dead sockets are released), then invalidate the
+        //   active queries so RQ kicks off fresh fetches that open NEW
+        //   sockets. Debounced so a burst of simultaneous timeouts on the
+        //   same dashboard only runs recovery once.
+        if (isTimeoutError(error) && clientRef.current) {
+          const now = Date.now();
+          if (now - _lastTimeoutRecoveryAt < TIMEOUT_RECOVERY_DEBOUNCE_MS) {
+            return;
+          }
+          _lastTimeoutRecoveryAt = now;
+
+          console.warn(
+            "[QueryCache] Query timeout detected on",
+            JSON.stringify(query.queryKey).substring(0, 100),
+            "— triggering connection-pool recovery"
+          );
+
+          try {
+            await clientRef.current.cancelQueries();
+          } catch (err) {
+            console.warn("[QueryCache] cancelQueries threw during recovery:", err);
+          }
+          // Small delay so cancellation propagates before refetch fires.
           setTimeout(() => {
-            clientRef.current!.invalidateQueries({
-              queryKey: query.queryKey,
-              refetchType: "active",
-            });
+            clientRef.current?.invalidateQueries({ refetchType: "active" });
           }, 500);
         }
       },

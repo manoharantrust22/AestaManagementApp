@@ -27,6 +27,7 @@ import {
 } from "@mui/icons-material";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { ensureFreshSession } from "@/lib/supabase/client";
+import { withTimeout } from "@/lib/utils/timeout";
 
 // Upload status type for better UX feedback
 type UploadStatus =
@@ -754,7 +755,18 @@ export default function FileUploader({
         } catch (sessionError) {
           console.warn("[FileUploader] ensureFreshSession failed, proceeding with cached session:", sessionError);
         }
-        const { data: { session } } = await supabase.auth.getSession();
+        // getSession() can hang for the full GLOBAL_TIMEOUT (2 min) when the
+        // Supabase auth client tries to refresh a stale token through the
+        // Cloudflare proxy and the network is degraded — that's the "Preparing
+        // upload..." 50% stall users see. Bound it at 5s; if it doesn't return
+        // by then there is no usable token and we fail fast with a clear error
+        // instead of leaving the dialog hanging.
+        const sessionResult = await withTimeout(
+          supabase.auth.getSession(),
+          5000,
+          "Session check timed out. Please check your connection and try again.",
+        );
+        const session = sessionResult.data.session;
         if (!session?.access_token) {
           throw new Error("Session expired. Please log in again.");
         }
