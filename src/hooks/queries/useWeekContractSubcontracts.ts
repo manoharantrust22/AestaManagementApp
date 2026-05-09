@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 
 /**
  * Returns the distinct subcontract_ids present on contract-laborer attendance
@@ -21,8 +22,8 @@ export function useWeekContractSubcontracts(
   return useQuery<string[]>({
     queryKey: ["week-contract-subcontracts", siteId, weekStart, weekEnd],
     enabled: Boolean(siteId && weekStart && weekEnd),
-    staleTime: 30_000,
-    queryFn: async () => {
+    staleTime: 60_000,
+    queryFn: wrapQueryFn(async () => {
       const { data, error } = await (supabase as any)
         .from("daily_attendance")
         .select("subcontract_id, laborer:laborers!inner(laborer_type)")
@@ -39,6 +40,6 @@ export function useWeekContractSubcontracts(
         if (row.subcontract_id) ids.add(row.subcontract_id);
       }
       return Array.from(ids);
-    },
+    }, { operationName: "useWeekContractSubcontracts" }),
   });
 }

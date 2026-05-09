@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   Vendor,
   VendorWithCategories,
@@ -25,7 +26,7 @@ export function useVendors(categoryId?: string | null) {
     queryKey: categoryId
       ? [...queryKeys.vendors.list(), categoryId]
       : queryKeys.vendors.list(),
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       let query = supabase
         .from("vendors")
         .select(
@@ -59,7 +60,7 @@ export function useVendors(categoryId?: string | null) {
       }
 
       return vendors;
-    },
+    }, { operationName: "useVendors" }),
   });
 }
 
@@ -97,7 +98,7 @@ export function usePaginatedVendors(
 
   return useQuery({
     queryKey: ["vendors", "paginated", { pageIndex, pageSize, categoryId, searchTerm, vendorType, categoryNames }],
-    queryFn: async (): Promise<PaginatedResult<VendorWithCategories>> => {
+    queryFn: wrapQueryFn<PaginatedResult<VendorWithCategories>>(async () => {
       // First, get total count (without category filter for now since it's in-memory)
       let countQuery = supabase
         .from("vendors")
@@ -193,7 +194,7 @@ export function usePaginatedVendors(
         totalCount,
         pageCount: Math.ceil(totalCount / pageSize),
       };
-    },
+    }, { operationName: "usePaginatedVendors" }),
     placeholderData: (previousData) => previousData, // Keep previous data while loading
   });
 }

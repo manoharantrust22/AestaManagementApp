@@ -44,7 +44,7 @@ export function useSalaryWaterfall(args: UseSalaryWaterfallArgs) {
   return useQuery<WaterfallWeek[]>({
     queryKey: ["salary-waterfall", siteId, subcontractId, dateFrom, dateTo, period],
     enabled: Boolean(siteId),
-    staleTime: 15_000,
+    staleTime: 60_000,
     queryFn: async () => {
       // Wrap RPC in a Promise so withTimeout's Promise.race can short-circuit
       // a silently-hung request (browser pause/resume, transient network glitch,

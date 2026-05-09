@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
 import { weekStartStr, weekEndStr } from "@/lib/utils/weekUtils";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   InterSiteSettlement,
   InterSiteSettlementWithDetails,
@@ -50,7 +51,7 @@ export function useInterSiteSettlements(
     queryKey: status
       ? [...queryKeys.interSiteSettlements.bySite(siteId || ""), status]
       : queryKeys.interSiteSettlements.bySite(siteId || ""),
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!siteId) return [] as InterSiteSettlementWithDetails[];
 
       try {
@@ -85,7 +86,7 @@ export function useInterSiteSettlements(
         }
         throw err;
       }
-    },
+    }, { operationName: "useInterSiteSettlements" }),
     enabled: !!siteId,
     staleTime: 2 * 60 * 1000, // 2 minutes
   });

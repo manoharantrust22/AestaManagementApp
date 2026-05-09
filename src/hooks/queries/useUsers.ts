@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type { Database } from "@/types/database.types";
 
 type User = Database["public"]["Tables"]["users"]["Row"];
@@ -18,7 +19,7 @@ export function useUsers(filters?: { role?: string }) {
 
   return useQuery({
     queryKey: userKeys.list(filters),
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       let query = supabase
         .from("users")
         .select("*")
@@ -33,6 +34,6 @@ export function useUsers(filters?: { role?: string }) {
 
       if (error) throw error;
       return data as User[];
-    },
+    }, { operationName: "useUsers" }),
   });
 }

@@ -37,7 +37,7 @@ export function useWeekAggregateAttendance(
       weekEnd,
     ],
     enabled: Boolean(siteId && weekStart && weekEnd),
-    staleTime: 15_000,
+    staleTime: 60_000,
     queryFn: async ({ signal }) => {
       let attendanceQ = supabase
         .from("daily_attendance")

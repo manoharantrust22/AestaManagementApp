@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   Delivery,
   DeliveryWithVerification,
@@ -72,7 +73,7 @@ export function usePOsAwaitingDelivery(siteId: string | undefined) {
     queryKey: siteId
       ? [...queryKeys.purchaseOrders.bySite(siteId), "awaiting-delivery"]
       : ["purchase-orders", "awaiting-delivery"],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!siteId) return [] as POAwaitingDelivery[];
 
       const { data, error } = await supabase
@@ -159,7 +160,7 @@ export function usePOsAwaitingDelivery(siteId: string | undefined) {
       });
 
       return transformed;
-    },
+    }, { operationName: "usePOsAwaitingDelivery" }),
     enabled: !!siteId,
   });
 }
@@ -174,7 +175,7 @@ export function usePendingDeliveryVerifications(siteId: string | undefined) {
     queryKey: siteId
       ? queryKeys.deliveries.pendingVerification(siteId)
       : ["deliveries", "pending-verification"],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!siteId) return [] as PendingDeliveryVerification[];
 
       // Query deliveries table with joins instead of view
@@ -213,7 +214,7 @@ export function usePendingDeliveryVerifications(siteId: string | undefined) {
       }));
 
       return transformed;
-    },
+    }, { operationName: "usePendingDeliveryVerifications" }),
     enabled: !!siteId,
   });
 }

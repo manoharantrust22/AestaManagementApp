@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   StoreCatalogItem,
   StoreCatalogFilter,
@@ -26,7 +27,7 @@ export function useStoreCatalog(vendorId: string | undefined) {
     queryKey: vendorId
       ? queryKeys.storeCatalog.byVendor(vendorId)
       : ["store-catalog", "vendor"],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!vendorId) return [] as StoreCatalogItem[];
 
       // Fetch vendor inventory with full material and category details
@@ -129,7 +130,7 @@ export function useStoreCatalog(vendorId: string | undefined) {
           category,
         } as StoreCatalogItem;
       });
-    },
+    }, { operationName: "useStoreCatalog" }),
     enabled: !!vendorId,
   });
 }

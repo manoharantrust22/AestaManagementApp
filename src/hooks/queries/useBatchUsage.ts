@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   BatchUsageRecord,
   BatchUsageRecordWithDetails,
@@ -42,7 +43,7 @@ export function useBatchUsageRecords(batchRefCode: string | undefined) {
 
   return useQuery({
     queryKey: queryKeys.batchUsage.byBatch(batchRefCode || ""),
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!batchRefCode) return [] as BatchUsageRecordWithDetails[];
 
       try {
@@ -72,7 +73,7 @@ export function useBatchUsageRecords(batchRefCode: string | undefined) {
         }
         throw err;
       }
-    },
+    }, { operationName: "useBatchUsageRecords" }),
     enabled: !!batchRefCode,
   });
 }

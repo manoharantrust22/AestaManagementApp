@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 
 export type ContractPaymentType =
   | "weekly_advance"
@@ -84,8 +85,8 @@ export function useContractPayments(contractId: string | undefined) {
   return useQuery({
     queryKey: ["contract-payments", contractId],
     enabled: !!contractId,
-    staleTime: 30 * 1000,
-    queryFn: async (): Promise<ContractLedgerEntry[]> => {
+    staleTime: 60 * 1000,
+    queryFn: wrapQueryFn(async (): Promise<ContractLedgerEntry[]> => {
       if (!contractId) return [];
       const sb = supabase as any;
 
@@ -166,6 +167,6 @@ export function useContractPayments(contractId: string | undefined) {
         }
         return 0;
       });
-    },
+    }, { operationName: "useContractPayments" }),
   });
 }

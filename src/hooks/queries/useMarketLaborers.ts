@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type { Database } from "@/types/database.types";
 
 type MarketLaborerAttendance = Database["public"]["Tables"]["market_laborer_attendance"]["Row"];
@@ -38,7 +39,7 @@ export function useMarketLaborerAttendance(
       siteId && date
         ? queryKeys.marketAttendance.byDate(siteId, date)
         : ["market-attendance", "unknown"],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!siteId || !date) return [];
 
       // Cast to any because table may not exist yet
@@ -65,7 +66,7 @@ export function useMarketLaborerAttendance(
       }
 
       return (data as MarketLaborerWithCategory[]) || [];
-    },
+    }, { operationName: "useMarketLaborerAttendance" }),
     enabled: !!siteId && !!date,
   });
 }
@@ -82,7 +83,7 @@ export function useMarketLaborerSummary(
     queryKey: siteId
       ? queryKeys.marketAttendance.dateRange(siteId, dateFrom, dateTo)
       : ["market-attendance", "summary"],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!siteId) return { totalCount: 0, totalCost: 0, byCategory: {} };
 
       // Cast to any because table may not exist yet
@@ -132,7 +133,7 @@ export function useMarketLaborerSummary(
       });
 
       return { totalCount, totalCost, byCategory };
-    },
+    }, { operationName: "useMarketLaborerSummary" }),
     enabled: !!siteId,
   });
 }

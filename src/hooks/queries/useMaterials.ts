@@ -4,6 +4,7 @@ import React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   Material,
   MaterialWithDetails,
@@ -227,7 +228,7 @@ export function useMaterials(categoryId?: string | null) {
     queryKey: categoryId
       ? [...queryKeys.materials.list(), categoryId]
       : queryKeys.materials.list(),
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       let query = supabase
         .from("materials")
         .select(
@@ -266,7 +267,7 @@ export function useMaterials(categoryId?: string | null) {
       }
 
       return materials;
-    },
+    }, { operationName: "useMaterials" }),
   });
 }
 
@@ -724,7 +725,7 @@ export function usePaginatedMaterials(
 
   return useQuery({
     queryKey: ["materials", "paginated", { pageIndex, pageSize, categoryIds, searchTerm, sortBy }],
-    queryFn: async (): Promise<PaginatedResult<MaterialWithDetails>> => {
+    queryFn: wrapQueryFn<PaginatedResult<MaterialWithDetails>>(async () => {
       // First, get total count
       let countQuery = supabase
         .from("materials")
@@ -812,7 +813,7 @@ export function usePaginatedMaterials(
         totalCount: totalCount || 0,
         pageCount: Math.ceil((totalCount || 0) / pageSize),
       };
-    },
+    }, { operationName: "usePaginatedMaterials" }),
     placeholderData: (previousData) => previousData, // Keep previous data while loading
   });
 }

@@ -16,6 +16,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type { DailyPaymentRecord } from "@/types/payment.types";
 
 interface DailyAttendanceRow {
@@ -88,8 +89,8 @@ export function useDayPendingRecords(
       dataStartedAt,
     ],
     enabled: Boolean(siteId && date),
-    staleTime: 15_000,
-    queryFn: async (): Promise<DailyPaymentRecord[]> => {
+    staleTime: 60_000,
+    queryFn: wrapQueryFn(async (): Promise<DailyPaymentRecord[]> => {
       const fetchDaily = laborerType === "market" ? null : supabase
         .from("daily_attendance")
         .select(
@@ -224,6 +225,6 @@ export function useDayPendingRecords(
       );
 
       return [...dailyRecords, ...marketRecords];
-    },
+    }, { operationName: "useDayPendingRecords" }),
   });
 }

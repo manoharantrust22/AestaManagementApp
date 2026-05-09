@@ -5,6 +5,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   WeightPredictionStats,
   PredictedWeight,
@@ -24,7 +25,7 @@ export function useWeightPrediction(
 
   return useQuery({
     queryKey: cacheKeys.weightPrediction(vendorId, materialId, brandId),
-    queryFn: async (): Promise<WeightPredictionStats | null> => {
+    queryFn: wrapQueryFn(async (): Promise<WeightPredictionStats | null> => {
       if (!vendorId || !materialId) return null;
 
       // Query the aggregated view for prediction stats
@@ -66,7 +67,7 @@ export function useWeightPrediction(
           : null,
         lastRecordedDate: data.last_recorded_date,
       };
-    },
+    }, { operationName: "useWeightPrediction" }),
     enabled: !!vendorId && !!materialId,
     staleTime: 5 * 60 * 1000, // 5 minutes - weight history doesn't change frequently
   });
@@ -149,7 +150,7 @@ export function useWeightHistory(
 
   return useQuery({
     queryKey: [...cacheKeys.weightPrediction(vendorId, materialId, brandId), "history", limit],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!vendorId || !materialId) return [];
 
       // Note: Using 'as any' because tmt_weight_history table is created by migration
@@ -178,7 +179,7 @@ export function useWeightHistory(
       }
 
       return data || [];
-    },
+    }, { operationName: "useWeightHistory" }),
     enabled: !!vendorId && !!materialId,
     staleTime: 5 * 60 * 1000,
   });
@@ -199,7 +200,7 @@ export function useWeightPredictionBatch(
 
   return useQuery({
     queryKey: ["weight-prediction", "batch", items.map(i => `${i.vendorId}-${i.materialId}-${i.brandId}`).join(",")],
-    queryFn: async (): Promise<Map<string, WeightPredictionStats>> => {
+    queryFn: wrapQueryFn(async (): Promise<Map<string, WeightPredictionStats>> => {
       const results = new Map<string, WeightPredictionStats>();
 
       if (items.length === 0) return results;
@@ -236,7 +237,7 @@ export function useWeightPredictionBatch(
       }
 
       return results;
-    },
+    }, { operationName: "useWeightPredictionBatch" }),
     enabled: items.length > 0,
     staleTime: 5 * 60 * 1000,
   });

@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   SiteGroup,
   SiteGroupWithSites,
@@ -27,7 +28,7 @@ export function useSiteGroups() {
 
   return useQuery({
     queryKey: queryKeys.siteGroups.list(),
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       const { data, error } = await (supabase as any)
         .from("site_groups")
         .select("*")
@@ -36,7 +37,7 @@ export function useSiteGroups() {
 
       if (error) throw error;
       return (data || []) as SiteGroup[];
-    },
+    }, { operationName: "useSiteGroups" }),
   });
 }
 
@@ -48,7 +49,7 @@ export function useSiteGroupsWithSites() {
 
   return useQuery({
     queryKey: [...queryKeys.siteGroups.list(), "with-sites"],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       // Get all groups
       const { data: groups, error: groupsError } = await (supabase as any)
         .from("site_groups")
@@ -81,7 +82,7 @@ export function useSiteGroupsWithSites() {
         ...group,
         sites: sitesByGroup[group.id] || [],
       })) as SiteGroupWithSites[];
-    },
+    }, { operationName: "useSiteGroupsWithSites" }),
   });
 }
 

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 
 export interface RoleRate {
   roleId: string;
@@ -48,8 +49,8 @@ export function useContractHeadcount(
   return useQuery({
     queryKey: ["contract-headcount", contractId],
     enabled: !!contractId && enabled,
-    staleTime: 30 * 1000,
-    queryFn: async (): Promise<ContractHeadcountSnapshot> => {
+    staleTime: 60 * 1000,
+    queryFn: wrapQueryFn(async (): Promise<ContractHeadcountSnapshot> => {
       if (!contractId) return { rates: [], recent: [] };
       const sb = supabase as any;
 
@@ -86,6 +87,6 @@ export function useContractHeadcount(
       );
 
       return { rates, recent };
-    },
+    }, { operationName: "useContractHeadcount" }),
   });
 }

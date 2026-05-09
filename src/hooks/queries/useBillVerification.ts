@@ -6,6 +6,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type { BillVerificationStatus, PurchaseOrder } from "@/types/material.types";
 import { ensureFreshSession } from "@/lib/supabase/client";
 
@@ -17,7 +18,7 @@ export function useBillVerificationStatus(poId: string | undefined) {
 
   return useQuery({
     queryKey: queryKeys.billVerification.byPO(poId || ""),
-    queryFn: async (): Promise<BillVerificationStatus | null> => {
+    queryFn: wrapQueryFn(async (): Promise<BillVerificationStatus | null> => {
       if (!poId) return null;
 
       const { data, error } = await (supabase as any)
@@ -46,7 +47,7 @@ export function useBillVerificationStatus(poId: string | undefined) {
         verifiedAt: billData.bill_verified_at,
         verificationNotes: billData.bill_verification_notes,
       };
-    },
+    }, { operationName: "useBillVerificationStatus" }),
     enabled: !!poId,
     staleTime: 60 * 1000, // 1 minute
   });
@@ -184,7 +185,7 @@ export function useUnverifiedPOsWithBills(siteId: string | undefined) {
 
   return useQuery({
     queryKey: queryKeys.billVerification.unverified(siteId || ""),
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!siteId) return [];
 
       const { data, error } = await (supabase as any)
@@ -212,7 +213,7 @@ export function useUnverifiedPOsWithBills(siteId: string | undefined) {
       }
 
       return data || [];
-    },
+    }, { operationName: "useUnverifiedPOsWithBills" }),
     enabled: !!siteId,
     staleTime: 2 * 60 * 1000, // 2 minutes
   });

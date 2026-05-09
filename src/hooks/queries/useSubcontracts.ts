@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 
 export interface Subcontract {
   id: string;
@@ -19,7 +20,7 @@ export function useSiteSubcontracts(siteId: string | undefined) {
 
   return useQuery({
     queryKey: ["subcontracts", "site", siteId],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!siteId) return [];
 
       const { data, error } = await supabase
@@ -52,7 +53,7 @@ export function useSiteSubcontracts(siteId: string | undefined) {
         total_value: item.total_value,
         created_at: item.created_at,
       })) as Subcontract[];
-    },
+    }, { operationName: "useSiteSubcontracts" }),
     enabled: !!siteId,
     staleTime: 5 * 60 * 1000, // 5 minutes
   });

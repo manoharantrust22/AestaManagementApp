@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   ContractStatus,
   LaborTrackingMode,
@@ -71,7 +72,7 @@ export function useSiteTrades(siteId: string | undefined) {
     queryKey: ["trades", "site", siteId],
     enabled: !!siteId,
     staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<Trade[]> => {
+    queryFn: wrapQueryFn(async (): Promise<Trade[]> => {
       if (!siteId) return [];
 
       const [catsRes, contractsRes] = await Promise.all([
@@ -122,6 +123,6 @@ export function useSiteTrades(siteId: string | undefined) {
       );
 
       return groupContractsByTrade(categories, contracts);
-    },
+    }, { operationName: "useSiteTrades" }),
   });
 }

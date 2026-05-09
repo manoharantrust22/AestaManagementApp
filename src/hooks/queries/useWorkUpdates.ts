@@ -70,7 +70,7 @@ export function useWorkUpdates(
   return useQuery<UseWorkUpdatesData>({
     queryKey: ["inspect-work-updates", siteId, dateFrom, dateTo],
     enabled: Boolean(siteId && dateFrom && dateTo),
-    staleTime: 30_000,
+    staleTime: 60_000,
     queryFn: async ({ signal }): Promise<UseWorkUpdatesData> => {
       const { data, error } = await withTimeout(
         Promise.resolve(

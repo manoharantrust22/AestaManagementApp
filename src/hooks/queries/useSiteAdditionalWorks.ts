@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   SiteAdditionalWork,
   SiteAdditionalWorkInsert,
@@ -14,8 +15,8 @@ export function useSiteAdditionalWorks(siteId: string | undefined) {
   return useQuery({
     queryKey: KEY(siteId),
     enabled: Boolean(siteId),
-    staleTime: 15_000,
-    queryFn: async (): Promise<SiteAdditionalWork[]> => {
+    staleTime: 60_000,
+    queryFn: wrapQueryFn(async (): Promise<SiteAdditionalWork[]> => {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("site_additional_works")
@@ -24,7 +25,7 @@ export function useSiteAdditionalWorks(siteId: string | undefined) {
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as SiteAdditionalWork[];
-    },
+    }, { operationName: "useSiteAdditionalWorks" }),
   });
 }
 

@@ -25,7 +25,7 @@ export function useAdvances(args: UseAdvancesArgs) {
   return useQuery<AdvanceRow[]>({
     queryKey: ["advances", siteId, dateFrom, dateTo, period],
     enabled: Boolean(siteId),
-    staleTime: 15_000,
+    staleTime: 60_000,
     queryFn: async () => {
       const { data, error } = await withTimeout(
         Promise.resolve((supabase as any).rpc("get_payments_ledger", {

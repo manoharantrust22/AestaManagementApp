@@ -39,6 +39,6 @@ export function usePaymentSummary(
         weeklyCount:         Number(r.weekly_count)          || 0,
       };
     },
-    staleTime: 30_000,
+    staleTime: 60_000,
   });
 }

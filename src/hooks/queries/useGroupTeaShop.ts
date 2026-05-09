@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type { Database } from "@/types/database.types";
 
 type TeaShopAccount = Database["public"]["Tables"]["tea_shop_accounts"]["Row"];
@@ -47,7 +48,7 @@ export function useGroupTeaShopAccount(siteGroupId: string | undefined) {
     queryKey: siteGroupId
       ? queryKeys.groupTeaShop.byGroup(siteGroupId)
       : ["group-tea-shop", "account"],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!siteGroupId) return null;
 
       const { data, error } = await (supabase as any)
@@ -60,7 +61,7 @@ export function useGroupTeaShopAccount(siteGroupId: string | undefined) {
 
       if (error) throw error;
       return data as TeaShopAccount | null;
-    },
+    }, { operationName: "useGroupTeaShopAccount" }),
     enabled: !!siteGroupId,
   });
 }
@@ -82,7 +83,7 @@ export function useGroupTeaShopEntries(
     queryKey: siteGroupId
       ? [...queryKeys.groupTeaShop.entries(siteGroupId), options]
       : ["group-tea-shop", "entries"],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!siteGroupId) return [];
 
       let query = (supabase as any)
@@ -107,7 +108,7 @@ export function useGroupTeaShopEntries(
       const { data, error } = await query;
       if (error) throw error;
       return (data || []) as TeaShopGroupEntryWithAllocations[];
-    },
+    }, { operationName: "useGroupTeaShopEntries" }),
     enabled: !!siteGroupId,
   });
 }

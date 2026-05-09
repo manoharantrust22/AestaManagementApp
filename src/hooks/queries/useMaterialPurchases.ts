@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   MaterialPurchaseExpense,
   MaterialPurchaseExpenseWithDetails,
@@ -56,7 +57,7 @@ export function useMaterialPurchases(
     queryKey: options?.type === "own_site"
       ? queryKeys.materialPurchases.ownSite(siteId || "")
       : queryKeys.materialPurchases.bySite(siteId || ""),
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!siteId) return [] as MaterialPurchaseExpenseWithDetails[];
 
       try {
@@ -104,7 +105,7 @@ export function useMaterialPurchases(
         }
         throw err;
       }
-    },
+    }, { operationName: "useMaterialPurchases" }),
     enabled: !!siteId,
   });
 }

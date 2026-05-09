@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 
 export interface SiteFinancialSummary {
   baseContract: number;
@@ -18,8 +19,8 @@ export function useSiteFinancialSummary(siteId: string | undefined) {
   return useQuery({
     queryKey: ["site-financial-summary", siteId],
     enabled: Boolean(siteId),
-    staleTime: 15_000,
-    queryFn: async (): Promise<SiteFinancialSummary> => {
+    staleTime: 60_000,
+    queryFn: wrapQueryFn(async (): Promise<SiteFinancialSummary> => {
       const supabase = createClient();
 
       const [siteRes, paymentsRes, worksRes, supervisorRes] = await Promise.all([
@@ -64,6 +65,6 @@ export function useSiteFinancialSummary(siteId: string | undefined) {
         netInHand,
         progressPct,
       };
-    },
+    }, { operationName: "useSiteFinancialSummary" }),
   });
 }

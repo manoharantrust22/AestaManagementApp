@@ -42,7 +42,7 @@ export function useSalarySliceSummary(args: UseSalarySliceSummaryArgs) {
   return useQuery<SalarySliceSummary>({
     queryKey: ["salary-slice-summary", siteId, subcontractId, dateFrom, dateTo, period],
     enabled: Boolean(siteId),
-    staleTime: 15_000,
+    staleTime: 60_000,
     queryFn: async () => {
       const { data, error } = await withTimeout(
         Promise.resolve((supabase as any).rpc("get_salary_slice_summary", {

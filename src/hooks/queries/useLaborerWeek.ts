@@ -55,7 +55,7 @@ export function useLaborerWeek(
   return useQuery<LaborerWeekData>({
     queryKey: ["inspect-laborer-week", siteId, laborerId, weekStart, weekEnd],
     enabled: Boolean(siteId && laborerId && weekStart && weekEnd),
-    staleTime: 30_000,
+    staleTime: 60_000,
     queryFn: async ({ signal }): Promise<LaborerWeekData> => {
       const { data, error } = await withTimeout(
         Promise.resolve(

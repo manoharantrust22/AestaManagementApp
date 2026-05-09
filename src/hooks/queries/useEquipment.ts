@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   Equipment,
   EquipmentWithDetails,
@@ -111,7 +112,7 @@ export function useEquipmentList(filters?: EquipmentFilterState) {
 
   return useQuery({
     queryKey: equipmentQueryKeys.list(filters),
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       // Simple query first to verify table access works
       let query = supabase
         .from("equipment")
@@ -180,7 +181,7 @@ export function useEquipmentList(filters?: EquipmentFilterState) {
           days_at_current_location,
         };
       });
-    },
+    }, { operationName: "useEquipmentList" }),
   });
 }
 

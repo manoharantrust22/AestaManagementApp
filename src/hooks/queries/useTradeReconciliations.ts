@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   ContractActivity,
   ContractReconciliation,
@@ -28,7 +29,7 @@ export function useSiteTradeReconciliations(siteId: string | undefined) {
     queryKey: ["trade-reconciliations", "site", siteId],
     enabled: !!siteId,
     staleTime: 60 * 1000,
-    queryFn: async (): Promise<Map<string, ContractReconciliation>> => {
+    queryFn: wrapQueryFn(async (): Promise<Map<string, ContractReconciliation>> => {
       if (!siteId) return new Map();
       // database.types.ts is stale (regen blocked by unrelated bug in
       // /company/sites/page.tsx). Cast through any until that lands.
@@ -55,7 +56,7 @@ export function useSiteTradeReconciliations(siteId: string | undefined) {
         });
       }
       return map;
-    },
+    }, { operationName: "useSiteTradeReconciliations" }),
   });
 }
 
@@ -72,7 +73,7 @@ export function useSiteTradeActivity(siteId: string | undefined) {
     queryKey: ["trade-activity", "site", siteId],
     enabled: !!siteId,
     staleTime: 60 * 1000,
-    queryFn: async (): Promise<Map<string, ContractActivity>> => {
+    queryFn: wrapQueryFn(async (): Promise<Map<string, ContractActivity>> => {
       if (!siteId) return new Map();
 
       const [attendanceRes, paymentsRes] = await Promise.all([
@@ -128,6 +129,6 @@ export function useSiteTradeActivity(siteId: string | undefined) {
         });
       }
       return map;
-    },
+    }, { operationName: "useSiteTradeActivity" }),
   });
 }

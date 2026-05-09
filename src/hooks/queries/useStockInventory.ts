@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   StockInventory,
   StockInventoryWithDetails,
@@ -124,7 +125,7 @@ export function useSiteStock(
         ? [...queryKeys.materialStock.bySite(siteId), locationId, ...(siteGroupId ? [siteGroupId] : [])]
         : [...queryKeys.materialStock.bySite(siteId), ...(siteGroupId ? [siteGroupId] : [])]
       : ["site-stock", "unknown"],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!siteId) return [];
 
       // 1. Query stock_inventory for this site's own stock
@@ -421,9 +422,9 @@ export function useSiteStock(
 
       // Combine own stock and shared group stock
       return [...ownStock, ...sharedStock];
-    },
+    }, { operationName: "useSiteStock" }),
     enabled: !!siteId,
-    staleTime: 30000, // Cache for 30s to avoid excessive refetches
+    staleTime: 60000,
   });
 }
 

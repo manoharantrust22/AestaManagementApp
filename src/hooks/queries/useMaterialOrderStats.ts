@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 
 /**
  * Material order statistics - frequency of orders for each material
@@ -36,7 +37,7 @@ export function useMaterialOrderStats() {
 
   return useQuery({
     queryKey: ["materials", "order-stats"],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       // Get order stats from purchase_order_items joined with purchase_orders
       const { data, error } = await supabase
         .from("purchase_order_items")
@@ -82,7 +83,7 @@ export function useMaterialOrderStats() {
       }
 
       return statsMap;
-    },
+    }, { operationName: "useMaterialOrderStats" }),
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 }
@@ -96,7 +97,7 @@ export function useMaterialBestPrices() {
 
   return useQuery({
     queryKey: ["materials", "best-prices"],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       // Get vendor inventory with vendor names and brand info
       const { data, error } = await supabase
         .from("vendor_inventory")
@@ -144,7 +145,7 @@ export function useMaterialBestPrices() {
       }
 
       return priceMap;
-    },
+    }, { operationName: "useMaterialBestPrices" }),
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 }
@@ -157,7 +158,7 @@ export function useMaterialAuditInfo() {
 
   return useQuery({
     queryKey: ["materials", "audit-info"],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       const { data, error } = await supabase
         .from("materials")
         .select(`
@@ -199,7 +200,7 @@ export function useMaterialAuditInfo() {
       }
 
       return auditMap;
-    },
+    }, { operationName: "useMaterialAuditInfo" }),
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 }

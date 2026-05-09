@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type { WorkUpdates } from "@/types/work-updates.types";
 
 /**
@@ -17,8 +18,8 @@ export function useContractWorkUpdates(
   return useQuery({
     queryKey: ["contract-work-updates", contractId, date],
     enabled: !!contractId && !!date,
-    staleTime: 30 * 1000,
-    queryFn: async (): Promise<WorkUpdates | null> => {
+    staleTime: 60 * 1000,
+    queryFn: wrapQueryFn(async (): Promise<WorkUpdates | null> => {
       if (!contractId || !date) return null;
       const sb = supabase as any;
       const { data, error } = await sb
@@ -30,7 +31,7 @@ export function useContractWorkUpdates(
       if (error) throw error;
       if (!data) return null;
       return (data.work_updates ?? null) as WorkUpdates | null;
-    },
+    }, { operationName: "useContractWorkUpdates" }),
   });
 }
 

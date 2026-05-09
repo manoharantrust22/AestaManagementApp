@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import dayjs from "dayjs";
 
 interface CompanyStats {
@@ -161,13 +162,13 @@ async function fetchSiteSummaries(): Promise<SiteSummary[]> {
 export function useCompanyStats() {
   return useQuery({
     queryKey: queryKeys.stats.company(),
-    queryFn: fetchCompanyStats,
+    queryFn: wrapQueryFn(fetchCompanyStats, { operationName: "useCompanyStats" }),
   });
 }
 
 export function useSiteSummaries() {
   return useQuery({
     queryKey: queryKeys.dashboard.company(),
-    queryFn: fetchSiteSummaries,
+    queryFn: wrapQueryFn(fetchSiteSummaries, { operationName: "useSiteSummaries" }),
   });
 }

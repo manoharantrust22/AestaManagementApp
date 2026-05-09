@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
 import { generateOptimisticId } from "@/lib/optimistic";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   PurchaseOrder,
   PurchaseOrderWithDetails,
@@ -41,7 +42,7 @@ export function usePurchaseOrders(
         ? [...queryKeys.purchaseOrders.bySite(siteId), status]
         : queryKeys.purchaseOrders.bySite(siteId)
       : ["purchase-orders", "unknown"],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!siteId) return [];
 
       let query = supabase
@@ -67,9 +68,9 @@ export function usePurchaseOrders(
       const { data, error } = await query;
       if (error) throw error;
       return data as PurchaseOrderWithDetails[];
-    },
+    }, { operationName: "usePurchaseOrders" }),
     enabled: !!siteId,
-    staleTime: 30000, // Cache for 30s to avoid excessive refetches
+    staleTime: 60000,
   });
 }
 
@@ -1225,7 +1226,7 @@ export function usePODeletionImpact(poId: string | undefined) {
       };
     },
     enabled: !!poId,
-    staleTime: 30 * 1000, // 30 seconds - detail views can tolerate brief staleness
+    staleTime: 60 * 1000,
   });
 }
 
@@ -2846,7 +2847,7 @@ export function usePOSummary(siteId: string | undefined) {
       return summary;
     },
     enabled: !!siteId,
-    staleTime: 30000,
+    staleTime: 60000,
   });
 }
 
@@ -2989,7 +2990,7 @@ export function useGroupStockPOsSyncStatus(poIds: string[]) {
       return resultMap;
     },
     enabled: poIds.length > 0,
-    staleTime: 30000,
+    staleTime: 60000,
   });
 }
 
@@ -3046,7 +3047,7 @@ export function usePOBatchSyncStatus(poId: string | undefined) {
       };
     },
     enabled: !!poId,
-    staleTime: 30000, // 30 seconds
+    staleTime: 60000,
   });
 }
 

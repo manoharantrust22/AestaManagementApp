@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import dayjs from "dayjs";
 
 interface DashboardStats {
@@ -235,7 +236,9 @@ async function fetchExpenseBreakdown(
 export function useDashboardStats(siteId: string | undefined) {
   return useQuery({
     queryKey: [...queryKeys.dashboard.site(siteId || ""), "stats"],
-    queryFn: () => fetchDashboardStats(siteId!),
+    queryFn: wrapQueryFn(() => fetchDashboardStats(siteId!), {
+      operationName: "useDashboardStats",
+    }),
     enabled: !!siteId,
     staleTime: 3 * 60 * 1000, // 3 minutes - dashboard summary data
   });
@@ -244,7 +247,9 @@ export function useDashboardStats(siteId: string | undefined) {
 export function useRecentAttendance(siteId: string | undefined) {
   return useQuery({
     queryKey: [...queryKeys.dashboard.site(siteId || ""), "recent-attendance"],
-    queryFn: () => fetchRecentAttendance(siteId!),
+    queryFn: wrapQueryFn(() => fetchRecentAttendance(siteId!), {
+      operationName: "useRecentAttendance",
+    }),
     enabled: !!siteId,
     staleTime: 3 * 60 * 1000,
   });
@@ -253,7 +258,9 @@ export function useRecentAttendance(siteId: string | undefined) {
 export function usePendingSalaries(siteId: string | undefined) {
   return useQuery({
     queryKey: [...queryKeys.dashboard.site(siteId || ""), "pending-salaries"],
-    queryFn: () => fetchPendingSalaries(siteId!),
+    queryFn: wrapQueryFn(() => fetchPendingSalaries(siteId!), {
+      operationName: "usePendingSalaries",
+    }),
     enabled: !!siteId,
     staleTime: 3 * 60 * 1000,
   });
@@ -262,7 +269,9 @@ export function usePendingSalaries(siteId: string | undefined) {
 export function useWeeklyTrendData(siteId: string | undefined) {
   return useQuery({
     queryKey: [...queryKeys.dashboard.site(siteId || ""), "weekly-trend"],
-    queryFn: () => fetchWeeklyTrendData(siteId!),
+    queryFn: wrapQueryFn(() => fetchWeeklyTrendData(siteId!), {
+      operationName: "useWeeklyTrendData",
+    }),
     enabled: !!siteId,
     staleTime: 3 * 60 * 1000,
   });
@@ -271,7 +280,9 @@ export function useWeeklyTrendData(siteId: string | undefined) {
 export function useExpenseBreakdown(siteId: string | undefined) {
   return useQuery({
     queryKey: [...queryKeys.dashboard.site(siteId || ""), "expense-breakdown"],
-    queryFn: () => fetchExpenseBreakdown(siteId!),
+    queryFn: wrapQueryFn(() => fetchExpenseBreakdown(siteId!), {
+      operationName: "useExpenseBreakdown",
+    }),
     enabled: !!siteId,
     staleTime: 3 * 60 * 1000,
   });

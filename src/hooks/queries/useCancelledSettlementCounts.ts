@@ -36,7 +36,7 @@ export function useCancelledSettlementCounts(
       cutoffDate,
     ],
     enabled: Boolean(siteId),
-    staleTime: 15_000,
+    staleTime: 60_000,
     queryFn: async () => {
       let q = (supabase as any)
         .from("settlement_groups")

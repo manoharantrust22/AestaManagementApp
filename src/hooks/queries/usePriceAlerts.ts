@@ -6,6 +6,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   PriceAlert,
   PriceAlertWithDetails,
@@ -68,7 +69,7 @@ export function usePriceAlerts(filters?: { materialId?: string; isActive?: boole
 
   return useQuery({
     queryKey: PRICE_ALERT_KEYS.list(filters || {}),
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       try {
         let query = (supabase as any)
           .from("price_alerts")
@@ -107,7 +108,7 @@ export function usePriceAlerts(filters?: { materialId?: string; isActive?: boole
         }
         throw err;
       }
-    },
+    }, { operationName: "usePriceAlerts" }),
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 }

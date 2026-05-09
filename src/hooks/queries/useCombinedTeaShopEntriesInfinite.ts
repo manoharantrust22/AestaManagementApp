@@ -23,6 +23,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import { createClient } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import { weekStartStr, weekEndStr } from "@/lib/utils/weekUtils";
 import type { CombinedTeaShopEntry } from "./useCombinedTeaShop";
 
@@ -276,8 +277,9 @@ export function useCombinedTeaShopEntriesInfinite(
     enabled: enabled && !!siteGroupId,
     refetchOnWindowFocus: false,
     initialPageParam: initialWeekStart,
-    queryFn: async ({ pageParam }): Promise<CombinedTeaShopWeekPage> => {
-      const weekStart = pageParam as string;
+    queryFn: wrapQueryFn<CombinedTeaShopWeekPage>(async (ctx) => {
+      const { pageParam } = ctx as { pageParam: string };
+      const weekStart = pageParam;
       const weekEnd = weekEndStr(weekStart);
       const entries = await fetchWeek(
         supabase,
@@ -294,7 +296,7 @@ export function useCombinedTeaShopEntriesInfinite(
         emptyStreak: entries.length === 0 ? 1 : 0,
         entries,
       };
-    },
+    }, { operationName: "useCombinedTeaShopEntriesInfinite" }),
     getNextPageParam: (lastPage, allPages) => {
       // Empty-streak accumulator: how many trailing empty weeks?
       let streak = 0;

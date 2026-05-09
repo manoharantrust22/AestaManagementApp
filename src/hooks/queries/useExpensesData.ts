@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { supabaseQueryWithTimeout } from "@/lib/utils/supabaseQuery";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 
 export type ExpenseGroup = "all" | "labor" | "building";
 export type ExpenseStatus = "all" | "cleared" | "pending";
@@ -170,12 +171,21 @@ export function useExpensesData(args: Args) {
       // so the summary band shows "what's possible" totals; the table is the
       // filtered view. p_module stays null because grouping happens at the
       // expense_type layer in our new IA.
-      const summaryPromise = (supabase as any).rpc("get_expense_summary", {
-        p_site_id: siteId,
-        p_date_from: !isAllTime && dateFrom ? dateFrom : null,
-        p_date_to: !isAllTime && dateTo ? dateTo : null,
-        p_module: null,
-      });
+      // Wrap summary RPC in withTimeout — Promise.all below waits for the slowest
+      // side, so without a timeout here a hung get_expense_summary stalls the
+      // whole fetch even if the v_all_expenses query came back quickly.
+      const summaryPromise = withTimeout(
+        Promise.resolve(
+          (supabase as any).rpc("get_expense_summary", {
+            p_site_id: siteId,
+            p_date_from: !isAllTime && dateFrom ? dateFrom : null,
+            p_date_to: !isAllTime && dateTo ? dateTo : null,
+            p_module: null,
+          })
+        ),
+        TIMEOUTS.QUERY,
+        "get_expense_summary timed out",
+      );
 
       const [{ data, error }, summaryResult] = await Promise.all([
         supabaseQueryWithTimeout<ExpenseRow[]>(query, 30000),

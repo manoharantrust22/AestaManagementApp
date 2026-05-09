@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
   VendorInventory,
   VendorInventoryWithDetails,
@@ -28,7 +29,7 @@ export function useVendorInventory(vendorId: string | undefined) {
     queryKey: vendorId
       ? queryKeys.vendorInventory.byVendor(vendorId)
       : ["vendor-inventory", "vendor"],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!vendorId) return [] as VendorInventoryWithDetails[];
 
       const { data, error } = await (supabase as any)
@@ -56,7 +57,7 @@ export function useVendorInventory(vendorId: string | undefined) {
           (item.loading_cost || 0) +
           (item.unloading_cost || 0),
       })) as VendorInventoryWithDetails[];
-    },
+    }, { operationName: "useVendorInventory" }),
     enabled: !!vendorId,
   });
 }
@@ -74,7 +75,22 @@ export function useMaterialVendors(materialId: string | undefined) {
     queryFn: async () => {
       if (!materialId) return [] as VendorInventoryWithDetails[];
 
-      const { data, error} = await (supabase as any)
+      // First find any variant IDs (rows with parent_id = materialId). When the
+      // user opens a parent material, they expect to see quotes from its
+      // variants too — otherwise the parent's Vendors tab is empty even though
+      // the count badge promised quotes.
+      const { data: variantRows } = await supabase
+        .from("materials")
+        .select("id")
+        .eq("parent_id", materialId)
+        .eq("is_active", true);
+
+      const ids: string[] = [
+        materialId,
+        ...((variantRows || []).map((r) => (r as { id: string }).id)),
+      ];
+
+      const { data, error } = await (supabase as any)
         .from("vendor_inventory")
         .select(
           `
@@ -96,12 +112,13 @@ export function useMaterialVendors(materialId: string | undefined) {
           lead_time_days,
           notes,
           updated_at,
+          last_price_update,
           vendor:vendors(id, name, vendor_type, shop_name, phone, contact_person),
-          material:materials(id, name, code, unit, category_id),
+          material:materials(id, name, code, unit, category_id, parent_id),
           brand:material_brands(id, brand_name)
         `
         )
-        .eq("material_id", materialId)
+        .in("material_id", ids)
         .eq("is_available", true)
         .order("current_price");
 
@@ -547,6 +564,20 @@ export function useMaterialPriceHistory(materialId: string | undefined) {
     queryFn: async () => {
       if (!materialId) return [] as PriceHistoryWithDetails[];
 
+      // Include variant ids when this material is a parent — otherwise the
+      // parent's Price History tab shows nothing even when its variants have
+      // purchase records.
+      const { data: variantRows } = await supabase
+        .from("materials")
+        .select("id")
+        .eq("parent_id", materialId)
+        .eq("is_active", true);
+
+      const ids: string[] = [
+        materialId,
+        ...((variantRows || []).map((r) => (r as { id: string }).id)),
+      ];
+
       const { data, error } = await (supabase as any)
         .from("price_history")
         .select(
@@ -557,7 +588,7 @@ export function useMaterialPriceHistory(materialId: string | undefined) {
           brand:material_brands(id, brand_name)
         `
         )
-        .eq("material_id", materialId)
+        .in("material_id", ids)
         .order("recorded_date", { ascending: false })
         .limit(100);
 
@@ -1305,7 +1336,7 @@ export function useVendorMaterialBrands(
     },
     enabled: !!vendorId && !!materialId,
     retry: false, // Don't retry on failure - prevents stuck loading state
-    staleTime: 30000, // Cache for 30 seconds to prevent unnecessary refetches
+    staleTime: 60000,
   });
 }
 

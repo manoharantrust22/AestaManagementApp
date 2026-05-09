@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type { Database } from "@/types/database.types";
 
 type ClientPaymentRow = Database["public"]["Tables"]["client_payments"]["Row"];
@@ -30,8 +31,8 @@ export function useClientPayments(siteId: string | undefined) {
   return useQuery({
     queryKey: KEY(siteId),
     enabled: Boolean(siteId),
-    staleTime: 15_000,
-    queryFn: async (): Promise<ClientPaymentRow[]> => {
+    staleTime: 60_000,
+    queryFn: wrapQueryFn(async (): Promise<ClientPaymentRow[]> => {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("client_payments")
@@ -40,7 +41,7 @@ export function useClientPayments(siteId: string | undefined) {
         .order("payment_date", { ascending: false });
       if (error) throw error;
       return (data ?? []) as ClientPaymentRow[];
-    },
+    }, { operationName: "useClientPayments" }),
   });
 }
 

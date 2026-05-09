@@ -1,6 +1,6 @@
 "use client";
 
-import { QueryClient, QueryCache } from "@tanstack/react-query";
+import { QueryClient, QueryCache, keepPreviousData } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { useState, useEffect, useRef } from "react";
 import { createIDBPersister } from "@/lib/cache/persistor";
@@ -124,8 +124,18 @@ export default function QueryProvider({
       queryCache,
       defaultOptions: {
         queries: {
-          staleTime: 5 * 60 * 1000, // 5 minutes - data considered fresh (increased to reduce refetches)
+          // Global default staleTime — the floor for "how long is cached data fresh
+          // enough that a refetch on mount is unnecessary". Hooks may raise this
+          // (longer is fine) but should rarely lower it. 60s is the sweet spot:
+          // long enough to avoid skeleton-flash on every navigation, short enough
+          // that returning to a page after a quick detour shows current data.
+          staleTime: 60 * 1000,
           gcTime: 30 * 60 * 1000, // 30 minutes - cache garbage collection
+          // Show the previous query's data while a refetch is in-flight, instead of
+          // wiping it back to undefined and forcing the consumer to render skeletons.
+          // Per-hook overrides (e.g. paginated hooks already importing keepPreviousData)
+          // continue to work normally.
+          placeholderData: keepPreviousData,
           retry: (failureCount, error: any) => {
             // 400 from /auth/v1/token is a session error — let the auth-retry
             // path below handle it. Other 400s are genuine programming errors.
@@ -168,12 +178,15 @@ export default function QueryProvider({
             }
             return Math.min(1000 * 2 ** attemptIndex, 30000); // Exponential backoff
           },
-          // Smart window focus refetch: only refetch if data is older than default staleTime
-          // This prevents refetch cascade on tab focus while still refreshing stale data
+          // Smart window focus refetch: only refetch when truly stale.
+          // Uses 5min as the focus threshold even though staleTime is 60s — focus
+          // refetch is more disruptive than mount refetch, so we tolerate slightly
+          // older data on tab return. Mount refetch handles the 60s case quietly
+          // via placeholderData.
           refetchOnWindowFocus: (query) => {
             const age = Date.now() - (query.state.dataUpdatedAt || 0);
-            const defaultStaleTime = 5 * 60 * 1000; // 5 minutes
-            return age > defaultStaleTime;
+            const focusRefetchThreshold = 5 * 60 * 1000; // 5 minutes
+            return age > focusRefetchThreshold;
           },
           refetchOnReconnect: true, // Refetch when network reconnects
           refetchOnMount: true, // Refetch if data is stale
@@ -279,16 +292,22 @@ export default function QueryProvider({
         },
       }}
       onSuccess={() => {
-        // After cache restoration, invalidate queries that are past the default staleTime
-        // This ensures stale data gets refreshed while still showing cached data immediately
-        const defaultStaleTime = 5 * 60 * 1000; // 5 minutes
+        // After cache restoration, only invalidate queries that are well past their
+        // useful lifetime. The previous 5-min threshold caused every restored page
+        // older than 5 minutes to flip back to skeletons while the slow Cloudflare
+        // proxy refetched — defeating the purpose of having IDB persistence.
+        // 15min is generous enough that cached data is still meaningful, while
+        // older data still gets refreshed. Normal staleTime + refetchOnMount handle
+        // the 60s-15min window quietly (placeholderData keeps the UI populated).
+        const restoreInvalidateThreshold = 15 * 60 * 1000;
         queryClient.invalidateQueries({
           predicate: (query) => {
             const age = Date.now() - (query.state.dataUpdatedAt || 0);
-            // Only invalidate if data exists and is stale
-            return query.state.data !== undefined && age > defaultStaleTime;
+            return (
+              query.state.data !== undefined && age > restoreInvalidateThreshold
+            );
           },
-          refetchType: "active", // Only refetch queries currently being observed
+          refetchType: "active",
         });
       }}
     >
@@ -331,53 +350,32 @@ function SyncInitializer({ queryClient }: { queryClient: QueryClient }) {
     const currentSiteId = selectedSite?.id;
     const previousSiteId = previousSiteIdRef.current;
 
-    // Clear old site's cached queries when switching between sites
-    // Only clear when switching from one valid site to another (not on initial load)
-    // This prevents stale data from appearing when navigating between sites
+    // On site switch, mark site-specific queries stale instead of evicting them.
+    // Eviction (removeQueries + resetQueries) caused returning to a previously-
+    // visited site to show skeletons everywhere because the cache was wiped, even
+    // though IDB still held the data. With invalidateQueries({ refetchType: "none" })
+    // the next visit to Site A finds its cached data, renders instantly, and
+    // refetches in the background via the normal refetchOnMount path.
     if (currentSiteId && previousSiteId && previousSiteId !== currentSiteId) {
       console.log(
-        `Site changed from ${previousSiteId} to ${currentSiteId}, clearing site-specific cache`
+        `Site changed from ${previousSiteId} to ${currentSiteId}, marking site-specific queries stale`
       );
 
-      // Cancel any in-flight queries first
+      // Cancel in-flight queries from the old site so they don't land into the new
+      // site's view with stale-site data.
       queryClient.cancelQueries();
 
-      // Remove all queries EXCEPT preserved ones (user, auth, sites, etc.)
-      queryClient.removeQueries({
-        predicate: (query) => {
-          const queryKey = query.queryKey;
-          if (!Array.isArray(queryKey) || queryKey.length === 0) {
-            return false; // Don't remove malformed keys
-          }
+      const isSiteSpecific = (queryKey: readonly unknown[]) => {
+        if (!Array.isArray(queryKey) || queryKey.length === 0) return false;
+        const firstKey = String(queryKey[0]);
+        return !PRESERVED_QUERY_PREFIXES.some((prefix) =>
+          firstKey.startsWith(prefix)
+        );
+      };
 
-          const firstKey = String(queryKey[0]);
-
-          // Keep preserved queries (user profile, auth, sites list)
-          if (
-            PRESERVED_QUERY_PREFIXES.some((prefix) =>
-              firstKey.startsWith(prefix)
-            )
-          ) {
-            return false;
-          }
-
-          // Remove all other queries (they are site-specific)
-          return true;
-        },
-      });
-
-      // Reset query cache state for removed queries to ensure fresh fetches
-      queryClient.resetQueries({
-        predicate: (query) => {
-          const queryKey = query.queryKey;
-          if (!Array.isArray(queryKey) || queryKey.length === 0) {
-            return false;
-          }
-          const firstKey = String(queryKey[0]);
-          return !PRESERVED_QUERY_PREFIXES.some((prefix) =>
-            firstKey.startsWith(prefix)
-          );
-        },
+      queryClient.invalidateQueries({
+        predicate: (query) => isSiteSpecific(query.queryKey),
+        refetchType: "none",
       });
     }
 

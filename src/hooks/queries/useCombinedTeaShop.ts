@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type { Database } from "@/types/database.types";
 
 type TeaShopEntry = Database["public"]["Tables"]["tea_shop_entries"]["Row"];
@@ -51,7 +52,7 @@ export function useCombinedTeaShopEntries(
     queryKey: siteGroupId
       ? [...queryKeys.combinedTeaShop.entries(siteGroupId), options]
       : ["combined-tea-shop", "entries"],
-    queryFn: async (): Promise<CombinedTeaShopEntry[]> => {
+    queryFn: wrapQueryFn(async (): Promise<CombinedTeaShopEntry[]> => {
       if (!siteGroupId) return [];
 
       // 1. Get all sites in the group
@@ -293,7 +294,7 @@ export function useCombinedTeaShopEntries(
       combinedEntries.sort((a, b) => b.date.localeCompare(a.date));
 
       return combinedEntries;
-    },
+    }, { operationName: "useCombinedTeaShopEntries" }),
     enabled: !!siteGroupId,
   });
 }

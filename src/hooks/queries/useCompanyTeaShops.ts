@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 
 // ============================================
 // TYPES
@@ -89,7 +90,7 @@ export function useCompanyTeaShops() {
 
   return useQuery({
     queryKey: queryKeys.companyTeaShops.list(),
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       const { data, error } = await (supabase as any)
         .from("tea_shops")
         .select("*, tea_shop_site_assignments(id, site_id, site_group_id, is_active, assigned_at, site:sites(id, name), site_group:site_groups(id, name))")
@@ -105,7 +106,7 @@ export function useCompanyTeaShops() {
         ...shop,
         assignments: shop.tea_shop_site_assignments || [],
       })) as CompanyTeaShopWithAssignments[];
-    },
+    }, { operationName: "useCompanyTeaShops" }),
   });
 }
 

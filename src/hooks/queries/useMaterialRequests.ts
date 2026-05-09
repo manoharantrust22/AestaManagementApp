@@ -124,7 +124,7 @@ export function useMaterialRequests(
       return data as MaterialRequestWithDetails[];
     },
     enabled: !!siteId,
-    staleTime: 30000,
+    staleTime: 60000,
   });
 }
 
@@ -784,7 +784,7 @@ export function useRequestSummary(siteId: string | undefined) {
       return summary;
     },
     enabled: !!siteId,
-    staleTime: 30000,
+    staleTime: 60000,
   });
 }
 
@@ -1623,7 +1623,7 @@ export function useMaterialRequestDeletionImpact(requestId: string | undefined) 
       };
     },
     enabled: !!requestId,
-    staleTime: 30 * 1000, // 30 seconds - detail views can tolerate brief staleness
+    staleTime: 60 * 1000,
   });
 }
 

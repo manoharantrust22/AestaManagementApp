@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import dayjs from "dayjs";
 
 /**
@@ -54,8 +55,8 @@ export function useTradeAttendanceSummary(contractId: string | undefined) {
   return useQuery({
     queryKey: ["trade-attendance-summary", contractId],
     enabled: !!contractId,
-    staleTime: 30 * 1000,
-    queryFn: async (): Promise<TradeAttendanceSummary> => {
+    staleTime: 60 * 1000,
+    queryFn: wrapQueryFn(async (): Promise<TradeAttendanceSummary> => {
       if (!contractId) {
         return emptySummary();
       }
@@ -159,7 +160,7 @@ export function useTradeAttendanceSummary(contractId: string | undefined) {
         lastPaymentDate,
         avgPaymentAmount,
       };
-    },
+    }, { operationName: "useTradeAttendanceSummary" }),
   });
 }
 

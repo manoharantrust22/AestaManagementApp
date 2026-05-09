@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 
 export interface PayerSourceRow {
   id: string;
@@ -55,7 +56,7 @@ export function usePayerSources(siteId: string | undefined) {
     queryKey: ["payer-sources", siteId],
     enabled: Boolean(siteId),
     staleTime: 5 * 60_000,
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       // (supabase as any) is needed here because payer_sources is not yet in
       // database.types.ts — the Slice 1 migration adds the table but types are
       // regenerated in Slice 2. Without the cast TypeScript throws "type
@@ -68,7 +69,7 @@ export function usePayerSources(siteId: string | undefined) {
         .order("sort_order", { ascending: true });
       if (error) throw error as Error;
       return (data ?? []) as PayerSourceRow[];
-    },
+    }, { operationName: "usePayerSources" }),
   });
 }
 

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useSelectedCompany } from "@/contexts/CompanyContext";
 import { queryKeys } from "@/lib/cache/keys";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 
 export interface CompanyMember {
   id: string;
@@ -43,7 +44,7 @@ export function useCompanyMembers() {
 
   return useQuery({
     queryKey: queryKeys.companyMembers?.list(companyId || "") || ["company-members", companyId],
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       if (!companyId) return [];
 
       const supabase = createClient() as any;
@@ -67,7 +68,7 @@ export function useCompanyMembers() {
       }
 
       return (data || []) as CompanyMember[];
-    },
+    }, { operationName: "useCompanyMembers" }),
     enabled: !!companyId,
     staleTime: 5 * 60 * 1000, // 5 minutes
   });

@@ -54,7 +54,7 @@ export function useSettlementsList(args: UseSettlementsListArgs) {
   return useQuery<SettlementListRow[]>({
     queryKey: ["settlements-list", siteId, filter, dateFrom, dateTo, period, cutoffDate],
     enabled: Boolean(siteId),
-    staleTime: 15_000,
+    staleTime: 60_000,
     queryFn: async () => {
       // Pull the raw settlement_groups rows in date order. We post-filter
       // contract vs daily-market client-side using the labor_payments link —

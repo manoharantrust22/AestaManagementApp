@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { wrapQueryFn } from "@/lib/utils/timeout";
 import type { Database } from "@/types/database.types";
 
 type Laborer = Database["public"]["Tables"]["laborers"]["Row"];
@@ -18,7 +19,7 @@ export function useLaborers(filters?: { site_id?: string }) {
 
   return useQuery({
     queryKey: laborerKeys.list(filters),
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       const query = supabase
         .from("laborers")
         .select("*")
@@ -29,6 +30,6 @@ export function useLaborers(filters?: { site_id?: string }) {
 
       if (error) throw error;
       return data as Laborer[];
-    },
+    }, { operationName: "useLaborers" }),
   });
 }

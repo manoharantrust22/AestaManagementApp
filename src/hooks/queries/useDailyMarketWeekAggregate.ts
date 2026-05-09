@@ -42,7 +42,7 @@ export function useDailyMarketWeekAggregate(
   return useQuery<WeekAggregate>({
     queryKey: ["daily-market-week-aggregate", siteId, weekStart, weekEnd],
     enabled: Boolean(siteId && weekStart && weekEnd),
-    staleTime: 15_000,
+    staleTime: 60_000,
     queryFn: async ({ signal }) => {
       // Daily attendance with laborer_type joined; we filter contract
       // rows out client-side so legacy NULL laborer_type rows still

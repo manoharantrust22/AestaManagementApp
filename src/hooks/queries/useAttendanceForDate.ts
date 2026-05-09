@@ -64,7 +64,7 @@ export function useAttendanceForDate(siteId: string, date: string) {
   return useQuery<AttendanceForDateData>({
     queryKey: ["inspect-attendance-date", siteId, date],
     enabled: Boolean(siteId && date),
-    staleTime: 30_000,
+    staleTime: 60_000,
     queryFn: async ({ signal }): Promise<AttendanceForDateData> => {
       // Diagnostics: this query has a recurring "stuck on skeleton" bug
       // (see commit 716af8d). Logs are tagged so we can grep the console
