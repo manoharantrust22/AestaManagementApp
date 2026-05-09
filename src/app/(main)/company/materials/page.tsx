@@ -17,12 +17,14 @@ import {
 } from "@mui/material";
 import {
   Add as AddIcon,
+  AutoAwesome as AIIcon,
   Whatshot as FireIcon,
   Image as ImageIcon,
   Store as StoreIcon,
   AutoAwesome as VariantsIcon,
   PriceChange as PriceMissingIcon,
 } from "@mui/icons-material";
+import { useSitesData } from "@/contexts/SiteContext";
 import PageHeader from "@/components/layout/PageHeader";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -55,6 +57,11 @@ const MaterialDialog = dynamic(
   { ssr: false }
 );
 
+const AIIngestionDialog = dynamic(
+  () => import("@/components/ai-ingestion/AIIngestionDialog"),
+  { ssr: false }
+);
+
 const CATEGORY_TAB_MAPPING: Record<string, string[]> = {
   civil: ["CEM", "STL", "AGG", "BRK"],
   electrical: ["ELC"],
@@ -63,6 +70,7 @@ const CATEGORY_TAB_MAPPING: Record<string, string[]> = {
   doors_windows: ["WOD", "GLS"],
   hardware: ["HRD", "MSC"],
   tiles: ["TIL"],
+  pumps: ["PMP"],
   all: [],
 };
 
@@ -75,6 +83,7 @@ const CATEGORY_TABS = [
   { id: "doors_windows", label: "Doors & Windows" },
   { id: "hardware", label: "Hardware" },
   { id: "tiles", label: "Tiles" },
+  { id: "pumps", label: "Pumps & Motors" },
 ];
 
 const SORT_OPTIONS: { value: MaterialSortOption; label: string }[] = [
@@ -113,6 +122,12 @@ export default function MaterialsPage() {
   const [activeFilters, setActiveFilters] = useState<Set<FilterKey>>(new Set());
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const { sites: userSites } = useSitesData();
+  const aiSites = useMemo(
+    () => userSites.map((s) => ({ id: s.id, name: s.name })),
+    [userSites],
+  );
   const [editingMaterial, setEditingMaterial] = useState<MaterialWithDetails | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; material: MaterialWithDetails | null }>({
     open: false,
@@ -324,9 +339,18 @@ export default function MaterialsPage() {
         title="Material Catalog"
         actions={
           !isMobile && canEdit ? (
-            <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenAdd}>
-              Add Material
-            </Button>
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <Button
+                variant="outlined"
+                startIcon={<AIIcon />}
+                onClick={() => setAiDialogOpen(true)}
+              >
+                Ingest from AI
+              </Button>
+              <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenAdd}>
+                Add Material
+              </Button>
+            </Box>
           ) : null
         }
       />
@@ -479,13 +503,25 @@ export default function MaterialsPage() {
       </Box>
 
       {isMobile && canEdit ? (
-        <Fab
-          color="primary"
-          sx={{ position: "fixed", bottom: 16, right: 16 }}
-          onClick={handleOpenAdd}
-        >
-          <AddIcon />
-        </Fab>
+        <>
+          <Fab
+            color="secondary"
+            size="medium"
+            sx={{ position: "fixed", bottom: 86, right: 16 }}
+            onClick={() => setAiDialogOpen(true)}
+            aria-label="Ingest from AI"
+          >
+            <AIIcon />
+          </Fab>
+          <Fab
+            color="primary"
+            sx={{ position: "fixed", bottom: 16, right: 16 }}
+            onClick={handleOpenAdd}
+            aria-label="Add material"
+          >
+            <AddIcon />
+          </Fab>
+        </>
       ) : null}
 
       {/* Inspect pane — material or vendor based on stack top (Slice 5) */}
@@ -528,6 +564,20 @@ export default function MaterialsPage() {
         material={editingMaterial}
         categories={categories}
         onEditVariant={handleOpenEdit}
+      />
+
+      <AIIngestionDialog
+        open={aiDialogOpen}
+        onClose={() => setAiDialogOpen(false)}
+        sites={aiSites}
+        onSaved={(result) => {
+          const refCode = (result as { ref_code?: string } | null)?.ref_code;
+          setSnackbar({
+            open: true,
+            message: refCode ? `Saved as ${refCode}` : "Saved",
+            severity: "success",
+          });
+        }}
       />
 
       <VendorQuoteDialog
