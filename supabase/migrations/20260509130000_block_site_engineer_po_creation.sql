@@ -17,8 +17,20 @@
 -- cannot insert items directly even if a PO row were created via some other
 -- path.
 
+-- Drop both the original initial-schema policies and the blanket permissive
+-- policies added by 20260111100000_fix_all_rls_policies.sql. PostgreSQL ORs
+-- multiple permissive policies, so leaving any open INSERT policy in place
+-- would defeat the role check below.
 DROP POLICY IF EXISTS "allow_all_purchase_orders" ON "public"."purchase_orders";
 DROP POLICY IF EXISTS "allow_select_purchase_orders" ON "public"."purchase_orders";
+DROP POLICY IF EXISTS "allow_authenticated_select_purchase_orders" ON "public"."purchase_orders";
+DROP POLICY IF EXISTS "allow_authenticated_insert_purchase_orders" ON "public"."purchase_orders";
+DROP POLICY IF EXISTS "allow_authenticated_update_purchase_orders" ON "public"."purchase_orders";
+DROP POLICY IF EXISTS "allow_authenticated_delete_purchase_orders" ON "public"."purchase_orders";
+DROP POLICY IF EXISTS "allow_anon_select_purchase_orders" ON "public"."purchase_orders";
+DROP POLICY IF EXISTS "allow_anon_insert_purchase_orders" ON "public"."purchase_orders";
+DROP POLICY IF EXISTS "allow_anon_update_purchase_orders" ON "public"."purchase_orders";
+DROP POLICY IF EXISTS "allow_anon_delete_purchase_orders" ON "public"."purchase_orders";
 
 CREATE POLICY "purchase_orders_select"
   ON "public"."purchase_orders"
@@ -48,6 +60,14 @@ CREATE POLICY "purchase_orders_delete"
   USING (true);
 
 DROP POLICY IF EXISTS "allow_all_purchase_order_items" ON "public"."purchase_order_items";
+DROP POLICY IF EXISTS "allow_authenticated_select_purchase_order_items" ON "public"."purchase_order_items";
+DROP POLICY IF EXISTS "allow_authenticated_insert_purchase_order_items" ON "public"."purchase_order_items";
+DROP POLICY IF EXISTS "allow_authenticated_update_purchase_order_items" ON "public"."purchase_order_items";
+DROP POLICY IF EXISTS "allow_authenticated_delete_purchase_order_items" ON "public"."purchase_order_items";
+DROP POLICY IF EXISTS "allow_anon_select_purchase_order_items" ON "public"."purchase_order_items";
+DROP POLICY IF EXISTS "allow_anon_insert_purchase_order_items" ON "public"."purchase_order_items";
+DROP POLICY IF EXISTS "allow_anon_update_purchase_order_items" ON "public"."purchase_order_items";
+DROP POLICY IF EXISTS "allow_anon_delete_purchase_order_items" ON "public"."purchase_order_items";
 
 CREATE POLICY "purchase_order_items_select"
   ON "public"."purchase_order_items"

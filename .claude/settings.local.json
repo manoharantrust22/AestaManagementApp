@@ -234,7 +234,8 @@
       "PowerShell(Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep 2; \"ok\")",
       "PowerShell(Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep 2; \"stopped dev server\")",
       "Bash(awk 'NR>1 && /^\\\\$\\\\$;\\\\s*$/ {prev=NR-1; getline next_line; if \\(next_line == \"\" || next_line ~ /^--/ || next_line ~ /^[A-Z]/\\) print \"OK at \"NR; else print \"WEIRD at \"NR\": \"next_line}' supabase/migrations/20260509100200_ai_ingest_commit_rpc.sql)",
-      "Bash(awk '/AS \\\\$\\\\$/{in_func=1; next} /^\\\\$\\\\$;/{in_func=0; next} in_func && /\\\\$/{print NR\": \"$0}' supabase/migrations/20260509100200_ai_ingest_commit_rpc.sql)"
+      "Bash(awk '/AS \\\\$\\\\$/{in_func=1; next} /^\\\\$\\\\$;/{in_func=0; next} in_func && /\\\\$/{print NR\": \"$0}' supabase/migrations/20260509100200_ai_ingest_commit_rpc.sql)",
+      "Bash(PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -c \"SELECT polname FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid WHERE c.relname IN \\('purchase_orders','purchase_order_items'\\) ORDER BY 1;\")"
     ],
     "deny": [],
     "ask": [],
