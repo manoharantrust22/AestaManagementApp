@@ -18,6 +18,16 @@ interface CivilStyleTradeKpiStripProps {
   summary: TradeAttendanceSummary | undefined;
   tradeColor: TradeColor;
   isLoading?: boolean;
+  /**
+   * Override the labor-done amount (defaults to summary.laborDoneHeadcount).
+   * Mid mode passes the sum of day_total_amount here so the same strip can
+   * render mid-mode totals without forking the component.
+   */
+  salaryOverride?: number;
+  /**
+   * Override the days-worked count (defaults to summary.daysHeadcountEntered).
+   */
+  daysOverride?: number;
 }
 
 /**
@@ -39,6 +49,8 @@ export function CivilStyleTradeKpiStrip({
   summary,
   tradeColor,
   isLoading,
+  salaryOverride,
+  daysOverride,
 }: CivilStyleTradeKpiStripProps) {
   const [expanded, setExpanded] = React.useState(false);
 
@@ -54,17 +66,15 @@ export function CivilStyleTradeKpiStrip({
     );
   }
 
-  const salary = summary.laborDoneHeadcount;
+  const salary = salaryOverride ?? summary.laborDoneHeadcount;
+  const days = daysOverride ?? summary.daysHeadcountEntered;
   const teaShop = summary.amountPaidBreakdown.extras;
   const periodTotal = salary + teaShop;
   const paid =
     summary.amountPaidBreakdown.payments +
     summary.amountPaidBreakdown.settlements;
   const pending = Math.max(0, salary - paid);
-  const avgPerDay =
-    summary.daysHeadcountEntered > 0
-      ? salary / summary.daysHeadcountEntered
-      : 0;
+  const avgPerDay = days > 0 ? salary / days : 0;
   const paidCount = summary.daysPaymentsRecorded;
 
   return (

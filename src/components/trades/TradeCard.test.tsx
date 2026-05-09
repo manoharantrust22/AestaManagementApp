@@ -3,6 +3,22 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+// Mock next/navigation because ExpandableContractRow now calls useRouter()
+// for the menu's "view detail" navigation. Tests don't exercise that path
+// — a stub router with no-op methods is enough to satisfy the hook contract.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 // Mock Supabase client used inside ExpandableContractRow's hooks so tests
 // don't require env vars and don't make real network calls.
 vi.mock("@/lib/supabase/client", () => ({

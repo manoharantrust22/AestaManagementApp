@@ -624,6 +624,23 @@ export function QuickCreateContractDialog({
                   }
                 />
                 <FormControlLabel
+                  value="mid"
+                  control={<Radio />}
+                  label={
+                    <Box>
+                      <Typography variant="body2">
+                        Mid (Laborer + Crew) — roster of who came + day total
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" component="div">
+                        Mesthri brings a crew. Each day, supervisor toggles which laborers
+                        came and records ONE day total ₹ for the crew. Tracks presence
+                        without per-laborer rates. Best for mesthri-led teams where you
+                        pay one daily total.
+                      </Typography>
+                    </Box>
+                  }
+                />
+                <FormControlLabel
                   value="detailed"
                   control={<Radio />}
                   label={

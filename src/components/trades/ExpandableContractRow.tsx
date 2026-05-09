@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import {
   Box,
   Typography,
-  Button,
   Stack,
   IconButton,
   Menu,
@@ -13,10 +12,8 @@ import {
   ListItemIcon,
   ListItemText,
   Collapse,
-  List,
-  ListItem,
-  ListItemSecondaryAction,
   Chip,
+  Button,
 } from "@mui/material";
 import {
   ChevronRight as ChevronRightIcon,
@@ -24,25 +21,21 @@ import {
   MoreVert as MoreVertIcon,
   Visibility as VisibilityIcon,
   DeleteOutline as DeleteIcon,
-  Add as AddIcon,
-  Payment as PaymentIcon,
-  ReceiptLong as ReceiptLongIcon,
-  TaskAlt as TaskAltIcon,
+  Tune as TuneIcon,
+  AttachMoney as RatesIcon,
+  OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import type {
   ContractActivity,
   ContractReconciliation,
   TradeContract,
 } from "@/types/trade.types";
-import { useContractPayments } from "@/hooks/queries/useContractPayments";
+import { useContractHeadcount } from "@/hooks/queries/useContractHeadcount";
 import { ReconciliationStrip } from "./ReconciliationStrip";
-import { RecordPaymentDialog } from "./RecordPaymentDialog";
-import { HeadcountEntryInline } from "./HeadcountEntryInline";
-import { WeeklyHeadcountSettleDialog } from "./WeeklyHeadcountSettleDialog";
-import { ContractWorkUpdatesPanel } from "./ContractWorkUpdatesPanel";
-import MiscExpenseDialog from "@/components/expenses/MiscExpenseDialog";
-import { MestriSettleDialog } from "@/components/payments/MestriSettleDialog";
+import { ChangeTrackingModeDialog } from "./ChangeTrackingModeDialog";
+import { EditRoleRatesDialog } from "./EditRoleRatesDialog";
 
 interface ExpandableContractRowProps {
   contract: TradeContract;
@@ -63,26 +56,28 @@ function contractLabel(c: TradeContract): string {
   return c.mesthriOrSpecialistName ?? c.title;
 }
 
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
-}
-
-const PAYMENT_TYPE_LABEL: Record<string, string> = {
-  // Direct subcontract_payments types
-  weekly_advance: "Daily/Weekly",
-  part_payment: "Part payment",
-  milestone: "Milestone",
-  final_settlement: "Final settlement",
-  // Settlement_groups types — these produce a single "Salary settlement"
-  // / "Advance settlement" chip; the redundant source chip is suppressed
-  // when we already convey settlement-ness via the type label.
-  salary: "Salary settlement",
-  advance: "Advance settlement",
-  other: "Settlement",
+const MODE_LABEL: Record<string, string> = {
+  detailed: "Detailed",
+  headcount: "Headcount",
+  mid: "Mid (Laborer + Crew)",
+  mesthri_only: "Mesthri-only",
 };
 
+const MODE_COLOR: Record<string, "primary" | "warning" | "info" | "secondary"> = {
+  detailed: "primary",
+  headcount: "warning",
+  mid: "secondary",
+  mesthri_only: "info",
+};
+
+/**
+ * /site/trades contract row — management surface only. Data entry happens
+ * on /site/attendance and /site/payments. Available actions:
+ *   • Change tracking mode (detailed / headcount / mesthri_only)
+ *   • Edit role rates (headcount mode only)
+ *   • Open contract in /site/subcontracts for full edit
+ *   • Delete contract
+ */
 export function ExpandableContractRow({
   contract,
   reconciliation,
@@ -92,49 +87,25 @@ export function ExpandableContractRow({
   onView,
   onDelete,
 }: ExpandableContractRowProps) {
-  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
-  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
-  const [extraDialogOpen, setExtraDialogOpen] = useState(false);
-  // Settle flow: tracks WHICH dialog the dispatcher opened. mode-aware.
-  const [settleDialog, setSettleDialog] = useState<
-    null | "weekly_headcount" | "mesthri_payment" | "mesthri_settle"
-  >(null);
-  const menuOpen = Boolean(menuAnchor);
+  const router = useRouter();
   const queryClient = useQueryClient();
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const menuOpen = Boolean(menuAnchor);
 
-  // Only fetch payments when row is expanded — avoids N+1 fetch on the hub
-  const { data: payments, isLoading: paymentsLoading } = useContractPayments(
-    expanded ? contract.id : undefined
+  const [changeModeOpen, setChangeModeOpen] = useState(false);
+  const [editRatesOpen, setEditRatesOpen] = useState(false);
+
+  // Fetch role rates only when expanded — keeps the unexpanded row light.
+  const { data: headcount } = useContractHeadcount(
+    expanded && contract.laborTrackingMode === "headcount"
+      ? contract.id
+      : undefined
   );
 
-  // Sum extras client-side from the unified ledger so the strip + header
-  // numbers reflect snacks/fuel/materials immediately after one is recorded.
-  // The reconciliation view itself doesn't include misc_expenses (yet).
-  const extrasTotal = (payments ?? [])
-    .filter((p) => p.source === "extra")
-    .reduce((sum, p) => sum + p.amount, 0);
-
   const quoted = reconciliation?.quotedAmount ?? contract.totalValue ?? 0;
-  const paid = (reconciliation?.amountPaid ?? 0) + extrasTotal;
+  const paid = reconciliation?.amountPaid ?? 0;
   const balance = quoted - paid;
 
-  // Settle dispatcher — chooses the right dialog by labor_tracking_mode.
-  // In-house Civil contracts have no quote and no mesthri to settle, so
-  // we hide the Settle button entirely for them.
-  const canSettle = !contract.isInHouse;
-  const dispatchSettle = () => {
-    if (contract.laborTrackingMode === "headcount") {
-      setSettleDialog("weekly_headcount");
-    } else if (contract.laborTrackingMode === "detailed") {
-      // Civil-style flow: reuse the production MestriSettleDialog which
-      // already handles weekly waterfall + sub-contract scoping.
-      setSettleDialog("mesthri_settle");
-    } else {
-      // mesthri_only: open RecordPaymentDialog with weekly_advance preset
-      // and a sensible amount (1/4 of remaining balance, rounded to ₹100).
-      setSettleDialog("mesthri_payment");
-    }
-  };
   const days =
     contract.laborTrackingMode === "mesthri_only"
       ? activity?.paymentDays ?? 0
@@ -143,6 +114,13 @@ export function ExpandableContractRow({
     contract.laborTrackingMode === "mesthri_only"
       ? "payment days"
       : "days worked";
+
+  const goToAttendance = () => {
+    router.push(`/site/attendance`);
+  };
+  const goToPayments = () => {
+    router.push(`/site/payments`);
+  };
 
   return (
     <Box
@@ -168,9 +146,18 @@ export function ExpandableContractRow({
       >
         <Stack direction="row" alignItems="flex-start" justifyContent="space-between">
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="body2" fontWeight={600} noWrap>
-              {contractLabel(contract)}
-            </Typography>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.25 }}>
+              <Typography variant="body2" fontWeight={600} noWrap>
+                {contractLabel(contract)}
+              </Typography>
+              <Chip
+                label={MODE_LABEL[contract.laborTrackingMode] ?? contract.laborTrackingMode}
+                size="small"
+                color={MODE_COLOR[contract.laborTrackingMode] ?? "default"}
+                variant="outlined"
+                sx={{ height: 18, fontSize: "0.6rem" }}
+              />
+            </Stack>
             {!contract.isInHouse && contract.title && (
               <Typography
                 variant="caption"
@@ -262,41 +249,30 @@ export function ExpandableContractRow({
         onClose={() => setMenuAnchor(null)}
         onClick={(e) => e.stopPropagation()}
       >
-        {canSettle && (
+        <MenuItem
+          onClick={() => {
+            setMenuAnchor(null);
+            setChangeModeOpen(true);
+          }}
+        >
+          <ListItemIcon>
+            <TuneIcon fontSize="small" color="primary" />
+          </ListItemIcon>
+          <ListItemText>Change tracking mode</ListItemText>
+        </MenuItem>
+        {contract.laborTrackingMode === "headcount" && (
           <MenuItem
             onClick={() => {
               setMenuAnchor(null);
-              dispatchSettle();
+              setEditRatesOpen(true);
             }}
           >
             <ListItemIcon>
-              <TaskAltIcon fontSize="small" color="primary" />
+              <RatesIcon fontSize="small" />
             </ListItemIcon>
-            <ListItemText>Settle for the week</ListItemText>
+            <ListItemText>Edit role rates</ListItemText>
           </MenuItem>
         )}
-        <MenuItem
-          onClick={() => {
-            setMenuAnchor(null);
-            setPaymentDialogOpen(true);
-          }}
-        >
-          <ListItemIcon>
-            <PaymentIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Record payment</ListItemText>
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            setMenuAnchor(null);
-            setExtraDialogOpen(true);
-          }}
-        >
-          <ListItemIcon>
-            <ReceiptLongIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Add extra (snacks, fuel, materials)</ListItemText>
-        </MenuItem>
         {onView && (
           <MenuItem
             onClick={() => {
@@ -331,268 +307,173 @@ export function ExpandableContractRow({
       <Collapse in={expanded} unmountOnExit>
         <Divider />
         <Box sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1.5 }}>
-          {/* Reconciliation strip */}
+          {/* Reconciliation strip — quoted vs paid breakdown */}
           <ReconciliationStrip
             reconciliation={reconciliation}
             laborTrackingMode={contract.laborTrackingMode}
             fallbackQuoted={contract.totalValue}
-            extrasTotal={extrasTotal}
+            extrasTotal={0}
           />
 
-          {/* Today's work updates (morning + evening photos + plan/summary).
-              Hidden for in-house Civil since per-contract photos for the
-              auto-created in-house pool aren't useful — civil photos
-              already live at the site level via daily_work_summary. */}
-          {!contract.isInHouse && (
-            <ContractWorkUpdatesPanel
-              siteId={contract.siteId}
-              contractId={contract.id}
-            />
-          )}
-
-          {/* Headcount entry — only for headcount mode */}
-          {contract.laborTrackingMode === "headcount" && (
-            <HeadcountEntryInline
-              siteId={contract.siteId}
-              contractId={contract.id}
-            />
-          )}
-
-          {/* Recent payments + Record payment CTA */}
-          <Box>
+          {/* Tracking mode + role rates summary (management surface) */}
+          <Box
+            sx={{
+              p: 1.25,
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 1,
+              bgcolor: "background.paper",
+            }}
+          >
             <Stack
               direction="row"
-              alignItems="center"
               justifyContent="space-between"
-              sx={{ mb: 0.75 }}
+              alignItems="center"
+              sx={{ mb: 1 }}
             >
-              <Typography variant="subtitle2">Payments ledger</Typography>
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<ReceiptLongIcon />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setExtraDialogOpen(true);
-                  }}
-                >
-                  Add extra
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<AddIcon />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setPaymentDialogOpen(true);
-                  }}
-                >
-                  Record payment
-                </Button>
-                {canSettle && (
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="primary"
-                    startIcon={<TaskAltIcon />}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      dispatchSettle();
-                    }}
-                  >
-                    Settle
-                  </Button>
-                )}
-              </Stack>
+              <Box>
+                <Typography variant="caption" color="text.secondary" component="div">
+                  Tracking mode
+                </Typography>
+                <Typography variant="body2" fontWeight={600}>
+                  {MODE_LABEL[contract.laborTrackingMode] ?? contract.laborTrackingMode}
+                </Typography>
+              </Box>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<TuneIcon />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setChangeModeOpen(true);
+                }}
+              >
+                Change mode
+              </Button>
             </Stack>
 
-            {paymentsLoading ? (
-              <Typography variant="caption" color="text.secondary">
-                Loading…
-              </Typography>
-            ) : !payments || payments.length === 0 ? (
-              <Typography variant="caption" color="text.secondary">
-                No payments recorded yet. Click <strong>Record payment</strong> above to
-                log the first one (e.g. daily money given to the mesthri).
-              </Typography>
-            ) : (
-              <List dense disablePadding>
-                {payments.slice(0, 8).map((p) => (
-                  <ListItem
-                    key={p.id}
-                    disableGutters
-                    sx={{
-                      py: 0.5,
-                      borderBottom: "1px dashed",
-                      borderColor: "divider",
-                      "&:last-child": { borderBottom: "none" },
+            {contract.laborTrackingMode === "headcount" && (
+              <>
+                <Divider sx={{ my: 1 }} />
+                <Stack
+                  direction="row"
+                  justifyContent="space-between"
+                  alignItems="flex-start"
+                >
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="caption" color="text.secondary" component="div">
+                      Role rates
+                    </Typography>
+                    {headcount?.rates && headcount.rates.length > 0 ? (
+                      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mt: 0.5 }}>
+                        {headcount.rates.map((r) => (
+                          <Chip
+                            key={r.roleId}
+                            label={`${r.roleName} ₹${formatINR(r.dailyRate)}/day`}
+                            size="small"
+                            variant="outlined"
+                          />
+                        ))}
+                      </Stack>
+                    ) : (
+                      <Typography variant="caption" color="text.disabled">
+                        No roles seeded
+                      </Typography>
+                    )}
+                  </Box>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<RatesIcon />}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditRatesOpen(true);
                     }}
+                    sx={{ ml: 1 }}
                   >
-                    <Box sx={{ flex: 1, display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                      <Typography variant="body2" sx={{ width: 70 }}>
-                        {formatDate(p.paymentDate)}
-                      </Typography>
-                      <Chip
-                        label={PAYMENT_TYPE_LABEL[p.paymentType] ?? p.paymentType}
-                        size="small"
-                        variant={p.source === "direct" ? "outlined" : "filled"}
-                        // direct → default outlined, settlement → info-blue,
-                        // extra (snacks/fuel/materials) → warning-amber so the
-                        // engineer can spot non-labor money flow at a glance.
-                        color={
-                          p.source === "settlement"
-                            ? "info"
-                            : p.source === "extra"
-                            ? "warning"
-                            : "default"
-                        }
-                      />
-                      {p.paymentMode && (
-                        <Typography variant="caption" color="text.secondary">
-                          {p.paymentMode}
-                        </Typography>
-                      )}
-                      {p.reference && (
-                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "monospace" }}>
-                          {p.reference}
-                        </Typography>
-                      )}
-                    </Box>
-                    <ListItemSecondaryAction>
-                      <Typography variant="body2" fontWeight={600}>
-                        ₹{formatINR(p.amount)}
-                      </Typography>
-                    </ListItemSecondaryAction>
-                  </ListItem>
-                ))}
-                {payments.length > 8 && (
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-                    Showing latest 8 of {payments.length}. Open the contract in the
-                    Subcontracts page for the full ledger.
-                  </Typography>
-                )}
-              </List>
+                    Edit rates
+                  </Button>
+                </Stack>
+              </>
             )}
+          </Box>
+
+          {/* Activity summary — read-only with shortcuts to entry pages */}
+          <Box
+            sx={{
+              p: 1.25,
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 1,
+              bgcolor: "background.paper",
+            }}
+          >
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.75 }}>
+              Activity
+            </Typography>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <Chip
+                label={`${activity?.attendanceDays ?? 0} attendance days`}
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  goToAttendance();
+                }}
+                clickable
+              />
+              <Chip
+                label={`${activity?.paymentDays ?? 0} payment days`}
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  goToPayments();
+                }}
+                clickable
+              />
+            </Stack>
+            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+              <Button
+                size="small"
+                variant="text"
+                startIcon={<OpenInNewIcon />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  goToAttendance();
+                }}
+              >
+                Record attendance
+              </Button>
+              <Button
+                size="small"
+                variant="text"
+                startIcon={<OpenInNewIcon />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  goToPayments();
+                }}
+              >
+                Record payment
+              </Button>
+            </Stack>
           </Box>
         </Box>
       </Collapse>
 
-      <RecordPaymentDialog
-        open={paymentDialogOpen}
-        onClose={() => setPaymentDialogOpen(false)}
-        onSaved={() => {
-          /* invalidation handled inside the dialog */
-        }}
-        siteId={contract.siteId}
+      <ChangeTrackingModeDialog
+        open={changeModeOpen}
+        onClose={() => setChangeModeOpen(false)}
         contractId={contract.id}
         contractTitle={`${contract.title} · ${contractLabel(contract)}`}
-        // Pass real signed balance — dialog renders "X over quote" or "X
-        // remaining" so the engineer sees the current state honestly,
-        // including over-paid contracts where balance < 0.
-        remainingBalance={balance}
+        currentMode={contract.laborTrackingMode}
+        tradeCategoryId={contract.tradeCategoryId ?? ""}
       />
 
-      {/* Misc expense (extra) dialog — preselects this contract and refreshes
-          the contract ledger + reconciliation when an extra is saved.
-          Gated on extraDialogOpen so the dialog's hook tree (useAuth, etc.)
-          only runs when the user actually clicks Add extra. Keeps the Card
-          render path light and avoids forcing an AuthProvider into unrelated
-          unit tests of TradeCard. */}
-      {extraDialogOpen && (
-        <MiscExpenseDialog
-          open={extraDialogOpen}
-          onClose={() => setExtraDialogOpen(false)}
-          defaultSubcontractId={contract.id}
-          onSuccess={() => {
-            queryClient.invalidateQueries({
-              queryKey: ["contract-payments", contract.id],
-            });
-            queryClient.invalidateQueries({
-              queryKey: ["trade-reconciliations", "site", contract.siteId],
-            });
-            queryClient.invalidateQueries({
-              queryKey: ["trade-activity", "site", contract.siteId],
-            });
-          }}
-        />
-      )}
-
-      {/* Settle dispatcher — exactly one of three dialogs based on mode. */}
-      {settleDialog === "weekly_headcount" && (
-        <WeeklyHeadcountSettleDialog
-          open={true}
-          onClose={() => setSettleDialog(null)}
-          onSaved={() => {
-            /* invalidation handled inside */
-          }}
-          siteId={contract.siteId}
-          contractId={contract.id}
-          contractTitle={`${contract.title} · ${contractLabel(contract)}`}
-        />
-      )}
-      {settleDialog === "mesthri_payment" && (
-        <RecordPaymentDialog
-          open={true}
-          onClose={() => setSettleDialog(null)}
-          onSaved={() => {
-            /* invalidation handled inside */
-          }}
-          siteId={contract.siteId}
-          contractId={contract.id}
-          contractTitle={`${contract.title} · ${contractLabel(contract)}`}
-          remainingBalance={balance}
-          // Mesthri-only Settle: default the type to weekly_advance and
-          // pre-fill ¼ of the remaining balance (rounded to nearest ₹100)
-          // as a sensible week's worth. Engineer can edit before submit.
-          defaultPaymentType="weekly_advance"
-          defaultAmount={
-            balance > 0
-              ? Math.max(100, Math.round(balance / 4 / 100) * 100)
-              : 0
-          }
-          titleOverride="Settle for the week"
-        />
-      )}
-      {settleDialog === "mesthri_settle" && (
-        <MestriSettleDialog
-          open={true}
-          onClose={() => setSettleDialog(null)}
-          siteId={contract.siteId}
-          // Pre-scope to this contract so the engineer doesn't have to
-          // pick from the site-wide list again.
-          initialSubcontractId={contract.id}
-          // fill-week mode needs week boundaries — use the current Sun-Sat
-          // window per project convention.
-          mode="fill-week"
-          weekStart={currentWeekStartStr()}
-          weekEnd={currentWeekEndStr()}
-        />
-      )}
+      <EditRoleRatesDialog
+        open={editRatesOpen}
+        onClose={() => setEditRatesOpen(false)}
+        contractId={contract.id}
+        contractTitle={`${contract.title} · ${contractLabel(contract)}`}
+      />
     </Box>
   );
-}
-
-/* Current Sun-Sat week boundaries — duplicated in 3 places already across
- * the app, but tiny enough to inline rather than reach for weekUtils here.
- * Kept consistent with src/lib/utils/weekUtils.ts:weekStartOf/weekEndOf. */
-function currentWeekStartStr(): string {
-  const d = new Date();
-  const dow = d.getDay(); // 0 = Sunday
-  const start = new Date(d);
-  start.setDate(d.getDate() - dow);
-  return formatYMD(start);
-}
-function currentWeekEndStr(): string {
-  const d = new Date();
-  const dow = d.getDay();
-  const end = new Date(d);
-  end.setDate(d.getDate() + (6 - dow));
-  return formatYMD(end);
-}
-function formatYMD(d: Date): string {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
 }

@@ -10,11 +10,8 @@ import {
   Snackbar,
 } from "@mui/material";
 import {
-  Groups as PeopleIcon,
-  PhotoCamera as PhotoIcon,
   Payment as PaymentIcon,
   ReceiptLong as ReceiptIcon,
-  TaskAlt as SettleIcon,
   WbSunny,
   EventNote,
   EventBusy as HolidayIcon,
@@ -33,6 +30,8 @@ import { HeadcountAttendanceTable } from "./HeadcountAttendanceTable";
 import { CivilStyleTradeKpiStrip } from "./CivilStyleTradeKpiStrip";
 import { CivilStyleTradeTable } from "./CivilStyleTradeTable";
 import { TradeAttendanceEntryDrawer } from "./TradeAttendanceEntryDrawer";
+import { MidAttendanceEntryDrawer } from "./MidAttendanceEntryDrawer";
+import { useContractMidEntries } from "@/hooks/queries/useContractMidEntries";
 import { RecordPaymentDialog } from "@/components/trades/RecordPaymentDialog";
 import MiscExpenseDialog from "@/components/expenses/MiscExpenseDialog";
 
@@ -70,6 +69,22 @@ export function TradeAttendanceView({
   const { data: summary, isLoading: summaryLoading } = useTradeAttendanceSummary(
     contract?.id
   );
+
+  // Mid-mode totals so the KPI strip shows real labor-done and avg/day numbers
+  // when the contract is in mid mode. Only fetches if the contract is actually
+  // mid-mode to avoid wasted reads for headcount / detailed contracts.
+  const { data: midEntries } = useContractMidEntries(
+    contract?.laborTrackingMode === "mid" ? contract.id : undefined
+  );
+  const midTotals = React.useMemo(() => {
+    if (!midEntries || midEntries.length === 0) {
+      return { salary: 0, days: 0 };
+    }
+    return {
+      salary: midEntries.reduce((s, e) => s + e.dayTotalAmount, 0),
+      days: midEntries.length,
+    };
+  }, [midEntries]);
 
   // Drawer + dialog state
   const [entryDate, setEntryDate] = useState<string | null>(null);
@@ -131,7 +146,10 @@ export function TradeAttendanceView({
     tooltipSx?: object;
   };
   const speedDialActions: FabAction[] = (() => {
-    if (contract.laborTrackingMode === "headcount") {
+    if (
+      contract.laborTrackingMode === "headcount" ||
+      contract.laborTrackingMode === "mid"
+    ) {
       const today = dayjs().format("YYYY-MM-DD");
       return [
         {
@@ -216,12 +234,19 @@ export function TradeAttendanceView({
 
       <TradeChipFilter siteId={siteId} selected={selection} onChange={onChipChange} />
 
-      {contract.laborTrackingMode === "headcount" ? (
+      {(contract.laborTrackingMode === "headcount" ||
+        contract.laborTrackingMode === "mid") ? (
         <>
           <CivilStyleTradeKpiStrip
             summary={summary}
             tradeColor={tradeColor}
             isLoading={summaryLoading}
+            salaryOverride={
+              contract.laborTrackingMode === "mid" ? midTotals.salary : undefined
+            }
+            daysOverride={
+              contract.laborTrackingMode === "mid" ? midTotals.days : undefined
+            }
           />
           <CivilStyleTradeTable
             siteId={contract.siteId}
@@ -229,6 +254,7 @@ export function TradeAttendanceView({
             contractTitle={contractTitle}
             tradeColor={tradeColor}
             onPickDate={handlePickDate}
+            mode={contract.laborTrackingMode}
           />
         </>
       ) : (
@@ -286,7 +312,7 @@ export function TradeAttendanceView({
         ))}
       </SpeedDial>
 
-      {/* Day entry drawer (headcount mode) */}
+      {/* Day entry drawer — mode-aware */}
       {entryDate !== null && contract.laborTrackingMode === "headcount" && (
         <TradeAttendanceEntryDrawer
           open={true}
@@ -295,6 +321,16 @@ export function TradeAttendanceView({
           contractId={contract.id}
           contractTitle={contractTitle}
           date={entryDate}
+        />
+      )}
+      {entryDate !== null && contract.laborTrackingMode === "mid" && (
+        <MidAttendanceEntryDrawer
+          open={true}
+          onClose={() => setEntryDate(null)}
+          contractId={contract.id}
+          contractTitle={contractTitle}
+          date={entryDate}
+          tradeColor={tradeColor}
         />
       )}
 

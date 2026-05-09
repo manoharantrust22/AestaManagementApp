@@ -8,7 +8,7 @@
  * Spec: docs/superpowers/specs/2026-05-02-trade-workspaces-design.md
  */
 
-export type LaborTrackingMode = "detailed" | "headcount" | "mesthri_only";
+export type LaborTrackingMode = "detailed" | "headcount" | "mesthri_only" | "mid";
 
 export type ContractStatus =
   | "draft"

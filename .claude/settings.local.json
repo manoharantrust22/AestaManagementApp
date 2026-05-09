@@ -212,7 +212,10 @@
       "Read(//c/Program Files/**)",
       "Bash(find / -path \"*bsn57b228.output\" 2>/dev/null | head -3)",
       "Read(//c//**)",
-      "mcp__playwright__browser_fill_form"
+      "mcp__playwright__browser_fill_form",
+      "Bash(rm -f \"C:/Users/Haribabu/AppData/Local/ms-playwright/mcp-chrome-8c851e6/Singleton\"* 2>&1; echo done)",
+      "PowerShell(Stop-Process -Id 33960 -Force -ErrorAction SilentlyContinue)",
+      "PowerShell(Stop-Process -Id 33132 -Force -ErrorAction SilentlyContinue)"
     ],
     "deny": [],
     "ask": [],

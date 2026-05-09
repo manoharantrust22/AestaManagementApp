@@ -84,8 +84,10 @@ export function VendorInspectPane({
     activeTab === "materials" ? vendorId ?? undefined : undefined
   );
 
-  // Dedupe by (material_id, brand_id): same material + same brand should
-  // only appear once. Keep the row with the most recent price update.
+  // Dedupe by (material_id, brand_id): same material variant + same brand
+  // should only appear once. Keep the row with the most recent price update.
+  // material_id already differentiates variants of the same parent, so this
+  // key naturally preserves one quote per (variant, brand).
   const inventory = useMemo(() => {
     const map = new Map<string, (typeof rawInventory)[number]>();
     for (const row of rawInventory) {

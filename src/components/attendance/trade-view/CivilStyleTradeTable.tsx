@@ -26,6 +26,7 @@ import {
 import dayjs from "dayjs";
 import { weekStartOf, weekEndOf } from "@/lib/utils/weekUtils";
 import { useContractHeadcount } from "@/hooks/queries/useContractHeadcount";
+import { useContractMidEntries } from "@/hooks/queries/useContractMidEntries";
 import { useQueryClient } from "@tanstack/react-query";
 import { WeeklyHeadcountSettleDialog } from "@/components/trades/WeeklyHeadcountSettleDialog";
 import type { TradeColor } from "@/theme/tradeColors";
@@ -37,6 +38,12 @@ interface CivilStyleTradeTableProps {
   tradeColor: TradeColor;
   /** Triggered when supervisor taps a date row to enter / view it. */
   onPickDate: (dateISO: string) => void;
+  /**
+   * Data source. 'headcount' = role units × rates (default). 'mid' = mid-mode
+   * day entries (laborer roster + day_total_amount). The visual layout is
+   * identical across modes so supervisors see one consistent shell.
+   */
+  mode?: "headcount" | "mid";
 }
 
 interface DayRow {
@@ -77,13 +84,24 @@ export function CivilStyleTradeTable({
   contractTitle,
   tradeColor,
   onPickDate,
+  mode = "headcount",
 }: CivilStyleTradeTableProps) {
   const queryClient = useQueryClient();
-  const { data: headcount, isLoading } = useContractHeadcount(contractId);
+  const headcountQuery = useContractHeadcount(
+    mode === "headcount" ? contractId : undefined
+  );
+  const midQuery = useContractMidEntries(
+    mode === "mid" ? contractId : undefined
+  );
+  const isLoading =
+    mode === "headcount" ? headcountQuery.isLoading : midQuery.isLoading;
+  const headcount = headcountQuery.data;
+  const midEntries = midQuery.data;
   const [settleWeekStart, setSettleWeekStart] = useState<string | null>(null);
 
   const weeks: WeekGroup[] = useMemo(() => {
-    if (!headcount) return [];
+    if (mode === "headcount" && !headcount) return [];
+    if (mode === "mid" && !midEntries) return [];
     const today = dayjs();
     const groups: WeekGroup[] = [];
     for (let weekOffset = 0; weekOffset < 4; weekOffset++) {
@@ -101,12 +119,21 @@ export function CivilStyleTradeTable({
         const date = wsDay.add(d, "day").format("YYYY-MM-DD");
         let dayUnits = 0;
         let dayAmount = 0;
-        for (const e of headcount.recent) {
-          if (e.attendanceDate === date) {
-            dayUnits += e.units;
-            const rate =
-              headcount.rates.find((r) => r.roleId === e.roleId)?.dailyRate ?? 0;
-            dayAmount += e.units * rate;
+        if (mode === "headcount" && headcount) {
+          for (const e of headcount.recent) {
+            if (e.attendanceDate === date) {
+              dayUnits += e.units;
+              const rate =
+                headcount.rates.find((r) => r.roleId === e.roleId)?.dailyRate ??
+                0;
+              dayAmount += e.units * rate;
+            }
+          }
+        } else if (mode === "mid" && midEntries) {
+          const entry = midEntries.find((e) => e.attendanceDate === date);
+          if (entry) {
+            dayUnits = entry.laborerIds.length;
+            dayAmount = entry.dayTotalAmount;
           }
         }
         weekTotal += dayAmount;
@@ -114,7 +141,7 @@ export function CivilStyleTradeTable({
           date,
           totalUnits: dayUnits,
           impliedAmount: dayAmount,
-          hasEntry: dayUnits > 0,
+          hasEntry: dayUnits > 0 || dayAmount > 0,
         });
       }
       groups.push({
@@ -127,7 +154,7 @@ export function CivilStyleTradeTable({
       });
     }
     return groups;
-  }, [headcount]);
+  }, [mode, headcount, midEntries]);
 
   if (isLoading) {
     return (
@@ -139,7 +166,7 @@ export function CivilStyleTradeTable({
     );
   }
 
-  if (!headcount || headcount.rates.length === 0) {
+  if (mode === "headcount" && (!headcount || headcount.rates.length === 0)) {
     return (
       <Paper variant="outlined" sx={{ p: 3, textAlign: "center" }}>
         <Typography variant="body2" color="text.secondary">
@@ -239,16 +266,21 @@ export function CivilStyleTradeTable({
                             color={week.weekTotal > 0 ? "primary" : "default"}
                             variant="outlined"
                           />
-                          {!week.isCurrentWeek && week.weekTotal > 0 && (
-                            <Chip
-                              icon={<SettleIcon sx={{ fontSize: 16 }} />}
-                              label={`Settle ₹${formatINR(week.weekTotal)}`}
-                              size="small"
-                              color="success"
-                              onClick={() => setSettleWeekStart(week.weekStart)}
-                              sx={{ cursor: "pointer" }}
-                            />
-                          )}
+                          {/* Weekly settle only wired for headcount mode today.
+                              Mid-mode settle goes through RecordPaymentDialog
+                              from the contract menu on /site/trades. */}
+                          {mode === "headcount" &&
+                            !week.isCurrentWeek &&
+                            week.weekTotal > 0 && (
+                              <Chip
+                                icon={<SettleIcon sx={{ fontSize: 16 }} />}
+                                label={`Settle ₹${formatINR(week.weekTotal)}`}
+                                size="small"
+                                color="success"
+                                onClick={() => setSettleWeekStart(week.weekStart)}
+                                sx={{ cursor: "pointer" }}
+                              />
+                            )}
                         </Stack>
                       </Box>
                     </TableCell>

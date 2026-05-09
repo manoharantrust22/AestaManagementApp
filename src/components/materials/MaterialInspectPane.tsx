@@ -100,12 +100,15 @@ export function MaterialInspectPane({
     activeTab === "vendors" ? materialId ?? undefined : undefined
   );
 
-  // Dedupe by (vendor_id, brand_id): same vendor + same brand should only
-  // appear once. Keep the row with the most recent price update.
+  // Dedupe by (vendor_id, material_id, brand_id): same vendor + same exact
+  // material variant + same brand should only appear once. Keep the row with
+  // the most recent price update. Including material_id matters when the
+  // current pane is a parent that aggregates quotes from multiple variants —
+  // same vendor + same brand can legitimately have one quote per variant.
   const vendors = useMemo(() => {
     const map = new Map<string, (typeof rawVendors)[number]>();
     for (const row of rawVendors) {
-      const key = `${row.vendor_id}::${row.brand_id ?? "no-brand"}`;
+      const key = `${row.vendor_id}::${row.material_id ?? "no-mat"}::${row.brand_id ?? "no-brand"}`;
       const existing = map.get(key);
       if (!existing) {
         map.set(key, row);
@@ -326,6 +329,7 @@ export function MaterialInspectPane({
               isLoading={vendorsLoading}
               vendors={vendors}
               unitLabel={UNIT_LABELS[material.unit] || material.unit}
+              parentMaterialId={material.id}
               onAddVendorQuote={
                 onAddVendorQuote ? () => onAddVendorQuote(material) : undefined
               }
@@ -504,12 +508,16 @@ function VendorsTab({
   isLoading,
   vendors,
   unitLabel,
+  parentMaterialId,
   onAddVendorQuote,
   onVendorClick,
 }: {
   isLoading: boolean;
   vendors: VendorInventoryWithDetails[];
   unitLabel: string;
+  /** Id of the material whose InspectPane this tab lives in. Used to label
+   *  quotes that came from variants (rows whose `material_id` differs from this). */
+  parentMaterialId: string;
   onAddVendorQuote?: () => void;
   onVendorClick?: (vendorId: string, vendorName: string) => void;
 }) {
@@ -571,6 +579,11 @@ function VendorsTab({
         vendors.map((v) => {
           const lastUpdated = v.last_price_update || v.updated_at;
           const clickable = !!onVendorClick && !!v.vendor?.id;
+          // When the quote is for a variant of the currently-viewed parent,
+          // show the variant name as a small chip so the user knows which spec
+          // the price applies to (25-stage vs 30-stage, 8mm vs 10mm, etc.).
+          const isVariantQuote = !!v.material?.id && v.material.id !== parentMaterialId;
+          const variantLabel = isVariantQuote ? v.material?.name ?? null : null;
           return (
             <Box
               key={v.id}
@@ -619,17 +632,36 @@ function VendorsTab({
                 tint="secondary"
               />
               <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography
-                  sx={{
-                    fontSize: 13,
-                    fontWeight: 700,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {v.vendor?.name || "Unknown vendor"}
-                </Typography>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
+                  <Typography
+                    sx={{
+                      fontSize: 13,
+                      fontWeight: 700,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {v.vendor?.name || "Unknown vendor"}
+                  </Typography>
+                  {variantLabel ? (
+                    <Chip
+                      size="small"
+                      label={variantLabel}
+                      sx={{
+                        height: 18,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        bgcolor: alpha(theme.palette.info.main, 0.12),
+                        color: theme.palette.info.dark,
+                        border: 0,
+                        flexShrink: 0,
+                        maxWidth: 140,
+                        "& .MuiChip-label": { px: 0.75, overflow: "hidden", textOverflow: "ellipsis" },
+                      }}
+                    />
+                  ) : null}
+                </Box>
                 <Typography
                   sx={{
                     fontSize: 10.5,

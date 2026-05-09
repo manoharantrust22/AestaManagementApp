@@ -53,7 +53,8 @@ type VendorTabId =
   | "steel"
   | "electrical_plumbing"
   | "hardware"
-  | "finishing";
+  | "finishing"
+  | "pumps_motors";
 
 interface VendorTab {
   id: VendorTabId;
@@ -85,6 +86,11 @@ const VENDOR_TABS: VendorTab[] = [
     id: "finishing",
     label: "Finishing",
     categoryNames: ["paint", "tile", "sanitary", "flooring", "finishing"],
+  },
+  {
+    id: "pumps_motors",
+    label: "Pumps & Motors",
+    categoryNames: ["pump", "motor"],
   },
 ];
 
