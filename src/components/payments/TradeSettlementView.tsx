@@ -25,7 +25,7 @@ import { weekStartOf, weekEndOf } from "@/lib/utils/weekUtils";
 import { useContractHeadcount } from "@/hooks/queries/useContractHeadcount";
 import { useContractMidEntries } from "@/hooks/queries/useContractMidEntries";
 import { WeeklyHeadcountSettleDialog } from "@/components/trades/WeeklyHeadcountSettleDialog";
-import { MidSettleDialog } from "@/components/trades/MidSettleDialog";
+import { MestriSettleDialog } from "@/components/payments/MestriSettleDialog";
 import type { LaborTrackingMode, TradeContract } from "@/types/trade.types";
 import type { TradeColor } from "@/theme/tradeColors";
 
@@ -60,8 +60,9 @@ function formatINR(n: number): string {
  *             period_from_date == weekStart
  *   balance = max(0, earned − paid)
  *
- * Settle button opens MidSettleDialog or WeeklyHeadcountSettleDialog
- * depending on the contract's labor_tracking_mode.
+ * Settle button opens MestriSettleDialog (mid mode — Civil's full pipeline)
+ * or WeeklyHeadcountSettleDialog (headcount mode) depending on the
+ * contract's labor_tracking_mode.
  */
 export function TradeSettlementView({
   contract,
@@ -365,7 +366,13 @@ export function TradeSettlementView({
         </Paper>
       )}
 
-      {/* Settle dialog — mode-aware */}
+      {/* Settle dialog — mode-aware.
+          - Headcount: existing WeeklyHeadcountSettleDialog (writes
+            subcontract_payments directly).
+          - Mid: MestriSettleDialog — Civil's full pipeline. Writes
+            settlement_groups + labor_payments + subcontract_payments and
+            shows up in /site/expenses as "Contract Salary" (same as Civil).
+            We pre-fill the suggested amount from the week's earned − paid. */}
       {settleWeekStart !== null && mode === "headcount" && (
         <WeeklyHeadcountSettleDialog
           open={true}
@@ -378,19 +385,21 @@ export function TradeSettlementView({
           contractTitle={contract.title}
         />
       )}
-      {settleWeekStart !== null && mode === "mid" && (
-        <MidSettleDialog
-          open={true}
-          onClose={() => setSettleWeekStart(null)}
-          onSaved={() => {
-            /* invalidation handled inside */
-          }}
-          siteId={contract.siteId}
-          contractId={contract.id}
-          contractTitle={contract.title}
-          initialWeekStart={settleWeekStart}
-        />
-      )}
+      {settleWeekStart !== null && mode === "mid" && (() => {
+        const week = weeks.find((w) => w.weekStart === settleWeekStart);
+        return (
+          <MestriSettleDialog
+            open={true}
+            onClose={() => setSettleWeekStart(null)}
+            siteId={contract.siteId}
+            mode="fill-week"
+            weekStart={settleWeekStart}
+            weekEnd={week?.weekEnd}
+            suggestedAmount={week?.balance ?? 0}
+            initialSubcontractId={contract.id}
+          />
+        );
+      })()}
     </Box>
   );
 }

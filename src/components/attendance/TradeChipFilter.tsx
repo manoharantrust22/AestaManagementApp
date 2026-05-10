@@ -18,6 +18,7 @@ import { getTradeColor } from "@/theme/tradeColors";
  * sites stay clutter-free.
  */
 export type TradeChipSelection =
+  | { kind: "all" }
   | { kind: "civil" }
   | { kind: "trade"; categoryId: string; tradeName: string; contractId: string };
 
@@ -25,6 +26,13 @@ interface TradeChipFilterProps {
   siteId: string | undefined;
   selected: TradeChipSelection;
   onChange: (next: TradeChipSelection) => void;
+  /**
+   * When true, an "All" chip is rendered first. Used on /site/expenses where
+   * the supervisor wants to see every trade's rows grouped together. The
+   * attendance and payments pages keep this off (Civil is the natural
+   * default and "All" doesn't apply to those workflows).
+   */
+  allowAllChip?: boolean;
 }
 
 const CIVIL_SENTINEL = "__civil__";
@@ -33,6 +41,7 @@ export function TradeChipFilter({
   siteId,
   selected,
   onChange,
+  allowAllChip = false,
 }: TradeChipFilterProps) {
   const { data: trades, isLoading } = useSiteTrades(siteId);
 
@@ -83,7 +92,9 @@ export function TradeChipFilter({
   };
 
   const helperText =
-    selected.kind === "civil"
+    selected.kind === "all"
+      ? "All trades — rows grouped by trade with subtotals. Tap a chip to scope down."
+      : selected.kind === "civil"
       ? "Civil work uses this page. Tap any other trade to record headcount / photos / payments here."
       : `${selected.tradeName} attendance — same page, transformed for this trade. Tap Civil to return.`;
 
@@ -93,6 +104,17 @@ export function TradeChipFilter({
         Recording attendance for
       </Typography>
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        {allowAllChip && (
+          <Chip
+            key="all"
+            label="All"
+            variant={selected.kind === "all" ? "filled" : "outlined"}
+            color={selected.kind === "all" ? "primary" : "default"}
+            onClick={() => onChange({ kind: "all" })}
+            sx={{ cursor: "pointer" }}
+            data-testid="trade-chip-all"
+          />
+        )}
         {visibleTrades.map((trade) => {
           const isCivil = trade.category.name === "Civil";
           const isSelected = isCivil

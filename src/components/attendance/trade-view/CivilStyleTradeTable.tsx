@@ -51,6 +51,10 @@ interface DayRow {
   totalUnits: number;
   impliedAmount: number;
   hasEntry: boolean;
+  /** Mid-mode only: work-done days (e.g., 0.5, 1.0, 1.5). */
+  workDone?: number;
+  /** Mid-mode only: free-form note describing the day's work. */
+  note?: string | null;
 }
 
 interface WeekGroup {
@@ -119,6 +123,8 @@ export function CivilStyleTradeTable({
         const date = wsDay.add(d, "day").format("YYYY-MM-DD");
         let dayUnits = 0;
         let dayAmount = 0;
+        let dayWorkDone: number | undefined;
+        let dayNote: string | null | undefined;
         if (mode === "headcount" && headcount) {
           for (const e of headcount.recent) {
             if (e.attendanceDate === date) {
@@ -134,14 +140,26 @@ export function CivilStyleTradeTable({
           if (entry) {
             dayUnits = entry.laborerIds.length;
             dayAmount = entry.dayTotalAmount;
+            dayWorkDone = entry.workDoneUnits;
+            dayNote = entry.note;
           }
         }
         weekTotal += dayAmount;
+        // A row counts as "recorded" if any of its mid-mode fields have
+        // data — units, amount, work-done, or a note. Without this,
+        // a notes-only row would render as if the day was untouched.
+        const hasEntry =
+          dayUnits > 0 ||
+          dayAmount > 0 ||
+          (dayWorkDone !== undefined && dayWorkDone > 0) ||
+          (dayNote !== undefined && dayNote !== null && dayNote.length > 0);
         days.push({
           date,
           totalUnits: dayUnits,
           impliedAmount: dayAmount,
-          hasEntry: dayUnits > 0 || dayAmount > 0,
+          hasEntry,
+          workDone: dayWorkDone,
+          note: dayNote,
         });
       }
       // Match Civil's DESC ordering within a week — latest date first so
@@ -363,14 +381,47 @@ export function CivilStyleTradeTable({
                         </TableCell>
                         <TableCell>
                           {day.hasEntry ? (
-                            <Stack direction="row" spacing={0.5} alignItems="center">
-                              <Tooltip title="View photos">
-                                <CameraIcon fontSize="small" sx={{ color: "text.secondary" }} />
+                            mode === "mid" && day.note ? (
+                              <Tooltip title={day.note}>
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    display: "block",
+                                    maxWidth: 200,
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {day.note}
+                                  {day.workDone !== undefined && day.workDone > 0 && (
+                                    <Typography
+                                      component="span"
+                                      variant="caption"
+                                      color="text.secondary"
+                                      sx={{ ml: 0.5 }}
+                                    >
+                                      · {day.workDone}d
+                                    </Typography>
+                                  )}
+                                </Typography>
                               </Tooltip>
+                            ) : mode === "mid" &&
+                              day.workDone !== undefined &&
+                              day.workDone > 0 ? (
                               <Typography variant="caption" color="text.secondary">
-                                Headcount logged
+                                {day.workDone} day{day.workDone === 1 ? "" : "s"} of work
                               </Typography>
-                            </Stack>
+                            ) : (
+                              <Stack direction="row" spacing={0.5} alignItems="center">
+                                <Tooltip title="View photos">
+                                  <CameraIcon fontSize="small" sx={{ color: "text.secondary" }} />
+                                </Tooltip>
+                                <Typography variant="caption" color="text.secondary">
+                                  {mode === "mid" ? "Crew logged" : "Headcount logged"}
+                                </Typography>
+                              </Stack>
+                            )
                           ) : (
                             <Typography variant="body2" color="text.disabled">—</Typography>
                           )}
