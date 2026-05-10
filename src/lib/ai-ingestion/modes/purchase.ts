@@ -20,9 +20,6 @@ import {
   type PurchaseCommitResult,
 } from "@/lib/services/aiIngestionService";
 import { createClient } from "@/lib/supabase/client";
-import { queryKeys } from "@/lib/cache/keys";
-import { fetchVendorCatalog } from "@/hooks/queries/useVendors";
-import { fetchMaterialCatalog } from "@/hooks/queries/useMaterials";
 import type {
   ModeConfig,
   ResolvedPreview,
@@ -31,7 +28,36 @@ import type {
   VendorSummary,
 } from "@/lib/ai-ingestion/types";
 
+// Dedicated lightweight fetchers for AI fuzzy-matching.
+// Uses only the fields fuzzyMatch needs — no JOINs — so Supabase executes a
+// simple index scan and the Cloudflare Worker edge-caches the response (60s TTL).
+export const AI_CATALOG_QUERY_KEYS = {
+  vendors: ["vendors", "ai-catalog"] as const,
+  materials: ["materials", "ai-catalog"] as const,
+};
 const CATALOG_STALE_TIME_MS = 5 * 60 * 1000;
+
+export async function fetchVendorsForMatch() {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("vendors")
+    .select("id, name, city, phone, gst_number")
+    .eq("is_active", true)
+    .order("name");
+  if (error) throw new Error(`Vendor catalog fetch failed: ${error.message}`);
+  return data ?? [];
+}
+
+export async function fetchMaterialsForMatch() {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("materials")
+    .select("id, name, local_name, category_id, unit")
+    .eq("is_active", true)
+    .order("name");
+  if (error) throw new Error(`Material catalog fetch failed: ${error.message}`);
+  return data ?? [];
+}
 
 import { buildPurchasePrompt } from "./purchase.prompt";
 
@@ -47,19 +73,19 @@ export function createPurchaseMode(
     schema: aiPurchaseOutputSchema,
 
     async resolvePreview(parsed): Promise<ResolvedPreview> {
-      // fetchQuery uses the React Query cache populated by the prefetch that
-      // fires when the dialog opens. If that prefetch is still in-flight,
-      // fetchQuery joins it (deduplication). Only fetches from the network
-      // on a genuine cold cache, which should be rare.
+      // fetchQuery is cache-aware: returns immediately if the prefetch (fired
+      // at dialog-open time) has already completed, or joins the in-flight
+      // request if it's still running. Uses JOIN-free selects so Supabase
+      // executes a fast index scan and the Cloudflare Worker can edge-cache.
       const [allVendors, allMaterials] = await Promise.all([
         queryClient.fetchQuery({
-          queryKey: queryKeys.vendors.list(),
-          queryFn: fetchVendorCatalog,
+          queryKey: AI_CATALOG_QUERY_KEYS.vendors,
+          queryFn: fetchVendorsForMatch,
           staleTime: CATALOG_STALE_TIME_MS,
         }),
         queryClient.fetchQuery({
-          queryKey: queryKeys.materials.list(),
-          queryFn: fetchMaterialCatalog,
+          queryKey: AI_CATALOG_QUERY_KEYS.materials,
+          queryFn: fetchMaterialsForMatch,
           staleTime: CATALOG_STALE_TIME_MS,
         }),
       ]);

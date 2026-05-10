@@ -29,9 +29,11 @@ import type { IngestionMode, IngestionStep } from "@/lib/ai-ingestion/types";
 import { useAIIngestion } from "@/hooks/useAIIngestion";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { buildModeRegistry } from "@/lib/ai-ingestion/modes";
-import { fetchVendorCatalog } from "@/hooks/queries/useVendors";
-import { fetchMaterialCatalog } from "@/hooks/queries/useMaterials";
-import { queryKeys } from "@/lib/cache/keys";
+import {
+  AI_CATALOG_QUERY_KEYS,
+  fetchVendorsForMatch,
+  fetchMaterialsForMatch,
+} from "@/lib/ai-ingestion/modes/purchase";
 
 import ModeSelector from "./ModeSelector";
 import ContextPicker from "./ContextPicker";
@@ -98,16 +100,18 @@ export default function AIIngestionDialog({
 
   // Prefetch vendor + material catalogs as soon as the dialog opens so they
   // are ready in the React Query cache by the time the user reaches Parse & preview.
+  // Uses JOIN-free minimal selects (AI_CATALOG_QUERY_KEYS) so the queries are
+  // fast and Cloudflare Worker can edge-cache the responses.
   useEffect(() => {
     if (!open) return;
     queryClient.prefetchQuery({
-      queryKey: queryKeys.vendors.list(),
-      queryFn: fetchVendorCatalog,
+      queryKey: AI_CATALOG_QUERY_KEYS.vendors,
+      queryFn: fetchVendorsForMatch,
       staleTime: 5 * 60 * 1000,
     });
     queryClient.prefetchQuery({
-      queryKey: queryKeys.materials.list(),
-      queryFn: fetchMaterialCatalog,
+      queryKey: AI_CATALOG_QUERY_KEYS.materials,
+      queryFn: fetchMaterialsForMatch,
       staleTime: 5 * 60 * 1000,
     });
   }, [open, queryClient]);
