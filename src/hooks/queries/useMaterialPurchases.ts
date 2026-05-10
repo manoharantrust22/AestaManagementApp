@@ -863,6 +863,8 @@ export interface SettleMaterialPurchaseData {
   amount_paid?: number;
   /** Set to true for group stock vendor payments (no settlement reference) */
   isVendorPaymentOnly?: boolean;
+  /** Override the paying site for group stock purchases */
+  paying_site_id?: string;
 }
 
 /**
@@ -922,6 +924,11 @@ export function useSettleMaterialPurchase() {
       // Always store payer source and payer name
       updateData.settlement_payer_source = data.payer_source;
       updateData.settlement_payer_name = data.payer_name || null;
+
+      // Allow overriding the paying site for group stock purchases
+      if (data.paying_site_id) {
+        updateData.paying_site_id = data.paying_site_id;
+      }
 
       const { error } = await (supabase as any)
         .from("material_purchase_expenses")

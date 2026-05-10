@@ -12,9 +12,12 @@ import {
   TextField,
   FormControl,
   FormLabel,
+  InputLabel,
   RadioGroup,
   FormControlLabel,
   Radio,
+  Select,
+  MenuItem,
   Divider,
   Alert,
   CircularProgress,
@@ -36,6 +39,7 @@ import SettlementVerificationPrompt, { useSettlementVerification } from "@/compo
 import { useSettleMaterialPurchase } from "@/hooks/queries/useMaterialPurchases";
 import { useRecordAdvancePayment } from "@/hooks/queries/usePurchaseOrders";
 import { useVerifyBill } from "@/hooks/queries/useBillVerification";
+import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 import { useAuth } from "@/contexts/AuthContext";
 import type { MaterialPurchaseExpenseWithDetails, MaterialPaymentMode, PurchaseOrderWithDetails } from "@/types/material.types";
 import type { PayerSource } from "@/types/settlement.types";
@@ -68,6 +72,9 @@ export default function MaterialSettlementDialog({
   const settleMutation = useSettleMaterialPurchase();
   const advancePaymentMutation = useRecordAdvancePayment();
   const verifyBillMutation = useVerifyBill();
+
+  // Group membership — used to let user pick any group site as the payer
+  const { data: groupMembership } = useSiteGroupMembership(purchase?.site_id);
 
   // Bill verification workflow
   const {
@@ -105,15 +112,16 @@ export default function MaterialSettlementDialog({
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [amountPaid, setAmountPaid] = useState<string>(""); // Bargained amount
+  const [payingSiteId, setPayingSiteId] = useState<string>("");
 
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
       const record = purchase || purchaseOrder;
-      // For expenses with linked PO, use PO's total_amount + transport_cost (which reflects pricing mode changes)
+      // total_amount now includes transport_cost (after backfill migration)
       const purchaseAmount = purchase?.purchase_order?.total_amount
-        ? Number(purchase.purchase_order.total_amount) + Number(purchase.purchase_order.transport_cost || 0)
-        : Number(record?.total_amount || 0) + (purchaseOrder ? Number(purchaseOrder.transport_cost || 0) : 0);
+        ? Number(purchase.purchase_order.total_amount)
+        : Number(record?.total_amount || 0);
 
       setSettlementDate(new Date().toISOString().split("T")[0]);
       setPaymentMode("upi");
@@ -124,8 +132,9 @@ export default function MaterialSettlementDialog({
       setPaymentScreenshotUrl("");
       setNotes("");
       setError("");
-      setAmountPaid(purchaseAmount.toString()); // Initialize with original amount
-      resetVerification(); // Reset bill verification state
+      setAmountPaid(purchaseAmount.toString());
+      setPayingSiteId(purchase?.paying_site_id || purchase?.site_id || "");
+      resetVerification();
     }
   }, [open, purchase, purchaseOrder, resetVerification]);
 
@@ -201,6 +210,7 @@ export default function MaterialSettlementDialog({
         notes: notes || undefined,
         amount_paid: finalAmountPaid,
         isVendorPaymentOnly,
+        paying_site_id: isGroupStockParent && payingSiteId ? payingSiteId : undefined,
       });
 
       onSuccess?.();
@@ -241,10 +251,10 @@ export default function MaterialSettlementDialog({
 
   // Get details from either purchase or PO
   const record = purchase || purchaseOrder;
-  // For expenses with linked PO, use PO's total_amount + transport_cost (which reflects pricing mode changes)
+  // total_amount includes transport_cost (backfilled for old records, built-in for new)
   const purchaseAmount = purchase?.purchase_order?.total_amount
-    ? Number(purchase.purchase_order.total_amount) + Number(purchase.purchase_order.transport_cost || 0)
-    : Number(record!.total_amount || 0) + (purchaseOrder ? Number(purchaseOrder.transport_cost || 0) : 0);
+    ? Number(purchase.purchase_order.total_amount)
+    : Number(record!.total_amount || 0);
   const vendorName = record!.vendor?.name || (purchase?.vendor_name) || "Unknown Vendor";
   const vendorQrCodeUrl = record!.vendor?.qr_code_url || null;
   const vendorUpiId = record!.vendor?.upi_id || null;
@@ -308,12 +318,32 @@ export default function MaterialSettlementDialog({
           </Alert>
         )}
 
-        {/* Group Stock Info Alert */}
+        {/* Group Stock Info Alert + Paying Site Picker */}
         {isGroupStockParent && (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            This is a <strong>Group Stock</strong> purchase. Recording vendor payment here.
-            Inter-site settlements will be handled separately in the Batches tab.
-          </Alert>
+          <>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              This is a <strong>Group Stock</strong> purchase. Recording vendor payment here.
+              Inter-site settlements will be handled separately in the Batches tab.
+            </Alert>
+            {groupMembership?.isInGroup && groupMembership.allSites && groupMembership.allSites.length > 1 && (
+              <FormControl fullWidth sx={{ mb: 2 }}>
+                <InputLabel>Paying site</InputLabel>
+                <Select
+                  value={payingSiteId}
+                  onChange={(e) => setPayingSiteId(e.target.value)}
+                  label="Paying site"
+                  size="small"
+                >
+                  {groupMembership.allSites.map((site) => (
+                    <MenuItem key={site.id} value={site.id}>
+                      {site.name}
+                      {site.id === purchase?.site_id ? " (original)" : ""}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+          </>
         )}
 
         {/* Bill Verification Status */}
