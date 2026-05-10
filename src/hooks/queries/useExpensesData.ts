@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { supabaseQueryWithTimeout } from "@/lib/utils/supabaseQuery";
 import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
@@ -61,6 +62,19 @@ export interface ScopeSummary {
   pending: number;
   pendingCount: number;
   breakdown: Record<string, BreakdownEntry>;
+}
+
+export interface ExpenseTradeSummaryRow {
+  trade_category_id: string | null; // null for site-wide row
+  trade_name: string; // e.g. "Civil", "Painting", "Site-wide"
+  total_amount: number;
+  record_count: number;
+  daily_amount: number;
+  contract_amount: number;
+  material_amount: number;
+  machinery_amount: number;
+  site_wide_amount: number;
+  site_wide_count: number;
 }
 
 // Maps the new "group" concept onto expense_type values. Tea & Snacks has
@@ -255,4 +269,29 @@ export function useExpensesData(args: Args) {
     loadMore,
     refetch: fetch,
   };
+}
+
+export function useExpenseTradeSummary(
+  siteId: string | undefined,
+  dateFrom: string | null,
+  dateTo: string | null
+) {
+  const supabase = useMemo(() => createClient(), []);
+  return useQuery<ExpenseTradeSummaryRow[]>({
+    queryKey: ["expense-trade-summary", siteId, dateFrom, dateTo],
+    enabled: !!siteId,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any).rpc(
+        "get_expense_trade_summary",
+        {
+          p_site_id: siteId!,
+          p_date_from: dateFrom ?? undefined,
+          p_date_to: dateTo ?? undefined,
+        }
+      );
+      if (error) throw error;
+      return (data ?? []) as ExpenseTradeSummaryRow[];
+    },
+    staleTime: 30_000,
+  });
 }
