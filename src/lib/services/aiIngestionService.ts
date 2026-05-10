@@ -142,13 +142,14 @@ export async function commitPurchase(args: CommitArgs): Promise<PurchaseCommitRe
   // doesn't leave the dialog spinning indefinitely. On timeout the throw
   // bubbles to useAIIngestion.commit's catch which dispatches COMMIT_FAILED
   // and routes the dialog to the "error" step with a "Try again" CTA.
-  const { data, error } = await withTimeout(
-    Promise.resolve(
-      (supabase as any).rpc("ingest_purchase_atomic", { p_payload: payload }),
-    ),
+  const rpcResult = await withTimeout(
+    (supabase as any)
+      .rpc("ingest_purchase_atomic", { p_payload: payload })
+      .then((r: { data: unknown; error: unknown }) => r),
     TIMEOUTS.DATABASE_OPERATION,
     `Save timed out after ${TIMEOUTS.DATABASE_OPERATION / 1000}s. The bill upload succeeded; safe to retry the save.`,
-  );
+  ) as { data: unknown; error: { message?: string } | null };
+  const { data, error } = rpcResult;
 
   if (error) {
     throw new Error(error.message ?? "ingest_purchase_atomic failed");
