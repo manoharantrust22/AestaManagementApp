@@ -21,7 +21,9 @@ import {
   TaskAlt as SettleIcon,
   CalendarViewWeek as WaterfallIcon,
   Receipt as BySettlementIcon,
+  CalendarMonth as ByDateIcon,
   Delete as DeleteIcon,
+  Edit as EditIcon,
 } from "@mui/icons-material";
 import dayjs from "dayjs";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -32,8 +34,10 @@ import { useContractMidEntries } from "@/hooks/queries/useContractMidEntries";
 import { WeeklyHeadcountSettleDialog } from "@/components/trades/WeeklyHeadcountSettleDialog";
 import { MestriSettleDialog } from "@/components/payments/MestriSettleDialog";
 import DeleteContractSettlementDialog from "@/components/payments/DeleteContractSettlementDialog";
+import ContractSettlementEditDialog from "@/components/payments/ContractSettlementEditDialog";
 import type { LaborTrackingMode, TradeContract } from "@/types/trade.types";
 import type { TradeColor } from "@/theme/tradeColors";
+import type { DateWiseSettlement, PaymentMode, PaymentChannel } from "@/types/payment.types";
 
 interface TradeSettlementViewProps {
   contract: TradeContract;
@@ -120,10 +124,32 @@ export function TradeSettlementView({
   const theme = useTheme();
   const mode: LaborTrackingMode = contract.laborTrackingMode;
 
-  const [viewMode, setViewMode] = useState<"waterfall" | "by-settlement">("waterfall");
+  const [viewMode, setViewMode] = useState<"waterfall" | "by-settlement" | "by-date">("waterfall");
   const [settleWeekStart, setSettleWeekStart] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SettlementRecord | null>(null);
+  const [editTarget, setEditTarget] = useState<DateWiseSettlement | null>(null);
   const [headcountDeletingId, setHeadcountDeletingId] = useState<string | null>(null);
+
+  // Convert SettlementRecord → DateWiseSettlement for ContractSettlementEditDialog
+  const toEditable = (s: SettlementRecord): DateWiseSettlement => ({
+    settlementGroupId: s.id,
+    settlementReference: s.settlementReference,
+    settlementDate: s.settlementDate,
+    totalAmount: s.totalAmount,
+    weekAllocations: [],
+    paymentMode: s.paymentMode as PaymentMode | null,
+    paymentChannel: (s.paymentChannel || "direct") as PaymentChannel,
+    payerSource: s.payerSource,
+    payerName: s.payerName,
+    proofUrls: s.proofUrls ?? [],
+    notes: s.notes,
+    subcontractId: s.subcontractId,
+    subcontractTitle: s.subcontractTitle,
+    createdBy: s.createdBy || "",
+    createdByName: s.createdBy,
+    createdAt: s.createdAt,
+    isCancelled: false,
+  });
 
   const { data: headcount, isLoading: hcLoading } = useContractHeadcount(
     mode === "headcount" ? contract.id : undefined
@@ -373,7 +399,7 @@ export function TradeSettlementView({
       </Paper>
 
       {/* View toggle */}
-      <Box sx={{ mb: 1.5, display: "flex", alignItems: "center", gap: 1.5 }}>
+      <Box sx={{ mb: 1.5, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
         <ToggleButtonGroup
           size="small"
           value={viewMode}
@@ -390,8 +416,12 @@ export function TradeSettlementView({
             <BySettlementIcon sx={{ fontSize: 15 }} />
             By settlement
           </ToggleButton>
+          <ToggleButton value="by-date" sx={{ gap: 0.5, textTransform: "none", fontSize: "0.78rem" }}>
+            <ByDateIcon sx={{ fontSize: 15 }} />
+            By date
+          </ToggleButton>
         </ToggleButtonGroup>
-        {viewMode === "by-settlement" && settlementItems && (
+        {(viewMode === "by-settlement" || viewMode === "by-date") && settlementItems && (
           <Typography variant="caption" color="text.secondary">
             {settlementItems.length}{" "}
             {settlementItems.length === 1 ? "settlement" : "settlements"}
@@ -552,8 +582,8 @@ export function TradeSettlementView({
         )
       )}
 
-      {/* ─── By Settlement view ─── */}
-      {viewMode === "by-settlement" && (
+      {/* ─── By Settlement / By Date shared renderer ─── */}
+      {(viewMode === "by-settlement" || viewMode === "by-date") && (
         settlementLoading ? (
           <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
             <CircularProgress size={24} />
@@ -568,167 +598,264 @@ export function TradeSettlementView({
             </Typography>
           </Box>
         ) : isMidMode ? (
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-            {(settlementItems as SettlementRecord[]).map((s) => (
-              <Box
-                key={s.id}
-                sx={{
-                  px: 2,
-                  py: 1.5,
-                  bgcolor: "background.paper",
-                  border: 1,
-                  borderColor: "divider",
-                  borderRadius: 1.5,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 2,
-                  flexWrap: "wrap",
-                }}
-              >
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        fontFamily: "monospace",
-                        fontWeight: 700,
-                        bgcolor: alpha(tradeColor.main, 0.08),
-                        color: tradeColor.main,
-                        border: `1px solid ${alpha(tradeColor.main, 0.25)}`,
-                        borderRadius: 0.5,
-                        px: 0.75,
-                        py: 0.1,
-                      }}
-                    >
-                      {s.settlementReference}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {dayjs(s.settlementDate).format("DD MMM YYYY")}
-                    </Typography>
-                    {s.payerSource && (
-                      <PayerBadge source={s.payerSource} name={s.payerName} />
+          (() => {
+            const records = settlementItems as SettlementRecord[];
+            // For "by-date": group by settlementDate; "by-settlement": single flat list
+            const grouped: { dateLabel: string; items: SettlementRecord[] }[] =
+              viewMode === "by-date"
+                ? Object.entries(
+                    records.reduce<Record<string, SettlementRecord[]>>((acc, s) => {
+                      const key = s.settlementDate;
+                      (acc[key] = acc[key] || []).push(s);
+                      return acc;
+                    }, {})
+                  )
+                    .sort(([a], [b]) => (a < b ? 1 : -1))
+                    .map(([date, items]) => ({
+                      dateLabel: dayjs(date).format("ddd, D MMM YYYY"),
+                      items,
+                    }))
+                : [{ dateLabel: "", items: records }];
+
+            return (
+              <Box sx={{ display: "flex", flexDirection: "column", gap: viewMode === "by-date" ? 2 : 1 }}>
+                {grouped.map((group) => (
+                  <Box key={group.dateLabel}>
+                    {viewMode === "by-date" && (
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: 0.6,
+                          color: "text.secondary",
+                          display: "block",
+                          mb: 0.75,
+                          pl: 0.5,
+                        }}
+                      >
+                        {group.dateLabel}
+                      </Typography>
                     )}
-                  </Stack>
-                  {s.weekAllocations && s.weekAllocations.length > 0 && (
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ mt: 0.25, display: "block" }}
-                    >
-                      Week:{" "}
-                      {dayjs(s.weekAllocations[0].weekStart).format("D MMM")} –{" "}
-                      {dayjs(s.weekAllocations[0].weekEnd).format("D MMM YYYY")}
-                    </Typography>
-                  )}
-                  {s.notes && (
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ mt: 0.25, display: "block", fontStyle: "italic" }}
-                    >
-                      {s.notes}
-                    </Typography>
-                  )}
-                </Box>
-                <Typography
-                  variant="body1"
-                  fontWeight={700}
-                  sx={{
-                    fontVariantNumeric: "tabular-nums",
-                    color: tradeColor.main,
-                  }}
-                >
-                  ₹{formatINR(s.totalAmount)}
-                </Typography>
-                <Tooltip title="Delete this settlement (cannot be undone)">
-                  <IconButton
-                    size="small"
-                    color="error"
-                    onClick={() => setDeleteTarget(s)}
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                    <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                      {group.items.map((s) => (
+                        <Box
+                          key={s.id}
+                          sx={{
+                            px: 2,
+                            py: 1.5,
+                            bgcolor: "background.paper",
+                            border: 1,
+                            borderColor: "divider",
+                            borderRadius: 1.5,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 2,
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Stack
+                              direction="row"
+                              spacing={0.75}
+                              alignItems="center"
+                              flexWrap="wrap"
+                              useFlexGap
+                            >
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  fontFamily: "monospace",
+                                  fontWeight: 700,
+                                  bgcolor: alpha(tradeColor.main, 0.08),
+                                  color: tradeColor.main,
+                                  border: `1px solid ${alpha(tradeColor.main, 0.25)}`,
+                                  borderRadius: 0.5,
+                                  px: 0.75,
+                                  py: 0.1,
+                                }}
+                              >
+                                {s.settlementReference}
+                              </Typography>
+                              {viewMode === "by-settlement" && (
+                                <Typography variant="caption" color="text.secondary">
+                                  {dayjs(s.settlementDate).format("DD MMM YYYY")}
+                                </Typography>
+                              )}
+                              {s.payerSource && (
+                                <PayerBadge source={s.payerSource} name={s.payerName} />
+                              )}
+                            </Stack>
+                            {s.weekAllocations && s.weekAllocations.length > 0 && (
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{ mt: 0.25, display: "block" }}
+                              >
+                                Week:{" "}
+                                {dayjs(s.weekAllocations[0].weekStart).format("D MMM")} –{" "}
+                                {dayjs(s.weekAllocations[0].weekEnd).format("D MMM YYYY")}
+                              </Typography>
+                            )}
+                            {s.notes && (
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{ mt: 0.25, display: "block", fontStyle: "italic" }}
+                              >
+                                {s.notes}
+                              </Typography>
+                            )}
+                          </Box>
+                          <Typography
+                            variant="body1"
+                            fontWeight={700}
+                            sx={{ fontVariantNumeric: "tabular-nums", color: tradeColor.main }}
+                          >
+                            ₹{formatINR(s.totalAmount)}
+                          </Typography>
+                          <Tooltip title="Edit settlement">
+                            <IconButton
+                              size="small"
+                              onClick={() => setEditTarget(toEditable(s))}
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete settlement">
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => setDeleteTarget(s)}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Box>
+                ))}
               </Box>
-            ))}
-          </Box>
+            );
+          })()
         ) : (
-          // Headcount mode — subcontract_payments list
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-            {(settlementItems as HeadcountSettlement[]).map((s) => (
-              <Box
-                key={s.id}
-                sx={{
-                  px: 2,
-                  py: 1.5,
-                  bgcolor: "background.paper",
-                  border: 1,
-                  borderColor: "divider",
-                  borderRadius: 1.5,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 2,
-                  flexWrap: "wrap",
-                }}
-              >
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    {dayjs(s.created_at).format("DD MMM YYYY")}
-                    {s.period_from_date &&
-                      ` · Week: ${dayjs(s.period_from_date).format("D MMM")}`}
-                    {s.period_to_date &&
-                      ` – ${dayjs(s.period_to_date).format("D MMM YYYY")}`}
-                  </Typography>
-                  {s.notes && (
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ mt: 0.25, display: "block", fontStyle: "italic" }}
-                    >
-                      {s.notes}
-                    </Typography>
-                  )}
-                </Box>
-                <Typography
-                  variant="body1"
-                  fontWeight={700}
-                  sx={{
-                    fontVariantNumeric: "tabular-nums",
-                    color: tradeColor.main,
-                  }}
-                >
-                  ₹{formatINR(Number(s.amount))}
-                </Typography>
-                <Tooltip title="Delete this settlement">
-                  <span>
-                    <IconButton
-                      size="small"
-                      color="error"
-                      disabled={headcountDeletingId === s.id}
-                      onClick={async () => {
-                        setHeadcountDeletingId(s.id);
-                        try {
-                          await (supabase as any)
-                            .from("subcontract_payments")
-                            .update({ is_deleted: true })
-                            .eq("id", s.id);
-                          invalidateAll();
-                        } finally {
-                          setHeadcountDeletingId(null);
-                        }
-                      }}
-                    >
-                      {headcountDeletingId === s.id ? (
-                        <CircularProgress size={14} color="inherit" />
-                      ) : (
-                        <DeleteIcon fontSize="small" />
-                      )}
-                    </IconButton>
-                  </span>
-                </Tooltip>
+          // Headcount mode — subcontract_payments, date-grouped when in by-date
+          (() => {
+            const records = settlementItems as HeadcountSettlement[];
+            const grouped: { dateLabel: string; items: HeadcountSettlement[] }[] =
+              viewMode === "by-date"
+                ? Object.entries(
+                    records.reduce<Record<string, HeadcountSettlement[]>>((acc, s) => {
+                      const key = s.period_from_date ?? s.created_at.slice(0, 10);
+                      (acc[key] = acc[key] || []).push(s);
+                      return acc;
+                    }, {})
+                  )
+                    .sort(([a], [b]) => (a < b ? 1 : -1))
+                    .map(([date, items]) => ({
+                      dateLabel: dayjs(date).format("ddd, D MMM YYYY"),
+                      items,
+                    }))
+                : [{ dateLabel: "", items: records }];
+
+            return (
+              <Box sx={{ display: "flex", flexDirection: "column", gap: viewMode === "by-date" ? 2 : 1 }}>
+                {grouped.map((group) => (
+                  <Box key={group.dateLabel}>
+                    {viewMode === "by-date" && (
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: 0.6,
+                          color: "text.secondary",
+                          display: "block",
+                          mb: 0.75,
+                          pl: 0.5,
+                        }}
+                      >
+                        {group.dateLabel}
+                      </Typography>
+                    )}
+                    <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                      {group.items.map((s) => (
+                        <Box
+                          key={s.id}
+                          sx={{
+                            px: 2,
+                            py: 1.5,
+                            bgcolor: "background.paper",
+                            border: 1,
+                            borderColor: "divider",
+                            borderRadius: 1.5,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 2,
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography variant="caption" color="text.secondary">
+                              {dayjs(s.created_at).format("DD MMM YYYY")}
+                              {s.period_from_date &&
+                                ` · Week: ${dayjs(s.period_from_date).format("D MMM")}`}
+                              {s.period_to_date &&
+                                ` – ${dayjs(s.period_to_date).format("D MMM YYYY")}`}
+                            </Typography>
+                            {s.notes && (
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{ mt: 0.25, display: "block", fontStyle: "italic" }}
+                              >
+                                {s.notes}
+                              </Typography>
+                            )}
+                          </Box>
+                          <Typography
+                            variant="body1"
+                            fontWeight={700}
+                            sx={{ fontVariantNumeric: "tabular-nums", color: tradeColor.main }}
+                          >
+                            ₹{formatINR(Number(s.amount))}
+                          </Typography>
+                          <Tooltip title="Delete settlement">
+                            <span>
+                              <IconButton
+                                size="small"
+                                color="error"
+                                disabled={headcountDeletingId === s.id}
+                                onClick={async () => {
+                                  setHeadcountDeletingId(s.id);
+                                  try {
+                                    await (supabase as any)
+                                      .from("subcontract_payments")
+                                      .update({ is_deleted: true })
+                                      .eq("id", s.id);
+                                    invalidateAll();
+                                  } finally {
+                                    setHeadcountDeletingId(null);
+                                  }
+                                }}
+                              >
+                                {headcountDeletingId === s.id ? (
+                                  <CircularProgress size={14} color="inherit" />
+                                ) : (
+                                  <DeleteIcon fontSize="small" />
+                                )}
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Box>
+                ))}
               </Box>
-            ))}
-          </Box>
+            );
+          })()
         )
       )}
 
@@ -763,6 +890,17 @@ export function TradeSettlementView({
             />
           );
         })()}
+
+      {/* ─── Edit dialog for mid-mode settlements ─── */}
+      <ContractSettlementEditDialog
+        open={editTarget !== null}
+        onClose={() => setEditTarget(null)}
+        settlement={editTarget}
+        onSuccess={() => {
+          setEditTarget(null);
+          invalidateAll();
+        }}
+      />
 
       {/* ─── Delete dialog for mid-mode settlements ─── */}
       <DeleteContractSettlementDialog
