@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Alert,
@@ -59,17 +59,14 @@ import {
   type ExpenseRow,
   type ExpenseStatus,
   useExpensesData,
+  useExpenseTradeSummary,
   LOAD_MORE_STEP,
   MAX_RESULT_LIMIT,
 } from "@/hooks/queries/useExpensesData";
 import ExpensesSummaryBand from "@/components/expenses/ExpensesSummaryBand";
 import ExpensesFilterBar from "@/components/expenses/ExpensesFilterBar";
-import ExpensesTable from "@/components/expenses/ExpensesTable";
 import { ExpensesGroupedByTrade } from "@/components/expenses/ExpensesGroupedByTrade";
-import {
-  TradeChipFilter,
-  type TradeChipSelection,
-} from "@/components/attendance/TradeChipFilter";
+import { TradeMetricCards } from "@/components/expenses/TradeMetricCards";
 import { useSiteTrades } from "@/hooks/queries/useTrades";
 
 import type { Database } from "@/types/database.types";
@@ -282,40 +279,23 @@ export default function ExpensesPageV2() {
     });
   }, [expenses, search]);
 
-  // Trade chip — same pattern as /site/attendance and /site/payments, plus an
-  // "All" chip exclusive to this page. Default is "All" so the supervisor
-  // sees every trade's rows banded by trade. Civil chip = civil-and-general
-  // (hides other-trade contracts). Trade chip = scoped to that contract.
-  const [tradeChipSelection, setTradeChipSelection] =
-    useState<TradeChipSelection>({ kind: "all" });
   const { data: siteTrades } = useSiteTrades(selectedSite?.id);
-  const nonCivilContractIds = useMemo(() => {
-    if (!siteTrades) return null;
-    const set = new Set<string>();
-    for (const t of siteTrades) {
-      if (t.category.name === "Civil") continue;
-      for (const c of t.contracts) set.add(c.id);
-    }
-    return set;
+
+  const { data: tradeSummary = [], isLoading: tradeSummaryLoading } = useExpenseTradeSummary(
+    selectedSite?.id,
+    dateFrom ?? null,
+    dateTo ?? null,
+  );
+
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const handleTradeCardClick = useCallback((tradeCategoryId: string | null) => {
+    const key =
+      tradeCategoryId === null
+        ? "__site_wide__"
+        : siteTrades?.find((t) => t.category.id === tradeCategoryId)?.category.name ?? tradeCategoryId;
+    sectionRefs.current[key]?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [siteTrades]);
-  const filteredRows: ExpenseRow[] = useMemo(() => {
-    if (tradeChipSelection.kind === "all") {
-      // No row filtering — banded view will group by trade.
-      return searchedRows;
-    }
-    if (tradeChipSelection.kind === "trade") {
-      return searchedRows.filter(
-        (r) => r.contract_id === tradeChipSelection.contractId
-      );
-    }
-    // Civil mode — hide rows tied to non-civil-trade contracts.
-    if (!nonCivilContractIds || nonCivilContractIds.size === 0) {
-      return searchedRows;
-    }
-    return searchedRows.filter(
-      (r) => !r.contract_id || !nonCivilContractIds.has(r.contract_id)
-    );
-  }, [searchedRows, tradeChipSelection, nonCivilContractIds]);
 
   // Add / Edit dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -605,16 +585,6 @@ export default function ExpensesPageV2() {
             cutoffDate={auditState.dataStartedAt}
           />
         ) : null}
-        {/* Trade chip — All / Civil / per-trade. Default "All" gives a
-            single banded view grouped by trade. Self-hides on civil-only sites. */}
-        <Box sx={{ px: { xs: 2, md: 2.5 }, pt: 1.5, pb: 0.5 }}>
-          <TradeChipFilter
-            siteId={selectedSite.id}
-            selected={tradeChipSelection}
-            onChange={setTradeChipSelection}
-            allowAllChip
-          />
-        </Box>
       </Box>
 
       <ExpensesSummaryBand
@@ -653,6 +623,13 @@ export default function ExpensesPageV2() {
         }
         onOpenSubcontracts={handleOpenSubcontracts}
         subcontractsLoading={subcontractsLoading}
+      />
+
+      <TradeMetricCards
+        tradeSummary={tradeSummary}
+        siteTrades={siteTrades}
+        onCardClick={handleTradeCardClick}
+        isLoading={tradeSummaryLoading}
       />
 
       <ExpensesFilterBar
@@ -707,26 +684,17 @@ export default function ExpensesPageV2() {
         </Alert>
       ) : null}
 
-      {tradeChipSelection.kind === "all" ? (
-        <ExpensesGroupedByTrade
-          rows={filteredRows}
-          siteTrades={siteTrades}
-          isLoading={isLoading}
-          canEdit={canEdit}
-          onRefClick={handleRefClick}
-          onEdit={handleOpenDialog}
-          onDelete={handleDelete}
-        />
-      ) : (
-        <ExpensesTable
-          rows={filteredRows}
-          isLoading={isLoading}
-          canEdit={canEdit}
-          onRefClick={handleRefClick}
-          onEdit={handleOpenDialog}
-          onDelete={handleDelete}
-        />
-      )}
+      <ExpensesGroupedByTrade
+        rows={searchedRows}
+        siteTrades={siteTrades}
+        sectionRefs={sectionRefs}
+        siteId={selectedSite?.id}
+        isLoading={isLoading}
+        canEdit={canEdit}
+        onRefClick={handleRefClick}
+        onEdit={handleOpenDialog}
+        onDelete={handleDelete}
+      />
 
       {/* Add / Edit dialog (regular expenses only — settlement rows redirect) */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
