@@ -6,6 +6,7 @@ import {
   AccordionDetails,
   AccordionSummary,
   Box,
+  Paper,
   Stack,
   Typography,
   Chip,
@@ -24,6 +25,10 @@ interface ExpensesGroupedByTradeProps {
   onRefClick: (row: ExpenseRow) => void;
   onEdit: (row: ExpenseRow) => void;
   onDelete: (row: ExpenseRow) => void;
+  /** Optional site ID — used to persist collapse state to localStorage */
+  siteId?: string;
+  /** Optional refs map for scroll anchoring; keys are band keys */
+  sectionRefs?: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
 }
 
 interface Band {
@@ -57,6 +62,8 @@ export function ExpensesGroupedByTrade({
   onRefClick,
   onEdit,
   onDelete,
+  siteId,
+  sectionRefs,
 }: ExpensesGroupedByTradeProps) {
   const bands = useMemo<Band[]>(() => {
     if (!siteTrades) return [];
@@ -123,8 +130,33 @@ export function ExpensesGroupedByTrade({
     return out;
   }, [rows, siteTrades]);
 
-  // Open all bands by default; user can collapse individually.
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Change B: persist collapse state to localStorage keyed by siteId
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    if (!siteId) return new Set<string>();
+    try {
+      const stored = localStorage.getItem(`expenses-collapsed-${siteId}`);
+      return stored ? new Set<string>(JSON.parse(stored)) : new Set<string>();
+    } catch {
+      return new Set<string>();
+    }
+  });
+
+  const handleToggle = (key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      if (siteId) {
+        try {
+          localStorage.setItem(
+            `expenses-collapsed-${siteId}`,
+            JSON.stringify([...next])
+          );
+        } catch {}
+      }
+      return next;
+    });
+  };
 
   if (isLoading) {
     return (
@@ -150,63 +182,184 @@ export function ExpensesGroupedByTrade({
     <Box sx={{ px: { xs: 1, md: 1.5 }, pb: 4 }}>
       {bands.map((band) => {
         const isOpen = !collapsed.has(band.key);
+        const SITE_WIDE = "__site_wide__";
+
+        // Change C: compute per-section summary tiles
+        let summaryTiles: React.ReactNode = null;
+        if (band.key === SITE_WIDE) {
+          // Site-wide: 4 buckets — always show even if ₹0
+          const siteWideBuckets = [
+            { label: "Material", type: "Material" },
+            { label: "Machinery", type: "Machinery" },
+            { label: "General", type: "General" },
+            { label: "Misc", type: "Miscellaneous" },
+          ];
+          summaryTiles = (
+            <Box
+              sx={{
+                display: "flex",
+                flexDirection: "row",
+                flexWrap: "wrap",
+                gap: 1,
+                mb: 2,
+                px: 1,
+                pt: 1.5,
+              }}
+            >
+              {siteWideBuckets.map((bucket) => {
+                const bucketRows = band.rows.filter(
+                  (r) => r.expense_type === bucket.type
+                );
+                const bucketTotal = bucketRows.reduce(
+                  (s, r) => s + Number(r.amount ?? 0),
+                  0
+                );
+                return (
+                  <Paper
+                    key={bucket.type}
+                    variant="outlined"
+                    elevation={0}
+                    sx={{ minWidth: 120, p: 1.5 }}
+                  >
+                    <Typography
+                      variant="caption"
+                      fontWeight="bold"
+                      color="text.secondary"
+                      textTransform="uppercase"
+                      display="block"
+                    >
+                      {bucket.label}
+                    </Typography>
+                    <Typography variant="body2" fontWeight="medium">
+                      ₹{formatINR(bucketTotal)}
+                    </Typography>
+                  </Paper>
+                );
+              })}
+            </Box>
+          );
+        } else {
+          // Labor trade bands: Daily Salary + Contract Salary tiles
+          const dailyRows = band.rows.filter(
+            (r) => r.expense_type === "Daily Salary"
+          );
+          const contractRows = band.rows.filter(
+            (r) => r.expense_type === "Contract Salary"
+          );
+          const laborTiles = [
+            { label: "Daily Salary", rows: dailyRows },
+            { label: "Contract Salary", rows: contractRows },
+          ].filter((t) => t.rows.length > 0);
+
+          if (laborTiles.length > 0) {
+            summaryTiles = (
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: "row",
+                  flexWrap: "wrap",
+                  gap: 1,
+                  mb: 2,
+                  px: 1,
+                  pt: 1.5,
+                }}
+              >
+                {laborTiles.map((tile) => {
+                  const tileTotal = tile.rows.reduce(
+                    (s, r) => s + Number(r.amount ?? 0),
+                    0
+                  );
+                  return (
+                    <Paper
+                      key={tile.label}
+                      variant="outlined"
+                      elevation={0}
+                      sx={{ minWidth: 120, p: 1.5 }}
+                    >
+                      <Typography
+                        variant="caption"
+                        fontWeight="bold"
+                        color="text.secondary"
+                        textTransform="uppercase"
+                        display="block"
+                      >
+                        {tile.label}
+                      </Typography>
+                      <Typography variant="body2" fontWeight="medium">
+                        ₹{formatINR(tileTotal)}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {tile.rows.length}{" "}
+                        {tile.rows.length === 1 ? "row" : "rows"}
+                      </Typography>
+                    </Paper>
+                  );
+                })}
+              </Box>
+            );
+          }
+        }
+
         return (
-          <Accordion
+          // Change A: attach sectionRefs on the outermost element of each band
+          <Box
             key={band.key}
-            expanded={isOpen}
-            onChange={() => {
-              setCollapsed((curr) => {
-                const next = new Set(curr);
-                if (next.has(band.key)) next.delete(band.key);
-                else next.add(band.key);
-                return next;
-              });
-            }}
-            sx={{
-              mb: 1,
-              "&:before": { display: "none" },
-              borderLeft: 4,
-              borderColor: band.color,
+            ref={(el: HTMLDivElement | null) => {
+              if (sectionRefs?.current) {
+                sectionRefs.current[band.key] = el;
+              }
             }}
           >
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Stack
-                direction="row"
-                spacing={1.5}
-                alignItems="center"
-                sx={{ width: "100%", flexWrap: "wrap" }}
-              >
-                <Typography variant="subtitle2" fontWeight={700}>
-                  {band.label}
-                </Typography>
-                <Box sx={{ flex: 1 }} />
-                <Chip
-                  size="small"
-                  label={`₹${formatINR(band.total)}`}
-                  sx={{
-                    fontWeight: 700,
-                    bgcolor: band.color,
-                    color: "#fff",
-                  }}
+            <Accordion
+              expanded={isOpen}
+              onChange={() => handleToggle(band.key)}
+              sx={{
+                mb: 1,
+                "&:before": { display: "none" },
+                borderLeft: 4,
+                borderColor: band.color,
+              }}
+            >
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Stack
+                  direction="row"
+                  spacing={1.5}
+                  alignItems="center"
+                  sx={{ width: "100%", flexWrap: "wrap" }}
+                >
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    {band.label}
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Chip
+                    size="small"
+                    label={`₹${formatINR(band.total)}`}
+                    sx={{
+                      fontWeight: 700,
+                      bgcolor: band.color,
+                      color: "#fff",
+                    }}
+                  />
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={`${band.rows.length} ${band.rows.length === 1 ? "row" : "rows"}`}
+                  />
+                </Stack>
+              </AccordionSummary>
+              <AccordionDetails sx={{ p: 0 }}>
+                {summaryTiles}
+                <ExpensesTable
+                  rows={band.rows}
+                  isLoading={false}
+                  canEdit={canEdit}
+                  onRefClick={onRefClick}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
                 />
-                <Chip
-                  size="small"
-                  variant="outlined"
-                  label={`${band.rows.length} ${band.rows.length === 1 ? "row" : "rows"}`}
-                />
-              </Stack>
-            </AccordionSummary>
-            <AccordionDetails sx={{ p: 0 }}>
-              <ExpensesTable
-                rows={band.rows}
-                isLoading={false}
-                canEdit={canEdit}
-                onRefClick={onRefClick}
-                onEdit={onEdit}
-                onDelete={onDelete}
-              />
-            </AccordionDetails>
-          </Accordion>
+              </AccordionDetails>
+            </Accordion>
+          </Box>
         );
       })}
     </Box>
