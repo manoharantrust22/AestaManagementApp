@@ -19,6 +19,7 @@ import {
 import { Warning as WarningIcon, ShowChart as ShowChartIcon } from "@mui/icons-material";
 import MiniPriceChart from "./MiniPriceChart";
 import { useVendorMaterialBrands, useVendorMaterialPrice } from "@/hooks/queries/useVendorInventory";
+import { useBrandVariantLinkedBrandNames } from "@/hooks/queries/useMaterials";
 import type { RequestItemForConversion, MaterialBrand } from "@/types/material.types";
 import { formatCurrency } from "@/lib/formatters";
 
@@ -67,6 +68,12 @@ export default function RequestItemRow({
     effectiveMaterialId
   );
 
+  // When ordering a variant material, filter brands to those linked to that variant.
+  // item.selected_variant_id is set when user has selected a specific grade/variant.
+  const { data: linkedBrandNames } = useBrandVariantLinkedBrandNames(
+    item.selected_variant_id ?? undefined
+  );
+
   // Get unique brand names from vendor inventory
   const uniqueBrandNames = useMemo(() => {
     if (!vendorBrands || vendorBrands.length === 0) return [];
@@ -74,8 +81,11 @@ export default function RequestItemRow({
     vendorBrands.forEach((b: any) => {
       if (b.brand_name) brandNames.add(b.brand_name);
     });
-    return Array.from(brandNames).sort();
-  }, [vendorBrands]);
+    const allNames = Array.from(brandNames).sort();
+    // null means "no variant selected" or "no links yet" → show all brands
+    if (!linkedBrandNames) return allNames;
+    return allNames.filter((name) => linkedBrandNames.includes(name));
+  }, [vendorBrands, linkedBrandNames]);
 
   // Get brand variants for the selected brand name
   const brandVariantsForSelectedBrand = useMemo(() => {
