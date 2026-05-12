@@ -1,391 +1,105 @@
+// src/app/(main)/company/rentals/page.tsx
 "use client";
 
-import { useState, useMemo, useCallback, useDeferredValue } from "react";
+import { useState, useDeferredValue } from "react";
 import {
   Box,
   Button,
   Chip,
-  IconButton,
-  Typography,
-  TextField,
+  Grid,
   InputAdornment,
-  Fab,
-  Tooltip,
-  Tabs,
-  Tab,
-  FormControl,
-  Select,
-  MenuItem,
-  InputLabel,
-  Snackbar,
-  Alert,
-  Avatar,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
+  Typography,
+  Badge,
 } from "@mui/material";
-import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Search as SearchIcon,
-  Inventory2 as InventoryIcon,
-} from "@mui/icons-material";
-import ScreenshotViewer from "@/components/common/ScreenshotViewer";
-import DataTable, { type MRT_ColumnDef, type PaginationState } from "@/components/common/DataTable";
-import PageHeader from "@/components/layout/PageHeader";
-import { useAuth } from "@/contexts/AuthContext";
-import { useIsMobile } from "@/hooks/useIsMobile";
-import { hasEditPermission } from "@/lib/permissions";
-import { formatCurrency, formatDate } from "@/lib/formatters";
-import {
-  usePaginatedRentalItems,
-  useRentalCategories,
-  useDeleteRentalItem,
-} from "@/hooks/queries/useRentals";
-import { RentalItemDialog } from "@/components/rentals";
-import ConfirmDialog from "@/components/common/ConfirmDialog";
-import type { RentalItemWithDetails, RentalType } from "@/types/rental.types";
-import {
-  RENTAL_TYPE_LABELS,
-  RENTAL_SOURCE_TYPE_LABELS,
-  RENTAL_RATE_TYPE_LABELS,
-} from "@/types/rental.types";
+import SearchIcon from "@mui/icons-material/Search";
+import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
+import ViewModuleIcon from "@mui/icons-material/ViewModule";
+import StoreIcon from "@mui/icons-material/Store";
+import AddIcon from "@mui/icons-material/Add";
+import { useRentalItems, useRentalCategories } from "@/hooks/queries/useRentals";
+import { RentalItemCard } from "@/components/rentals/RentalItemCard";
+import { RentalItemInspectPane } from "@/components/rentals/RentalItemInspectPane";
+import { EstimateBasketDrawer } from "@/components/rentals/EstimateBasketDrawer";
+import { EstimateBasketProvider, useEstimateBasket } from "@/components/rentals/EstimateBasket";
+import type { RentalItemWithDetails } from "@/types/rental.types";
 
-const RENTAL_TYPE_TABS: { id: RentalType | "all"; label: string }[] = [
-  { id: "all", label: "All Items" },
-  { id: "scaffolding", label: "Scaffolding" },
-  { id: "shuttering", label: "Shuttering" },
-  { id: "equipment", label: "Equipment" },
-  { id: "other", label: "Other" },
-];
+// ─── INNER PAGE (inside provider) ────────────────────────────────────────────
 
-type SortOption = "alphabetical" | "recently_added" | "by_rate";
+type CatalogView = "items" | "vendors";
 
-const SORT_OPTIONS: { value: SortOption; label: string }[] = [
-  { value: "alphabetical", label: "Alphabetical" },
-  { value: "recently_added", label: "Recently Added" },
-  { value: "by_rate", label: "By Daily Rate" },
-];
+function CompanyRentalsPageInner() {
+  const [view, setView] = useState<CatalogView>("items");
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
 
-export default function CompanyRentalsPage() {
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<RentalItemWithDetails | null>(null);
-  const [selectedTab, setSelectedTab] = useState<RentalType | "all">("all");
-  const [searchInput, setSearchInput] = useState("");
-  const [sortBy, setSortBy] = useState<SortOption>("alphabetical");
-  const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
-  const [deleteConfirm, setDeleteConfirm] = useState<{
-    open: boolean;
-    item: RentalItemWithDetails | null;
-  }>({ open: false, item: null });
-  const [snackbar, setSnackbar] = useState<{
-    open: boolean;
-    message: string;
-    severity: "success" | "error";
-  }>({ open: false, message: "", severity: "success" });
-  const [imageViewer, setImageViewer] = useState<{
-    open: boolean;
-    imageUrl: string | null;
-    title: string;
-  }>({ open: false, imageUrl: null, title: "" });
+  const [selectedItem, setSelectedItem] = useState<RentalItemWithDetails | null>(null);
+  const [basketOpen, setBasketOpen] = useState(false);
+  const [addItemOpen, setAddItemOpen] = useState(false);
 
-  const { userProfile } = useAuth();
-  const isMobile = useIsMobile();
-  const canEdit = hasEditPermission(userProfile?.role);
-
-  // Debounce search
-  const deferredSearch = useDeferredValue(searchInput);
-
-  // Fetch data with server-side pagination
-  const { data: paginatedData, isLoading } = usePaginatedRentalItems(
-    pagination,
-    selectedTab !== "all" ? selectedTab : undefined,
-    deferredSearch.length >= 2 ? deferredSearch : undefined,
-    sortBy
-  );
-
-  const rentalItems = paginatedData?.data || [];
-  const totalCount = paginatedData?.totalCount || 0;
-
+  const { itemCount } = useEstimateBasket();
   const { data: categories = [] } = useRentalCategories();
-  const deleteItem = useDeleteRentalItem();
+  const { data: items = [], isLoading } = useRentalItems(categoryFilter);
 
-  // Handle pagination change
-  const handlePaginationChange = useCallback((newPagination: PaginationState) => {
-    setPagination(newPagination);
-  }, []);
+  const filteredItems =
+    deferredSearch.length >= 2
+      ? items.filter(
+          (i) =>
+            i.name.toLowerCase().includes(deferredSearch.toLowerCase()) ||
+            (i.code ?? "").toLowerCase().includes(deferredSearch.toLowerCase())
+        )
+      : items;
 
-  // Handle tab change - reset pagination
-  const handleTabChange = useCallback((_event: React.SyntheticEvent, newValue: RentalType | "all") => {
-    setSelectedTab(newValue);
-    setPagination(prev => ({ ...prev, pageIndex: 0 }));
-  }, []);
-
-  // No need for client-side filtering since server handles it
-  const filteredItems = rentalItems;
-
-  const handleOpenDialog = useCallback((item?: RentalItemWithDetails) => {
-    setEditingItem(item || null);
-    setDialogOpen(true);
-  }, []);
-
-  const handleCloseDialog = useCallback(() => {
-    setDialogOpen(false);
-    setEditingItem(null);
-  }, []);
-
-  const handleDeleteClick = useCallback((item: RentalItemWithDetails) => {
-    setDeleteConfirm({ open: true, item });
-  }, []);
-
-  const handleDeleteConfirm = useCallback(async () => {
-    if (!deleteConfirm.item) return;
-    const itemName = deleteConfirm.item.name;
-    try {
-      await deleteItem.mutateAsync(deleteConfirm.item.id);
-      setDeleteConfirm({ open: false, item: null });
-      setSnackbar({
-        open: true,
-        message: `"${itemName}" deleted successfully`,
-        severity: "success",
-      });
-    } catch (error) {
-      console.error("Failed to delete item:", error);
-      setSnackbar({
-        open: true,
-        message: `Failed to delete: ${error instanceof Error ? error.message : "Unknown error"}`,
-        severity: "error",
-      });
-    }
-  }, [deleteConfirm.item, deleteItem]);
-
-  const handleDeleteCancel = useCallback(() => {
-    setDeleteConfirm({ open: false, item: null });
-  }, []);
-
-  // Table columns
-  const columns = useMemo<MRT_ColumnDef<RentalItemWithDetails>[]>(
-    () => [
-      {
-        accessorKey: "name",
-        header: "Item Name",
-        size: 250,
-        Cell: ({ row }) => (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-            <Avatar
-              src={row.original.image_url || undefined}
-              variant="rounded"
-              sx={{
-                width: 40,
-                height: 40,
-                bgcolor: "action.hover",
-                cursor: row.original.image_url ? "pointer" : "default",
-                "&:hover": row.original.image_url ? {
-                  opacity: 0.8,
-                  boxShadow: 1,
-                } : {},
-              }}
-              onClick={(e) => {
-                if (row.original.image_url) {
-                  e.stopPropagation();
-                  setImageViewer({
-                    open: true,
-                    imageUrl: row.original.image_url,
-                    title: row.original.name,
-                  });
-                }
-              }}
-            >
-              <InventoryIcon sx={{ fontSize: 20, color: "text.disabled" }} />
-            </Avatar>
-            <Box>
-              <Typography variant="body2" fontWeight={500}>
-                {row.original.name}
-              </Typography>
-              {row.original.code && (
-                <Typography variant="caption" color="text.secondary">
-                  {row.original.code}
-                </Typography>
-              )}
-            </Box>
-          </Box>
-        ),
-      },
-      {
-        accessorKey: "local_name",
-        header: "Local Name",
-        size: 150,
-        Cell: ({ row }) =>
-          row.original.local_name || (
-            <Typography variant="caption" color="text.secondary">
-              -
-            </Typography>
-          ),
-      },
-      {
-        accessorKey: "source_type",
-        header: "Source",
-        size: 100,
-        Cell: ({ row }) => (
-          <Chip
-            size="small"
-            label={RENTAL_SOURCE_TYPE_LABELS[row.original.source_type] || "Store"}
-            variant="outlined"
-            color={row.original.source_type === "contractor" ? "secondary" : "default"}
-          />
-        ),
-      },
-      {
-        accessorKey: "rental_type",
-        header: "Type",
-        size: 120,
-        Cell: ({ row }) => (
-          <Chip
-            size="small"
-            label={RENTAL_TYPE_LABELS[row.original.rental_type]}
-            variant="outlined"
-            color={
-              row.original.rental_type === "scaffolding"
-                ? "primary"
-                : row.original.rental_type === "shuttering"
-                  ? "secondary"
-                  : row.original.rental_type === "equipment"
-                    ? "warning"
-                    : "default"
-            }
-          />
-        ),
-      },
-      {
-        accessorKey: "category",
-        header: "Category",
-        size: 140,
-        Cell: ({ row }) =>
-          row.original.category?.name || (
-            <Typography variant="caption" color="text.secondary">
-              -
-            </Typography>
-          ),
-      },
-      {
-        accessorKey: "unit",
-        header: "Unit",
-        size: 80,
-        Cell: ({ row }) => (
-          <Typography variant="body2">{row.original.unit}</Typography>
-        ),
-      },
-      {
-        accessorKey: "default_daily_rate",
-        header: "Default Rate",
-        size: 120,
-        Cell: ({ row }) =>
-          row.original.default_daily_rate ? (
-            <Box>
-              <Typography variant="body2" fontWeight={500} color="primary">
-                {formatCurrency(row.original.default_daily_rate)}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                /{RENTAL_RATE_TYPE_LABELS[row.original.rate_type] === "Hourly" ? "hr" : "day"}
-              </Typography>
-            </Box>
-          ) : (
-            <Typography variant="caption" color="text.secondary">
-              -
-            </Typography>
-          ),
-      },
-      {
-        accessorKey: "created_at",
-        header: "Added",
-        size: 100,
-        Cell: ({ row }) => (
-          <Typography variant="caption" color="text.secondary">
-            {formatDate(row.original.created_at)}
-          </Typography>
-        ),
-      },
-    ],
-    []
-  );
-
-  // Row actions
-  const renderRowActions = useCallback(
-    ({ row }: { row: { original: RentalItemWithDetails } }) => (
-      <Box sx={{ display: "flex", gap: 0.5 }}>
-        <Tooltip title="Edit">
-          <IconButton
-            size="small"
-            onClick={() => handleOpenDialog(row.original)}
-            disabled={!canEdit}
-          >
-            <EditIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Delete">
-          <IconButton
-            size="small"
-            onClick={() => handleDeleteClick(row.original)}
-            disabled={!canEdit}
-            color="error"
-          >
-            <DeleteIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      </Box>
-    ),
-    [handleOpenDialog, handleDeleteClick, canEdit]
-  );
+  const handleConvertToRequest = () => {
+    setBasketOpen(false);
+    // Phase 2 will navigate to /site/rentals with basket pre-filled
+  };
 
   return (
-    <Box>
-      <PageHeader
-        title="Rental Items Catalog"
-        subtitle="Manage items available for rental (scaffolding, shuttering, equipment)"
-        actions={
-          !isMobile && canEdit ? (
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => handleOpenDialog()}
-            >
-              Add Item
-            </Button>
-          ) : null
-        }
-      />
-
-      {/* Type Tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 2 }}>
-        <Tabs
-          value={selectedTab}
-          onChange={handleTabChange}
-          variant={isMobile ? "scrollable" : "standard"}
-          scrollButtons={isMobile ? "auto" : false}
-          allowScrollButtonsMobile
-        >
-          {RENTAL_TYPE_TABS.map((tab) => (
-            <Tab key={tab.id} value={tab.id} label={tab.label} />
-          ))}
-        </Tabs>
-      </Box>
-
-      {/* Search and Sort */}
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      {/* Top bar */}
       <Box
         sx={{
+          px: 2,
+          py: 1.5,
           display: "flex",
-          gap: 2,
-          mb: 2,
-          flexDirection: isMobile ? "column" : "row",
-          alignItems: isMobile ? "stretch" : "center",
+          alignItems: "center",
+          gap: 1.5,
+          flexWrap: "wrap",
+          borderBottom: "1px solid",
+          borderColor: "divider",
+          bgcolor: "background.paper",
         }}
       >
+        <Typography variant="h6" fontWeight={700} sx={{ flex: "none" }}>
+          Rental Catalog
+        </Typography>
+
+        <ToggleButtonGroup
+          value={view}
+          exclusive
+          onChange={(_, v) => v && setView(v)}
+          size="small"
+          sx={{ flex: "none" }}
+        >
+          <ToggleButton value="items">
+            <ViewModuleIcon sx={{ fontSize: 16, mr: 0.5 }} />
+            By Item
+          </ToggleButton>
+          <ToggleButton value="vendors">
+            <StoreIcon sx={{ fontSize: 16, mr: 0.5 }} />
+            By Vendor
+          </ToggleButton>
+        </ToggleButtonGroup>
+
         <TextField
           size="small"
-          placeholder="Search items (min 2 chars)..."
-          value={searchInput}
-          onChange={(e) => {
-            setSearchInput(e.target.value);
-            setPagination(prev => ({ ...prev, pageIndex: 0 }));
-          }}
+          placeholder="Search items…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
           slotProps={{
             input: {
               startAdornment: (
@@ -395,101 +109,135 @@ export default function CompanyRentalsPage() {
               ),
             },
           }}
-          sx={{ minWidth: 250, flex: 1 }}
+          sx={{ flex: 1, minWidth: 160, maxWidth: 280 }}
         />
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel>Sort by</InputLabel>
-          <Select
-            value={sortBy}
-            label="Sort by"
-            onChange={(e) => {
-              setSortBy(e.target.value as SortOption);
-              setPagination(prev => ({ ...prev, pageIndex: 0 }));
-            }}
+
+        <Badge badgeContent={itemCount} color="warning" sx={{ flex: "none" }}>
+          <Button
+            variant={itemCount > 0 ? "contained" : "outlined"}
+            color="warning"
+            startIcon={<ShoppingCartIcon />}
+            onClick={() => setBasketOpen(true)}
+            size="small"
           >
-            {SORT_OPTIONS.map((opt) => (
-              <MenuItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+            Estimate Basket
+          </Button>
+        </Badge>
+
+        <Button
+          variant="outlined"
+          startIcon={<AddIcon />}
+          onClick={() => setAddItemOpen(true)}
+          size="small"
+          sx={{ flex: "none" }}
+        >
+          Add Item
+        </Button>
       </Box>
 
-      {/* Count */}
-      <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
-        {totalCount} item{totalCount !== 1 ? "s" : ""}
-      </Typography>
-
-      {/* Data Table with Server-Side Pagination */}
-      <DataTable
-        columns={columns}
-        data={filteredItems}
-        isLoading={isLoading}
-        enableRowActions={canEdit}
-        renderRowActions={renderRowActions}
-        mobileHiddenColumns={["local_name", "source_type", "category", "created_at"]}
-        enableSorting={false}
-        // Server-side pagination
-        manualPagination={true}
-        rowCount={totalCount}
-        pagination={pagination}
-        onPaginationChange={handlePaginationChange}
-      />
-
-      {/* Mobile FAB */}
-      {isMobile && canEdit && (
-        <Fab
-          color="primary"
-          sx={{ position: "fixed", bottom: 16, right: 16 }}
-          onClick={() => handleOpenDialog()}
+      {/* Category chips */}
+      {view === "items" && (
+        <Box
+          sx={{
+            px: 2,
+            py: 1,
+            display: "flex",
+            gap: 1,
+            flexWrap: "wrap",
+            borderBottom: "1px solid",
+            borderColor: "divider",
+          }}
         >
-          <AddIcon />
-        </Fab>
+          <Chip
+            label="All"
+            onClick={() => setCategoryFilter(null)}
+            color={categoryFilter === null ? "primary" : "default"}
+            size="small"
+          />
+          {categories.map((cat) => (
+            <Chip
+              key={cat.id}
+              label={cat.name}
+              onClick={() => setCategoryFilter(cat.id)}
+              color={categoryFilter === cat.id ? "primary" : "default"}
+              size="small"
+            />
+          ))}
+        </Box>
       )}
 
-      {/* Item Dialog */}
-      <RentalItemDialog
-        open={dialogOpen}
-        onClose={handleCloseDialog}
-        item={editingItem}
+      {/* Main area */}
+      <Box sx={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+          {view === "items" && (
+            <>
+              {isLoading ? (
+                <Typography variant="body2" color="text.secondary">
+                  Loading catalog…
+                </Typography>
+              ) : filteredItems.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  No items found.
+                </Typography>
+              ) : (
+                <Grid container spacing={1.5}>
+                  {filteredItems.map((item) => (
+                    <Grid key={item.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
+                      <RentalItemCard
+                        item={item}
+                        sizes={item.sizes ?? []}
+                        vendorCount={0}
+                        lowestRate={null}
+                        isSelected={selectedItem?.id === item.id}
+                        onSelect={() =>
+                          setSelectedItem(selectedItem?.id === item.id ? null : item)
+                        }
+                        onAddToEstimate={() => setSelectedItem(item)}
+                      />
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
+            </>
+          )}
+
+          {view === "vendors" && (
+            <Typography variant="body2" color="text.secondary">
+              Vendor view wired in Task 11.
+            </Typography>
+          )}
+        </Box>
+
+        {/* Inspect pane */}
+        {selectedItem && (
+          <RentalItemInspectPane
+            itemId={selectedItem.id}
+            itemName={selectedItem.name}
+            isOpen
+            onClose={() => setSelectedItem(null)}
+          />
+        )}
+      </Box>
+
+      {/* Dialogs */}
+      <EstimateBasketDrawer
+        open={basketOpen}
+        onClose={() => setBasketOpen(false)}
+        onConvertToRequest={handleConvertToRequest}
       />
 
-      {/* Delete Confirmation */}
-      <ConfirmDialog
-        open={deleteConfirm.open}
-        title="Delete Rental Item"
-        message={`Are you sure you want to delete "${deleteConfirm.item?.name}"? This will hide it from the catalog.`}
-        confirmText="Delete"
-        confirmColor="error"
-        isLoading={deleteItem.isPending}
-        onConfirm={handleDeleteConfirm}
-        onCancel={handleDeleteCancel}
-      />
-
-      {/* Feedback Snackbar */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      >
-        <Alert
-          onClose={() => setSnackbar((prev) => ({ ...prev, open: false }))}
-          severity={snackbar.severity}
-          variant="filled"
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
-
-      {/* Image Viewer */}
-      <ScreenshotViewer
-        open={imageViewer.open}
-        onClose={() => setImageViewer({ open: false, imageUrl: null, title: "" })}
-        images={imageViewer.imageUrl ? [imageViewer.imageUrl] : []}
-        title={imageViewer.title}
-      />
+      {/* Add Item dialog — Task 12 wires up RentalItemDialog */}
+      {addItemOpen && null}
     </Box>
+  );
+}
+
+// ─── OUTER PAGE ───────────────────────────────────────────────────────────────
+
+export default function CompanyRentalsPage() {
+  return (
+    <EstimateBasketProvider>
+      <CompanyRentalsPageInner />
+    </EstimateBasketProvider>
   );
 }
