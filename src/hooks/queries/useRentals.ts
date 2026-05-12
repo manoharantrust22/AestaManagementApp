@@ -25,6 +25,9 @@ import type {
   RentalPriceHistory,
   RentalSummary,
   RentalType,
+  RentalItemSize,
+  RentalItemSizeFormData,
+  SizeRates,
 } from "@/types/rental.types";
 
 // ============================================
@@ -41,6 +44,8 @@ export const rentalQueryKeys = {
       [...rentalQueryKeys.items.all, "category", categoryId] as const,
     search: (term: string) =>
       [...rentalQueryKeys.items.all, "search", term] as const,
+    sizes: (itemId: string) =>
+      ["rentals", "items", itemId, "sizes"] as const,
   },
   categories: {
     all: ["rentals", "categories"] as const,
@@ -1654,6 +1659,102 @@ export function useRentalStores() {
 
       if (error) throw error;
       return data;
+    },
+  });
+}
+
+// ============================================
+// RENTAL ITEM SIZES
+// ============================================
+
+export function useRentalItemSizes(itemId: string | undefined) {
+  const supabase = createClient();
+
+  return useQuery({
+    queryKey: itemId
+      ? rentalQueryKeys.items.sizes(itemId)
+      : ["rentals", "sizes", "disabled"],
+    enabled: !!itemId,
+    queryFn: wrapQueryFn(async () => {
+      const { data, error } = await supabase
+        .from("rental_item_sizes")
+        .select("*")
+        .eq("rental_item_id", itemId!)
+        .eq("is_active", true)
+        .order("display_order");
+      if (error) throw error;
+      return (data ?? []) as RentalItemSize[];
+    }, { operationName: "useRentalItemSizes" }),
+  });
+}
+
+export function useRentalInventoryForItem(itemId: string | undefined) {
+  const supabase = createClient();
+
+  return useQuery({
+    queryKey: itemId
+      ? rentalQueryKeys.storeInventory.byItem(itemId)
+      : ["rentals", "storeInventory", "disabled"],
+    enabled: !!itemId,
+    queryFn: wrapQueryFn(async () => {
+      const { data, error } = await supabase
+        .from("rental_store_inventory")
+        .select(`
+          *,
+          vendor:vendors(id, name, shop_name, phone, location),
+          rental_item:rental_items(id, name, code, unit)
+        `)
+        .eq("rental_item_id", itemId!)
+        .order("daily_rate");
+      if (error) throw error;
+      return (data ?? []) as RentalStoreInventoryWithDetails[];
+    }, { operationName: "useRentalInventoryForItem" }),
+  });
+}
+
+export function useCreateRentalItemSize() {
+  const queryClient = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    mutationFn: async (data: RentalItemSizeFormData) => {
+      await ensureFreshSession();
+
+      const { data: result, error } = await supabase
+        .from("rental_item_sizes")
+        .insert(data as never)
+        .select()
+        .single();
+      if (error) throw error;
+      return result as RentalItemSize;
+    },
+    onSuccess: (_, vars) => {
+      queryClient.invalidateQueries({
+        queryKey: rentalQueryKeys.items.sizes(vars.rental_item_id),
+      });
+    },
+  });
+}
+
+export function useUpdateStoreInventorySizeRates() {
+  const queryClient = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    mutationFn: async ({ id, size_rates }: { id: string; size_rates: SizeRates }) => {
+      await ensureFreshSession();
+
+      const { error } = await supabase
+        .from("rental_store_inventory")
+        .update({ size_rates } as never)
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      // Invalidate all store inventory queries
+      queryClient.invalidateQueries({
+        queryKey: rentalQueryKeys.storeInventory.all,
+      });
     },
   });
 }
