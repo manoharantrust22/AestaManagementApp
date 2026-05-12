@@ -511,13 +511,7 @@ export interface MaterialBrandVariantLink {
   created_at: string;
 }
 
-export interface BrandWithVariantLinks {
-  id: string;
-  brand_name: string;
-  is_preferred: boolean;
-  quality_rating: number | null;
-  notes: string | null;
-  image_url: string | null;
+export interface BrandWithVariantLinks extends MaterialBrand {
   material_brand_variant_links: MaterialBrandVariantLink[];
 }
 
