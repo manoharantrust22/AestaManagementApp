@@ -18,6 +18,7 @@ import type {
   RentalStoreInventoryFormData,
   RentalReturnFormData,
   RentalAdvanceFormData,
+  RentalSettlement,
   RentalSettlementFormData,
   RentalCostCalculation,
   RentalItemCostBreakdown,
@@ -1811,6 +1812,161 @@ export function useUpdateStoreInventorySizeRates() {
       queryClient.invalidateQueries({
         queryKey: rentalQueryKeys.storeInventory.all,
       });
+    },
+  });
+}
+
+// ── Request workflow hooks ──────────────────────────────────────────────────
+
+export function useCreateRentalRequest() {
+  const qc = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    mutationFn: async (data: { site_id: string; order_date: string; start_date: string; estimated_days: number; notes?: string; items: Array<{ rental_item_id: string; quantity: number; daily_rate_default: number; daily_rate_actual: number; rate_type: "daily" | "weekly" | "monthly" | "hourly" }> }) => {
+      await ensureFreshSession();
+
+      const { items, ...orderData } = data;
+      const { data: order, error: orderError } = await (supabase as any)
+        .from("rental_orders")
+        .insert({ ...orderData, vendor_id: null, status: "pending" })
+        .select()
+        .single();
+      if (orderError) throw orderError;
+
+      if (items.length > 0) {
+        const { error: itemsError } = await (supabase as any)
+          .from("rental_order_items")
+          .insert(items.map((i) => ({ ...i, rental_order_id: order.id })));
+        if (itemsError) throw itemsError;
+      }
+
+      return order as RentalOrder;
+    },
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: rentalQueryKeys.orders.bySite(vars.site_id) });
+      qc.invalidateQueries({ queryKey: rentalQueryKeys.orders.all });
+    },
+  });
+}
+
+export function useApproveRentalRequest() {
+  const qc = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    mutationFn: async (orderId: string) => {
+      await ensureFreshSession();
+
+      const { error } = await (supabase as any)
+        .from("rental_orders")
+        .update({ status: "approved" })
+        .eq("id", orderId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: rentalQueryKeys.orders.all });
+    },
+  });
+}
+
+// ── Delivery verification hook ──────────────────────────────────────────────
+
+export function useConfirmRentalDelivery() {
+  const qc = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    mutationFn: async ({
+      orderId,
+      deliveryDate,
+      actualTransportCost,
+      itemsReceived,
+    }: {
+      orderId: string;
+      deliveryDate: string;
+      actualTransportCost: number;
+      itemsReceived: { order_item_id: string; qty_received: number }[];
+    }) => {
+      await ensureFreshSession();
+
+      const { error: orderError } = await (supabase as any)
+        .from("rental_orders")
+        .update({
+          status: "active",
+          start_date: deliveryDate,
+          transport_cost_outward: actualTransportCost,
+        })
+        .eq("id", orderId);
+      if (orderError) throw orderError;
+
+      for (const item of itemsReceived) {
+        await supabase
+          .from("rental_order_items")
+          .update({ quantity: item.qty_received })
+          .eq("id", item.order_item_id);
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: rentalQueryKeys.orders.all });
+    },
+  });
+}
+
+// ── Date extension hook ─────────────────────────────────────────────────────
+
+export function useExtendRentalReturnDate() {
+  const qc = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    mutationFn: async ({
+      orderId,
+      newExpectedReturnDate,
+      reason,
+    }: {
+      orderId: string;
+      newExpectedReturnDate: string;
+      reason: string;
+    }) => {
+      await ensureFreshSession();
+
+      const { error } = await (supabase as any)
+        .from("rental_orders")
+        .update({
+          expected_return_date: newExpectedReturnDate,
+          internal_notes: `Extended to ${newExpectedReturnDate}: ${reason}`,
+        })
+        .eq("id", orderId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: rentalQueryKeys.orders.all });
+    },
+  });
+}
+
+// ── 3-party settlement mutation ─────────────────────────────────────────────
+
+export function useCreateRentalSettlementParty() {
+  const qc = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    mutationFn: async (data: RentalSettlementFormData) => {
+      await ensureFreshSession();
+
+      const { data: result, error } = await (supabase as any)
+        .from("rental_settlements")
+        .upsert({ ...data }, { onConflict: "rental_order_id,party_type" })
+        .select()
+        .single();
+      if (error) throw error;
+      return result as RentalSettlement;
+    },
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: rentalQueryKeys.orders.byId(vars.rental_order_id) });
+      qc.invalidateQueries({ queryKey: rentalQueryKeys.orders.all });
     },
   });
 }
