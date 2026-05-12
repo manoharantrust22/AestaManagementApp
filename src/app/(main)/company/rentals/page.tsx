@@ -5,6 +5,7 @@ import { useState, useDeferredValue } from "react";
 import {
   Box,
   Button,
+  Card,
   Chip,
   Grid,
   InputAdornment,
@@ -20,8 +21,10 @@ import ViewModuleIcon from "@mui/icons-material/ViewModule";
 import StoreIcon from "@mui/icons-material/Store";
 import AddIcon from "@mui/icons-material/Add";
 import { useRentalItemsWithVendorStats, useRentalCategories } from "@/hooks/queries/useRentals";
+import { useVendors } from "@/hooks/queries/useVendors";
 import { RentalItemCard } from "@/components/rentals/RentalItemCard";
 import { RentalItemInspectPane } from "@/components/rentals/RentalItemInspectPane";
+import { VendorInspectPane } from "@/components/vendors/VendorInspectPane";
 import { EstimateBasketDrawer } from "@/components/rentals/EstimateBasketDrawer";
 import { EstimateBasketProvider, useEstimateBasket } from "@/components/rentals/EstimateBasket";
 import type { RentalItemWithDetails } from "@/types/rental.types";
@@ -37,12 +40,15 @@ function CompanyRentalsPageInner() {
   const deferredSearch = useDeferredValue(search);
 
   const [selectedItem, setSelectedItem] = useState<RentalItemWithDetails | null>(null);
+  const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
   const [basketOpen, setBasketOpen] = useState(false);
   const [addItemOpen, setAddItemOpen] = useState(false);
 
   const { itemCount } = useEstimateBasket();
   const { data: categories = [] } = useRentalCategories();
   const { data: items = [], isLoading } = useRentalItemsWithVendorStats(categoryFilter);
+  const { data: allVendors = [] } = useVendors();
+  const rentalStoreVendors = allVendors.filter((v) => v.vendor_type === "rental_store");
 
   const filteredItems =
     deferredSearch.length >= 2
@@ -81,7 +87,13 @@ function CompanyRentalsPageInner() {
         <ToggleButtonGroup
           value={view}
           exclusive
-          onChange={(_, v) => v && setView(v)}
+          onChange={(_, v) => {
+            if (v) {
+              setView(v);
+              setSelectedItem(null);
+              setSelectedVendorId(null);
+            }
+          }}
           size="small"
           sx={{ flex: "none" }}
         >
@@ -202,9 +214,57 @@ function CompanyRentalsPageInner() {
           )}
 
           {view === "vendors" && (
-            <Typography variant="body2" color="text.secondary">
-              Vendor view wired in Task 11.
-            </Typography>
+            <Grid container spacing={1.5}>
+              {rentalStoreVendors.length === 0 ? (
+                <Grid size={{ xs: 12 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    No rental vendors found. Add a vendor with type &quot;Rental Store&quot; to see them here.
+                  </Typography>
+                </Grid>
+              ) : (
+                rentalStoreVendors.map((vendor) => (
+                  <Grid key={vendor.id} size={{ xs: 12, sm: 6, md: 4 }}>
+                    <Card
+                      variant="outlined"
+                      sx={{
+                        borderRadius: 2,
+                        borderColor: selectedVendorId === vendor.id ? "primary.main" : "divider",
+                        borderWidth: selectedVendorId === vendor.id ? 2 : 1,
+                        cursor: "pointer",
+                        transition: "border-color 0.15s",
+                      }}
+                      onClick={() =>
+                        setSelectedVendorId(vendor.id === selectedVendorId ? null : vendor.id)
+                      }
+                    >
+                      <Box sx={{ p: 1.5 }}>
+                        <Typography variant="subtitle2" fontWeight={700}>
+                          {vendor.name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          {vendor.store_city ?? vendor.shop_name ?? "—"}
+                        </Typography>
+                        <Box sx={{ mt: 1, display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                          <Chip
+                            label="Rental Store"
+                            size="small"
+                            color="primary"
+                            variant="outlined"
+                            sx={{ fontSize: 10 }}
+                          />
+                          <Chip
+                            label={vendor.is_active ? "Active" : "Inactive"}
+                            size="small"
+                            color={vendor.is_active ? "success" : "default"}
+                            sx={{ fontSize: 10 }}
+                          />
+                        </Box>
+                      </Box>
+                    </Card>
+                  </Grid>
+                ))
+              )}
+            </Grid>
           )}
         </Box>
 
@@ -215,6 +275,13 @@ function CompanyRentalsPageInner() {
             itemName={selectedItem.name}
             isOpen
             onClose={() => setSelectedItem(null)}
+          />
+        )}
+        {view === "vendors" && selectedVendorId && (
+          <VendorInspectPane
+            vendorId={selectedVendorId}
+            isOpen
+            onClose={() => setSelectedVendorId(null)}
           />
         )}
       </Box>
