@@ -74,9 +74,10 @@ export default function RequestItemRow({
     item.selected_variant_id ?? undefined
   );
 
-  // Fetch brand-variant links to resolve variant-level images for the brand dropdown
+  // Fetch brand-variant links to resolve variant-level images for the brand dropdown.
+  // material_brands are keyed to the PARENT material, not the variant — always use material_id.
   const { data: brandLinks = [] } = useBrandVariantLinks(
-    effectiveMaterialId ?? undefined
+    item.material_id ?? undefined
   );
 
   // Get unique brand names from vendor inventory
