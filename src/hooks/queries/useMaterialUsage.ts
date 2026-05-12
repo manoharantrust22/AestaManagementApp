@@ -1454,6 +1454,7 @@ export function useCreateMaterialUsageFIFO() {
     mutationFn: async (data: {
       siteId: string;
       usageDate: string;
+      usageDateEnd?: string;
       workDescription?: string;
       sectionId?: string;
       allocations: BatchAllocation[];
@@ -1565,6 +1566,7 @@ export function useCreateMaterialUsageFIFO() {
               unit: unit,
               unit_cost: alloc.unit_cost,
               usage_date: data.usageDate,
+              usage_date_end: data.usageDateEnd ?? null,
               work_description: data.workDescription || null,
               is_self_use: isSelfUse,
               settlement_status: isSelfUse ? "self_use" : "pending",
@@ -1659,6 +1661,7 @@ export function useCreateMaterialUsageFIFO() {
                 .insert({
                   site_id: data.siteId,
                   usage_date: data.usageDate,
+                  usage_date_end: data.usageDateEnd ?? null,
                   material_id: alloc.material_id,
                   brand_id: alloc.brand_id || inventory.brand_id || null,
                   quantity: alloc.quantity,
