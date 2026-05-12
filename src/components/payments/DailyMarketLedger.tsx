@@ -230,12 +230,9 @@ function LedgerRow({ row, pending, onClick, onSettle }: LedgerRowProps) {
           </Typography>
         )}
         {row.paymentChannel === "engineer_wallet" && (
-          <Chip
-            size="small"
-            icon={<AccountBalanceWalletIcon sx={{ fontSize: 11 }} />}
-            label="via wallet"
-            variant="outlined"
-            sx={{ height: 18, fontSize: 10, color: "text.secondary", ml: 0.5 }}
+          <AccountBalanceWalletIcon
+            sx={{ fontSize: 13, color: "text.secondary", flexShrink: 0 }}
+            titleAccess="via wallet"
           />
         )}
       </Box>

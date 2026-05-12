@@ -277,7 +277,10 @@
       "Bash(PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -f \"c:/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp/supabase/migrations/20260512150000_add_engineer_phone_and_daily_peek_rpc.sql\")",
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\supabase\\\\migrations\" -Name)",
       "Bash(Sort-Object -Descending)",
-      "Bash(wait b3hbwlufw *)"
+      "Bash(wait b3hbwlufw *)",
+      "Bash(cd /mnt/c/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp && find . -type f -path \"*/supabase/migrations/*\" -name \"*.sql\" | head -20)",
+      "Read(//mnt/c/Users/Haribabu/Documents/AppsCopilot/**)",
+      "PowerShell(Head -30)"
     ],
     "deny": [],
     "ask": [],

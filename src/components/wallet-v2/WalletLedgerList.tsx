@@ -166,13 +166,20 @@ export default function WalletLedgerList({
                     </Stack>
                   }
                   secondary={
-                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.25 }}>
-                      <Typography variant="caption" color="text.secondary">
-                        {dayjs(row.transaction_date).format("D MMM YYYY")}
-                      </Typography>
+                    <Stack direction="column" spacing={0} sx={{ mt: 0.25 }}>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Typography variant="caption" color="text.secondary">
+                          {dayjs(row.transaction_date).format("D MMM YYYY")}
+                        </Typography>
+                        {row.description && (
+                          <Typography variant="caption" color="text.secondary" noWrap>
+                            • {row.description}
+                          </Typography>
+                        )}
+                      </Stack>
                       {row.notes && (
                         <Typography variant="caption" color="text.secondary" noWrap>
-                          • {row.notes}
+                          {row.notes}
                         </Typography>
                       )}
                     </Stack>

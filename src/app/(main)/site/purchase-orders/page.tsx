@@ -507,11 +507,16 @@ export default function PurchaseOrdersPage() {
             );
           }
 
+          const getBrandLabel = (item: any) =>
+            [item.brand?.brand_name, item.brand?.variant_name].filter(Boolean).join(" · ");
+
           const materialNames = items.map((item) => {
             const name = item.material?.name || "Unknown";
+            const brandLabel = getBrandLabel(item);
             const qty = item.quantity;
             const unit = item.material?.unit || "";
-            return qty ? `${name} (${qty} ${unit})` : name;
+            const qtyStr = qty ? ` (${qty} ${unit})` : "";
+            return brandLabel ? `${name} — ${brandLabel}${qtyStr}` : `${name}${qtyStr}`;
           });
 
           const getItemImage = (item: any) =>
@@ -534,12 +539,12 @@ export default function PurchaseOrdersPage() {
               }
               arrow
             >
-              <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+              <Box sx={{ display: "flex", gap: 0.5, alignItems: "flex-start" }}>
                 {items.length === 1 ? (
                   <Avatar
                     src={getItemImage(items[0]) || undefined}
                     variant="rounded"
-                    sx={{ width: 28, height: 28, bgcolor: "action.hover" }}
+                    sx={{ width: 28, height: 28, bgcolor: "action.hover", flexShrink: 0, mt: 0.25 }}
                   >
                     <MaterialIcon sx={{ fontSize: 16, color: "text.disabled" }} />
                   </Avatar>
@@ -547,6 +552,8 @@ export default function PurchaseOrdersPage() {
                   <AvatarGroup
                     max={3}
                     sx={{
+                      flexShrink: 0,
+                      mt: 0.25,
                       "& .MuiAvatar-root": {
                         width: 28,
                         height: 28,
@@ -568,31 +575,38 @@ export default function PurchaseOrdersPage() {
                     ))}
                   </AvatarGroup>
                 )}
-                <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center", minWidth: 0 }}>
-                  {visibleItems.map((item, idx) => (
-                    <Chip
-                      key={idx}
-                      label={item.material?.name || "Unknown"}
-                      size="small"
-                      variant="outlined"
-                      sx={{
-                        maxWidth: 100,
-                        height: 22,
-                        fontSize: "0.7rem",
-                        "& .MuiChip-label": {
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        },
-                      }}
-                    />
-                  ))}
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25, minWidth: 0 }}>
+                  {visibleItems.map((item, idx) => {
+                    const brandLabel = getBrandLabel(item);
+                    return (
+                      <Box key={idx} sx={{ minWidth: 0 }}>
+                        <Typography
+                          variant="caption"
+                          fontWeight={500}
+                          noWrap
+                          sx={{ display: "block", maxWidth: 140 }}
+                        >
+                          {item.material?.name || "Unknown"}
+                        </Typography>
+                        {brandLabel && (
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            noWrap
+                            sx={{ display: "block", maxWidth: 140, fontSize: "0.65rem" }}
+                          >
+                            {brandLabel}
+                          </Typography>
+                        )}
+                      </Box>
+                    );
+                  })}
                   {remainingCount > 0 && (
                     <Chip
                       label={`+${remainingCount}`}
                       size="small"
                       color="default"
-                      sx={{ height: 20, fontSize: "0.65rem" }}
+                      sx={{ height: 20, fontSize: "0.65rem", alignSelf: "flex-start" }}
                     />
                   )}
                 </Box>

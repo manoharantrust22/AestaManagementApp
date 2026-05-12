@@ -74,6 +74,7 @@ export default function MiscExpenseDialog({
   const isEditMode = !!expense;
   const { userProfile } = useAuth();
   const { selectedSite } = useSite();
+  const isSiteEngineer = userProfile?.role === "site_engineer";
   const supabase = createClient();
   const queryClient = useQueryClient();
 
@@ -168,6 +169,14 @@ export default function MiscExpenseDialog({
       setError(null);
     }
   }, [open, expense, isEditMode, defaultSubcontractId]);
+
+  // Site engineers always pay via their own wallet — auto-select and pre-fill.
+  useEffect(() => {
+    if (isSiteEngineer && userProfile?.id && !isEditMode) {
+      setPayerType("site_engineer");
+      setSelectedEngineerId(userProfile.id);
+    }
+  }, [isSiteEngineer, userProfile?.id, isEditMode]);
 
   const fetchCategories = async () => {
     try {
@@ -462,17 +471,19 @@ export default function MiscExpenseDialog({
               }
             }}
           >
-            <FormControlLabel
-              value="company_direct"
-              control={<Radio size="small" />}
-              label="Company Direct"
-              disabled={isEditMode}
-            />
+            {!isSiteEngineer && (
+              <FormControlLabel
+                value="company_direct"
+                control={<Radio size="small" />}
+                label="Company Direct"
+                disabled={isEditMode}
+              />
+            )}
             <FormControlLabel
               value="site_engineer"
               control={<Radio size="small" />}
               label="Via Site Engineer"
-              disabled={isEditMode}
+              disabled={isEditMode || isSiteEngineer}
             />
           </RadioGroup>
 

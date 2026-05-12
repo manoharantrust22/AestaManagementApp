@@ -855,15 +855,16 @@ export default function FileUploader({
         } catch (sessionError) {
           console.warn("[FileUploader] ensureFreshSession failed, proceeding with cached session:", sessionError);
         }
-        // getSession() can hang for the full GLOBAL_TIMEOUT (2 min) when the
-        // Supabase auth client tries to refresh a stale token through the
-        // Cloudflare proxy and the network is degraded — that's the "Preparing
-        // upload..." 50% stall users see. Bound it at 5s; if it doesn't return
-        // by then there is no usable token and we fail fast with a clear error
-        // instead of leaving the dialog hanging.
+        // getSession() can block while an in-flight token refresh (triggered by
+        // proactiveRefreshIfNeeded on page load) completes through the Cloudflare
+        // proxy. On slow Indian networks this refresh takes 10-20s, causing a
+        // false "Upload timed out" when the previous 5s limit was too short.
+        // ensureFreshSession() above has a 4s internal timeout, so the refresh
+        // could have been running for up to 4s already — allow 25s total headroom
+        // (4s elapsed + 21s here) to cover the worst-case proxy round-trip.
         const sessionResult = await withTimeout(
           supabase.auth.getSession(),
-          5000,
+          21000,
           "Session check timed out. Please check your connection and try again.",
         );
         const session = sessionResult.data.session;

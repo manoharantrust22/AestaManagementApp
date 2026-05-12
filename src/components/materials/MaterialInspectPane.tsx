@@ -18,6 +18,7 @@ import {
   alpha,
   useMediaQuery,
   useTheme,
+  Popover,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -29,9 +30,10 @@ import {
   Star as StarIcon,
   StarBorder as StarBorderIcon,
   MoreVert as MoreVertIcon,
+  PhotoCamera as PhotoCameraIcon,
 } from "@mui/icons-material";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
-import { useMaterial, useMaterialVariants } from "@/hooks/queries/useMaterials";
+import { useMaterial, useMaterialVariants, useUpdateMaterial } from "@/hooks/queries/useMaterials";
 import {
   useMaterialVendorSummary,
   useMaterialPriceHistory,
@@ -320,7 +322,7 @@ export function MaterialInspectPane({
           ) : activeTab === "brands" ? (
             <BrandsTab brands={visibleBrands} />
           ) : activeTab === "variants" ? (
-            <VariantsTab isLoading={variantsLoading} variants={variants} />
+            <VariantsTab isLoading={variantsLoading} variants={variants} canEdit={canEdit} />
           ) : activeTab === "price-history" ? (
             <PriceHistoryTab
               isLoading={historyLoading}
@@ -896,10 +898,46 @@ function BrandsTab({ brands }: { brands: MaterialBrand[] }) {
 function VariantsTab({
   isLoading,
   variants,
+  canEdit = false,
 }: {
   isLoading: boolean;
   variants: MaterialWithDetails[];
+  canEdit?: boolean;
 }) {
+  const [pickerAnchor, setPickerAnchor] = useState<{ el: HTMLElement; variantId: string } | null>(null);
+  const updateMaterial = useUpdateMaterial();
+
+  const GALLERY_PHOTOS: string[] = ["CRI2HP30Stage.jpeg",
+  "Chamber_brick.jpg",
+  "Country_nattu_brick.jpeg",
+  "Cover-Block.webp",
+  "Msand.jpg",
+  "PanelCRI.jpeg",
+  "amman-tmt-bar-500x500.webp",
+  "binding_wire.jpg",
+  "chettinadPPC43.png",
+  "flyash.jpg",
+  "mukkal_Jalli.jpg",
+  "ondra_jalli.webp",
+  "psand.png",
+  "red_Brick.jpg"];
+
+  const openPicker = (e: React.MouseEvent<HTMLElement>, variantId: string) => {
+    e.stopPropagation();
+    setPickerAnchor({ el: e.currentTarget, variantId });
+  };
+  const closePicker = () => setPickerAnchor(null);
+
+  const assignImage = (imageName: string | null) => {
+    if (!pickerAnchor) return;
+    const url = imageName ? `/Material_Photo/${imageName}` : null;
+    updateMaterial.mutate({
+      id: pickerAnchor.variantId,
+      data: { image_url: url ?? undefined },
+    });
+    closePicker();
+  };
+
   if (isLoading) {
     return (
       <Box sx={{ p: 1.5 }}>
@@ -919,44 +957,121 @@ function VariantsTab({
     );
   }
   return (
-    <Box sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
-      {variants.map((v) => (
+    <>
+      <Box sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
+        {variants.map((v) => (
+          <Box
+            key={v.id}
+            sx={{
+              px: 1.5,
+              py: 1,
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 1.5,
+              display: "flex",
+              gap: 1.25,
+              alignItems: "center",
+            }}
+          >
+            <Box sx={{ position: "relative", flexShrink: 0 }}>
+              <EntityImageAvatar
+                src={v.image_url}
+                name={v.name}
+                size={36}
+                fallbackIcon={<InventoryIcon />}
+                tint="primary"
+              />
+              {canEdit && (
+                <Tooltip title="Change image" placement="top">
+                  <IconButton
+                    size="small"
+                    onClick={(e) => openPicker(e, v.id)}
+                    sx={{
+                      position: "absolute",
+                      bottom: -6,
+                      right: -6,
+                      width: 18,
+                      height: 18,
+                      bgcolor: "background.paper",
+                      border: 1,
+                      borderColor: "divider",
+                      "&:hover": { bgcolor: "action.hover" },
+                      p: 0,
+                    }}
+                  >
+                    <PhotoCameraIcon sx={{ fontSize: 11 }} />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography sx={{ fontSize: 13, fontWeight: 700 }}>{v.name}</Typography>
+              <Typography
+                sx={{
+                  fontSize: 10.5,
+                  color: "text.secondary",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.4,
+                }}
+              >
+                {[v.code, UNIT_LABELS[v.unit as MaterialUnit] || v.unit].filter(Boolean).join(" · ")}
+              </Typography>
+            </Box>
+          </Box>
+        ))}
+      </Box>
+
+      {/* Image picker popover */}
+      <Popover
+        open={Boolean(pickerAnchor)}
+        anchorEl={pickerAnchor?.el}
+        onClose={closePicker}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
+        slotProps={{ paper: { sx: { p: 1.5, width: 280 } } }}
+      >
+        <Typography sx={{ fontSize: 11, fontWeight: 700, mb: 1, color: "text.secondary", textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Choose image
+        </Typography>
+        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 0.75 }}>
+          {GALLERY_PHOTOS.map((fname) => (
+            <Tooltip key={fname} title={fname.replace(/\.[^.]+$/, "").replace(/_/g, " ")} placement="top">
+              <Box
+                component="img"
+                src={`/Material_Photo/${fname}`}
+                alt={fname}
+                onClick={() => assignImage(fname)}
+                sx={{
+                  width: "100%",
+                  aspectRatio: "1",
+                  objectFit: "cover",
+                  borderRadius: 1,
+                  cursor: "pointer",
+                  border: 2,
+                  borderColor: "transparent",
+                  "&:hover": { borderColor: "primary.main" },
+                }}
+              />
+            </Tooltip>
+          ))}
+        </Box>
         <Box
-          key={v.id}
+          onClick={() => assignImage(null)}
           sx={{
-            px: 1.5,
-            py: 1,
-            border: 1,
+            mt: 1,
+            pt: 1,
+            borderTop: 1,
             borderColor: "divider",
-            borderRadius: 1.5,
-            display: "flex",
-            gap: 1.25,
-            alignItems: "center",
+            fontSize: 12,
+            color: "text.secondary",
+            cursor: "pointer",
+            "&:hover": { color: "error.main" },
           }}
         >
-          <EntityImageAvatar
-            src={v.image_url}
-            name={v.name}
-            size={36}
-            fallbackIcon={<InventoryIcon />}
-            tint="primary"
-          />
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontSize: 13, fontWeight: 700 }}>{v.name}</Typography>
-            <Typography
-              sx={{
-                fontSize: 10.5,
-                color: "text.secondary",
-                textTransform: "uppercase",
-                letterSpacing: 0.4,
-              }}
-            >
-              {[v.code, UNIT_LABELS[v.unit as MaterialUnit] || v.unit].filter(Boolean).join(" · ")}
-            </Typography>
-          </Box>
+          Remove image
         </Box>
-      ))}
-    </Box>
+      </Popover>
+    </>
   );
 }
 

@@ -1373,7 +1373,12 @@ export function useAddVariantToMaterial() {
       if (error) throw error;
       return result as Material;
     },
-    onSuccess: (_, variables) => {
+    onSuccess: (newVariant, variables) => {
+      // Immediately inject the new variant so the dialog shows it without waiting for refetch
+      queryClient.setQueryData<MaterialWithDetails[]>(
+        ["materials", "variants", variables.parentId],
+        (old = []) => [...old, newVariant as unknown as MaterialWithDetails]
+      );
       queryClient.invalidateQueries({ queryKey: ["materials"] });
       queryClient.invalidateQueries({ queryKey: ["material", variables.parentId] });
       queryClient.invalidateQueries({
