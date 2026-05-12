@@ -156,15 +156,17 @@ export function useLatestDepositSource(
   userId: string | undefined,
   siteId: string | undefined
 ) {
+  useCrossTabInvalidate();
   const supabase = createClient();
-  return useQuery({
-    queryKey: userId && siteId
+  const enabled = Boolean(userId && siteId);
+  return useQuery<{ payer_source: string | null; transaction_date: string | null }>({
+    queryKey: enabled
       ? [...ENGINEER_WALLET_KEYS.all, "latest-deposit-source", userId, siteId]
       : ["engineer-wallet", "latest-deposit-source", "_disabled"],
-    enabled: Boolean(userId && siteId),
+    enabled,
     staleTime: 2 * 60_000,
     queryFn: wrapQueryFn(
-      () => getLatestDepositPayerSource(supabase, userId!, siteId!),
+      () => getLatestDepositPayerSource(supabase, userId as string, siteId as string),
       { operationName: "useLatestDepositSource" }
     ),
   });
@@ -178,19 +180,21 @@ export function useCurrentUserWalletEnabled(
   userId: string | undefined,
   companyId: string | undefined
 ) {
+  useCrossTabInvalidate();
   const supabase = createClient();
+  const enabled = Boolean(userId && companyId);
   return useQuery<boolean>({
-    queryKey: userId && companyId
+    queryKey: enabled
       ? [...ENGINEER_WALLET_KEYS.all, "is-wallet-enabled", userId, companyId]
       : ["engineer-wallet", "is-wallet-enabled", "_disabled"],
-    enabled: Boolean(userId && companyId),
+    enabled,
     staleTime: 5 * 60_000,
     queryFn: async () => {
       const { data } = await supabase
         .from("company_members")
         .select("wallet_enabled")
-        .eq("user_id", userId!)
-        .eq("company_id", companyId!)
+        .eq("user_id", userId as string)
+        .eq("company_id", companyId as string)
         .maybeSingle();
       return data?.wallet_enabled ?? false;
     },
