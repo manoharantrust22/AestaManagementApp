@@ -502,6 +502,25 @@ export interface MaterialBrand {
   created_at: string;
 }
 
+export interface MaterialBrandVariantLink {
+  id: string;
+  brand_id: string;
+  variant_id: string;
+  is_active: boolean;
+  image_url: string | null;
+  created_at: string;
+}
+
+export interface BrandWithVariantLinks {
+  id: string;
+  brand_name: string;
+  is_preferred: boolean;
+  quality_rating: number | null;
+  notes: string | null;
+  image_url: string | null;
+  material_brand_variant_links: MaterialBrandVariantLink[];
+}
+
 // Helper type for grouped brand display with variants
 export interface BrandWithVariants {
   brand_name: string;
