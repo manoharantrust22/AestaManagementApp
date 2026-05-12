@@ -135,7 +135,7 @@ export function MaterialInspectPane({
   }, [isOpen, onClose]);
 
   const variantCount = variants.length;
-  const brandCount = brandLinks.length;
+  const brandCount = new Set(brandLinks.map((b) => b.brand_name.toLowerCase())).size;
 
   return (
     <Drawer
@@ -860,9 +860,29 @@ export function BrandsTabContent({
     );
   }
 
+  // Group duplicate brand_name rows (same as edit dialog)
+  const grouped = new Map<string, BrandWithVariantLinks>();
+  for (const b of brandLinks) {
+    const key = b.brand_name.toLowerCase();
+    if (!grouped.has(key)) {
+      grouped.set(key, { ...b, material_brand_variant_links: [...b.material_brand_variant_links] });
+    } else {
+      const existing = grouped.get(key)!;
+      if (b.is_preferred) existing.is_preferred = true;
+      if (!existing.image_url && b.image_url) existing.image_url = b.image_url;
+      if (b.quality_rating != null && (existing.quality_rating == null || b.quality_rating > existing.quality_rating))
+        existing.quality_rating = b.quality_rating;
+      for (const link of b.material_brand_variant_links) {
+        if (!existing.material_brand_variant_links.find((l) => l.variant_id === link.variant_id))
+          existing.material_brand_variant_links.push(link);
+      }
+    }
+  }
+  const dedupedBrands = Array.from(grouped.values());
+
   return (
     <Box sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
-      {brandLinks.map((brand) => (
+      {dedupedBrands.map((brand) => (
         <Box
           key={brand.id}
           sx={{
