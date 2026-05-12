@@ -24,9 +24,11 @@ CREATE INDEX IF NOT EXISTS idx_rental_item_sizes_item_id
 -- RLS: read for all authenticated, write for company admin
 ALTER TABLE public.rental_item_sizes ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "rental_item_sizes_read" ON public.rental_item_sizes;
 CREATE POLICY "rental_item_sizes_read" ON public.rental_item_sizes
   FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "rental_item_sizes_write" ON public.rental_item_sizes;
 CREATE POLICY "rental_item_sizes_write" ON public.rental_item_sizes
   FOR ALL TO authenticated
   USING (true) WITH CHECK (true);
