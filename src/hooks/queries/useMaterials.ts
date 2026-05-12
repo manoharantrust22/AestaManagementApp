@@ -1134,6 +1134,7 @@ export function useToggleBrandVariantLink() {
       queryClient.invalidateQueries({
         queryKey: ["brandVariantLinks", materialId],
       });
+      queryClient.invalidateQueries({ queryKey: ["brandVariantLinkedBrandNames"] });
     },
   });
 }
@@ -1386,6 +1387,9 @@ export function useDeleteMaterialBrand() {
         queryKey: ["materialBrands", result.materialId],
       });
       queryClient.invalidateQueries({
+        queryKey: ["brandVariantLinks", result.materialId],
+      });
+      queryClient.invalidateQueries({
         queryKey: ["material", result.materialId],
       });
       queryClient.invalidateQueries({ queryKey: ["materials"] });
@@ -1465,10 +1469,34 @@ export function useCreateMaterialWithVariants() {
           };
         });
 
-        const { error: variantError } = await (supabase.from("materials") as any)
-          .insert(variantsToInsert);
+        const { data: createdVariants, error: variantError } = await (supabase.from("materials") as any)
+          .insert(variantsToInsert)
+          .select("id");
 
         if (variantError) throw variantError;
+
+        // Auto-link all existing active brands of the parent material to each new variant
+        if (createdVariants && createdVariants.length > 0) {
+          const { data: brands } = await supabase
+            .from("material_brands")
+            .select("id")
+            .eq("material_id", parent.id)
+            .eq("is_active", true);
+
+          if (brands && brands.length > 0) {
+            const links = createdVariants.flatMap((v: { id: string }) =>
+              brands.map((b) => ({
+                brand_id: b.id,
+                variant_id: v.id,
+                is_active: true,
+              }))
+            );
+            await supabase
+              .from("material_brand_variant_links")
+              .insert(links)
+              .throwOnError();
+          }
+        }
       }
 
       return parent as Material;
