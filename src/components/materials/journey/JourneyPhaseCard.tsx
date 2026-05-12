@@ -9,8 +9,8 @@ import {
   Divider,
   alpha,
   useTheme,
-  type Theme,
 } from "@mui/material";
+import type { Theme } from "@mui/material/styles";
 import Link from "next/link";
 import type { JourneyPhaseStatus } from "@/types/journey.types";
 

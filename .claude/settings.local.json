@@ -280,7 +280,14 @@
       "Bash(wait b3hbwlufw *)",
       "Bash(cd /mnt/c/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp && find . -type f -path \"*/supabase/migrations/*\" -name \"*.sql\" | head -20)",
       "Read(//mnt/c/Users/Haribabu/Documents/AppsCopilot/**)",
-      "PowerShell(Head -30)"
+      "PowerShell(Head -30)",
+      "Bash(cat > *)",
+      "Bash(Get-Process -Id 5888 -ErrorAction SilentlyContinue)",
+      "Bash(wmic process *)",
+      "PowerShell(cd \"C:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\"; $env:NODE_OPTIONS=\"--max-old-space-size=4096\"; npm run build 2>&1 | Select-Object -Last 80)",
+      "Bash(Get-Content \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\f46260ec-d620-4439-8b8c-b1904c6a688a\\\\tasks\\\\bake4esqe.output\" -Tail 40)",
+      "PowerShell($f = \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\f46260ec-d620-4439-8b8c-b1904c6a688a\\\\tasks\\\\b7sa9g3x2.output\"; $timeout = 150; $start = Get-Date; while \\(\\(Get-Date\\) - $start -lt [TimeSpan]::FromSeconds\\($timeout\\)\\) { Start-Sleep 8; $lines = Get-Content $f -ErrorAction SilentlyContinue; $last = $lines | Select-Object -Last 5; $done = $last | Where-Object { $_ -match \"Route \\\\\\(app\\\\\\)|Build error|Failed to compile|successfully\" }; if \\($done\\) { $lines | Select-Object -Last 30; break } })",
+      "PowerShell($f = \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\f46260ec-d620-4439-8b8c-b1904c6a688a\\\\tasks\\\\b7sa9g3x2.output\"; $timeout = 180; $start = Get-Date; while \\(\\(Get-Date\\) - $start -lt [TimeSpan]::FromSeconds\\($timeout\\)\\) { Start-Sleep 10; $lines = Get-Content $f -ErrorAction SilentlyContinue; $last = $lines | Select-Object -Last 5; $done = $last | Where-Object { $_ -match \"Route \\\\\\(app\\\\\\)|Build error|Failed to compile|exit code|✓ Generating\" }; if \\($done\\) { $lines | Select-Object -Last 40; break } })"
     ],
     "deny": [],
     "ask": [],
