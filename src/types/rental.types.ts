@@ -147,6 +147,25 @@ export interface RentalStoreInventory {
   last_price_update: string | null;
   created_at: string;
   updated_at: string;
+  size_rates?: SizeRates | null;   // null = single rate (use daily_rate for all sizes)
+}
+
+// Per-size daily rates map. Key = size_label, value = rate per day.
+export type SizeRates = Record<string, number>;
+
+export interface RentalItemSize {
+  id: string;
+  rental_item_id: string;
+  size_label: string;       // e.g. "6×1½"
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface RentalItemSizeFormData {
+  rental_item_id: string;
+  size_label: string;
+  display_order?: number;
 }
 
 export interface RentalOrder {
@@ -302,6 +321,7 @@ export interface RentalItemCategoryWithChildren extends RentalItemCategory {
 
 export interface RentalItemWithDetails extends RentalItem {
   category?: RentalItemCategory | null;
+  sizes?: RentalItemSize[];
 }
 
 export interface RentalStoreInventoryWithDetails extends RentalStoreInventory {
@@ -548,4 +568,30 @@ export interface RentalSummary {
 export interface RentalDashboardStats extends RentalSummary {
   recentOrders: RentalOrderWithDetails[];
   overdueOrders: RentalOrderWithDetails[];
+}
+
+// ─── Estimate Basket ───────────────────────────────────────────────────────
+
+export interface EstimateBasketItem {
+  id: string;                    // unique key for this basket entry
+  rental_item_id: string;
+  rental_item_name: string;
+  size_label: string | null;     // null for items with no size variants
+  quantity: number;
+  days: number;
+}
+
+export interface VendorEstimate {
+  vendor_id: string;
+  vendor_name: string;
+  total_rental_cost: number;     // sum across all basket items
+  line_items: {
+    rental_item_id: string;
+    size_label: string | null;
+    qty: number;
+    days: number;
+    daily_rate: number;
+    line_total: number;
+  }[];
+  is_cheapest: boolean;
 }
