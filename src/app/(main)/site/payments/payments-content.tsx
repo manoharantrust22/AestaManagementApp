@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
+import dayjs from "dayjs";
 import {
   Alert,
   Box,
@@ -51,6 +52,7 @@ import PaymentsLedger, {
 } from "@/components/payments/PaymentsLedger";
 import { MestriSettleDialog } from "@/components/payments/MestriSettleDialog";
 import PaymentDialog from "@/components/payments/PaymentDialog";
+import WalletSettleConfirmDialog from "@/components/payments/WalletSettleConfirmDialog";
 import SettlementRefDetailDialog, {
   type SettlementDetails,
 } from "@/components/payments/SettlementRefDetailDialog";
@@ -68,6 +70,7 @@ import { useSalarySliceSummary } from "@/hooks/queries/useSalarySliceSummary";
 import { useSalaryWaterfall } from "@/hooks/queries/useSalaryWaterfall";
 import { useAdvances } from "@/hooks/queries/useAdvances";
 import { useDayPendingRecords } from "@/hooks/queries/useDayPendingRecords";
+import { useCurrentUserWalletEnabled } from "@/hooks/queries/useEngineerWalletV2";
 import {
   useSettlementsList,
   type SettlementListRow,
@@ -250,6 +253,16 @@ export default function PaymentsContent() {
   }, [hideCancelled]);
   const { userProfile } = useAuth();
   const canEditSettlements = hasEditPermission(userProfile?.role);
+  // Wallet-enabled site engineers see the WalletSettleConfirmDialog on Daily+Market
+  // Settle clicks instead of the legacy admin PaymentDialog. sites.company_id is a
+  // real FK column on the Database type but the in-scope Site type narrowing here
+  // isn't surfacing it — the plan calls for an `as any` cast to keep the access ergonomic.
+  const { data: isWalletEnabled } = useCurrentUserWalletEnabled(
+    userProfile?.id,
+    (selectedSite as any)?.company_id,
+  );
+  const isEngineerWalletSettle =
+    userProfile?.role === "site_engineer" && isWalletEnabled === true;
   const [settleDialog, setSettleDialog] = useState<null | {
     weekStart: string;
     weekEnd: string;
@@ -1587,7 +1600,24 @@ export default function PaymentsContent() {
         />
       )}
 
-      {dayDialog && (
+      {dayDialog && isEngineerWalletSettle ? (
+        <WalletSettleConfirmDialog
+          open
+          onClose={() => setDayDialog(null)}
+          onSuccess={() => {
+            setDayDialog(null);
+            void queryClient.invalidateQueries({ queryKey: ["payments-ledger"] });
+            void queryClient.invalidateQueries({ queryKey: ["salary-slice-summary"] });
+            void queryClient.invalidateQueries({ queryKey: ["salary-waterfall"] });
+            void queryClient.invalidateQueries({ queryKey: ["payment-summary"] });
+          }}
+          date={dayDialog.date}
+          dateLabel={dayjs(dayDialog.date).format("DD MMM")}
+          dailyRecords={dayPendingQuery.data ?? []}
+          siteId={selectedSite!.id}
+          engineerId={userProfile!.id}
+        />
+      ) : dayDialog ? (
         <PaymentDialog
           open
           onClose={() => setDayDialog(null)}
@@ -1601,7 +1631,7 @@ export default function PaymentsContent() {
             void queryClient.invalidateQueries({ queryKey: ["payment-summary"] });
           }}
         />
-      )}
+      ) : null}
 
       <InspectPane
         entity={pane.currentEntity}
