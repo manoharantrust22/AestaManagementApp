@@ -121,6 +121,8 @@ function StatCard({ title, value, subtitle, icon, color = "primary", onClick }: 
 // Status badge colors
 const getStatusColor = (status: RentalOrderStatus): "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning" => {
   const colors: Record<RentalOrderStatus, "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning"> = {
+    pending: "secondary",
+    approved: "info",
     draft: "default",
     confirmed: "info",
     active: "primary",
