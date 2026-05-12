@@ -1092,7 +1092,8 @@ export function useBrandVariantLinks(materialId: string | undefined) {
         )
         .eq("material_id", materialId)
         .eq("is_active", true)
-        .order("brand_name");
+        .order("brand_name")
+        .order("variant_name", { nullsFirst: true });
 
       if (error) throw error;
       return data as unknown as BrandWithVariantLinks[];

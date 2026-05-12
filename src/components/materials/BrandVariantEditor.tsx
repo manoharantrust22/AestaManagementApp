@@ -11,6 +11,8 @@ import {
   Collapse,
   Paper,
   Tooltip,
+  Snackbar,
+  Alert,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -87,6 +89,7 @@ export default function BrandVariantEditor({
   const [newBrandName, setNewBrandName] = useState("");
   const [expandedBrands, setExpandedBrands] = useState<Set<string>>(new Set());
   const [isAddingBrand, setIsAddingBrand] = useState(false);
+  const [imageUploadErrorOpen, setImageUploadErrorOpen] = useState(false);
 
   const { data: brandLinks = [] } = useBrandVariantLinks(materialId);
   const { data: materialVariants = [] } = useMaterialVariants(materialId);
@@ -419,7 +422,7 @@ export default function BrandVariantEditor({
                                   <IconButton
                                     size="small"
                                     component="label"
-                                    disabled={disabled}
+                                    disabled={disabled || upsertImage.isPending}
                                     sx={{ fontSize: 10, gap: 0.25, borderRadius: 1, px: 0.5 }}
                                   >
                                     <PhotoCameraIcon sx={{ fontSize: 14 }} />
@@ -439,17 +442,21 @@ export default function BrandVariantEditor({
                                           .upload(`product-photos/${fileName}`, file, { upsert: true });
                                         if (uploadError) {
                                           console.error("Variant image upload failed:", uploadError);
+                                          setImageUploadErrorOpen(true);
                                           return;
                                         }
                                         const { data: urlData } = supabase.storage
                                           .from("work-updates")
                                           .getPublicUrl(uploadData.path);
-                                        upsertImage.mutate({
-                                          brandId,
-                                          variantId: variant.id,
-                                          imageUrl: urlData.publicUrl,
-                                          materialId,
-                                        });
+                                        upsertImage.mutate(
+                                          {
+                                            brandId,
+                                            variantId: variant.id,
+                                            imageUrl: urlData.publicUrl,
+                                            materialId,
+                                          },
+                                          { onError: () => setImageUploadErrorOpen(true) }
+                                        );
                                       }}
                                     />
                                   </IconButton>
@@ -494,6 +501,22 @@ export default function BrandVariantEditor({
           Add
         </Button>
       </Box>
+
+      <Snackbar
+        open={imageUploadErrorOpen}
+        autoHideDuration={4000}
+        onClose={() => setImageUploadErrorOpen(false)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert
+          onClose={() => setImageUploadErrorOpen(false)}
+          severity="error"
+          variant="filled"
+          sx={{ width: "100%" }}
+        >
+          Image upload failed
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
