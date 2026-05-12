@@ -289,7 +289,9 @@
       "PowerShell($f = \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\f46260ec-d620-4439-8b8c-b1904c6a688a\\\\tasks\\\\b7sa9g3x2.output\"; $timeout = 150; $start = Get-Date; while \\(\\(Get-Date\\) - $start -lt [TimeSpan]::FromSeconds\\($timeout\\)\\) { Start-Sleep 8; $lines = Get-Content $f -ErrorAction SilentlyContinue; $last = $lines | Select-Object -Last 5; $done = $last | Where-Object { $_ -match \"Route \\\\\\(app\\\\\\)|Build error|Failed to compile|successfully\" }; if \\($done\\) { $lines | Select-Object -Last 30; break } })",
       "PowerShell($f = \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\f46260ec-d620-4439-8b8c-b1904c6a688a\\\\tasks\\\\b7sa9g3x2.output\"; $timeout = 180; $start = Get-Date; while \\(\\(Get-Date\\) - $start -lt [TimeSpan]::FromSeconds\\($timeout\\)\\) { Start-Sleep 10; $lines = Get-Content $f -ErrorAction SilentlyContinue; $last = $lines | Select-Object -Last 5; $done = $last | Where-Object { $_ -match \"Route \\\\\\(app\\\\\\)|Build error|Failed to compile|exit code|✓ Generating\" }; if \\($done\\) { $lines | Select-Object -Last 40; break } })",
       "Bash(bash -c 'GIT_DIR=$\\(cd \"$\\(git rev-parse --git-dir\\)\" 2>/dev/null && pwd -P\\); GIT_COMMON=$\\(cd \"$\\(git rev-parse --git-common-dir\\)\" 2>/dev/null && pwd -P\\); echo \"GIT_DIR=$GIT_DIR\"; echo \"GIT_COMMON=$GIT_COMMON\"; echo \"Same: $\\([ \"$GIT_DIR\" = \"$GIT_COMMON\" ] && echo yes || echo no\\)\"; git branch --show-current')",
-      "Bash(price_history\")"
+      "Bash(price_history\")",
+      "Bash(Get-Content \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\9d17e3c5-a3e4-46c2-b697-5cdab7f1676f\\\\tasks\\\\bn6u1lnse.output\" -Tail 30)",
+      "Bash(python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\([k for k in d.get\\('permissions',{}\\).get\\('allow',[]\\) if 'supabase' in k.lower\\(\\)]\\)\")"
     ],
     "deny": [],
     "ask": [],

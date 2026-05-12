@@ -100,11 +100,31 @@ export function useRequestJourney(requestId: string | null | undefined): {
   const request = requestQuery.data ?? null;
   const poId = request?.converted_to_po_id ?? null;
 
+  // ── 1b. Fallback PO lookup via source_request_id when converted_to_po_id is null ─
+  // The link is bidirectional but often only the PO side stores the reference.
+  const fallbackPoIdQuery = useQuery({
+    queryKey: ["journey", "po-by-request", requestId ?? "none"],
+    queryFn: wrapQueryFn(async () => {
+      if (!requestId) return null;
+      const { data, error } = await supabase
+        .from("purchase_orders")
+        .select("id")
+        .eq("source_request_id", requestId)
+        .maybeSingle();
+      if (error) throw error;
+      return (data?.id as string) ?? null;
+    }),
+    enabled: !!request && !poId,
+    staleTime: 60_000,
+  });
+
+  const effectivePoId = poId ?? fallbackPoIdQuery.data ?? null;
+
   // ── 2. Fetch the PO + items (enabled once we have a PO id) ───────────────
   const poQuery = useQuery({
-    queryKey: ["journey", "po", poId ?? "none"],
+    queryKey: ["journey", "po", effectivePoId ?? "none"],
     queryFn: wrapQueryFn(async () => {
-      if (!poId) return null;
+      if (!effectivePoId) return null;
       const { data, error } = await supabase
         .from("purchase_orders")
         .select(
@@ -113,12 +133,12 @@ export function useRequestJourney(requestId: string | null | undefined): {
           items:purchase_order_items(*)
         `
         )
-        .eq("id", poId)
+        .eq("id", effectivePoId)
         .single();
       if (error) throw error;
       return data as PurchaseOrder & { items: PurchaseOrderItem[] };
     }),
-    enabled: !!poId,
+    enabled: !!effectivePoId,
     staleTime: 60_000,
   });
 
@@ -222,13 +242,15 @@ export function useRequestJourney(requestId: string | null | undefined): {
   // ── Loading / error aggregation ───────────────────────────────────────────
   const isLoading =
     requestQuery.isLoading ||
-    (!!poId && poQuery.isLoading) ||
+    (!!request && !poId && fallbackPoIdQuery.isLoading) ||
+    (!!effectivePoId && poQuery.isLoading) ||
     (!!po?.id && (deliveriesQuery.isLoading || expenseQuery.isLoading)) ||
     (!!batchRefCode && batchUsageQuery.isLoading) ||
     (batchUsage.length > 0 && !!settlementId && settlementQuery.isLoading);
 
   const error =
     (requestQuery.error as Error | null) ??
+    (fallbackPoIdQuery.error as Error | null) ??
     (poQuery.error as Error | null) ??
     (deliveriesQuery.error as Error | null) ??
     (expenseQuery.error as Error | null) ??
