@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Box,
@@ -144,6 +144,7 @@ export default function DeliveryVerificationPage() {
   const [selectedPO, setSelectedPO] = useState<POAwaitingDelivery | null>(null);
   const [activeTab, setActiveTab] = useState<"awaiting" | "disputed" | "all">("awaiting");
   const [highlightedGrn, setHighlightedGrn] = useState<string | null>(null);
+  const hasProcessedGrn = useRef(false);
 
   const { selectedSite } = useSite();
   const searchParams = useSearchParams();
@@ -169,13 +170,14 @@ export default function DeliveryVerificationPage() {
 
   // Deep-link: switch to "Recent Deliveries" tab and highlight the GRN row when ?grn=GRN-xxx is present
   useEffect(() => {
-    if (!grnParam) return;
+    if (!grnParam || hasProcessedGrn.current) return;
     if (allLoading || allDeliveries.length === 0) return;
     const match = allDeliveries.find(
       (d: DeliveryData) =>
         d.grn_number?.toLowerCase() === grnParam.toLowerCase()
     );
     if (match) {
+      hasProcessedGrn.current = true;
       setActiveTab("all");
       setHighlightedGrn(match.grn_number);
     }
