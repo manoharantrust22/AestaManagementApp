@@ -117,10 +117,14 @@ export default function BrandVariantEditor({
       const key = brand.brand_name.toLowerCase();
       if (!groups.has(key)) {
         groups.set(key, {
+          id: brand.id,
           brand_name: brand.brand_name,
           is_preferred: brand.is_preferred,
           variants: [],
         });
+      } else if (!brand.variant_name) {
+        // Prefer the canonical (no-variant) row's id as the group id
+        groups.get(key)!.id = brand.id;
       }
       const group = groups.get(key)!;
       group.variants.push({
@@ -364,10 +368,7 @@ export default function BrandVariantEditor({
 
                     {/* Variant link matrix — only shown when the material has variants */}
                     {materialVariants.length > 0 && (() => {
-                      const brandLinkEntry = brandLinks.find(
-                        (b) => b.brand_name.toLowerCase() === group.brand_name.toLowerCase()
-                      );
-                      const brandId = brandLinkEntry?.id;
+                      const brandId = group.id;
                       return (
                         <Box sx={{ mt: 1, pl: 1 }}>
                           <Typography
