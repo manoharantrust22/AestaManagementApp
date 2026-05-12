@@ -145,6 +145,7 @@ export default function RentalSettlementDialog({
     try {
       const settlementData: RentalSettlementFormData = {
         rental_order_id: order.id,
+        party_type: "vendor",
         settlement_date: formData.settlement_date,
         total_rental_amount: totalRentalAmount,
         total_transport_amount: totalTransportAmount,

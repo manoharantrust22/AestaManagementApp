@@ -43,7 +43,7 @@ export function JourneyHeader({ journey, isFullPage }: JourneyHeaderProps) {
   // Derive subtitle from first request item qty if available
   const firstItem = request.items?.[0];
   const qtyLabel = firstItem
-    ? `${firstItem.requested_qty} ${firstItem.unit || "units"}`
+    ? `${firstItem.requested_qty} units`
     : null;
 
   return (
