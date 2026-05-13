@@ -820,23 +820,25 @@ export function useCreateRentalOrder() {
       const { items, ...orderData } = data;
 
       // Calculate estimated total - considering hourly vs daily rate types
+      const excludeStart = data.exclude_start_date ?? false;
+      const days = data.expected_return_date
+        ? Math.max(
+            1,
+            Math.ceil(
+              (new Date(data.expected_return_date).getTime() -
+                new Date(data.start_date).getTime()) /
+                (1000 * 60 * 60 * 24)
+            ) + (excludeStart ? 0 : 1)
+          )
+        : 30;
+      // NOTE: rentalService.ts accrued-cost calculations don't yet read exclude_start_date
+
       const itemsTotal = items.reduce((sum, item) => {
         if (item.rate_type === "hourly") {
           // Hourly: quantity × rate × hours
           return sum + item.quantity * item.daily_rate_actual * (item.hours_used || 0);
         } else {
           // Daily: quantity × rate × days
-          const excludeStart = data.exclude_start_date ?? false;
-          const days = data.expected_return_date
-            ? Math.max(
-                1,
-                Math.ceil(
-                  (new Date(data.expected_return_date).getTime() -
-                    new Date(data.start_date).getTime()) /
-                    (1000 * 60 * 60 * 24)
-                ) + (excludeStart ? 0 : 1)
-              )
-            : 30;
           return sum + item.quantity * item.daily_rate_actual * days;
         }
       }, 0);
