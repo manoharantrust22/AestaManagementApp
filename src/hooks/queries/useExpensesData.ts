@@ -15,7 +15,8 @@ export type ExpenseSourceType =
   | "misc_expense"
   | "tea_shop_settlement"
   | "subcontract_payment"
-  | "material_purchase";
+  | "material_purchase"
+  | "rental_settlement";
 
 export interface ExpenseRow {
   id: string;

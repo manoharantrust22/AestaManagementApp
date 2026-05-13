@@ -561,7 +561,7 @@ export function useRentalOrders(
         const { settlement, ...rest } = order as any;
         return {
           ...rest,
-          settlements: settlement ? [settlement] : [],
+          settlements: Array.isArray(settlement) ? settlement : (settlement ? [settlement] : []),
           parent_order_id: (order as any).parent_order_id ?? null,
           accrued_rental_cost: accruedRentalCost,
           total_advance_paid: totalAdvancePaid,
@@ -780,7 +780,7 @@ export function useRentalOrder(id: string | undefined) {
       const { settlement: settlementSingular, ...restData } = data as any;
       return {
         ...restData,
-        settlements: settlementSingular ? [settlementSingular] : [],
+        settlements: Array.isArray(settlementSingular) ? settlementSingular : (settlementSingular ? [settlementSingular] : []),
         parent_order_id: (data as any).parent_order_id ?? null,
         accrued_rental_cost: accruedRentalCost,
         total_advance_paid: totalAdvancePaid,

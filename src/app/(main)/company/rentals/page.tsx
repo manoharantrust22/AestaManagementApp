@@ -285,6 +285,7 @@ function CompanyRentalsPageInner() {
             itemId={selectedItem.id}
             itemName={selectedItem.name}
             rateType={selectedItem.rate_type}
+            item={selectedItem}
             isOpen
             onClose={() => setSelectedItem(null)}
           />

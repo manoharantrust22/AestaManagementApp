@@ -66,6 +66,7 @@ import {
 import ExpensesSummaryBand from "@/components/expenses/ExpensesSummaryBand";
 import ExpensesFilterBar from "@/components/expenses/ExpensesFilterBar";
 import { ExpensesGroupedByTrade } from "@/components/expenses/ExpensesGroupedByTrade";
+import RentalExpenseInspectPane from "@/components/expenses/RentalExpenseInspectPane";
 import { TradeMetricCards } from "@/components/expenses/TradeMetricCards";
 import { useSiteTrades } from "@/hooks/queries/useTrades";
 
@@ -141,6 +142,7 @@ export default function ExpensesPageV2() {
     () => searchParams.get("payer") || null,
   );
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [rentalPaneOrderId, setRentalPaneOrderId] = useState<string | null>(null);
 
   // URL sync — write filters to the URL whenever they change.
   useEffect(() => {
@@ -331,6 +333,10 @@ export default function ExpensesPageV2() {
       router.push("/site/subcontracts");
       return;
     }
+    if (row?.source_type === "rental_settlement") {
+      setRentalPaneOrderId(row.source_id || null);
+      return;
+    }
 
     if (row) {
       setEditingExpense(row);
@@ -416,6 +422,10 @@ export default function ExpensesPageV2() {
     if (row.source_type === "subcontract_payment") {
       alert("Direct subcontract payments cannot be deleted here. Use the Subcontracts page.");
       router.push("/site/subcontracts");
+      return;
+    }
+    if (row.source_type === "rental_settlement") {
+      alert("Rental settlements must be managed from the Rentals page.");
       return;
     }
     if (row.engineer_transaction_id) {
@@ -1066,6 +1076,11 @@ export default function ExpensesPageV2() {
               : `/site/payments?ref=${ref}`;
           router.push(url);
         }}
+      />
+
+      <RentalExpenseInspectPane
+        orderId={rentalPaneOrderId}
+        onClose={() => setRentalPaneOrderId(null)}
       />
     </Box>
   );

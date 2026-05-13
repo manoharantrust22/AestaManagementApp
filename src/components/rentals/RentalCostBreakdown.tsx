@@ -16,19 +16,22 @@ import {
   Warning as WarningIcon,
   CheckCircle as CheckIcon,
 } from "@mui/icons-material";
-import type { RentalCostCalculation } from "@/types/rental.types";
+import type { RentalCostCalculation, RentalSettlement } from "@/types/rental.types";
+import { getPayerSourceLabel } from "@/components/settlement/PayerSourceSelector";
 import dayjs from "dayjs";
 
 interface RentalCostBreakdownProps {
   calculation: RentalCostCalculation;
   showItemDetails?: boolean;
   compact?: boolean;
+  settlement?: RentalSettlement | null;
 }
 
 export default function RentalCostBreakdown({
   calculation,
   showItemDetails = true,
   compact = false,
+  settlement = null,
 }: RentalCostBreakdownProps) {
   const {
     startDate,
@@ -261,32 +264,61 @@ export default function RentalCostBreakdown({
 
         <Divider sx={{ my: 0.5 }} />
 
-        <Box
-          display="flex"
-          justifyContent="space-between"
-          alignItems="center"
-          p={1}
-          bgcolor={balanceDue > 0 ? "error.50" : "success.50"}
-          borderRadius={1}
-        >
-          <Box display="flex" alignItems="center" gap={1}>
-            {balanceDue <= 0 ? (
-              <CheckIcon color="success" fontSize="small" />
-            ) : (
-              <WarningIcon color="error" fontSize="small" />
-            )}
-            <Typography variant="subtitle2" fontWeight={700}>
-              {balanceDue > 0 ? "Balance Due" : "Credit Balance"}
+        {settlement ? (
+          <Box
+            display="flex"
+            flexDirection="column"
+            gap={0.5}
+            p={1.5}
+            bgcolor="success.50"
+            borderRadius={1}
+            border="1px solid"
+            borderColor="success.200"
+          >
+            <Box display="flex" alignItems="center" justifyContent="space-between">
+              <Box display="flex" alignItems="center" gap={1}>
+                <CheckIcon color="success" fontSize="small" />
+                <Typography variant="subtitle2" fontWeight={700} color="success.dark">
+                  Settled · {settlement.settlement_reference}
+                </Typography>
+              </Box>
+              <Typography variant="subtitle1" fontWeight={700} color="success.dark">
+                ₹{(settlement.negotiated_final_amount ?? grossTotal).toLocaleString()}
+              </Typography>
+            </Box>
+            <Typography variant="caption" color="text.secondary">
+              {dayjs(settlement.settlement_date).format("DD MMM YYYY")} · {settlement.payment_mode}
+              {settlement.payer_source && ` · ${getPayerSourceLabel(settlement.payer_source as any, settlement.payer_name ?? undefined)}`}
             </Typography>
           </Box>
-          <Typography
-            variant="subtitle1"
-            fontWeight={700}
-            color={balanceDue > 0 ? "error.main" : "success.main"}
+        ) : (
+          <Box
+            display="flex"
+            justifyContent="space-between"
+            alignItems="center"
+            p={1}
+            bgcolor={balanceDue > 0 ? "error.50" : "success.50"}
+            borderRadius={1}
           >
-            ₹{Math.abs(balanceDue).toLocaleString()}
-          </Typography>
-        </Box>
+            <Box display="flex" alignItems="center" gap={1}>
+              {balanceDue <= 0 ? (
+                <CheckIcon color="success" fontSize="small" />
+              ) : (
+                <WarningIcon color="error" fontSize="small" />
+              )}
+              <Typography variant="subtitle2" fontWeight={700}>
+                {balanceDue > 0 ? "Balance Due" : "Credit Balance"}
+              </Typography>
+            </Box>
+            <Typography
+              variant="subtitle1"
+              fontWeight={700}
+              color={balanceDue > 0 ? "error.main" : "success.main"}
+            >
+              ₹{Math.abs(balanceDue).toLocaleString()}
+            </Typography>
+          </Box>
+        )}
       </Box>
     </Paper>
   );

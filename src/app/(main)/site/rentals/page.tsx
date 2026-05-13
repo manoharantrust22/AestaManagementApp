@@ -46,6 +46,7 @@ import {
   CheckCircleOutline as CompletedIcon,
   Info as InfoIcon,
   Close as CloseIcon,
+  Description as BillIcon,
 } from "@mui/icons-material";
 import ScreenshotViewer from "@/components/common/ScreenshotViewer";
 import PageHeader from "@/components/layout/PageHeader";
@@ -438,7 +439,7 @@ export default function SiteRentalsPage() {
                     <TableCell>End Date</TableCell>
                     <TableCell>Duration</TableCell>
                     <TableCell>Status</TableCell>
-                    <TableCell align="right">Est. Total</TableCell>
+                    <TableCell align="right">Final Amt</TableCell>
                     <TableCell align="right">Paid</TableCell>
                     <TableCell align="right">Balance</TableCell>
                     <TableCell align="center">Actions</TableCell>
@@ -633,7 +634,30 @@ export default function SiteRentalsPage() {
                         </TableCell>
                         <TableCell align="right">
                           {isSettled ? (
-                            <Chip size="small" label="Settled" color="success" variant="outlined" />
+                            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.5 }}>
+                              <Chip size="small" label="Settled" color="success" variant="outlined" />
+                              {(settlement as any)?.vendor_bill_url && (
+                                <Tooltip title="View Vendor Bill">
+                                  <IconButton
+                                    size="small"
+                                    onClick={(e) => { e.stopPropagation(); window.open((settlement as any).vendor_bill_url, "_blank"); }}
+                                  >
+                                    <BillIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                              {((settlement as any)?.final_receipt_url || (settlement as any)?.upi_screenshot_url) && (
+                                <Tooltip title="View Payment Receipt">
+                                  <IconButton
+                                    size="small"
+                                    color="info"
+                                    onClick={(e) => { e.stopPropagation(); window.open((settlement as any).final_receipt_url || (settlement as any).upi_screenshot_url, "_blank"); }}
+                                  >
+                                    <ReceiptIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                            </Box>
                           ) : (
                             <Typography
                               color={balance > 0 ? "error.main" : "success.main"}
@@ -652,17 +676,6 @@ export default function SiteRentalsPage() {
                               <ViewIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
-                          {isSettled && (settlement as any)?.upi_screenshot_url && (
-                            <Tooltip title="View Payment Proof">
-                              <IconButton
-                                size="small"
-                                color="info"
-                                onClick={() => window.open((settlement as any).upi_screenshot_url, "_blank")}
-                              >
-                                <InfoIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          )}
                           {rental.status !== "completed" && rental.status !== "cancelled" && (
                             <Tooltip title="Settle">
                               <IconButton

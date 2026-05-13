@@ -29,6 +29,9 @@ import {
   Phone as PhoneIcon,
   CalendarMonth as CalendarIcon,
   Warning as WarningIcon,
+  Description as BillIcon,
+  Receipt as ReceiptIcon,
+  Screenshot as UpiIcon,
 } from "@mui/icons-material";
 import PageHeader from "@/components/layout/PageHeader";
 import { useSite } from "@/contexts/SiteContext";
@@ -49,6 +52,7 @@ import {
 } from "@/types/rental.types";
 import type { RentalOrderItemWithDetails } from "@/types/rental.types";
 import { formatCurrency, formatDate } from "@/lib/formatters";
+import { getPayerSourceLabel } from "@/components/settlement/PayerSourceSelector";
 import dayjs from "dayjs";
 
 export default function RentalOrderDetailsPage() {
@@ -87,6 +91,9 @@ export default function RentalOrderDetailsPage() {
   ).length;
 
   const allItemsReturned = outstandingItemsCount === 0;
+  const settlement = order?.settlements?.[0] ?? null;
+  const isSettled = order?.status === "completed" && !!settlement;
+  const showReadyToSettle = allItemsReturned && !isSettled && order?.status !== "completed" && order?.status !== "cancelled";
 
   if (isLoading) {
     return (
@@ -259,6 +266,26 @@ export default function RentalOrderDetailsPage() {
             </Box>
           </Paper>
 
+          {/* Ready to Settle Banner */}
+          {showReadyToSettle && (
+            <Alert
+              severity="warning"
+              sx={{ mb: 2 }}
+              action={
+                <Button
+                  color="warning"
+                  variant="contained"
+                  size="small"
+                  onClick={() => setSettlementDialogOpen(true)}
+                >
+                  Settle Now
+                </Button>
+              }
+            >
+              All items returned. Record the final payment to close this rental.
+            </Alert>
+          )}
+
           {/* Items Table */}
           <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
             <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
@@ -394,7 +421,7 @@ export default function RentalOrderDetailsPage() {
 
           {/* Returns History */}
           {(order.returns || []).length > 0 && (
-            <Paper variant="outlined" sx={{ p: 2 }}>
+            <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
               <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
                 RETURNS HISTORY ({order.returns?.length})
               </Typography>
@@ -441,12 +468,103 @@ export default function RentalOrderDetailsPage() {
               </Table>
             </Paper>
           )}
+
+          {/* Settlement Section */}
+          {isSettled && settlement && (
+            <Paper variant="outlined" sx={{ p: 2 }}>
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                <Typography variant="subtitle2" color="text.secondary">
+                  SETTLEMENT
+                </Typography>
+                <Typography variant="caption" fontWeight={600} color="success.main">
+                  {(settlement as any).settlement_reference}
+                </Typography>
+              </Box>
+              <Box display="flex" flexDirection="column" gap={1} mb={2}>
+                <Box display="flex" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">Date</Typography>
+                  <Typography variant="body2">{formatDate((settlement as any).settlement_date)}</Typography>
+                </Box>
+                <Box display="flex" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">Amount</Typography>
+                  <Typography variant="body2" fontWeight={600} color="success.main">
+                    {formatCurrency((settlement as any).negotiated_final_amount ?? ((settlement as any).total_rental_amount || 0) + ((settlement as any).total_transport_amount || 0) + ((settlement as any).total_damage_amount || 0))}
+                  </Typography>
+                </Box>
+                {(settlement as any).payer_source && (
+                  <Box display="flex" justifyContent="space-between">
+                    <Typography variant="body2" color="text.secondary">Paid by</Typography>
+                    <Typography variant="body2">
+                      {getPayerSourceLabel((settlement as any).payer_source, (settlement as any).payer_name)}
+                    </Typography>
+                  </Box>
+                )}
+                {(settlement as any).payment_mode && (
+                  <Box display="flex" justifyContent="space-between">
+                    <Typography variant="body2" color="text.secondary">Mode</Typography>
+                    <Typography variant="body2">{(settlement as any).payment_mode}</Typography>
+                  </Box>
+                )}
+                {(settlement as any).settled_by_name && (
+                  <Box display="flex" justifyContent="space-between">
+                    <Typography variant="body2" color="text.secondary">Settled by</Typography>
+                    <Typography variant="body2">{(settlement as any).settled_by_name}</Typography>
+                  </Box>
+                )}
+              </Box>
+
+              {/* Proof Attachments */}
+              {((settlement as any).vendor_bill_url || (settlement as any).final_receipt_url || (settlement as any).upi_screenshot_url) && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary" display="block" mb={1}>
+                    Attachments
+                  </Typography>
+                  <Box display="flex" gap={1}>
+                    {[
+                      { url: (settlement as any).vendor_bill_url, label: "Vendor Bill", icon: <BillIcon /> },
+                      { url: (settlement as any).final_receipt_url, label: "Final Receipt", icon: <ReceiptIcon /> },
+                      { url: (settlement as any).upi_screenshot_url, label: "UPI Proof", icon: <UpiIcon /> },
+                    ].map(({ url, label, icon }) => (
+                      <Tooltip key={label} title={url ? `View ${label}` : `No ${label}`}>
+                        <Paper
+                          variant="outlined"
+                          sx={{
+                            width: 80,
+                            height: 80,
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: 0.5,
+                            cursor: url ? "pointer" : "default",
+                            opacity: url ? 1 : 0.35,
+                            transition: "box-shadow 0.15s",
+                            "&:hover": url ? { boxShadow: 3 } : {},
+                          }}
+                          onClick={() => url && window.open(url, "_blank")}
+                        >
+                          {icon}
+                          <Typography variant="caption" textAlign="center" fontSize="0.65rem" lineHeight={1.2}>
+                            {label}
+                          </Typography>
+                        </Paper>
+                      </Tooltip>
+                    ))}
+                  </Box>
+                </Box>
+              )}
+            </Paper>
+          )}
         </Grid>
 
         {/* Right Column - Cost Breakdown */}
         <Grid size={{ xs: 12, md: 5 }}>
           {costCalculation && (
-            <RentalCostBreakdown calculation={costCalculation} showItemDetails />
+            <RentalCostBreakdown
+              calculation={costCalculation}
+              showItemDetails
+              settlement={settlement as any}
+            />
           )}
 
           {/* Notes */}

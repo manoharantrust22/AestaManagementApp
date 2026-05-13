@@ -18,15 +18,18 @@ import {
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import AddShoppingCartIcon from "@mui/icons-material/AddShoppingCart";
-import { useRentalItemSizes, useRentalInventoryForItem } from "@/hooks/queries/useRentals";
+import { useRentalItemSizes, useRentalInventoryForItem, useUpdateRentalItem } from "@/hooks/queries/useRentals";
 import { getRateForSize } from "@/lib/utils/rentalCatalogUtils";
 import { useEstimateBasket } from "./EstimateBasket";
-import type { RentalRateType } from "@/types/rental.types";
+import type { RentalRateType, RentalItemWithDetails } from "@/types/rental.types";
+import ImageUploadWithCrop from "@/components/common/ImageUploadWithCrop";
+import { createClient } from "@/lib/supabase/client";
 
 interface RentalItemInspectPaneProps {
   itemId: string | null;
-  itemName?: string;          // optional — shown in header while item loads
+  itemName?: string;
   rateType?: RentalRateType;
+  item?: RentalItemWithDetails | null;
   isOpen: boolean;
   onClose: () => void;
   zIndex?: number;
@@ -36,6 +39,7 @@ export function RentalItemInspectPane({
   itemId,
   itemName,
   rateType = "daily",
+  item = null,
   isOpen,
   onClose,
   zIndex = 1200,
@@ -45,13 +49,16 @@ export function RentalItemInspectPane({
   const [qty, setQty] = useState(10);
   const [days, setDays] = useState(25);
 
+  const supabase = createClient();
+  const updateItem = useUpdateRentalItem();
+
   const { data: sizes = [], isLoading: sizesLoading } = useRentalItemSizes(itemId ?? undefined);
   const { data: inventory = [], isLoading: invLoading } = useRentalInventoryForItem(itemId ?? undefined);
   const { addItem } = useEstimateBasket();
 
-  // Reset selected size when item changes
   useEffect(() => {
     setSelectedSize(null);
+    setTab(0);
   }, [itemId]);
 
   const effectiveSize = selectedSize ?? (sizes[0]?.size_label ?? null);
@@ -69,6 +76,8 @@ export function RentalItemInspectPane({
 
   const cheapestRate = vendorRates[0]?.rate ?? null;
   const estimatedCost = cheapestRate != null ? qty * cheapestRate * days : null;
+  const hasStrictCheapest =
+    vendorRates.length > 1 && vendorRates[0].rate < vendorRates[1].rate;
 
   const handleAddToBasket = () => {
     if (!itemId || !itemName) return;
@@ -78,6 +87,27 @@ export function RentalItemInspectPane({
       size_label: effectiveSize,
       quantity: qty,
       days,
+    });
+  };
+
+  const handleImageChange = async (url: string | null) => {
+    if (!item) return;
+    await updateItem.mutateAsync({
+      id: item.id,
+      data: {
+        name: item.name,
+        code: item.code || "",
+        local_name: item.local_name || "",
+        category_id: item.category_id || "",
+        description: item.description || "",
+        rental_type: item.rental_type,
+        source_type: item.source_type || "store",
+        rate_type: item.rate_type,
+        unit: item.unit,
+        specifications: item.specifications || {},
+        default_daily_rate: item.default_daily_rate || undefined,
+        image_url: url || "",
+      },
     });
   };
 
@@ -186,8 +216,8 @@ export function RentalItemInspectPane({
                       p: 1.25,
                       borderRadius: 1.5,
                       border: "1px solid",
-                      borderColor: idx === 0 ? "success.main" : "divider",
-                      bgcolor: idx === 0 ? "success.light" : "background.paper",
+                      borderColor: idx === 0 && hasStrictCheapest ? "success.main" : "divider",
+                      bgcolor: "background.paper",
                     }}
                   >
                     <Box
@@ -201,11 +231,12 @@ export function RentalItemInspectPane({
                       <Typography variant="body2" fontWeight={600}>
                         {inv.vendor?.name}
                       </Typography>
-                      {idx === 0 && (
+                      {idx === 0 && hasStrictCheapest && (
                         <Chip
                           label="CHEAPEST"
                           size="small"
                           color="success"
+                          variant="outlined"
                           sx={{ fontSize: 9, height: 18 }}
                         />
                       )}
@@ -226,9 +257,37 @@ export function RentalItemInspectPane({
         )}
 
         {tab === 1 && (
-          <Typography variant="body2" color="text.secondary">
-            Item details shown here in a future iteration.
-          </Typography>
+          <Box>
+            <ImageUploadWithCrop
+              supabase={supabase}
+              bucketName="rental-items"
+              folderPath="item-photos"
+              fileNamePrefix="rental-item"
+              value={item?.image_url || null}
+              onChange={handleImageChange}
+              disabled={!item || updateItem.isPending}
+              label="Item Photo"
+              aspectRatio={4 / 3}
+              maxSizeKB={500}
+              cropShape="rect"
+            />
+            {item && (
+              <Stack spacing={1} sx={{ mt: 2 }}>
+                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                  <Typography variant="caption" color="text.secondary">Category</Typography>
+                  <Typography variant="caption" fontWeight={600}>{item.category?.name ?? "—"}</Typography>
+                </Box>
+                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                  <Typography variant="caption" color="text.secondary">Type</Typography>
+                  <Typography variant="caption" fontWeight={600} sx={{ textTransform: "capitalize" }}>{item.rental_type}</Typography>
+                </Box>
+                <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                  <Typography variant="caption" color="text.secondary">Charged per</Typography>
+                  <Typography variant="caption" fontWeight={600}>{rateType === "hourly" ? "Hour" : "Day"}</Typography>
+                </Box>
+              </Stack>
+            )}
+          </Box>
         )}
       </Box>
 

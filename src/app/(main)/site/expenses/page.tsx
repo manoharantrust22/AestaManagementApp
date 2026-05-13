@@ -84,6 +84,7 @@ import {
   type SubcontractTotals,
 } from "@/lib/services/subcontractService";
 import { cancelMiscExpense } from "@/lib/services/miscExpenseService";
+import RentalExpenseInspectPane from "@/components/expenses/RentalExpenseInspectPane";
 // Material expenses hook removed - will be handled by Material Settlements page after settlement
 
 interface SitePayer {
@@ -97,7 +98,7 @@ interface ExpenseWithCategory extends Expense {
   payer_name?: string;
   subcontract_title?: string;
   settlement_reference?: string | null;
-  source_type?: "expense" | "settlement" | "misc_expense" | "tea_shop_settlement" | "subcontract_payment" | "material_purchase";
+  source_type?: "expense" | "settlement" | "misc_expense" | "tea_shop_settlement" | "subcontract_payment" | "material_purchase" | "rental_settlement";
   source_id?: string;
   expense_type?: string;
   recorded_date?: string;
@@ -130,6 +131,9 @@ function ExpensesPageV1() {
 
   // Inspect pane for in-place settlement detail viewing (replaces ref-code router push for DLY-/SS-/WS-)
   const pane = useInspectPane();
+
+  // Rental expense detail pane
+  const [rentalPaneOrderId, setRentalPaneOrderId] = useState<string | null>(null);
 
   // Multi-payer state
   const [hasMultiplePayers, setHasMultiplePayers] = useState(false);
@@ -431,6 +435,11 @@ function ExpensesPageV1() {
       router.push(`/site/subcontracts`);
       return;
     }
+    // Rental settlements — open the rental detail pane
+    if (expense?.source_type === "rental_settlement") {
+      setRentalPaneOrderId(expense.source_id || null);
+      return;
+    }
 
     if (expense) {
       setEditingExpense(expense);
@@ -510,6 +519,12 @@ function ExpensesPageV1() {
     if (expense.source_type === "subcontract_payment") {
       alert("Direct subcontract payments cannot be deleted here. Please use the Subcontracts page to modify.");
       router.push(`/site/subcontracts`);
+      return;
+    }
+
+    // Rental settlements can't be deleted from here
+    if (expense.source_type === "rental_settlement") {
+      alert("Rental settlement expenses cannot be deleted here. Please use the Rentals page to modify.");
       return;
     }
 
@@ -1639,6 +1654,12 @@ function ExpensesPageV1() {
               : `/site/payments?ref=${ref}`;
           router.push(url);
         }}
+      />
+
+      {/* Rental expense detail pane */}
+      <RentalExpenseInspectPane
+        orderId={rentalPaneOrderId}
+        onClose={() => setRentalPaneOrderId(null)}
       />
     </Box>
   );
