@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   Box,
   Typography,
@@ -20,6 +20,9 @@ import { JourneyGroupSiteSplit } from "./JourneyGroupSiteSplit";
 import { JourneyExpenseSection } from "./JourneyExpenseSection";
 import { formatCurrency } from "@/lib/formatters";
 import dayjs from "dayjs";
+import { useJourneyWatch } from "@/contexts/JourneyWatchContext";
+import PhotoLightbox from "@/components/dashboard/PhotoLightbox";
+import type { WorkPhoto } from "@/types/work-updates.types";
 
 interface MaterialRequestJourneyProps {
   requestId: string | null | undefined;
@@ -106,6 +109,25 @@ function fmtMoney(n: number | null | undefined): string {
   return formatCurrency(n);
 }
 
+function deliveryPhotos(delivery: RequestJourney["deliveries"][0]): WorkPhoto[] {
+  const photos: WorkPhoto[] = [];
+  const raw = delivery.delivery_photos as string[] | null;
+  const verif = delivery.verification_photos as string[] | null;
+  (raw ?? []).forEach((url, i) =>
+    photos.push({ id: `dp-${i}`, url, description: "Delivery photo", uploadedAt: "" })
+  );
+  (verif ?? []).forEach((url, i) =>
+    photos.push({ id: `vp-${i}`, url, description: "Verification photo", uploadedAt: "" })
+  );
+  if (delivery.invoice_url) {
+    photos.push({ id: "invoice", url: delivery.invoice_url, description: "Invoice / Bill", uploadedAt: "" });
+  }
+  if (delivery.challan_url) {
+    photos.push({ id: "challan", url: delivery.challan_url, description: "Delivery Challan", uploadedAt: "" });
+  }
+  return photos;
+}
+
 // ── Loading skeleton ──────────────────────────────────────────────────────────
 
 function JourneySkeleton() {
@@ -121,6 +143,26 @@ function JourneySkeleton() {
   );
 }
 
+// ── GroupStockChip helper ─────────────────────────────────────────────────────
+
+function GroupStockChip() {
+  return (
+    <Chip
+      label="GROUP STOCK"
+      size="small"
+      sx={{
+        height: 18,
+        fontSize: "0.65rem",
+        fontWeight: 700,
+        bgcolor: "purple",
+        color: "white",
+        mt: 0.5,
+        "& .MuiChip-label": { px: 0.75 },
+      }}
+    />
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function MaterialRequestJourney({
@@ -129,6 +171,12 @@ export function MaterialRequestJourney({
 }: MaterialRequestJourneyProps) {
   const theme = useTheme();
   const { journey, isLoading, error } = useRequestJourney(requestId);
+  const { activateJourney } = useJourneyWatch();
+  const [lightbox, setLightbox] = useState<{ photos: WorkPhoto[]; startIndex: number } | null>(null);
+
+  useEffect(() => {
+    if (requestId) activateJourney(requestId);
+  }, [requestId, activateJourney]);
 
   if (!requestId) {
     return (
@@ -180,7 +228,14 @@ export function MaterialRequestJourney({
   const requestFields = [
     { label: "Request #", value: request.request_number, variant: "mono" as const },
     { label: "Priority", value: request.priority ?? "—" },
-    { label: "Approved by", value: fmt(request.approved_by) },
+    {
+      label: "Approved by",
+      value: fmt(
+        request.approved_by_user?.name ??
+        request.approved_by_user?.display_name ??
+        request.approved_by
+      ),
+    },
     { label: "Date", value: fmtDate(request.request_date) },
     {
       label: "Qty Requested",
@@ -192,8 +247,16 @@ export function MaterialRequestJourney({
     },
     {
       label: "Est. Cost",
-      value: fmtMoney(request.items?.[0]?.estimated_cost),
+      value:
+        journey.brandAvgPrice != null
+          ? `~${fmtMoney(journey.brandAvgPrice)}/unit`
+          : fmtMoney(request.items?.[0]?.estimated_cost),
       variant: "amount" as const,
+    },
+    {
+      label: "Order Type",
+      value: isGroupPO ? "Group PO" : "Own Site",
+      variant: isGroupPO ? ("blue" as const) : ("default" as const),
     },
   ];
   const requestStatusLabel =
@@ -473,21 +536,44 @@ export function MaterialRequestJourney({
           fields={poFields}
           actions={poActions}
         >
-          {isGroupPO && (
-            <Chip
-              label="GROUP STOCK"
-              size="small"
-              sx={{
-                height: 18,
-                fontSize: "0.65rem",
-                fontWeight: 700,
-                bgcolor: "purple",
-                color: "white",
-                mt: 0.5,
-                "& .MuiChip-label": { px: 0.75 },
-              }}
-            />
-          )}
+          {/* Brand + variant thumbnail */}
+          {(() => {
+            const brand = po?.items?.[0]?.brand ?? null;
+            if (!brand) return isGroupPO ? <GroupStockChip /> : null;
+            return (
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.5 }}>
+                {brand.image_url ? (
+                  <Box
+                    component="img"
+                    src={brand.image_url}
+                    alt={brand.brand_name}
+                    sx={{ width: 40, height: 40, objectFit: "cover", borderRadius: 1, flexShrink: 0 }}
+                  />
+                ) : (
+                  <Box
+                    sx={{
+                      width: 40, height: 40, borderRadius: 1, flexShrink: 0,
+                      bgcolor: "action.hover",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                  >
+                    <Typography variant="caption" color="text.disabled">IMG</Typography>
+                  </Box>
+                )}
+                <Box>
+                  <Typography variant="caption" fontWeight={600} display="block" lineHeight={1.2}>
+                    {brand.brand_name}
+                  </Typography>
+                  {brand.variant_name && (
+                    <Typography variant="caption" color="text.secondary" display="block" lineHeight={1.2}>
+                      {brand.variant_name}
+                    </Typography>
+                  )}
+                </Box>
+                {isGroupPO && <GroupStockChip />}
+              </Box>
+            );
+          })()}
         </JourneyPhaseCard>
 
         {/* Delivery */}
@@ -498,7 +584,35 @@ export function MaterialRequestJourney({
           statusLabel={deliveryStatusLabel}
           fields={deliveryFields}
           actions={deliveryActions}
-        />
+        >
+          {firstDelivery && (() => {
+            const photos = deliveryPhotos(firstDelivery);
+            if (photos.length === 0) return null;
+            return (
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mt: 0.5 }}>
+                {photos.map((photo, idx) => (
+                  <Box
+                    key={photo.id}
+                    onClick={() => setLightbox({ photos, startIndex: idx })}
+                    sx={{
+                      width: 56, height: 56, borderRadius: 1, overflow: "hidden",
+                      cursor: "pointer", flexShrink: 0,
+                      border: "1px solid", borderColor: "divider",
+                      "&:hover": { opacity: 0.85 },
+                    }}
+                  >
+                    <Box
+                      component="img"
+                      src={photo.url}
+                      alt={photo.description}
+                      sx={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
+                  </Box>
+                ))}
+              </Box>
+            );
+          })()}
+        </JourneyPhaseCard>
 
         {/* Vendor Payment */}
         <JourneyPhaseCard
@@ -508,7 +622,36 @@ export function MaterialRequestJourney({
           statusLabel={vendorPaymentStatusLabel}
           fields={vendorPaymentFields}
           actions={vendorPaymentActions}
-        />
+        >
+          {expense?.payment_screenshot_url && (() => {
+            const photos: WorkPhoto[] = [{
+              id: "payment-screenshot",
+              url: expense.payment_screenshot_url!,
+              description: `Payment via ${expense.payment_mode ?? ""}${expense.payment_reference ? ` · ${expense.payment_reference}` : ""}`,
+              uploadedAt: "",
+            }];
+            return (
+              <Box
+                onClick={() => setLightbox({ photos, startIndex: 0 })}
+                sx={{
+                  mt: 0.5, display: "flex", alignItems: "center", gap: 1,
+                  cursor: "pointer",
+                  "&:hover": { opacity: 0.85 },
+                }}
+              >
+                <Box
+                  component="img"
+                  src={expense.payment_screenshot_url}
+                  alt="Payment proof"
+                  sx={{ width: 72, height: 56, objectFit: "cover", borderRadius: 1, border: "1px solid", borderColor: "divider" }}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Tap to verify payment
+                </Typography>
+              </Box>
+            );
+          })()}
+        </JourneyPhaseCard>
 
         {/* Settlement (group PO only) */}
         {isGroupPO && (
@@ -538,6 +681,16 @@ export function MaterialRequestJourney({
 
       {/* 6. Expense section */}
       <JourneyExpenseSection journey={journey} />
+
+      {/* Photo lightbox */}
+      {lightbox && (
+        <PhotoLightbox
+          open={!!lightbox}
+          photos={lightbox.photos}
+          startIndex={lightbox.startIndex}
+          onClose={() => setLightbox(null)}
+        />
+      )}
     </Box>
   );
 }
