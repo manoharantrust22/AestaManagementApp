@@ -137,7 +137,7 @@ export function useRequestJourney(requestId: string | null | undefined): {
         .select("price")
         .eq("material_id", firstItemMaterialId)
         .eq("brand_id", firstItemBrandId);
-      if (error) throw error;
+      if (error) return null; // non-critical — degrade silently, don't block journey
       if (!data || data.length === 0) return null;
       const avg = (data as { price: number }[]).reduce((sum, r) => sum + r.price, 0) / data.length;
       return avg;
@@ -277,10 +277,9 @@ export function useRequestJourney(requestId: string | null | undefined): {
     (!!po?.id && (deliveriesQuery.isLoading || expenseQuery.isLoading)) ||
     (!!batchRefCode && batchUsageQuery.isLoading) ||
     (batchUsage.length > 0 && !!settlementId && settlementQuery.isLoading) ||
-    (!!firstItemBrandId && brandAvgPriceQuery.isLoading);
+    (!!firstItemBrandId && !!firstItemMaterialId && brandAvgPriceQuery.isLoading);
 
   const error =
-    (brandAvgPriceQuery.error as Error | null) ??
     (requestQuery.error as Error | null) ??
     (fallbackPoIdQuery.error as Error | null) ??
     (poQuery.error as Error | null) ??
@@ -288,6 +287,7 @@ export function useRequestJourney(requestId: string | null | undefined): {
     (expenseQuery.error as Error | null) ??
     (batchUsageQuery.error as Error | null) ??
     (settlementQuery.error as Error | null);
+    // brandAvgPriceQuery errors are swallowed inside queryFn — non-critical, never blocks journey
 
   // ── Assemble the journey ──────────────────────────────────────────────────
   if (!requestId || !request) {
