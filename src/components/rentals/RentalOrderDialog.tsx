@@ -27,6 +27,8 @@ import {
   Autocomplete,
   Paper,
   Chip,
+  Checkbox,
+  FormControlLabel,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -87,6 +89,7 @@ export default function RentalOrderDialog({
   const [outwardBy, setOutwardBy] = useState<TransportHandler | "">("");
   const [notes, setNotes] = useState("");
   const [discountPercentage, setDiscountPercentage] = useState(0);
+  const [excludeStartDate, setExcludeStartDate] = useState(false);
 
   // Get inventory for selected vendor
   const { data: vendorInventory = [] } = useRentalStoreInventory(
@@ -112,6 +115,7 @@ export default function RentalOrderDialog({
       setOutwardBy("");
       setNotes("");
       setDiscountPercentage(0);
+      setExcludeStartDate(false);
       setSelectedItem(null);
       setItemQuantity(1);
       setItemRate(0);
@@ -223,8 +227,8 @@ export default function RentalOrderDialog({
     if (!expectedReturnDate || !startDate) return 30;
     const start = dayjs(startDate);
     const end = dayjs(expectedReturnDate);
-    return Math.max(1, end.diff(start, "day") + 1);
-  }, [startDate, expectedReturnDate]);
+    return Math.max(1, end.diff(start, "day") + (excludeStartDate ? 0 : 1));
+  }, [startDate, expectedReturnDate, excludeStartDate]);
 
   const estimatedTotal = useMemo(() => {
     const itemsTotal = lineItems.reduce((sum, li) => {
@@ -270,6 +274,7 @@ export default function RentalOrderDialog({
         outward_by: outwardBy || undefined,
         notes: notes || undefined,
         negotiated_discount_percentage: discountPercentage,
+        exclude_start_date: excludeStartDate,
         items: lineItems.map((li) => ({
           rental_item_id: li.rental_item_id,
           quantity: li.quantity,
@@ -371,6 +376,29 @@ export default function RentalOrderDialog({
               onChange={(e) => setExpectedReturnDate(e.target.value)}
               InputLabelProps={{ shrink: true }}
               helperText="Leave empty if unknown"
+            />
+          </Grid>
+
+          {/* Exclude start date */}
+          <Grid size={12}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={excludeStartDate}
+                  onChange={(e) => setExcludeStartDate(e.target.checked)}
+                  size="small"
+                />
+              }
+              label={
+                <Box component="span">
+                  <Typography variant="body2" component="span">
+                    Exclude start date from billing
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" component="span" sx={{ ml: 1 }}>
+                    (e.g. centering materials — pickup day not counted)
+                  </Typography>
+                </Box>
+              }
             />
           </Grid>
 
