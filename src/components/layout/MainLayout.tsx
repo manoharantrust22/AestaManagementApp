@@ -96,6 +96,8 @@ import {
   getBadgeCounts,
   type MaterialBadgeCounts,
 } from "@/hooks/queries/useMaterialWorkflowSummary";
+import { JourneyWatchProvider } from "@/contexts/JourneyWatchContext";
+import { JourneyOverlay } from "@/components/materials/journey/JourneyOverlay";
 
 const drawerWidth = 260;
 const iconBarWidth = 64;
@@ -1082,6 +1084,7 @@ export default function MainLayout({
   );
 
   return (
+    <JourneyWatchProvider>
     <Box
       sx={{
         display: "flex",
@@ -1426,6 +1429,9 @@ export default function MainLayout({
         {children}
       </Box>
 
+      {/* Journey overlay — pill tag or full drawer, persists across navigation */}
+      <JourneyOverlay />
+
       {/* Settlement Dialogs (managed via NotificationContext) */}
       <SettlementDialogManager />
 
@@ -1449,5 +1455,6 @@ export default function MainLayout({
         </Alert>
       </Snackbar>
     </Box>
+    </JourneyWatchProvider>
   );
 }
