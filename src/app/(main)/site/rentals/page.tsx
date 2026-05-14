@@ -495,8 +495,13 @@ export default function SiteRentalsPage() {
                     const estimatedTotal = itemsTotal + transportTotal;
 
                     // Check for settlement data
-                    const settlement = (rental.settlements ?? [])[0];
-                    const isSettled = rental.status === "completed" && settlement;
+                    const rentalSettlements = rental.settlements ?? [];
+                    const settlement = rentalSettlements.find((s: any) => s.party_type === "vendor") ?? rentalSettlements[0];
+                    const settledPartySet = new Set(rentalSettlements.map((s: any) => s.party_type as string));
+                    const inboundNeedSettlement = (rental.transport_cost_outward ?? 0) > 0 && !settledPartySet.has("transport_inbound") && !settledPartySet.has("transport");
+                    const outboundNeedSettlement = (rental.transport_cost_return ?? 0) > 0 && !settledPartySet.has("transport_outbound") && !settledPartySet.has("transport");
+                    const isFullySettled = settledPartySet.has("vendor") && !inboundNeedSettlement && !outboundNeedSettlement;
+                    const isSettled = rental.status === "completed" && isFullySettled;
 
                     // Calculate paid and balance based on settlement status
                     let totalPaid: number;
@@ -712,8 +717,8 @@ export default function SiteRentalsPage() {
                               </IconButton>
                             </Tooltip>
                           )}
-                          {rental.status !== "completed" && rental.status !== "cancelled" && (
-                            <Tooltip title="Settle">
+                          {rental.status !== "cancelled" && !isSettled && (
+                            <Tooltip title={rental.status === "completed" ? "Settle remaining" : "Settle"}>
                               <IconButton
                                 size="small"
                                 color="success"

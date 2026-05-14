@@ -50,6 +50,7 @@ import { MultiPartySettlementDialog } from "@/components/rentals/MultiPartySettl
 import {
   RENTAL_ORDER_STATUS_LABELS,
   RENTAL_ITEM_STATUS_LABELS,
+  RENTAL_SETTLEMENT_PARTY_LABELS,
 } from "@/types/rental.types";
 import type { RentalOrderItemWithDetails } from "@/types/rental.types";
 import { formatCurrency, formatDate } from "@/lib/formatters";
@@ -94,13 +95,28 @@ export default function RentalOrderDetailsPage() {
 
   const allItemsReturned = outstandingItemsCount === 0;
   const settlements = order?.settlements ?? [];
-  const settlement = settlements[0] ?? null;
-  // A completed order is "fully settled" only when ALL parties have a settlement row.
-  // For historical records with transport drivers, there may be multiple parties.
-  const isSettled = order?.status === "completed" && settlements.length > 0;
+  // First vendor settlement row (for legacy single-settlement display)
+  const settlement = settlements.find((s) => (s as any).party_type === "vendor") ?? settlements[0] ?? null;
+
+  // Determine which parties actually need settlement
+  const settledPartyTypes = new Set(settlements.map((s) => (s as any).party_type as string));
+  const vendorSettled = settledPartyTypes.has("vendor");
+  const inboundNeeded = (order?.transport_cost_outward ?? 0) > 0;
+  const outboundNeeded = (order?.transport_cost_return ?? 0) > 0;
+  const inboundSettled =
+    !inboundNeeded ||
+    settledPartyTypes.has("transport_inbound") ||
+    settledPartyTypes.has("transport");
+  const outboundSettled =
+    !outboundNeeded ||
+    settledPartyTypes.has("transport_outbound") ||
+    settledPartyTypes.has("transport");
+  const isFullySettled = vendorSettled && inboundSettled && outboundSettled;
+
+  const isSettled = order?.status === "completed" && isFullySettled;
   const showReadyToSettle = allItemsReturned && !isSettled && order?.status !== "completed" && order?.status !== "cancelled";
-  // Completed orders saved as "Settle Later" (no settlement rows yet)
-  const isCompletedUnsettled = order?.status === "completed" && settlements.length === 0;
+  // Completed orders that still have unsettled parties
+  const isCompletedUnsettled = order?.status === "completed" && !isFullySettled;
 
   if (isLoading) {
     return (
@@ -503,88 +519,110 @@ export default function RentalOrderDetailsPage() {
             </Paper>
           )}
 
-          {/* Settlement Section */}
-          {isSettled && settlement && (
+          {/* Settlement Section — show each party row separately */}
+          {settlements.length > 0 && (
             <Paper variant="outlined" sx={{ p: 2 }}>
-              <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5}>
                 <Typography variant="subtitle2" color="text.secondary">
                   SETTLEMENT
                 </Typography>
-                <Typography variant="caption" fontWeight={600} color="success.main">
-                  {(settlement as any).settlement_reference}
-                </Typography>
+                {isFullySettled && (
+                  <Chip size="small" label="Fully Settled" color="success" />
+                )}
               </Box>
-              <Box display="flex" flexDirection="column" gap={1} mb={2}>
-                <Box display="flex" justifyContent="space-between">
-                  <Typography variant="body2" color="text.secondary">Date</Typography>
-                  <Typography variant="body2">{formatDate((settlement as any).settlement_date)}</Typography>
-                </Box>
-                <Box display="flex" justifyContent="space-between">
-                  <Typography variant="body2" color="text.secondary">Amount</Typography>
-                  <Typography variant="body2" fontWeight={600} color="success.main">
-                    {formatCurrency((settlement as any).negotiated_final_amount ?? ((settlement as any).total_rental_amount || 0) + ((settlement as any).total_transport_amount || 0) + ((settlement as any).total_damage_amount || 0))}
-                  </Typography>
-                </Box>
-                {(settlement as any).payer_source && (
-                  <Box display="flex" justifyContent="space-between">
-                    <Typography variant="body2" color="text.secondary">Paid by</Typography>
-                    <Typography variant="body2">
-                      {getPayerSourceLabel((settlement as any).payer_source, (settlement as any).payer_name)}
+              {settlements.map((s: any, idx: number) => (
+                <Box
+                  key={s.id ?? idx}
+                  sx={{
+                    mb: idx < settlements.length - 1 ? 1.5 : 0,
+                    pb: idx < settlements.length - 1 ? 1.5 : 0,
+                    borderBottom: idx < settlements.length - 1 ? "1px solid" : "none",
+                    borderColor: "divider",
+                  }}
+                >
+                  <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
+                    <Typography variant="caption" fontWeight={700} color="text.secondary">
+                      {RENTAL_SETTLEMENT_PARTY_LABELS[s.party_type as keyof typeof RENTAL_SETTLEMENT_PARTY_LABELS] ?? s.party_type}
+                    </Typography>
+                    <Typography variant="caption" color="success.main" fontWeight={600}>
+                      {s.settlement_reference}
                     </Typography>
                   </Box>
-                )}
-                {(settlement as any).payment_mode && (
-                  <Box display="flex" justifyContent="space-between">
-                    <Typography variant="body2" color="text.secondary">Mode</Typography>
-                    <Typography variant="body2">{(settlement as any).payment_mode}</Typography>
+                  <Box display="flex" flexDirection="column" gap={0.75}>
+                    <Box display="flex" justifyContent="space-between">
+                      <Typography variant="body2" color="text.secondary">Amount</Typography>
+                      <Typography variant="body2" fontWeight={600} color="success.main">
+                        {formatCurrency(s.negotiated_final_amount ?? (s.total_rental_amount || 0) + (s.total_transport_amount || 0))}
+                      </Typography>
+                    </Box>
+                    <Box display="flex" justifyContent="space-between">
+                      <Typography variant="body2" color="text.secondary">Date</Typography>
+                      <Typography variant="body2">{formatDate(s.settlement_date)}</Typography>
+                    </Box>
+                    {s.payment_mode && (
+                      <Box display="flex" justifyContent="space-between">
+                        <Typography variant="body2" color="text.secondary">Mode</Typography>
+                        <Typography variant="body2">{s.payment_mode}</Typography>
+                      </Box>
+                    )}
+                    {s.payer_source && (
+                      <Box display="flex" justifyContent="space-between">
+                        <Typography variant="body2" color="text.secondary">Paid by</Typography>
+                        <Typography variant="body2">
+                          {getPayerSourceLabel(s.payer_source, s.payer_name)}
+                        </Typography>
+                      </Box>
+                    )}
+                    {(s.vendor_bill_url || s.final_receipt_url || s.upi_screenshot_url) && (
+                      <Box display="flex" gap={1} mt={0.5}>
+                        {[
+                          { url: s.vendor_bill_url, label: "Vendor Bill", icon: <BillIcon /> },
+                          { url: s.final_receipt_url, label: "Receipt", icon: <ReceiptIcon /> },
+                          { url: s.upi_screenshot_url, label: "UPI Proof", icon: <UpiIcon /> },
+                        ]
+                          .filter((a) => a.url)
+                          .map(({ url, label, icon }) => (
+                            <Tooltip key={label} title={`View ${label}`}>
+                              <Paper
+                                variant="outlined"
+                                sx={{
+                                  width: 64,
+                                  height: 64,
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  gap: 0.5,
+                                  cursor: "pointer",
+                                  "&:hover": { boxShadow: 3 },
+                                }}
+                                onClick={() => window.open(url, "_blank")}
+                              >
+                                {icon}
+                                <Typography variant="caption" textAlign="center" fontSize="0.6rem" lineHeight={1.2}>
+                                  {label}
+                                </Typography>
+                              </Paper>
+                            </Tooltip>
+                          ))}
+                      </Box>
+                    )}
                   </Box>
-                )}
-                {(settlement as any).settled_by_name && (
-                  <Box display="flex" justifyContent="space-between">
-                    <Typography variant="body2" color="text.secondary">Settled by</Typography>
-                    <Typography variant="body2">{(settlement as any).settled_by_name}</Typography>
-                  </Box>
-                )}
-              </Box>
-
-              {/* Proof Attachments */}
-              {((settlement as any).vendor_bill_url || (settlement as any).final_receipt_url || (settlement as any).upi_screenshot_url) && (
-                <Box>
-                  <Typography variant="caption" color="text.secondary" display="block" mb={1}>
-                    Attachments
-                  </Typography>
-                  <Box display="flex" gap={1}>
-                    {[
-                      { url: (settlement as any).vendor_bill_url, label: "Vendor Bill", icon: <BillIcon /> },
-                      { url: (settlement as any).final_receipt_url, label: "Final Receipt", icon: <ReceiptIcon /> },
-                      { url: (settlement as any).upi_screenshot_url, label: "UPI Proof", icon: <UpiIcon /> },
-                    ].map(({ url, label, icon }) => (
-                      <Tooltip key={label} title={url ? `View ${label}` : `No ${label}`}>
-                        <Paper
-                          variant="outlined"
-                          sx={{
-                            width: 80,
-                            height: 80,
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: 0.5,
-                            cursor: url ? "pointer" : "default",
-                            opacity: url ? 1 : 0.35,
-                            transition: "box-shadow 0.15s",
-                            "&:hover": url ? { boxShadow: 3 } : {},
-                          }}
-                          onClick={() => url && window.open(url, "_blank")}
-                        >
-                          {icon}
-                          <Typography variant="caption" textAlign="center" fontSize="0.65rem" lineHeight={1.2}>
-                            {label}
-                          </Typography>
-                        </Paper>
-                      </Tooltip>
-                    ))}
-                  </Box>
+                </Box>
+              ))}
+              {/* Settle remaining button if not fully settled */}
+              {!isFullySettled && (
+                <Box mt={1.5}>
+                  <Button
+                    variant="outlined"
+                    color="success"
+                    size="small"
+                    startIcon={<SettleIcon />}
+                    onClick={() => setMultiSettlementDialogOpen(true)}
+                    fullWidth
+                  >
+                    Settle Remaining Transport
+                  </Button>
                 </Box>
               )}
             </Paper>
