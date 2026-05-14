@@ -77,23 +77,6 @@ export default function MaterialSettlementDialog({
   const { selectedSite } = useSite();
   const isSiteEngineer = userProfile?.role === "site_engineer";
   const engineerId = userProfile?.id || "";
-  const walletSiteId = selectedSite?.id || "";
-
-  const balanceQuery = useEngineerWalletBalance(
-    isSiteEngineer ? engineerId : undefined,
-    isSiteEngineer ? walletSiteId : undefined
-  );
-  const depositSourceQuery = useLatestDepositSource(
-    isSiteEngineer ? engineerId : undefined,
-    isSiteEngineer ? walletSiteId : undefined
-  );
-  const payerSourcesQuery = usePayerSources(isSiteEngineer ? walletSiteId : undefined);
-
-  const walletBalance = balanceQuery.data?.balance ?? 0;
-  const lifoSource = depositSourceQuery.data?.payer_source ?? "own_money";
-  const walletSourceLabel =
-    payerSourcesQuery.data?.find((s) => s.key === lifoSource)?.label ??
-    lifoSource.replace(/_/g, " ");
 
   const settleMutation = useSettleMaterialPurchase();
   const advancePaymentMutation = useRecordAdvancePayment();
@@ -140,6 +123,25 @@ export default function MaterialSettlementDialog({
   const [amountPaid, setAmountPaid] = useState<string>(""); // Bargained amount
   const [payingSiteId, setPayingSiteId] = useState<string>("");
 
+  // Wallet hooks — keyed to the currently selected paying site so the balance
+  // updates whenever the engineer switches the paying site selector.
+  const effectiveWalletSiteId = payingSiteId || selectedSite?.id || "";
+  const balanceQuery = useEngineerWalletBalance(
+    isSiteEngineer ? engineerId : undefined,
+    isSiteEngineer ? effectiveWalletSiteId : undefined
+  );
+  const depositSourceQuery = useLatestDepositSource(
+    isSiteEngineer ? engineerId : undefined,
+    isSiteEngineer ? effectiveWalletSiteId : undefined
+  );
+  const payerSourcesQuery = usePayerSources(isSiteEngineer ? effectiveWalletSiteId : undefined);
+
+  const walletBalance = balanceQuery.data?.balance ?? 0;
+  const lifoSource = depositSourceQuery.data?.payer_source ?? "own_money";
+  const walletSourceLabel =
+    payerSourcesQuery.data?.find((s) => s.key === lifoSource)?.label ??
+    lifoSource.replace(/_/g, " ");
+
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
@@ -164,12 +166,13 @@ export default function MaterialSettlementDialog({
     }
   }, [open, purchase, purchaseOrder, resetVerification]);
 
-  // Auto-apply LIFO payer source for engineer once wallet data loads
+  // Auto-apply LIFO payer source for engineer whenever wallet data (re-)loads,
+  // including when the paying site selector changes.
   useEffect(() => {
-    if (open && isSiteEngineer && depositSourceQuery.data?.payer_source) {
+    if (isSiteEngineer && depositSourceQuery.data?.payer_source) {
       setPayerSource(depositSourceQuery.data.payer_source as PayerSource);
     }
-  }, [open, isSiteEngineer, depositSourceQuery.data?.payer_source]);
+  }, [isSiteEngineer, depositSourceQuery.data?.payer_source]);
 
   const handleSubmit = async () => {
     // Validation
@@ -247,10 +250,10 @@ export default function MaterialSettlementDialog({
       });
 
       // Deduct from engineer wallet when engineer is paying
-      if (isSiteEngineer && engineerId && walletSiteId) {
+      if (isSiteEngineer && engineerId && effectiveWalletSiteId) {
         await recordSpend(supabase as any, {
           engineer_id: engineerId,
-          site_id: walletSiteId,
+          site_id: effectiveWalletSiteId,
           amount: finalAmountPaid,
           transaction_date: settlementDate,
           payment_mode: "cash",
@@ -642,32 +645,43 @@ export default function MaterialSettlementDialog({
               <CircularProgress size={20} />
             ) : (
               <>
-                <Box display="flex" justifyContent="space-between">
-                  <Typography variant="body2" color="text.secondary">Wallet balance</Typography>
-                  <Typography
-                    variant="body2"
-                    fontWeight={600}
-                    color={walletBalance < (Number(amountPaid) || purchaseAmount) ? "error.main" : "success.main"}
-                  >
-                    ₹{walletBalance.toLocaleString("en-IN")}
-                  </Typography>
-                </Box>
-                {depositSourceQuery.data?.payer_source && (
-                  <Box display="flex" justifyContent="space-between">
-                    <Typography variant="body2" color="text.secondary">Funded by</Typography>
-                    <Typography variant="body2">{walletSourceLabel}</Typography>
-                  </Box>
-                )}
-                {walletBalance < (Number(amountPaid) || purchaseAmount) && (
-                  <Alert severity="error" sx={{ mt: 0.5 }}>
-                    Insufficient wallet balance — ask admin to add funds
-                  </Alert>
-                )}
-                {!depositSourceQuery.data?.payer_source && !depositSourceQuery.isLoading && (
-                  <Alert severity="warning" sx={{ mt: 0.5 }}>
-                    No wallet deposit found — ask admin to add funds
-                  </Alert>
-                )}
+                {(() => {
+                  const paying = Number(amountPaid) || purchaseAmount;
+                  const remaining = walletBalance - paying;
+                  const isShort = walletBalance < paying;
+                  return (
+                    <>
+                      <Box display="flex" justifyContent="space-between">
+                        <Typography variant="body2" color="text.secondary">Wallet balance</Typography>
+                        <Typography variant="body2" fontWeight={600} color={isShort ? "error.main" : "success.main"}>
+                          ₹{walletBalance.toLocaleString("en-IN")}
+                        </Typography>
+                      </Box>
+                      {depositSourceQuery.data?.payer_source && (
+                        <Box display="flex" justifyContent="space-between">
+                          <Typography variant="body2" color="text.secondary">Funded by</Typography>
+                          <Typography variant="body2">{walletSourceLabel}</Typography>
+                        </Box>
+                      )}
+                      <Box display="flex" justifyContent="space-between">
+                        <Typography variant="body2" color="text.secondary">After this payment</Typography>
+                        <Typography variant="body2" fontWeight={600} color={remaining < 0 ? "error.main" : "text.primary"}>
+                          ₹{remaining.toLocaleString("en-IN")}
+                        </Typography>
+                      </Box>
+                      {isShort && (
+                        <Alert severity="error" sx={{ mt: 0.5 }}>
+                          Insufficient wallet balance — ask admin to add funds
+                        </Alert>
+                      )}
+                      {!depositSourceQuery.data?.payer_source && !depositSourceQuery.isLoading && (
+                        <Alert severity="warning" sx={{ mt: 0.5 }}>
+                          No wallet deposit found — ask admin to add funds
+                        </Alert>
+                      )}
+                    </>
+                  );
+                })()}
               </>
             )}
           </Box>
@@ -788,7 +802,7 @@ export default function MaterialSettlementDialog({
           disabled={
             settleMutation.isPending ||
             advancePaymentMutation.isPending ||
-            (isSiteEngineer && (balanceQuery.isLoading || walletBalance < (Number(amountPaid) || purchaseAmount)))
+            (isSiteEngineer && (balanceQuery.isLoading || walletBalance < (Number(amountPaid) || purchaseAmount) || !depositSourceQuery.data?.payer_source))
           }
           startIcon={
             (settleMutation.isPending || advancePaymentMutation.isPending) ? (
