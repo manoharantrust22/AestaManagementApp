@@ -29,6 +29,7 @@ import {
   CheckCircle as CheckCircleIcon,
   Warning as WarningIcon,
   QrCode2 as QrCodeIcon,
+  AccountBalanceWallet as WalletIcon,
 } from "@mui/icons-material";
 import { createClient } from "@/lib/supabase/client";
 import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
@@ -40,6 +41,9 @@ import { useSettleMaterialPurchase } from "@/hooks/queries/useMaterialPurchases"
 import { useRecordAdvancePayment } from "@/hooks/queries/usePurchaseOrders";
 import { useVerifyBill } from "@/hooks/queries/useBillVerification";
 import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
+import { useEngineerWalletBalance, useLatestDepositSource } from "@/hooks/queries/useEngineerWalletV2";
+import { usePayerSources } from "@/hooks/queries/usePayerSources";
+import { recordSpend } from "@/lib/services/engineerWalletV2";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
 import type { MaterialPurchaseExpenseWithDetails, MaterialPaymentMode, PurchaseOrderWithDetails } from "@/types/material.types";
@@ -69,8 +73,28 @@ export default function MaterialSettlementDialog({
   onSuccess,
 }: MaterialSettlementDialogProps) {
   const supabase = createClient();
-  const { user } = useAuth();
+  const { user, userProfile } = useAuth();
   const { selectedSite } = useSite();
+  const isSiteEngineer = userProfile?.role === "site_engineer";
+  const engineerId = userProfile?.id || "";
+  const walletSiteId = selectedSite?.id || "";
+
+  const balanceQuery = useEngineerWalletBalance(
+    isSiteEngineer ? engineerId : undefined,
+    isSiteEngineer ? walletSiteId : undefined
+  );
+  const depositSourceQuery = useLatestDepositSource(
+    isSiteEngineer ? engineerId : undefined,
+    isSiteEngineer ? walletSiteId : undefined
+  );
+  const payerSourcesQuery = usePayerSources(isSiteEngineer ? walletSiteId : undefined);
+
+  const walletBalance = balanceQuery.data?.balance ?? 0;
+  const lifoSource = depositSourceQuery.data?.payer_source ?? "own_money";
+  const walletSourceLabel =
+    payerSourcesQuery.data?.find((s) => s.key === lifoSource)?.label ??
+    lifoSource.replace(/_/g, " ");
+
   const settleMutation = useSettleMaterialPurchase();
   const advancePaymentMutation = useRecordAdvancePayment();
   const verifyBillMutation = useVerifyBill();
@@ -126,7 +150,7 @@ export default function MaterialSettlementDialog({
         : Number(record?.total_amount || 0);
 
       setSettlementDate(new Date().toISOString().split("T")[0]);
-      setPaymentMode("upi");
+      setPaymentMode(isSiteEngineer ? "cash" : "upi");
       setPayerSource("own_money");
       setPayerName("");
       setPaymentReference("");
@@ -139,6 +163,13 @@ export default function MaterialSettlementDialog({
       resetVerification();
     }
   }, [open, purchase, purchaseOrder, resetVerification]);
+
+  // Auto-apply LIFO payer source for engineer once wallet data loads
+  useEffect(() => {
+    if (open && isSiteEngineer && depositSourceQuery.data?.payer_source) {
+      setPayerSource(depositSourceQuery.data.payer_source as PayerSource);
+    }
+  }, [open, isSiteEngineer, depositSourceQuery.data?.payer_source]);
 
   const handleSubmit = async () => {
     // Validation
@@ -214,6 +245,22 @@ export default function MaterialSettlementDialog({
         isVendorPaymentOnly,
         paying_site_id: isGroupStockParent && payingSiteId ? payingSiteId : undefined,
       });
+
+      // Deduct from engineer wallet when engineer is paying
+      if (isSiteEngineer && engineerId && walletSiteId) {
+        await recordSpend(supabase as any, {
+          engineer_id: engineerId,
+          site_id: walletSiteId,
+          amount: finalAmountPaid,
+          transaction_date: settlementDate,
+          payment_mode: "cash",
+          proof_url: paymentScreenshotUrl || null,
+          notes: notes || null,
+          recorded_by: userProfile?.name || user?.email || "Unknown",
+          recorded_by_user_id: engineerId,
+          description: `Material payment: ${vendorName} (${refCode})`,
+        });
+      }
 
       onSuccess?.();
       onClose();
@@ -570,29 +617,84 @@ export default function MaterialSettlementDialog({
           slotProps={{ inputLabel: { shrink: true } }}
         />
 
-        {/* Payment Mode */}
-        <FormControl sx={{ mb: 2 }} fullWidth>
-          <FormLabel sx={{ mb: 1, fontWeight: 600, fontSize: "0.875rem" }}>
-            Payment Mode
-          </FormLabel>
-          <RadioGroup
-            row
-            value={paymentMode}
-            onChange={(e) => setPaymentMode(e.target.value as MaterialPaymentMode)}
+        {/* Payment Mode — engineers are locked to wallet; admins see full selector */}
+        {isSiteEngineer ? (
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 1,
+              mb: 2,
+              p: 1.5,
+              bgcolor: "primary.50",
+              border: "1px solid",
+              borderColor: "primary.light",
+              borderRadius: 1,
+            }}
           >
-            {PAYMENT_MODES.map((mode) => (
-              <FormControlLabel
-                key={mode.value}
-                value={mode.value}
-                control={<Radio size="small" />}
-                label={mode.label}
-              />
-            ))}
-          </RadioGroup>
-        </FormControl>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
+              <WalletIcon fontSize="small" color="primary" />
+              <Typography variant="subtitle2" fontWeight={600}>
+                Payment via Engineer Wallet
+              </Typography>
+            </Box>
+            {balanceQuery.isLoading ? (
+              <CircularProgress size={20} />
+            ) : (
+              <>
+                <Box display="flex" justifyContent="space-between">
+                  <Typography variant="body2" color="text.secondary">Wallet balance</Typography>
+                  <Typography
+                    variant="body2"
+                    fontWeight={600}
+                    color={walletBalance < (Number(amountPaid) || purchaseAmount) ? "error.main" : "success.main"}
+                  >
+                    ₹{walletBalance.toLocaleString("en-IN")}
+                  </Typography>
+                </Box>
+                {depositSourceQuery.data?.payer_source && (
+                  <Box display="flex" justifyContent="space-between">
+                    <Typography variant="body2" color="text.secondary">Funded by</Typography>
+                    <Typography variant="body2">{walletSourceLabel}</Typography>
+                  </Box>
+                )}
+                {walletBalance < (Number(amountPaid) || purchaseAmount) && (
+                  <Alert severity="error" sx={{ mt: 0.5 }}>
+                    Insufficient wallet balance — ask admin to add funds
+                  </Alert>
+                )}
+                {!depositSourceQuery.data?.payer_source && !depositSourceQuery.isLoading && (
+                  <Alert severity="warning" sx={{ mt: 0.5 }}>
+                    No wallet deposit found — ask admin to add funds
+                  </Alert>
+                )}
+              </>
+            )}
+          </Box>
+        ) : (
+          <FormControl sx={{ mb: 2 }} fullWidth>
+            <FormLabel sx={{ mb: 1, fontWeight: 600, fontSize: "0.875rem" }}>
+              Payment Mode
+            </FormLabel>
+            <RadioGroup
+              row
+              value={paymentMode}
+              onChange={(e) => setPaymentMode(e.target.value as MaterialPaymentMode)}
+            >
+              {PAYMENT_MODES.map((mode) => (
+                <FormControlLabel
+                  key={mode.value}
+                  value={mode.value}
+                  control={<Radio size="small" />}
+                  label={mode.label}
+                />
+              ))}
+            </RadioGroup>
+          </FormControl>
+        )}
 
-        {/* Payer Source - only for regular expense settlements (not PO advance or group stock) */}
-        {!isPOAdvancePayment && (
+        {/* Payer Source — only for admins/office on regular expense settlements */}
+        {!isPOAdvancePayment && !isSiteEngineer && (
           <PayerSourceSelector
             value={payerSource}
             customName={payerName}
@@ -642,11 +744,13 @@ export default function MaterialSettlementDialog({
             folderPath={`settlements/${record!.site_id}`}
             fileNamePrefix="payment-proof"
             accept="image"
-            label={paymentMode === "upi" ? "UPI Payment Screenshot" : "Payment Proof"}
+            label={isSiteEngineer ? "Payment Proof" : paymentMode === "upi" ? "UPI Payment Screenshot" : "Payment Proof"}
             helperText={
-              paymentMode === "upi"
-                ? "Upload screenshot after scanning QR code and completing payment"
-                : "UPI screenshot / Bank statement"
+              isSiteEngineer
+                ? "Upload payment receipt or any proof of payment"
+                : paymentMode === "upi"
+                  ? "Upload screenshot after scanning QR code and completing payment"
+                  : "UPI screenshot / Bank statement"
             }
             uploadOnSelect
             value={
@@ -681,7 +785,11 @@ export default function MaterialSettlementDialog({
           variant="contained"
           color={isPOAdvancePayment ? "warning" : isGroupStockParent ? "secondary" : "success"}
           onClick={handleSubmit}
-          disabled={settleMutation.isPending || advancePaymentMutation.isPending}
+          disabled={
+            settleMutation.isPending ||
+            advancePaymentMutation.isPending ||
+            (isSiteEngineer && (balanceQuery.isLoading || walletBalance < (Number(amountPaid) || purchaseAmount)))
+          }
           startIcon={
             (settleMutation.isPending || advancePaymentMutation.isPending) ? (
               <CircularProgress size={16} color="inherit" />
