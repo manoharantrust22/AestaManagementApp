@@ -158,6 +158,15 @@ export default function RentalOrderDetailsPage() {
                 Activate Order
               </Button>
             )}
+            {order.status === "completed" && (
+              <Button
+                variant="outlined"
+                startIcon={<PaymentIcon />}
+                onClick={() => setAdvanceDialogOpen(true)}
+              >
+                Add Advance
+              </Button>
+            )}
             {isCompletedUnsettled && (
               <Button
                 variant="contained"
