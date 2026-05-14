@@ -1974,6 +1974,34 @@ export function useExtendRentalReturnDate() {
 
 // ── 3-party settlement mutation ─────────────────────────────────────────────
 
+export function useUpdateRentalSettlement() {
+  const qc = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      rental_order_id,
+      ...patch
+    }: Partial<RentalSettlement> & { id: string; rental_order_id: string }) => {
+      await ensureFreshSession();
+
+      const { data: result, error } = await (supabase as any)
+        .from("rental_settlements")
+        .update(patch)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return result as RentalSettlement;
+    },
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: rentalQueryKeys.orders.byId(vars.rental_order_id) });
+      qc.invalidateQueries({ queryKey: rentalQueryKeys.orders.all });
+    },
+  });
+}
+
 export function useCreateRentalSettlementParty() {
   const qc = useQueryClient();
   const supabase = createClient();

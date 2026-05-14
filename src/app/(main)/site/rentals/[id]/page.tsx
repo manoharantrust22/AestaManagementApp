@@ -32,6 +32,7 @@ import {
   Description as BillIcon,
   Receipt as ReceiptIcon,
   Screenshot as UpiIcon,
+  Edit as EditIcon,
 } from "@mui/icons-material";
 import PageHeader from "@/components/layout/PageHeader";
 import { useSite } from "@/contexts/SiteContext";
@@ -47,6 +48,7 @@ import {
   RentalSettlementDialog,
 } from "@/components/rentals";
 import { MultiPartySettlementDialog } from "@/components/rentals/MultiPartySettlementDialog";
+import { RentalSettlementEditDialog } from "@/components/rentals/RentalSettlementEditDialog";
 import {
   RENTAL_ORDER_STATUS_LABELS,
   RENTAL_ITEM_STATUS_LABELS,
@@ -71,6 +73,7 @@ export default function RentalOrderDetailsPage() {
   const [returnDialogOpen, setReturnDialogOpen] = useState(false);
   const [advanceDialogOpen, setAdvanceDialogOpen] = useState(false);
   const [settlementDialogOpen, setSettlementDialogOpen] = useState(false);
+  const [editingSettlement, setEditingSettlement] = useState<import("@/types/rental.types").RentalSettlement | null>(null);
   const [multiSettlementDialogOpen, setMultiSettlementDialogOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<RentalOrderItemWithDetails | undefined>();
 
@@ -544,9 +547,16 @@ export default function RentalOrderDetailsPage() {
                     <Typography variant="caption" fontWeight={700} color="text.secondary">
                       {RENTAL_SETTLEMENT_PARTY_LABELS[s.party_type as keyof typeof RENTAL_SETTLEMENT_PARTY_LABELS] ?? s.party_type}
                     </Typography>
-                    <Typography variant="caption" color="success.main" fontWeight={600}>
-                      {s.settlement_reference}
-                    </Typography>
+                    <Box display="flex" alignItems="center" gap={0.5}>
+                      <Typography variant="caption" color="success.main" fontWeight={600}>
+                        {s.settlement_reference}
+                      </Typography>
+                      <Tooltip title="Edit settlement">
+                        <IconButton size="small" onClick={() => setEditingSettlement(s)}>
+                          <EditIcon sx={{ fontSize: 14 }} />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
                   </Box>
                   <Box display="flex" flexDirection="column" gap={0.75}>
                     <Box display="flex" justifyContent="space-between">
@@ -679,6 +689,16 @@ export default function RentalOrderDetailsPage() {
         onClose={() => setMultiSettlementDialogOpen(false)}
         order={order}
       />
+
+      {editingSettlement && (
+        <RentalSettlementEditDialog
+          open={!!editingSettlement}
+          onClose={() => setEditingSettlement(null)}
+          settlement={editingSettlement}
+          siteId={order.site_id}
+          orderId={order.id}
+        />
+      )}
     </Box>
   );
 }
