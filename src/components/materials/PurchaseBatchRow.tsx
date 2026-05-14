@@ -80,9 +80,12 @@ export default function PurchaseBatchRow({
     || firstItem?.unit
     || (firstItem as any)?.material?.unit
     || 'nos'
+  const _rawBrand = (firstItem as any)?.brand
   const brandName = batch.brand?.brand_name
     || firstItem?.brand_name
-    || (firstItem as any)?.brand?.brand_name
+    || (_rawBrand?.variant_name
+      ? `${_rawBrand.brand_name} ${_rawBrand.variant_name}`
+      : _rawBrand?.brand_name)
 
   // Calculate per-unit rate from batch items instead of blended total_amount/qty
   const itemsAvgUnitPrice = (() => {

@@ -711,13 +711,13 @@ export function useBatchesWithUsage(groupId: string | undefined) {
             items:material_purchase_expense_items(
               *,
               material:materials(id, name, code, unit, weight_per_unit),
-              brand:material_brands(id, brand_name)
+              brand:material_brands(id, brand_name, variant_name)
             ),
             purchase_order:purchase_orders(
               items:purchase_order_items(
                 id, material_id, brand_id, quantity, unit_price,
                 material:materials(id, name, code, unit),
-                brand:material_brands(id, brand_name)
+                brand:material_brands(id, brand_name, variant_name)
               )
             )
           `)

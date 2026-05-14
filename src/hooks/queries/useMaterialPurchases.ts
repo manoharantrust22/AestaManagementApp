@@ -279,7 +279,7 @@ export function useGroupStockBatches(
             items:material_purchase_expense_items(
               *,
               material:materials(id, name, code, unit),
-              brand:material_brands(id, brand_name)
+              brand:material_brands(id, brand_name, variant_name)
             )
           `)
           .eq("site_group_id", groupId)
@@ -353,7 +353,9 @@ export function useGroupStockBatches(
               material_name: item.material?.name || "Unknown Material",
               material_code: item.material?.code || "",
               brand_id: item.brand_id,
-              brand_name: item.brand?.brand_name || "",
+              brand_name: item.brand?.variant_name
+                ? `${item.brand.brand_name} ${item.brand.variant_name}`
+                : (item.brand?.brand_name || ""),
               quantity: item.quantity,
               unit: item.material?.unit || "nos",
               unit_price: item.unit_price,
