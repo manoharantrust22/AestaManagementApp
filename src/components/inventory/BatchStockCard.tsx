@@ -14,7 +14,13 @@ interface Props {
 }
 
 export function BatchStockCard({ item, onRecordUsage }: Props) {
-  const materialName = item.material?.name ?? "Unknown material";
+  const rawBrand = (item as any).brand as { brand_name?: string; variant_name?: string } | null | undefined;
+  const brandLabel = rawBrand?.brand_name
+    ? rawBrand.variant_name
+      ? `${rawBrand.brand_name} ${rawBrand.variant_name}`
+      : rawBrand.brand_name
+    : null;
+  const materialName = brandLabel ?? item.material?.name ?? "Unknown material";
   const materialCode = item.material?.code ?? null;
   const unit = item.material?.unit ?? "";
   const imageUrl = (item.material as { image_url?: string | null } | undefined)?.image_url ?? null;

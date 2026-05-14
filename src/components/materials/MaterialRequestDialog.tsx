@@ -34,6 +34,8 @@ import {
   Add as AddIcon,
   Delete as DeleteIcon,
   Warning as WarningIcon,
+  LocalShipping as LocalShippingIcon,
+  Inventory2 as InventoryIcon,
 } from "@mui/icons-material";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useAuth } from "@/contexts/AuthContext";
@@ -70,6 +72,7 @@ interface RequestItemRow extends MaterialRequestItemFormData {
   materialName?: string;
   unit?: string;
   availableStock?: number;
+  first_batch_qty?: number;
 }
 
 const PRIORITY_OPTIONS: { value: RequestPriority; label: string }[] = [
@@ -133,12 +136,14 @@ export default function MaterialRequestDialog({
   const [requiredByDate, setRequiredByDate] = useState("");
   const [priority, setPriority] = useState<RequestPriority>("normal");
   const [purchaseType, setPurchaseType] = useState<'own_site' | 'group_stock'>('own_site');
+  const [deliveryType, setDeliveryType] = useState<'one_time' | 'bulk'>('one_time');
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<RequestItemRow[]>([]);
 
   // New item form
   const [selectedMaterial, setSelectedMaterial] = useState<MaterialWithDetails | null>(null);
   const [newItemQty, setNewItemQty] = useState("");
+  const [newItemFirstBatchQty, setNewItemFirstBatchQty] = useState("");
   const [newItemNotes, setNewItemNotes] = useState("");
 
   // Ref to prevent double submissions (more reliable than state)
@@ -159,6 +164,7 @@ export default function MaterialRequestDialog({
       setRequiredByDate(request.required_by_date || "");
       setPriority(request.priority);
       setPurchaseType(request.purchase_type ?? 'own_site');
+      setDeliveryType(request.delivery_type ?? 'one_time');
       setNotes(request.notes || "");
 
       // Map existing items
@@ -179,12 +185,14 @@ export default function MaterialRequestDialog({
       setRequiredByDate("");
       setPriority("normal");
       setPurchaseType('own_site');
+      setDeliveryType('one_time');
       setNotes("");
       setItems([]);
     }
     setError("");
     setSelectedMaterial(null);
     setNewItemQty("");
+    setNewItemFirstBatchQty("");
     setNewItemNotes("");
     setRemovedItemIds([]);
     // Reset submission guard when dialog opens/closes
@@ -210,9 +218,14 @@ export default function MaterialRequestDialog({
 
     const availableStock = getAvailableStock(selectedMaterial.id);
 
+    const firstBatch = deliveryType === 'bulk' && newItemFirstBatchQty
+      ? parseFloat(newItemFirstBatchQty)
+      : undefined;
+
     const newItem: RequestItemRow = {
       material_id: selectedMaterial.id,
       requested_qty: parseFloat(newItemQty),
+      first_batch_qty: firstBatch,
       notes: newItemNotes || undefined,
       materialName: selectedMaterial.name,
       unit: selectedMaterial.unit,
@@ -222,6 +235,7 @@ export default function MaterialRequestDialog({
     setItems([...items, newItem]);
     setSelectedMaterial(null);
     setNewItemQty("");
+    setNewItemFirstBatchQty("");
     setNewItemNotes("");
     setError("");
   };
@@ -295,16 +309,23 @@ export default function MaterialRequestDialog({
           site_id: siteId,
           section_id: sectionId || undefined,
           requested_by: userProfile.id,
-          required_by_date: requiredByDate || undefined,
-          priority,
+          required_by_date: deliveryType === 'one_time' ? (requiredByDate || undefined) : undefined,
+          priority: deliveryType === 'one_time' ? priority : 'normal',
           purchase_type: purchaseType,
+          delivery_type: deliveryType,
           notes: notes || undefined,
-          items: items.map((item) => ({
-            material_id: item.material_id,
-            brand_id: item.brand_id,
-            requested_qty: item.requested_qty,
-            notes: item.notes,
-          })),
+          items: items.map((item) => {
+            const baseNotes = item.notes || '';
+            const batchNote = item.first_batch_qty
+              ? `First batch: ${item.first_batch_qty}${baseNotes ? ` | ${baseNotes}` : ''}`
+              : baseNotes;
+            return {
+              material_id: item.material_id,
+              brand_id: item.brand_id,
+              requested_qty: item.requested_qty,
+              notes: batchNote || undefined,
+            };
+          }),
         });
       }
       onClose();
@@ -403,33 +424,70 @@ export default function MaterialRequestDialog({
             </FormControl>
           </Grid>
 
-          <Grid size={{ xs: 6, md: 4 }}>
-            <TextField
-              fullWidth
-              type="date"
-              label="Required By"
-              value={requiredByDate}
-              onChange={(e) => setRequiredByDate(e.target.value)}
-              slotProps={{ inputLabel: { shrink: true } }}
-            />
+          {/* Delivery type toggle — always visible */}
+          <Grid size={{ xs: 12, md: 8 }}>
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                Delivery type
+              </Typography>
+              <ToggleButtonGroup
+                value={deliveryType}
+                exclusive
+                onChange={(_, val) => { if (val) setDeliveryType(val); }}
+                size="small"
+              >
+                <ToggleButton value="one_time" sx={{ gap: 0.5 }}>
+                  <LocalShippingIcon fontSize="small" />
+                  One-time delivery
+                </ToggleButton>
+                <ToggleButton value="bulk" sx={{ gap: 0.5 }}>
+                  <InventoryIcon fontSize="small" />
+                  Bulk / Multiple batches
+                </ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
           </Grid>
 
-          <Grid size={{ xs: 6, md: 4 }}>
-            <FormControl fullWidth>
-              <InputLabel>Priority</InputLabel>
-              <Select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as RequestPriority)}
-                label="Priority"
-              >
-                {PRIORITY_OPTIONS.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
+          {/* One-time only: Required By + Priority */}
+          {deliveryType === 'one_time' && (
+            <>
+              <Grid size={{ xs: 6, md: 4 }}>
+                <TextField
+                  fullWidth
+                  type="date"
+                  label="Required By"
+                  value={requiredByDate}
+                  onChange={(e) => setRequiredByDate(e.target.value)}
+                  slotProps={{ inputLabel: { shrink: true } }}
+                />
+              </Grid>
+              <Grid size={{ xs: 6, md: 4 }}>
+                <FormControl fullWidth>
+                  <InputLabel>Priority</InputLabel>
+                  <Select
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value as RequestPriority)}
+                    label="Priority"
+                  >
+                    {PRIORITY_OPTIONS.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            </>
+          )}
+
+          {/* Bulk mode info banner */}
+          {deliveryType === 'bulk' && (
+            <Grid size={12}>
+              <Alert severity="info" sx={{ py: 0.5 }}>
+                Vendor will deliver in multiple batches over time. Specify total quantity needed and optionally how much is needed in the first delivery.
+              </Alert>
+            </Grid>
+          )}
 
           {/* Purchase type — only shown when site is in a group */}
           {groupMembership?.isInGroup && (
@@ -491,19 +549,34 @@ export default function MaterialRequestDialog({
             />
           </Grid>
 
-          <Grid size={{ xs: 4, md: 2 }}>
+          <Grid size={{ xs: deliveryType === 'bulk' ? 3 : 4, md: 2 }}>
             <TextField
               fullWidth
               size="small"
               type="number"
-              label="Quantity"
+              label="Total Qty"
               value={newItemQty}
               onChange={(e) => setNewItemQty(e.target.value)}
               slotProps={{ input: { inputProps: { min: 0, step: 0.01 } } }}
             />
           </Grid>
 
-          <Grid size={{ xs: 8, md: 3 }}>
+          {deliveryType === 'bulk' && (
+            <Grid size={{ xs: 3, md: 2 }}>
+              <TextField
+                fullWidth
+                size="small"
+                type="number"
+                label="1st Batch Qty"
+                value={newItemFirstBatchQty}
+                onChange={(e) => setNewItemFirstBatchQty(e.target.value)}
+                slotProps={{ input: { inputProps: { min: 0, step: 0.01 } } }}
+                placeholder="Optional"
+              />
+            </Grid>
+          )}
+
+          <Grid size={{ xs: deliveryType === 'bulk' ? 6 : 8, md: 3 }}>
             <TextField
               fullWidth
               size="small"
@@ -533,7 +606,10 @@ export default function MaterialRequestDialog({
                 <TableHead>
                   <TableRow>
                     <TableCell>Material</TableCell>
-                    <TableCell align="right">Requested</TableCell>
+                    <TableCell align="right">Total Qty</TableCell>
+                    {deliveryType === 'bulk' && (
+                      <TableCell align="right">1st Batch</TableCell>
+                    )}
                     <TableCell align="right">In Stock</TableCell>
                     <TableCell>Notes</TableCell>
                     <TableCell width={50}></TableCell>
@@ -542,7 +618,7 @@ export default function MaterialRequestDialog({
                 <TableBody>
                   {items.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} align="center">
+                      <TableCell colSpan={deliveryType === 'bulk' ? 6 : 5} align="center">
                         <Typography
                           variant="body2"
                           color="text.secondary"
@@ -564,6 +640,13 @@ export default function MaterialRequestDialog({
                           </Typography>
                         </TableCell>
                         <TableCell align="right">{item.requested_qty}</TableCell>
+                        {deliveryType === 'bulk' && (
+                          <TableCell align="right">
+                            <Typography variant="body2" color={item.first_batch_qty ? "primary" : "text.disabled"}>
+                              {item.first_batch_qty ?? "—"}
+                            </Typography>
+                          </TableCell>
+                        )}
                         <TableCell align="right">
                           <Typography
                             variant="body2"

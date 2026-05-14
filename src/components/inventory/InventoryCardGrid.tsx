@@ -73,9 +73,16 @@ function groupBatchesByMaterial(
       const bDate = b.last_received_date || b.created_at || "";
       return bDate.localeCompare(aDate);
     });
+    const first = items[0];
+    const rawBrand = (first as any)?.brand as { brand_name?: string; variant_name?: string } | null | undefined;
+    const brandLabel = rawBrand?.brand_name
+      ? rawBrand.variant_name
+        ? `${rawBrand.brand_name} ${rawBrand.variant_name}`
+        : rawBrand.brand_name
+      : null;
     return {
       materialId,
-      materialName: items[0]?.material?.name ?? "Unknown",
+      materialName: brandLabel ?? first?.material?.name ?? "Unknown",
       items,
     };
   });

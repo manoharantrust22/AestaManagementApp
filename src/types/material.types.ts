@@ -824,6 +824,7 @@ export interface MaterialRequest {
   status: MaterialRequestStatus;
   notes: string | null;
   purchase_type: 'own_site' | 'group_stock';
+  delivery_type: 'one_time' | 'bulk';
   approved_by: string | null;
   approved_at: string | null;
   rejection_reason: string | null;
@@ -1350,6 +1351,7 @@ export interface MaterialRequestFormData {
   priority: RequestPriority;
   notes?: string;
   purchase_type?: 'own_site' | 'group_stock';
+  delivery_type?: 'one_time' | 'bulk';
   items: MaterialRequestItemFormData[];
 }
 

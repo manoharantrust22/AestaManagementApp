@@ -214,6 +214,7 @@ export function useCreateMaterialRequest() {
             status: "pending",
             notes: data.notes || null,
             purchase_type: data.purchase_type ?? 'own_site',
+            delivery_type: data.delivery_type ?? 'one_time',
           })
           .select()
           .single(),
@@ -282,6 +283,8 @@ export function useCreateMaterialRequest() {
         priority: variables.priority,
         status: "pending" as const,
         notes: variables.notes || null,
+        purchase_type: variables.purchase_type ?? 'own_site',
+        delivery_type: variables.delivery_type ?? 'one_time',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         approved_by: null,
