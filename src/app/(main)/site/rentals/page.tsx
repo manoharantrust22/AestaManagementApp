@@ -464,25 +464,34 @@ export default function SiteRentalsPage() {
                     // Get item details
                     const items = rental.items || [];
 
-                    // Calculate duration correctly using expected_return_date if no actual
+                    // Calculate duration — for completed orders respect exclude_start_date
                     const endDateForCalc = rental.actual_return_date || rental.expected_return_date || rental.start_date;
-                    const durationDays = Math.max(1, dayjs(endDateForCalc).diff(dayjs(rental.start_date), "day") + 1);
+                    const durationDays = Math.max(
+                      1,
+                      dayjs(endDateForCalc).diff(dayjs(rental.start_date), "day") +
+                        (rental.exclude_start_date ? 0 : 1)
+                    );
 
                     // Check if any item is hourly
                     const hasHourlyItems = items.some(item => item.rate_type === "hourly");
 
-                    // Recalculate estimated total from items (in case stored value is wrong)
-                    const itemsTotal = items.reduce((sum, item) => {
-                      const rateType = item.rate_type || "daily";
-                      if (rateType === "hourly") {
-                        return sum + (item.quantity || 0) * (item.daily_rate_actual || 0) * (item.hours_used || 0);
-                      } else {
-                        return sum + (item.quantity || 0) * (item.daily_rate_actual || 0) * durationDays;
-                      }
-                    }, 0);
                     const transportTotal = (rental.transport_cost_outward || 0) +
+                      (rental.transport_cost_return || 0) +
                       (rental.loading_cost_outward || 0) +
                       (rental.unloading_cost_outward || 0);
+
+                    // For completed orders use the stored actual_total (reflects user-entered or edited total).
+                    // For active orders recalculate dynamically from items × days.
+                    const itemsTotal = (rental.status === "completed" && rental.actual_total != null)
+                      ? rental.actual_total
+                      : items.reduce((sum, item) => {
+                          const rateType = item.rate_type || "daily";
+                          if (rateType === "hourly") {
+                            return sum + (item.quantity || 0) * (item.daily_rate_actual || 0) * (item.hours_used || 0);
+                          } else {
+                            return sum + (item.quantity || 0) * (item.daily_rate_actual || 0) * durationDays;
+                          }
+                        }, 0);
                     const estimatedTotal = itemsTotal + transportTotal;
 
                     // Check for settlement data

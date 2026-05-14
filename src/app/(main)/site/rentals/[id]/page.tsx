@@ -278,7 +278,7 @@ export default function RentalOrderDetailsPage() {
                 </Typography>
                 <Typography variant="body2" fontWeight={600} color="primary">
                   {order.status === "completed" && order.actual_return_date
-                    ? Math.max(1, dayjs(order.actual_return_date).diff(dayjs(order.start_date), "day") + ((order as any).exclude_start_date ? 0 : 1))
+                    ? Math.max(1, dayjs(order.actual_return_date).diff(dayjs(order.start_date), "day") + (order.exclude_start_date ? 0 : 1))
                     : order.days_since_start || 0} days
                 </Typography>
               </Box>
