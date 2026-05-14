@@ -308,7 +308,13 @@
       "Bash(Get-Content \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\ccd7ba4b-0e2e-4762-9c97-50f4c866ea01\\\\tasks\\\\bdvn4mkv8.output\" -Tail 30)",
       "Bash(Get-ChildItem -Path \"src\\\\app\\\\\\(main\\)\" -Name -Recurse -Filter \"layout.tsx\")",
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\" -Directory)",
-      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\" -Directory | Select-Object -First 20 | ForEach-Object { $_.Name })"
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\" -Directory | Select-Object -First 20 | ForEach-Object { $_.Name })",
+      "Bash(Get-Content \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\28bd06d8-9ef6-4f60-81ad-d876dcd66674\\\\tasks\\\\b7qv0uqww.output\" -Tail 10)",
+      "PowerShell(python3 -c \"print\\(open\\(r'C:\\\\Users\\\\Haribabu\\\\.claude\\\\projects\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\80f4a0b3-58ae-4995-a240-7c27ec4c7370\\\\tool-results\\\\mcp-supabase-list_tables-1778735504281.txt'\\).read\\(\\)[0:80000]\\)\")",
+      "PowerShell(python3 -c \"print\\(open\\(r'C:\\\\Users\\\\Haribabu\\\\.claude\\\\projects\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\80f4a0b3-58ae-4995-a240-7c27ec4c7370\\\\tool-results\\\\mcp-supabase-list_tables-1778735504281.txt'\\).read\\(\\)[80000:160000]\\)\")",
+      "PowerShell(python3 -c \"print\\(open\\(r'C:\\\\Users\\\\Haribabu\\\\.claude\\\\projects\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\80f4a0b3-58ae-4995-a240-7c27ec4c7370\\\\tool-results\\\\mcp-supabase-list_tables-1778735504281.txt'\\).read\\(\\)[160000:240000]\\)\")",
+      "PowerShell(python3 -c \"print\\(open\\(r'C:\\\\Users\\\\Haribabu\\\\.claude\\\\projects\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\80f4a0b3-58ae-4995-a240-7c27ec4c7370\\\\tool-results\\\\mcp-supabase-list_tables-1778735504281.txt'\\).read\\(\\)[240000:320000]\\)\")",
+      "PowerShell(python3 -c \"print\\(open\\(r'C:\\\\Users\\\\Haribabu\\\\.claude\\\\projects\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\80f4a0b3-58ae-4995-a240-7c27ec4c7370\\\\tool-results\\\\mcp-supabase-list_tables-1778735504281.txt'\\).read\\(\\)[320000:400000]\\)\")"
     ],
     "deny": [],
     "ask": [],

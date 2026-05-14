@@ -11,6 +11,7 @@ import {
   Typography,
   CircularProgress,
   Alert,
+  TextField,
 } from "@mui/material";
 import {
   AccountBalanceWallet as WalletIcon,
@@ -55,6 +56,7 @@ export default function WalletSettleConfirmDialog({
   const supabase = createClient();
   const { showToast } = useToast();
   const [processing, setProcessing] = useState(false);
+  const [notes, setNotes] = useState("");
 
   const balanceQuery = useEngineerWalletBalance(engineerId, siteId);
   const depositSourceQuery = useLatestDepositSource(engineerId, siteId);
@@ -105,6 +107,7 @@ export default function WalletSettleConfirmDialog({
         paymentChannel: "engineer_wallet",
         payerSource: lifoSource as PayerSource,
         engineerId,
+        notes: notes || undefined,
         userId: userProfile.id,
         userName: userProfile.name || userProfile.email || "Unknown",
       });
@@ -115,6 +118,7 @@ export default function WalletSettleConfirmDialog({
         "success"
       );
       onSuccess();
+      setNotes("");
     } catch (err: any) {
       showToast(err.message || "Settlement failed", "error");
     } finally {
@@ -194,12 +198,23 @@ export default function WalletSettleConfirmDialog({
                 No wallet deposit found — ask admin to add funds
               </Alert>
             )}
+
+            <TextField
+              label="Notes (optional)"
+              multiline
+              rows={2}
+              fullWidth
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              disabled={processing}
+              sx={{ mt: 1 }}
+            />
           </Box>
         )}
       </DialogContent>
 
       <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={onClose} disabled={processing}>
+        <Button onClick={() => { onClose(); setNotes(""); }} disabled={processing}>
           Cancel
         </Button>
         <Button

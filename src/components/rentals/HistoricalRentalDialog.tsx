@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -33,6 +33,8 @@ import {
   Divider,
   Paper,
   Collapse,
+  Autocomplete,
+  CircularProgress,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -40,16 +42,20 @@ import {
   Delete as DeleteIcon,
   ExpandMore as ExpandMoreIcon,
   History as HistoryIcon,
+  AttachFile as AttachFileIcon,
 } from "@mui/icons-material";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useCreateHistoricalRental } from "@/hooks/queries/useRentals";
+import { useCreateHistoricalRental, useRentalItems } from "@/hooks/queries/useRentals";
 import VendorAutocomplete from "@/components/common/VendorAutocomplete";
 import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
 import { formatCurrency } from "@/lib/formatters";
+import { hardenedUpload } from "@/lib/storage/uploadHelpers";
+import { createClient } from "@/lib/supabase/client";
 import type {
   HistoricalRentalItemFormData,
   HistoricalTransportFormData,
   HistoricalAdvanceFormData,
+  RentalItemWithDetails,
 } from "@/types/rental.types";
 import type { PayerSource } from "@/types/settlement.types";
 import dayjs from "dayjs";
@@ -72,7 +78,7 @@ const PAYMENT_MODES: { value: PaymentMode; label: string }[] = [
 const today = dayjs().format("YYYY-MM-DD");
 
 function emptyItem(): HistoricalRentalItemFormData {
-  return { item_name: "", quantity: 1, daily_rate: 0, days: 1 };
+  return { item_name: "", rental_item_id: null, quantity: 1, daily_rate: 0, days: 1 };
 }
 
 function emptyAdvance(): HistoricalAdvanceFormData {
@@ -86,10 +92,19 @@ export default function HistoricalRentalDialog({
 }: HistoricalRentalDialogProps) {
   const isMobile = useIsMobile();
   const createHistorical = useCreateHistoricalRental();
+  const { data: allRentalItems = [] } = useRentalItems();
+  const supabase = createClient();
 
   // Basic info
   const [vendorId, setVendorId] = useState<string | null>(null);
   const [billRef, setBillRef] = useState("");
+
+  // Calculation sheet upload
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [calculationSheetUrl, setCalculationSheetUrl] = useState<string | null>(null);
+  const [calculationSheetFileName, setCalculationSheetFileName] = useState("");
+  const [uploadingFile, setUploadingFile] = useState(false);
+
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
@@ -134,6 +149,8 @@ export default function HistoricalRentalDialog({
   function reset() {
     setVendorId(null);
     setBillRef("");
+    setCalculationSheetUrl(null);
+    setCalculationSheetFileName("");
     setStartDate("");
     setEndDate("");
     setItems([]);
@@ -164,7 +181,7 @@ export default function HistoricalRentalDialog({
 
   function updateItem(idx: number, patch: Partial<HistoricalRentalItemFormData>) {
     setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
-    setTotalManuallyEdited(false);
+    if (!("daily_rate" in patch)) setTotalManuallyEdited(false);
   }
 
   function removeItem(idx: number) {
@@ -182,6 +199,31 @@ export default function HistoricalRentalDialog({
 
   function removeAdvance(idx: number) {
     setAdvances((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingFile(true);
+    setError(null);
+    try {
+      const ext = file.name.split(".").pop() ?? "bin";
+      const filePath = `uploads/${siteId}/${Date.now()}.${ext}`;
+      const { publicUrl } = await hardenedUpload({
+        supabase,
+        bucketName: "rental-documents",
+        filePath,
+        file,
+        contentType: file.type || "application/octet-stream",
+      });
+      setCalculationSheetUrl(publicUrl);
+      setCalculationSheetFileName(file.name);
+    } catch (err: any) {
+      setError(err.message ?? "Failed to upload file.");
+    } finally {
+      setUploadingFile(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   }
 
   async function handleSave(withSettlement: boolean) {
@@ -202,6 +244,7 @@ export default function HistoricalRentalDialog({
         site_id: siteId,
         vendor_id: vendorId,
         bill_ref: billRef || undefined,
+        calculation_sheet_url: calculationSheetUrl ?? undefined,
         start_date: startDate,
         end_date: endDate,
         items: validItems,
@@ -264,7 +307,7 @@ export default function HistoricalRentalDialog({
             />
           </Grid>
 
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={{ xs: 12, sm: 5 }}>
             <TextField
               fullWidth
               label="Bill / Ref No"
@@ -275,7 +318,42 @@ export default function HistoricalRentalDialog({
             />
           </Grid>
 
-          <Grid size={{ xs: 12, sm: 3 }}>
+          {/* Calculation sheet upload */}
+          <Grid size={{ xs: 12, sm: 7 }}>
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: "none" }}
+              accept="image/*,application/pdf"
+              onChange={handleFileSelect}
+            />
+            {calculationSheetUrl ? (
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, border: "1px solid", borderColor: "success.main", borderRadius: 1, px: 1.5, py: 0.75 }}>
+                <AttachFileIcon fontSize="small" color="success" />
+                <Typography variant="body2" noWrap sx={{ flex: 1, color: "success.dark" }}>
+                  {calculationSheetFileName}
+                </Typography>
+                <IconButton size="small" onClick={() => { setCalculationSheetUrl(null); setCalculationSheetFileName(""); }}>
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Box>
+            ) : (
+              <Button
+                variant="outlined"
+                size="small"
+                color="inherit"
+                startIcon={uploadingFile ? <CircularProgress size={14} /> : <AttachFileIcon />}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingFile}
+                fullWidth
+                sx={{ height: 40 }}
+              >
+                {uploadingFile ? "Uploading..." : "Attach Calculation Sheet"}
+              </Button>
+            )}
+          </Grid>
+
+          <Grid size={{ xs: 12, sm: 6 }}>
             <TextField
               fullWidth
               type="date"
@@ -289,7 +367,7 @@ export default function HistoricalRentalDialog({
             />
           </Grid>
 
-          <Grid size={{ xs: 12, sm: 3 }}>
+          <Grid size={{ xs: 12, sm: 6 }}>
             <TextField
               fullWidth
               type="date"
@@ -328,14 +406,41 @@ export default function HistoricalRentalDialog({
                       <TableBody>
                         {items.map((item, idx) => (
                           <TableRow key={idx}>
-                            <TableCell>
-                              <TextField
+                            <TableCell sx={{ minWidth: 180 }}>
+                              <Autocomplete
+                                freeSolo
                                 size="small"
-                                placeholder="e.g. Roof Sheet"
-                                value={item.item_name}
-                                onChange={(e) => updateItem(idx, { item_name: e.target.value })}
-                                variant="standard"
-                                sx={{ minWidth: 120 }}
+                                options={allRentalItems}
+                                getOptionLabel={(opt) =>
+                                  typeof opt === "string" ? opt : opt.name
+                                }
+                                inputValue={item.item_name}
+                                onInputChange={(_, val, reason) => {
+                                  if (reason !== "reset") {
+                                    updateItem(idx, { item_name: val, rental_item_id: null });
+                                  }
+                                }}
+                                onChange={(_, val) => {
+                                  if (val && typeof val !== "string") {
+                                    const catalogItem = val as RentalItemWithDetails;
+                                    updateItem(idx, {
+                                      item_name: catalogItem.name,
+                                      rental_item_id: catalogItem.id,
+                                      daily_rate: catalogItem.default_daily_rate ?? item.daily_rate,
+                                    });
+                                  } else if (typeof val === "string") {
+                                    updateItem(idx, { item_name: val, rental_item_id: null });
+                                  }
+                                }}
+                                renderInput={(params) => (
+                                  <TextField
+                                    {...params}
+                                    variant="standard"
+                                    placeholder="Search or type item name"
+                                    sx={{ minWidth: 160 }}
+                                  />
+                                )}
+                                slotProps={{ popper: { disablePortal: false } }}
                               />
                             </TableCell>
                             <TableCell align="right">

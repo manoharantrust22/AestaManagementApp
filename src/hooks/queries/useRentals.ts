@@ -2019,7 +2019,7 @@ export function useCreateHistoricalRental() {
           transport_cost_return: outboundAmount,
           outward_by: inbound?.paid_to === "driver" ? "company" : inbound ? "vendor" : null,
           return_by: outbound?.paid_to === "driver" ? "company" : outbound ? "vendor" : null,
-          vendor_slip_url: data.bill_ref ?? null,
+          vendor_slip_url: data.calculation_sheet_url ?? null,
           notes: data.bill_ref ? `Bill/Ref: ${data.bill_ref}` : null,
         })
         .select()
@@ -2031,7 +2031,7 @@ export function useCreateHistoricalRental() {
       if (data.items.length > 0) {
         const itemsToInsert = data.items.map((item) => ({
           rental_order_id: order.id,
-          rental_item_id: null,
+          rental_item_id: item.rental_item_id ?? null,
           item_name_override: item.item_name,
           quantity: item.quantity,
           daily_rate_default: item.daily_rate,

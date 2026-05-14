@@ -625,6 +625,7 @@ export interface VendorEstimate {
 
 export interface HistoricalRentalItemFormData {
   item_name: string;
+  rental_item_id?: string | null;
   quantity: number;
   daily_rate: number;
   days: number;
@@ -654,6 +655,7 @@ export interface HistoricalRentalFormData {
   site_id: string;
   vendor_id: string;
   bill_ref?: string;
+  calculation_sheet_url?: string;
   start_date: string;
   end_date: string;
   items: HistoricalRentalItemFormData[];

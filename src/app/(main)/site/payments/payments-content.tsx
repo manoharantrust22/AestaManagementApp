@@ -51,6 +51,7 @@ import PaymentsLedger, {
   derivePendingLaborerType,
 } from "@/components/payments/PaymentsLedger";
 import { MestriSettleDialog } from "@/components/payments/MestriSettleDialog";
+import { ContractWalletSettleDialog } from "@/components/payments/ContractWalletSettleDialog";
 import PaymentDialog from "@/components/payments/PaymentDialog";
 import WalletSettleConfirmDialog from "@/components/payments/WalletSettleConfirmDialog";
 import SettlementRefDetailDialog, {
@@ -1499,26 +1500,51 @@ export default function PaymentsContent() {
       )}
 
       {settleDialog && (
-        <MestriSettleDialog
-          open
-          onClose={() => setSettleDialog(null)}
-          siteId={selectedSite.id}
-          mode="fill-week"
-          weekStart={settleDialog.weekStart}
-          weekEnd={settleDialog.weekEnd}
-          suggestedAmount={settleDialog.suggestedAmount}
-          initialSubcontractId={selectedSubcontractId}
-        />
+        isEngineerWalletSettle ? (
+          <ContractWalletSettleDialog
+            open
+            onClose={() => setSettleDialog(null)}
+            onSuccess={() => setSettleDialog(null)}
+            siteId={selectedSite.id}
+            engineerId={userProfile!.id}
+            subcontractId={selectedSubcontractId}
+            suggestedAmount={settleDialog.suggestedAmount}
+            weekStart={settleDialog.weekStart}
+            weekEnd={settleDialog.weekEnd}
+          />
+        ) : (
+          <MestriSettleDialog
+            open
+            onClose={() => setSettleDialog(null)}
+            siteId={selectedSite.id}
+            mode="fill-week"
+            weekStart={settleDialog.weekStart}
+            weekEnd={settleDialog.weekEnd}
+            suggestedAmount={settleDialog.suggestedAmount}
+            initialSubcontractId={selectedSubcontractId}
+          />
+        )
       )}
 
       {recordPaymentOpen && (
-        <MestriSettleDialog
-          open
-          onClose={() => setRecordPaymentOpen(false)}
-          siteId={selectedSite.id}
-          mode="date-only"
-          initialSubcontractId={selectedSubcontractId}
-        />
+        isEngineerWalletSettle ? (
+          <ContractWalletSettleDialog
+            open
+            onClose={() => setRecordPaymentOpen(false)}
+            onSuccess={() => setRecordPaymentOpen(false)}
+            siteId={selectedSite.id}
+            engineerId={userProfile!.id}
+            subcontractId={selectedSubcontractId}
+          />
+        ) : (
+          <MestriSettleDialog
+            open
+            onClose={() => setRecordPaymentOpen(false)}
+            siteId={selectedSite.id}
+            mode="date-only"
+            initialSubcontractId={selectedSubcontractId}
+          />
+        )
       )}
 
       <SettlementRefDetailDialog
