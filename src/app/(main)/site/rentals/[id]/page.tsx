@@ -46,6 +46,7 @@ import {
   RentalAdvanceDialog,
   RentalSettlementDialog,
 } from "@/components/rentals";
+import { MultiPartySettlementDialog } from "@/components/rentals/MultiPartySettlementDialog";
 import {
   RENTAL_ORDER_STATUS_LABELS,
   RENTAL_ITEM_STATUS_LABELS,
@@ -69,6 +70,7 @@ export default function RentalOrderDetailsPage() {
   const [returnDialogOpen, setReturnDialogOpen] = useState(false);
   const [advanceDialogOpen, setAdvanceDialogOpen] = useState(false);
   const [settlementDialogOpen, setSettlementDialogOpen] = useState(false);
+  const [multiSettlementDialogOpen, setMultiSettlementDialogOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<RentalOrderItemWithDetails | undefined>();
 
   const handleRecordReturn = (item?: RentalOrderItemWithDetails) => {
@@ -91,9 +93,14 @@ export default function RentalOrderDetailsPage() {
   ).length;
 
   const allItemsReturned = outstandingItemsCount === 0;
-  const settlement = order?.settlements?.[0] ?? null;
-  const isSettled = order?.status === "completed" && !!settlement;
+  const settlements = order?.settlements ?? [];
+  const settlement = settlements[0] ?? null;
+  // A completed order is "fully settled" only when ALL parties have a settlement row.
+  // For historical records with transport drivers, there may be multiple parties.
+  const isSettled = order?.status === "completed" && settlements.length > 0;
   const showReadyToSettle = allItemsReturned && !isSettled && order?.status !== "completed" && order?.status !== "cancelled";
+  // Completed orders saved as "Settle Later" (no settlement rows yet)
+  const isCompletedUnsettled = order?.status === "completed" && settlements.length === 0;
 
   if (isLoading) {
     return (
@@ -130,6 +137,16 @@ export default function RentalOrderDetailsPage() {
                 disabled={updateStatus.isPending}
               >
                 Activate Order
+              </Button>
+            )}
+            {isCompletedUnsettled && (
+              <Button
+                variant="contained"
+                color="success"
+                startIcon={<SettleIcon />}
+                onClick={() => setMultiSettlementDialogOpen(true)}
+              >
+                Settle
               </Button>
             )}
             {["active", "partially_returned"].includes(order.status) && (
@@ -238,26 +255,26 @@ export default function RentalOrderDetailsPage() {
                   </Typography>
                 </Box>
               </Box>
-              {order.expected_return_date && (
+              {(order.actual_return_date || order.expected_return_date) && (
                 <Box>
                   <Typography variant="caption" color="text.secondary">
-                    Expected Return
+                    {order.status === "completed" ? "Return Date" : "Expected Return"}
                   </Typography>
                   <Box display="flex" alignItems="center" gap={0.5}>
                     <CalendarIcon fontSize="small" color="action" />
                     <Typography
                       variant="body2"
                       fontWeight={500}
-                      color={order.is_overdue ? "error.main" : "text.primary"}
+                      color={order.is_overdue && order.status !== "completed" ? "error.main" : "text.primary"}
                     >
-                      {dayjs(order.expected_return_date).format("DD MMM YYYY")}
+                      {dayjs(order.actual_return_date ?? order.expected_return_date).format("DD MMM YYYY")}
                     </Typography>
                   </Box>
                 </Box>
               )}
               <Box>
                 <Typography variant="caption" color="text.secondary">
-                  Days Elapsed
+                  {order.status === "completed" ? "Duration" : "Days Elapsed"}
                 </Typography>
                 <Typography variant="body2" fontWeight={600} color="primary">
                   {order.days_since_start || 0} days
@@ -265,6 +282,21 @@ export default function RentalOrderDetailsPage() {
               </Box>
             </Box>
           </Paper>
+
+          {/* Pending settlement banner for historical "Settle Later" records */}
+          {isCompletedUnsettled && (
+            <Alert
+              severity="warning"
+              sx={{ mb: 2 }}
+              action={
+                <Button color="warning" variant="contained" size="small" onClick={() => setMultiSettlementDialogOpen(true)}>
+                  Settle Now
+                </Button>
+              }
+            >
+              Payment not yet recorded. Tap Settle Now to record vendor and transport payments separately.
+            </Alert>
+          )}
 
           {/* Ready to Settle Banner */}
           {showReadyToSettle && (
@@ -599,6 +631,12 @@ export default function RentalOrderDetailsPage() {
       <RentalSettlementDialog
         open={settlementDialogOpen}
         onClose={() => setSettlementDialogOpen(false)}
+        order={order}
+      />
+
+      <MultiPartySettlementDialog
+        open={multiSettlementDialogOpen}
+        onClose={() => setMultiSettlementDialogOpen(false)}
         order={order}
       />
     </Box>

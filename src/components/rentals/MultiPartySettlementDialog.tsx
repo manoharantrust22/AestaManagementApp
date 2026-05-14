@@ -45,11 +45,15 @@ export function MultiPartySettlementDialog({ open, onClose, order }: MultiPartyS
   const settleParty = useCreateRentalSettlementParty();
 
   const totalAdvances = (order.advances ?? []).reduce((s, a) => s + (a.amount ?? 0), 0);
-  const rentalAmount = calculateSpentToDate(
-    order.items as any ?? [],
-    order.returns ?? [],
-    order.start_date ?? order.order_date
-  );
+  // For completed orders use actual_total (set at creation); recalculate for ongoing ones.
+  const rentalAmount =
+    order.status === "completed" && order.actual_total != null
+      ? order.actual_total
+      : calculateSpentToDate(
+          order.items as any ?? [],
+          order.returns ?? [],
+          order.start_date ?? order.order_date
+        );
   const transportAmount =
     (order.transport_cost_outward ?? 0) + (order.transport_cost_return ?? 0);
   const loadingAmount =

@@ -1564,9 +1564,14 @@ export function useRentalCostCalculation(
           )
         : null;
 
-    // Use last return date for days elapsed if all items returned, otherwise use now
+    // For completed orders, use actual_return_date (set by historical records and normal return flow).
+    // Fall back to last return-record date, then today for still-active orders.
     const effectiveEndDate =
-      allItemsReturned && lastReturnDate ? lastReturnDate : now;
+      order.status === "completed" && order.actual_return_date
+        ? new Date(order.actual_return_date)
+        : allItemsReturned && lastReturnDate
+        ? lastReturnDate
+        : now;
 
     const daysElapsed = Math.max(
       1,
