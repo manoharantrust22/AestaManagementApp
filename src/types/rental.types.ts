@@ -660,6 +660,7 @@ export interface HistoricalRentalFormData {
   calculation_sheet_url?: string;
   start_date: string;
   end_date: string;
+  exclude_start_date?: boolean;
   items: HistoricalRentalItemFormData[];
   rental_total: number;
   inbound_transport?: HistoricalTransportFormData;

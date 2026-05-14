@@ -1608,11 +1608,13 @@ export function useRentalCostCalculation(
               )
             : null;
 
-        // For completed orders, use actual_return_date (historical records have no return records).
-        // Otherwise use the item's last return date if fully returned, else today.
+        // For completed orders, use per-item expected return date if available (set by historical
+        // records with custom per-item days), otherwise fall back to the order's actual_return_date.
         const itemEndDate =
-          order.status === "completed" && order.actual_return_date
-            ? new Date(order.actual_return_date)
+          order.status === "completed"
+            ? item.item_expected_return_date
+              ? new Date(item.item_expected_return_date)
+              : new Date(order.actual_return_date!)
             : item.quantity_outstanding === 0 && itemLastReturnDate
             ? itemLastReturnDate
             : now;
@@ -2031,6 +2033,7 @@ export function useCreateHistoricalRental() {
           status: "completed",
           estimated_total: data.rental_total,
           actual_total: data.rental_total,
+          exclude_start_date: data.exclude_start_date ?? false,
           transport_cost_outward: inboundAmount,
           transport_cost_return: outboundAmount,
           outward_by: inbound?.paid_to === "driver" ? "company" : inbound ? "vendor" : null,
@@ -2044,20 +2047,27 @@ export function useCreateHistoricalRental() {
       if (orderError) throw new Error(`Failed to create order: ${orderError.message}`);
 
       // Insert items if provided
+      const excludeStart = data.exclude_start_date ?? false;
       if (data.items.length > 0) {
-        const itemsToInsert = data.items.map((item) => ({
-          rental_order_id: order.id,
-          rental_item_id: item.rental_item_id ?? null,
-          item_name_override: item.item_name,
-          quantity: item.quantity,
-          daily_rate_default: item.daily_rate,
-          daily_rate_actual: item.daily_rate,
-          rate_type: "daily" as const,
-          item_start_date: data.start_date,
-          item_expected_return_date: data.end_date,
-          status: "returned" as const,
-          quantity_returned: item.quantity,
-        }));
+        const itemsToInsert = data.items.map((item) => {
+          // Compute end date per item from its days count
+          const startMs = new Date(data.start_date).getTime();
+          const itemEndDate = new Date(startMs + (item.days - (excludeStart ? 0 : 1)) * 86400000)
+            .toISOString().split("T")[0];
+          return {
+            rental_order_id: order.id,
+            rental_item_id: item.rental_item_id ?? null,
+            item_name_override: item.item_name,
+            quantity: item.quantity,
+            daily_rate_default: item.daily_rate,
+            daily_rate_actual: item.daily_rate,
+            rate_type: "daily" as const,
+            item_start_date: data.start_date,
+            item_expected_return_date: itemEndDate,
+            status: "returned" as const,
+            quantity_returned: item.quantity,
+          };
+        });
 
         const { error: itemsError } = await supabase
           .from("rental_order_items")
@@ -2186,6 +2196,7 @@ export function useUpdateHistoricalRental() {
           actual_return_date: data.end_date,
           estimated_total: data.rental_total,
           actual_total: data.rental_total,
+          exclude_start_date: data.exclude_start_date ?? false,
           transport_cost_outward: inbound?.amount ?? 0,
           transport_cost_return: outbound?.amount ?? 0,
           outward_by: inbound?.paid_to === "driver" ? "company" : inbound ? "vendor" : null,
@@ -2205,19 +2216,25 @@ export function useUpdateHistoricalRental() {
       if (delErr) throw new Error(`Failed to clear items: ${delErr.message}`);
 
       if (data.items.length > 0) {
-        const itemsToInsert = data.items.map((item) => ({
-          rental_order_id: orderId,
-          rental_item_id: item.rental_item_id ?? null,
-          item_name_override: item.item_name,
-          quantity: item.quantity,
-          daily_rate_default: item.daily_rate,
-          daily_rate_actual: item.daily_rate,
-          rate_type: "daily" as const,
-          item_start_date: data.start_date,
-          item_expected_return_date: data.end_date,
-          status: "returned" as const,
-          quantity_returned: item.quantity,
-        }));
+        const excludeStartUpd = data.exclude_start_date ?? false;
+        const itemsToInsert = data.items.map((item) => {
+          const startMsUpd = new Date(data.start_date).getTime();
+          const itemEndDateUpd = new Date(startMsUpd + (item.days - (excludeStartUpd ? 0 : 1)) * 86400000)
+            .toISOString().split("T")[0];
+          return {
+            rental_order_id: orderId,
+            rental_item_id: item.rental_item_id ?? null,
+            item_name_override: item.item_name,
+            quantity: item.quantity,
+            daily_rate_default: item.daily_rate,
+            daily_rate_actual: item.daily_rate,
+            rate_type: "daily" as const,
+            item_start_date: data.start_date,
+            item_expected_return_date: itemEndDateUpd,
+            status: "returned" as const,
+            quantity_returned: item.quantity,
+          };
+        });
         const { error: itemsError } = await supabase
           .from("rental_order_items")
           .insert(itemsToInsert as any);

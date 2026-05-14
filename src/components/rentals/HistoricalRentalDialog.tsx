@@ -36,6 +36,7 @@ import {
   Autocomplete,
   CircularProgress,
   Chip,
+  Checkbox,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -210,6 +211,7 @@ export default function HistoricalRentalDialog({
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [excludeStartDate, setExcludeStartDate] = useState(false);
 
   // Items
   const [items, setItems] = useState<HistoricalRentalItemFormData[]>([]);
@@ -257,13 +259,15 @@ export default function HistoricalRentalDialog({
     setCalculationSheetFileName(existingOrder.vendor_slip_url ? "Uploaded document" : "");
     setStartDate(existingOrder.start_date);
     setEndDate(existingOrder.actual_return_date ?? existingOrder.expected_return_date ?? "");
+    const loadedExcludeStart = (existingOrder as any).exclude_start_date ?? false;
+    setExcludeStartDate(loadedExcludeStart);
 
     const loadedItems: HistoricalRentalItemFormData[] = (existingOrder.items ?? []).map((it: any) => {
       const days = Math.max(
         1,
         dayjs(it.item_expected_return_date ?? existingOrder.expected_return_date).diff(
           dayjs(it.item_start_date ?? existingOrder.start_date), "day"
-        ) + 1
+        ) + (loadedExcludeStart ? 0 : 1)
       );
       return {
         item_name: it.item_name_override ?? it.rental_item?.name ?? "",
@@ -284,6 +288,42 @@ export default function HistoricalRentalDialog({
     setOutboundEnabled(outAmt > 0);
     setOutbound({ amount: outAmt, paid_to: existingOrder.return_by === "company" ? "driver" : "vendor" });
   }, [open, isEditMode, existingOrder, loadingOrder]);
+
+  // Days computed from date range + exclude flag — used to display in label and default new items
+  const defaultDays = useMemo(() => {
+    if (!startDate || !endDate) return 1;
+    const diff = dayjs(endDate).diff(dayjs(startDate), "day");
+    return Math.max(1, diff + (excludeStartDate ? 0 : 1));
+  }, [startDate, endDate, excludeStartDate]);
+
+  function computeDays(start: string, end: string, excludeStart: boolean) {
+    if (!start || !end) return 1;
+    return Math.max(1, dayjs(end).diff(dayjs(start), "day") + (excludeStart ? 0 : 1));
+  }
+
+  function handleStartDateChange(val: string) {
+    setStartDate(val);
+    if (val && endDate && items.length > 0) {
+      const days = computeDays(val, endDate, excludeStartDate);
+      setItems((prev) => prev.map((it) => ({ ...it, days })));
+    }
+  }
+
+  function handleEndDateChange(val: string) {
+    setEndDate(val);
+    if (startDate && val && items.length > 0) {
+      const days = computeDays(startDate, val, excludeStartDate);
+      setItems((prev) => prev.map((it) => ({ ...it, days })));
+    }
+  }
+
+  function handleExcludeStartChange(checked: boolean) {
+    setExcludeStartDate(checked);
+    if (startDate && endDate && items.length > 0) {
+      const days = computeDays(startDate, endDate, checked);
+      setItems((prev) => prev.map((it) => ({ ...it, days })));
+    }
+  }
 
   // Auto-sum items into rentalTotal when items change (unless user typed manually)
   const itemsSum = useMemo(
@@ -314,6 +354,7 @@ export default function HistoricalRentalDialog({
     setCalculationSheetFileName("");
     setStartDate("");
     setEndDate("");
+    setExcludeStartDate(false);
     setItems([]);
     setRentalTotal("");
     setTotalManuallyEdited(false);
@@ -344,7 +385,7 @@ export default function HistoricalRentalDialog({
   }
 
   function addItem() {
-    setItems((prev) => [...prev, emptyItem()]);
+    setItems((prev) => [...prev, { ...emptyItem(), days: defaultDays }]);
     setTotalManuallyEdited(false);
   }
 
@@ -404,6 +445,7 @@ export default function HistoricalRentalDialog({
       calculation_sheet_url: calculationSheetUrl ?? undefined,
       start_date: startDate,
       end_date: endDate,
+      exclude_start_date: excludeStartDate,
       items: items.filter((it) => it.item_name.trim()),
       rental_total: parsedTotal,
       inbound_transport: inboundEnabled ? inbound : undefined,
@@ -548,7 +590,7 @@ export default function HistoricalRentalDialog({
               type="date"
               label="Start Date *"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => handleStartDateChange(e.target.value)}
               InputLabelProps={{ shrink: true }}
               inputProps={{ max: today }}
               size="small"
@@ -562,12 +604,36 @@ export default function HistoricalRentalDialog({
               type="date"
               label="End Date *"
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => handleEndDateChange(e.target.value)}
               InputLabelProps={{ shrink: true }}
               inputProps={{ max: today }}
               size="small"
               required
             />
+          </Grid>
+
+          <Grid size={12}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={excludeStartDate}
+                    onChange={(e) => handleExcludeStartChange(e.target.checked)}
+                    size="small"
+                  />
+                }
+                label={
+                  <Typography component="span" variant="body2">
+                    Exclude start date from count
+                    {startDate && endDate && (
+                      <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                        ({defaultDays} days)
+                      </Typography>
+                    )}
+                  </Typography>
+                }
+              />
+            </Box>
           </Grid>
 
           {/* ── Section 2: Items (optional) ── */}
