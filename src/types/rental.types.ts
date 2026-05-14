@@ -503,6 +503,8 @@ export interface RentalCostCalculation {
   startDate: string;
   currentDate: string;
   expectedReturnDate: string | null;
+  actualReturnDate: string | null;
+  isCompleted: boolean;
 
   // Days calculation
   daysElapsed: number;

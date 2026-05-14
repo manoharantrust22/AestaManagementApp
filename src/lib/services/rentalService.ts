@@ -413,14 +413,12 @@ export function calculateRentalCost(
     order.unloading_cost_return;
   const totalTransportCost = transportCostOutward + transportCostReturn;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const damagesCost = (order.returns || []).reduce(
     (sum: number, ret: any) => sum + (ret.damage_cost || 0),
     0
   );
 
   const grossTotal = subtotal - discountAmount + totalTransportCost + damagesCost;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const advancesPaid = (order.advances || []).reduce(
     (sum: number, adv: any) => sum + adv.amount,
     0
@@ -435,11 +433,18 @@ export function calculateRentalCost(
         )
       : 0;
 
+  const isCompleted = order.status === "completed";
+  const actualReturnDate = (order as any).actual_return_date ?? null;
+
   return {
     orderId: order.id,
     startDate: order.start_date,
-    currentDate: now.toISOString().split("T")[0],
+    currentDate: isCompleted && actualReturnDate
+      ? actualReturnDate
+      : now.toISOString().split("T")[0],
     expectedReturnDate: order.expected_return_date,
+    actualReturnDate,
+    isCompleted,
     daysElapsed,
     expectedTotalDays,
     itemsCost,
@@ -452,8 +457,8 @@ export function calculateRentalCost(
     grossTotal,
     advancesPaid,
     balanceDue,
-    isOverdue,
-    daysOverdue,
+    isOverdue: isCompleted ? false : isOverdue,
+    daysOverdue: isCompleted ? 0 : daysOverdue,
   };
 }
 
@@ -522,7 +527,6 @@ export async function getRentalSummary(
     }
 
     // Sum advances
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     totalAdvancesPaid += (order.advances || []).reduce(
       (sum: number, adv: any) => sum + (adv.amount || 0),
       0
@@ -535,7 +539,6 @@ export async function getRentalSummary(
       Math.ceil((now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     totalAccruedCost += (order.items || []).reduce((sum: number, item: any) => {
       const itemDays = item.item_start_date
         ? Math.max(
@@ -557,7 +560,6 @@ export async function getRentalSummary(
 
   for (const order of completedOrders || []) {
     completedCount++;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const settlement = order.settlement as any;
     if (settlement) {
       const finalAmount = settlement.negotiated_final_amount ||

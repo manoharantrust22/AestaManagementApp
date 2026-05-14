@@ -684,6 +684,8 @@ export interface PurchaseOrder {
   bill_verification_notes: string | null;
   // Source material request (if converted from a request)
   source_request_id: string | null;
+  // Group stock PO: links to a site_group for cross-site visibility
+  site_group_id: string | null;
 }
 
 export interface PurchaseOrderItem {

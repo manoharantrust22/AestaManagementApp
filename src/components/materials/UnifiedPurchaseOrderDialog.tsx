@@ -1078,6 +1078,7 @@ export default function UnifiedPurchaseOrderDialog({
             payment_source_site_id: payingSiteId,
           })
           : undefined,
+        ...(isGroupStock && groupMembership?.groupId ? { site_group_id: groupMembership.groupId } : {}),
         items: allItems,
         source_request_id: isRequestMode && request ? request.id : undefined,
         price_includes_gst: priceIncludesGst,

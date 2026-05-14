@@ -50,6 +50,8 @@ export default function RentalCostBreakdown({
     balanceDue,
     isOverdue,
     daysOverdue,
+    isCompleted,
+    actualReturnDate,
   } = calculation;
 
   return (
@@ -87,28 +89,43 @@ export default function RentalCostBreakdown({
             {dayjs(startDate).format("DD MMM YYYY")}
           </Typography>
         </Box>
-        {expectedReturnDate && (
-          <Box>
-            <Typography variant="caption" color="text.secondary">
-              Expected Return
-            </Typography>
-            <Typography
-              variant="body2"
-              fontWeight={500}
-              color={isOverdue ? "error.main" : "text.primary"}
-            >
-              {dayjs(expectedReturnDate).format("DD MMM YYYY")}
-            </Typography>
-          </Box>
+        {isCompleted ? (
+          actualReturnDate && (
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                Return Date
+              </Typography>
+              <Typography variant="body2" fontWeight={500}>
+                {dayjs(actualReturnDate).format("DD MMM YYYY")}
+              </Typography>
+            </Box>
+          )
+        ) : (
+          <>
+            {expectedReturnDate && (
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Expected Return
+                </Typography>
+                <Typography
+                  variant="body2"
+                  fontWeight={500}
+                  color={isOverdue ? "error.main" : "text.primary"}
+                >
+                  {dayjs(expectedReturnDate).format("DD MMM YYYY")}
+                </Typography>
+              </Box>
+            )}
+            <Box>
+              <Typography variant="caption" color="text.secondary">
+                As of
+              </Typography>
+              <Typography variant="body2" fontWeight={500}>
+                {dayjs(currentDate).format("DD MMM YYYY")}
+              </Typography>
+            </Box>
+          </>
         )}
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            As of
-          </Typography>
-          <Typography variant="body2" fontWeight={500}>
-            {dayjs(currentDate).format("DD MMM YYYY")}
-          </Typography>
-        </Box>
       </Box>
 
       {/* Item Details Table */}

@@ -18,6 +18,8 @@ import {
   Stack,
   Grid,
   LinearProgress,
+  Alert,
+  Tooltip,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -26,9 +28,11 @@ import {
   Phone as PhoneIcon,
   Email as EmailIcon,
   Assignment as AssignmentIcon,
+  Groups as GroupsIcon,
+  Warning as WarningIcon,
 } from "@mui/icons-material";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { usePurchaseOrder, useDeliveries } from "@/hooks/queries/usePurchaseOrders";
+import { usePurchaseOrder, useDeliveries, useDeliveriesByPO } from "@/hooks/queries/usePurchaseOrders";
 import type { PurchaseOrderWithDetails, POStatus, SourceRequestInfo } from "@/types/material.types";
 import { PRIORITY_LABELS, PRIORITY_COLORS, REQUEST_STATUS_LABELS } from "@/types/material.types";
 import { formatCurrency, formatDate } from "@/lib/formatters";
@@ -78,10 +82,27 @@ export default function PODetailsDrawer({
 
   // Fetch full PO details
   const { data: fullPO } = usePurchaseOrder(purchaseOrder?.id);
-  const { data: deliveries = [] } = useDeliveries(
-    purchaseOrder?.site_id,
+
+  // Parse group stock flag early (before hooks) to decide which delivery query to use
+  const isGroupPO = (() => {
+    if (!purchaseOrder?.internal_notes) return false;
+    try {
+      const parsed = typeof purchaseOrder.internal_notes === "string"
+        ? JSON.parse(purchaseOrder.internal_notes)
+        : purchaseOrder.internal_notes;
+      return parsed?.is_group_stock === true;
+    } catch { return false; }
+  })();
+
+  // For group POs, fetch deliveries by po_id only (cross-site deliveries may have different site_id)
+  const { data: deliveriesBySite = [] } = useDeliveries(
+    isGroupPO ? undefined : purchaseOrder?.site_id,
     purchaseOrder?.id
   );
+  const { data: deliveriesByPO = [] } = useDeliveriesByPO(
+    isGroupPO ? purchaseOrder?.id : undefined
+  );
+  const deliveries = isGroupPO ? deliveriesByPO : deliveriesBySite;
 
   const po = fullPO || purchaseOrder;
 
@@ -130,6 +151,24 @@ export default function PODetailsDrawer({
 
   const fulfillmentPercent = fulfillmentStats.percent;
 
+  // Parse group stock info from internal_notes JSON
+  const groupStockInfo = useMemo(() => {
+    if (!po?.internal_notes) return null;
+    try {
+      const parsed = typeof po.internal_notes === "string"
+        ? JSON.parse(po.internal_notes)
+        : po.internal_notes;
+      if (parsed?.is_group_stock) return parsed as { is_group_stock: boolean; site_group_id?: string };
+    } catch { /* ignore */ }
+    return null;
+  }, [po?.internal_notes]);
+
+  // Total pending qty across all items (for the "Pending from Vendor" callout)
+  const totalPendingQty = useMemo(() => {
+    if (!po?.items) return 0;
+    return po.items.reduce((sum, item) => sum + (item.pending_qty ?? Math.max(0, item.quantity - (item.received_qty || 0))), 0);
+  }, [po?.items]);
+
   if (!po) return null;
 
   const canRecordDelivery = ["ordered", "partial_delivered"].includes(po.status);
@@ -176,6 +215,28 @@ export default function PODetailsDrawer({
       <Box sx={{ p: 2, overflow: "auto", flex: 1 }}>
         {/* Context Banner (e.g., cross-site batch info) */}
         {contextBanner}
+
+        {/* Group Stock Banner */}
+        {groupStockInfo && (
+          <Alert
+            icon={<GroupsIcon fontSize="small" />}
+            severity="info"
+            sx={{ mb: 2 }}
+          >
+            Group purchase — materials shared across all sites in this group
+          </Alert>
+        )}
+
+        {/* Pending from Vendor callout */}
+        {po.status === "partial_delivered" && totalPendingQty > 0 && (
+          <Alert
+            icon={<WarningIcon fontSize="small" />}
+            severity="warning"
+            sx={{ mb: 2 }}
+          >
+            <strong>{totalPendingQty} units still pending from vendor</strong> — vendor has not completed this order yet
+          </Alert>
+        )}
 
         {/* Vendor Info */}
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
@@ -323,11 +384,14 @@ export default function PODetailsDrawer({
             <TableHead>
               <TableRow>
                 <TableCell>Material</TableCell>
-                <TableCell align="right">Qty</TableCell>
+                <TableCell align="right">Ordered</TableCell>
                 <TableCell align="right">Rate</TableCell>
                 <TableCell align="right">Amount</TableCell>
                 {po.status !== "draft" && (
                   <TableCell align="right">Received</TableCell>
+                )}
+                {["ordered", "partial_delivered"].includes(po.status) && (
+                  <TableCell align="right">Pending</TableCell>
                 )}
               </TableRow>
             </TableHead>
@@ -370,6 +434,25 @@ export default function PODetailsDrawer({
                       />
                     </TableCell>
                   )}
+                  {["ordered", "partial_delivered"].includes(po.status) && (() => {
+                    const pending = item.pending_qty ?? Math.max(0, item.quantity - (item.received_qty || 0));
+                    return (
+                      <TableCell align="right">
+                        {pending > 0 ? (
+                          <Tooltip title="Quantity still outstanding from vendor">
+                            <Chip
+                              label={`${pending} ⚠`}
+                              size="small"
+                              color="warning"
+                              variant="outlined"
+                            />
+                          </Tooltip>
+                        ) : (
+                          <Chip label="0" size="small" color="success" variant="outlined" />
+                        )}
+                      </TableCell>
+                    );
+                  })()}
                 </TableRow>
               ))}
             </TableBody>
@@ -441,37 +524,43 @@ export default function PODetailsDrawer({
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>GRN</TableCell>
+                    <TableCell>GRN / Status</TableCell>
                     <TableCell>Date</TableCell>
+                    <TableCell align="right">Qty Received</TableCell>
                     <TableCell>Challan</TableCell>
-                    <TableCell align="right">Items</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {deliveries.map((delivery) => (
-                    <TableRow key={delivery.id}>
-                      <TableCell>
-                        <Typography variant="body2" fontWeight={500}>
-                          {delivery.grn_number}
-                        </Typography>
-                        <Chip
-                          label={delivery.delivery_status}
-                          size="small"
-                          color={
-                            delivery.delivery_status === "delivered"
-                              ? "success"
-                              : "default"
-                          }
-                          sx={{ mt: 0.5 }}
-                        />
-                      </TableCell>
-                      <TableCell>{formatDate(delivery.delivery_date)}</TableCell>
-                      <TableCell>{delivery.challan_number || "-"}</TableCell>
-                      <TableCell align="right">
-                        {delivery.items?.length || 0}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {deliveries.map((delivery) => {
+                    const totalReceived = delivery.items?.reduce(
+                      (sum: number, item: any) => sum + (item.received_qty || 0),
+                      0
+                    ) ?? 0;
+                    const verified = delivery.verification_status === "verified";
+                    return (
+                      <TableRow key={delivery.id}>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight={500}>
+                            {delivery.grn_number || "—"}
+                          </Typography>
+                          <Chip
+                            label={verified ? "Verified ✓" : "Pending"}
+                            size="small"
+                            color={verified ? "success" : "warning"}
+                            variant="outlined"
+                            sx={{ mt: 0.5 }}
+                          />
+                        </TableCell>
+                        <TableCell>{formatDate(delivery.delivery_date)}</TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" fontWeight={600} color={totalReceived > 0 ? "success.main" : "text.secondary"}>
+                            {totalReceived} units
+                          </Typography>
+                        </TableCell>
+                        <TableCell>{delivery.challan_number || "—"}</TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </Paper>

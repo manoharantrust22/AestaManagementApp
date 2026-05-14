@@ -1608,9 +1608,12 @@ export function useRentalCostCalculation(
               )
             : null;
 
-        // Use return date if item is fully returned, otherwise use now
+        // For completed orders, use actual_return_date (historical records have no return records).
+        // Otherwise use the item's last return date if fully returned, else today.
         const itemEndDate =
-          item.quantity_outstanding === 0 && itemLastReturnDate
+          order.status === "completed" && order.actual_return_date
+            ? new Date(order.actual_return_date)
+            : item.quantity_outstanding === 0 && itemLastReturnDate
             ? itemLastReturnDate
             : now;
 
@@ -1638,7 +1641,7 @@ export function useRentalCostCalculation(
 
         return {
           itemId: item.id,
-          itemName: item.rental_item?.name || "Unknown",
+          itemName: (item as any).item_name_override || item.rental_item?.name || "Unknown",
           quantity: item.quantity,
           quantityReturned: item.quantity_returned,
           quantityOutstanding: item.quantity_outstanding,
@@ -1678,7 +1681,9 @@ export function useRentalCostCalculation(
     );
     const balanceDue = grossTotal - advancesPaid;
 
-    const isOverdue = expectedReturnDate ? now > expectedReturnDate : false;
+    const isCompleted = order.status === "completed";
+    // Completed orders are never "overdue" — they're done
+    const isOverdue = isCompleted ? false : (expectedReturnDate ? now > expectedReturnDate : false);
     const daysOverdue =
       isOverdue && expectedReturnDate
         ? Math.ceil(
@@ -1687,11 +1692,17 @@ export function useRentalCostCalculation(
           )
         : 0;
 
+    const displayDate = isCompleted && order.actual_return_date
+      ? order.actual_return_date
+      : now.toISOString().split("T")[0];
+
     return {
       orderId: order.id,
       startDate: order.start_date,
-      currentDate: now.toISOString().split("T")[0],
+      currentDate: displayDate,
       expectedReturnDate: order.expected_return_date,
+      actualReturnDate: order.actual_return_date ?? null,
+      isCompleted,
       daysElapsed,
       expectedTotalDays,
       itemsCost,

@@ -48,6 +48,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { canCreatePurchaseOrders, hasAdminPermission, hasEditPermission } from "@/lib/permissions";
+import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 import {
   usePurchaseOrders,
   usePOSummary,
@@ -175,7 +176,12 @@ export default function PurchaseOrdersPage() {
     }
   }, [isNewParam, vendorIdParam, materialIdParam, materialNameParam, unitParam, sourceParam, router]);
 
-  const { data: allPOs = [], isLoading } = usePurchaseOrders(selectedSite?.id);
+  const { data: groupMembership } = useSiteGroupMembership(selectedSite?.id);
+  const { data: allPOs = [], isLoading } = usePurchaseOrders(
+    selectedSite?.id,
+    null,
+    { siteGroupId: groupMembership?.groupId }
+  );
   const { data: summary } = usePOSummary(selectedSite?.id);
 
   const markAsOrdered = useMarkPOAsOrdered();
@@ -429,6 +435,12 @@ export default function PurchaseOrdersPage() {
               <Typography variant="caption" color="text.secondary">
                 {formatDate(row.original.order_date)}
               </Typography>
+              {/* Show originating site when this is a cross-site group PO */}
+              {isGroupStock && row.original.site_id !== selectedSite?.id && row.original.site?.name && (
+                <Typography variant="caption" color="secondary.main" sx={{ display: "block" }}>
+                  From: {row.original.site.name}
+                </Typography>
+              )}
             </Box>
           );
         },
