@@ -1955,7 +1955,7 @@ export function useRecordDelivery() {
                   } else {
                   // Check if PO is a group stock purchase
                   // Parse internal_notes if it's a JSON string
-                  let parsedNotes: { is_group_stock?: boolean; site_group_id?: string; group_id?: string } | null = null;
+                  let parsedNotes: { is_group_stock?: boolean; site_group_id?: string; group_id?: string; payment_source_site_id?: string } | null = null;
                   if (po.internal_notes) {
                     try {
                       parsedNotes = typeof po.internal_notes === "string"
@@ -2005,7 +2005,7 @@ export function useRecordDelivery() {
                       ? `Group stock batch from PO ${po.po_number}`
                       : `Auto-created from PO ${po.po_number}`,
                     // Group stock batch tracking fields
-                    paying_site_id: isGroupStock ? po.site_id : null,
+                    paying_site_id: isGroupStock ? (parsedNotes?.payment_source_site_id || po.site_id) : null,
                     site_group_id: isGroupStock ? siteGroupId : null,
                     original_qty: isGroupStock ? totalQuantity : null,
                     remaining_qty: isGroupStock ? totalQuantity : null,
@@ -2514,7 +2514,7 @@ export function useRecordAndVerifyDelivery() {
 
                   if (!existingExpense) {
                     // Parse internal_notes if it's a JSON string
-                    let parsedNotes: { is_group_stock?: boolean; site_group_id?: string; group_id?: string } | null = null;
+                    let parsedNotes: { is_group_stock?: boolean; site_group_id?: string; group_id?: string; payment_source_site_id?: string } | null = null;
                     if (po.internal_notes) {
                       try {
                         parsedNotes = typeof po.internal_notes === "string"
@@ -2560,7 +2560,7 @@ export function useRecordAndVerifyDelivery() {
                         notes: `Auto-created from PO ${po.po_number}`,
                         created_by: authUserId,
                         // Group stock specific fields
-                        paying_site_id: isGroupStock ? data.site_id : null,
+                        paying_site_id: isGroupStock ? (parsedNotes?.payment_source_site_id || data.site_id) : null,
                         site_group_id: isGroupStock ? siteGroupId : null,
                         original_qty: isGroupStock ? totalQuantity : null,
                         remaining_qty: isGroupStock ? totalQuantity : null,

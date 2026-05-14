@@ -712,6 +712,13 @@ export function useBatchesWithUsage(groupId: string | undefined) {
               *,
               material:materials(id, name, code, unit, weight_per_unit),
               brand:material_brands(id, brand_name)
+            ),
+            purchase_order:purchase_orders(
+              items:purchase_order_items(
+                id, material_id, brand_id, quantity, unit_price,
+                material:materials(id, name, code, unit),
+                brand:material_brands(id, brand_name)
+              )
             )
           `)
           .eq("site_group_id", groupId)
@@ -761,8 +768,13 @@ export function useBatchesWithUsage(groupId: string | undefined) {
         return batches.map((batch: any) => {
           const batchUsage = usageByBatch.get(batch.ref_code) || [];
 
+          // Use expense items if available; fall back to PO items for batches with missing items
+          const effectiveItems = (batch.items || []).length > 0
+            ? batch.items
+            : (batch.purchase_order?.items || []);
+
           // Calculate original quantity from batch items
-          const original_quantity = (batch.items || []).reduce(
+          const original_quantity = effectiveItems.reduce(
             (sum: number, item: any) => sum + Number(item.quantity || 0),
             0
           );
@@ -819,6 +831,7 @@ export function useBatchesWithUsage(groupId: string | undefined) {
 
           return {
             ...batch,
+            items: effectiveItems,
             original_quantity,
             remaining_quantity,
             site_allocations: Array.from(siteUsageMap.values()),
