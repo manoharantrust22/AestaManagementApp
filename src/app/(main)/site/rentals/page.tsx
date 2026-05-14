@@ -48,6 +48,7 @@ import {
   Close as CloseIcon,
   Description as BillIcon,
   History as HistoryIcon,
+  Edit as EditIcon,
 } from "@mui/icons-material";
 import ScreenshotViewer from "@/components/common/ScreenshotViewer";
 import PageHeader from "@/components/layout/PageHeader";
@@ -145,6 +146,7 @@ export default function SiteRentalsPage() {
   const { selectedSite } = useSite();
   const [orderDialogOpen, setOrderDialogOpen] = useState(false);
   const [historicalDialogOpen, setHistoricalDialogOpen] = useState(false);
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [requestFormOpen, setRequestFormOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<RentalOrderStatus | "all">("all");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -249,7 +251,7 @@ export default function SiteRentalsPage() {
             <Button
               variant="outlined"
               startIcon={<HistoryIcon />}
-              onClick={() => setHistoricalDialogOpen(true)}
+              onClick={() => { setEditingOrderId(null); setHistoricalDialogOpen(true); }}
             >
               Historical Record
             </Button>
@@ -688,6 +690,19 @@ export default function SiteRentalsPage() {
                               <ViewIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
+                          {rental.status === "completed" && (
+                            <Tooltip title="Edit Record">
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  setEditingOrderId(rental.id);
+                                  setHistoricalDialogOpen(true);
+                                }}
+                              >
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
                           {rental.status !== "completed" && rental.status !== "cancelled" && (
                             <Tooltip title="Settle">
                               <IconButton
@@ -726,11 +741,12 @@ export default function SiteRentalsPage() {
         siteId={siteId}
       />
 
-      {/* Historical Rental Record Dialog */}
+      {/* Historical Rental Record Dialog (create + edit) */}
       <HistoricalRentalDialog
         open={historicalDialogOpen}
-        onClose={() => setHistoricalDialogOpen(false)}
+        onClose={() => { setHistoricalDialogOpen(false); setEditingOrderId(null); }}
         siteId={siteId}
+        orderId={editingOrderId}
       />
 
       {/* New Rental Request Form */}
