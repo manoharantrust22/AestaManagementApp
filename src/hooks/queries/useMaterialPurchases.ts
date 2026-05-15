@@ -1158,7 +1158,7 @@ export function useSiteMaterialExpenses(siteId: string | undefined) {
           `)
           .eq("site_id", siteId)
           .eq("payment_timing", "advance")
-          .in("status", ["draft", "pending", "approved", "ordered", "partial_delivered"])
+          .in("status", ["draft", "pending_approval", "approved", "ordered", "partial_delivered"])
           .is("advance_paid", null) // Not yet paid
           .order("order_date", { ascending: false });
 
