@@ -12,7 +12,7 @@ CREATE INDEX idx_rental_orders_is_historical
 
 -- Backfill: an order is historical iff it has no rental_returns rows
 -- (live flow always inserts there via useRecordRentalReturn) AND either
--- it's already completed OR it was entered after its rental period began.
+-- it's already completed OR it was entered on a later calendar day than the rental started.
 WITH historical_orders AS (
   SELECT ro.id
   FROM rental_orders ro
@@ -21,13 +21,13 @@ WITH historical_orders AS (
   )
   AND (
     ro.status = 'completed'
-    OR ro.created_at > ro.start_date + INTERVAL '1 day'
+    OR ro.created_at::date > ro.start_date
   )
 )
 UPDATE rental_orders
 SET is_historical = true,
     status = 'completed',
-    actual_return_date = COALESCE(actual_return_date, expected_return_date)
+    actual_return_date = COALESCE(actual_return_date, expected_return_date, CURRENT_DATE)
 WHERE id IN (SELECT id FROM historical_orders);
 
 -- Items: mark everything returned. quantity_outstanding is a GENERATED column
