@@ -4,6 +4,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
 import { wrapQueryFn } from "@/lib/utils/timeout";
+import { recordSpend } from "@/lib/services/engineerWalletV2";
+import {
+  ENGINEER_WALLET_KEYS,
+  broadcastWalletChange,
+} from "@/hooks/queries/useEngineerWalletV2";
 import type {
   MaterialPurchaseExpense,
   MaterialPurchaseExpenseWithDetails,
@@ -867,6 +872,23 @@ export interface SettleMaterialPurchaseData {
   isVendorPaymentOnly?: boolean;
   /** Override the paying site for group stock purchases */
   paying_site_id?: string;
+  /**
+   * When set to "engineer_wallet", the mutation also debits the engineer
+   * wallet atomically (via recordSpend) after the row UPDATE succeeds. If
+   * the debit fails (e.g. WLT01 insufficient balance), the UPDATE is rolled
+   * back so the row stays unpaid. Defaults to "direct" — no wallet debit.
+   */
+  payment_channel?: "direct" | "engineer_wallet";
+  /** Required when payment_channel === "engineer_wallet". */
+  engineer_id?: string;
+  /** Required when payment_channel === "engineer_wallet". The site whose wallet pool to draw from. */
+  wallet_site_id?: string;
+  /** Required when payment_channel === "engineer_wallet". Used for wallet ledger attribution. */
+  recorded_by_user_id?: string;
+  /** Required when payment_channel === "engineer_wallet". Display name written to ledger. */
+  recorded_by_name?: string;
+  /** Optional description for the wallet ledger row. Defaults to "Material payment: <refCode>". */
+  wallet_description?: string;
 }
 
 /**
@@ -939,6 +961,62 @@ export function useSettleMaterialPurchase() {
 
       if (error) throw error;
 
+      // Engineer-wallet path: debit the wallet atomically with the settlement.
+      // If recordSpend throws (WLT01 insufficient balance, etc.), roll the
+      // UPDATE back so the row stays unpaid — otherwise the user would see
+      // a "paid" row with no matching wallet debit.
+      if (
+        data.payment_channel === "engineer_wallet" &&
+        data.engineer_id &&
+        data.wallet_site_id &&
+        data.recorded_by_user_id &&
+        data.recorded_by_name
+      ) {
+        try {
+          await recordSpend(supabase as any, {
+            engineer_id: data.engineer_id,
+            site_id: data.wallet_site_id,
+            amount: data.amount_paid || expense?.total_amount || 0,
+            transaction_date: data.settlement_date,
+            payment_mode: "cash",
+            proof_url: data.payment_screenshot_url || null,
+            notes: data.notes || null,
+            recorded_by: data.recorded_by_name,
+            recorded_by_user_id: data.recorded_by_user_id,
+            description:
+              data.wallet_description ??
+              `Material payment: ${settlementRef ?? data.id}`,
+          });
+        } catch (walletErr) {
+          // Roll back the UPDATE so the row goes back to unpaid. If rollback
+          // itself fails (network), surface a clear message — ops needs to
+          // know there's a row marked paid with no wallet debit.
+          try {
+            await (supabase as any)
+              .from("material_purchase_expenses")
+              .update({
+                is_paid: false,
+                paid_date: null,
+                settlement_reference: null,
+                settlement_date: null,
+                amount_paid: null,
+                settlement_payer_source: null,
+                settlement_payer_name: null,
+              })
+              .eq("id", data.id);
+          } catch (rollbackErr) {
+            console.error(
+              "[Material] Wallet debit failed AND rollback failed — row is marked paid with no wallet entry",
+              { settleId: data.id, walletErr, rollbackErr },
+            );
+            throw new Error(
+              "Settlement saved but wallet not debited — contact admin",
+            );
+          }
+          throw walletErr;
+        }
+      }
+
       // If amount_paid differs from total_amount (bargaining discount), adjust inventory values proportionally
       if (data.amount_paid && expense?.total_amount && data.amount_paid !== expense.total_amount) {
         const discountRatio = data.amount_paid / expense.total_amount;
@@ -982,7 +1060,7 @@ export function useSettleMaterialPurchase() {
 
       return { id: data.id, settlement_reference: settlementRef };
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, variables) => {
       // Await so mutateAsync doesn't resolve until the list query has refetched —
       // otherwise callers (e.g. MaterialSettlementDialog's engineer-wallet branch)
       // can close the dialog while the row is still showing as "Pending".
@@ -991,6 +1069,10 @@ export function useSettleMaterialPurchase() {
         queryClient.invalidateQueries({ queryKey: queryKeys.expenses.all }),
         queryClient.invalidateQueries({ queryKey: queryKeys.materialStock.all }),
       ]);
+      if (variables.payment_channel === "engineer_wallet") {
+        await queryClient.invalidateQueries({ queryKey: ENGINEER_WALLET_KEYS.all });
+        broadcastWalletChange();
+      }
     },
   });
 }

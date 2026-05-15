@@ -21,7 +21,10 @@ import {
   InputAdornment,
   Divider,
 } from "@mui/material";
-import { Close as CloseIcon } from "@mui/icons-material";
+import {
+  AccountBalanceWallet as WalletIcon,
+  Close as CloseIcon,
+} from "@mui/icons-material";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   useSettleRental,
@@ -45,6 +48,13 @@ interface RentalSettlementDialogProps {
   onClose: () => void;
   order: RentalOrderWithDetails;
   onSuccess?: () => void;
+  /**
+   * When provided, renders a "Pay from wallet instead" affordance at the top
+   * of the dialog. Caller is expected to close this dialog and open
+   * RentalSettleViaWallet with the same order context. Wired by callers that
+   * detect a wallet-enabled site engineer.
+   */
+  onSwitchToWallet?: () => void;
 }
 
 const PAYMENT_MODES: { value: PaymentMode; label: string }[] = [
@@ -54,16 +64,12 @@ const PAYMENT_MODES: { value: PaymentMode; label: string }[] = [
   { value: "cheque", label: "Cheque" },
 ];
 
-const PAYMENT_CHANNELS = [
-  { value: "direct", label: "Direct to Vendor" },
-  { value: "engineer_wallet", label: "Engineer Wallet" },
-];
-
 export default function RentalSettlementDialog({
   open,
   onClose,
   order,
   onSuccess,
+  onSwitchToWallet,
 }: RentalSettlementDialogProps) {
   const isMobile = useIsMobile();
   const supabase = createClient();
@@ -80,7 +86,6 @@ export default function RentalSettlementDialog({
   const [formData, setFormData] = useState({
     settlement_date: dayjs().format("YYYY-MM-DD"),
     payment_mode: "upi" as PaymentMode,
-    payment_channel: "direct",
     final_receipt_url: "",
     vendor_bill_url: "",
     upi_screenshot_url: "",
@@ -112,7 +117,6 @@ export default function RentalSettlementDialog({
       setFormData({
         settlement_date: dayjs().format("YYYY-MM-DD"),
         payment_mode: "upi",
-        payment_channel: "direct",
         final_receipt_url: "",
         vendor_bill_url: "",
         upi_screenshot_url: "",
@@ -154,7 +158,7 @@ export default function RentalSettlementDialog({
         total_advance_paid: totalAdvancePaid,
         balance_amount: balanceAmount,
         payment_mode: formData.payment_mode,
-        payment_channel: formData.payment_channel,
+        payment_channel: "direct",
         payer_source: payerSource,
         payer_name:
           payerSource === "custom" || payerSource === "other_site_money"
@@ -201,6 +205,19 @@ export default function RentalSettlementDialog({
       </DialogTitle>
 
       <DialogContent dividers>
+        {onSwitchToWallet && balanceAmount > 0 && (
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<WalletIcon fontSize="small" />}
+            onClick={onSwitchToWallet}
+            disabled={isLoading}
+            sx={{ mb: 2, textTransform: "none" }}
+          >
+            Pay from wallet instead
+          </Button>
+        )}
+
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
@@ -400,7 +417,7 @@ export default function RentalSettlementDialog({
           </Grid>
 
           {/* Payment Mode */}
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={12}>
             <FormControl fullWidth required>
               <InputLabel>Payment Mode</InputLabel>
               <Select
@@ -413,24 +430,6 @@ export default function RentalSettlementDialog({
                 {PAYMENT_MODES.map((mode) => (
                   <MenuItem key={mode.value} value={mode.value}>
                     {mode.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-
-          {/* Payment Channel */}
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <FormControl fullWidth required>
-              <InputLabel>Payment Channel</InputLabel>
-              <Select
-                value={formData.payment_channel}
-                label="Payment Channel"
-                onChange={(e) => handleChange("payment_channel", e.target.value)}
-              >
-                {PAYMENT_CHANNELS.map((channel) => (
-                  <MenuItem key={channel.value} value={channel.value}>
-                    {channel.label}
                   </MenuItem>
                 ))}
               </Select>

@@ -54,6 +54,9 @@ import {
 import { MultiPartySettlementDialog } from "@/components/rentals/MultiPartySettlementDialog";
 import { RentalSettlementEditDialog } from "@/components/rentals/RentalSettlementEditDialog";
 import HistoricalRentalDialog from "@/components/rentals/HistoricalRentalDialog";
+import RentalSettleViaWallet from "@/components/rentals/RentalSettleViaWallet";
+import { useAuth } from "@/contexts/AuthContext";
+import { useCurrentUserWalletEnabled } from "@/hooks/queries/useEngineerWalletV2";
 import {
   RENTAL_ORDER_STATUS_LABELS,
   RENTAL_ITEM_STATUS_LABELS,
@@ -75,9 +78,18 @@ export default function RentalOrderDetailsPage() {
   const costCalculation = useRentalCostCalculation(orderId);
   const updateStatus = useUpdateRentalOrderStatus();
 
+  const { userProfile } = useAuth();
+  const { data: isWalletEnabled } = useCurrentUserWalletEnabled(
+    userProfile?.id,
+    (selectedSite as any)?.company_id,
+  );
+  const isWalletEngineer =
+    userProfile?.role === "site_engineer" && isWalletEnabled === true;
+
   const [returnDialogOpen, setReturnDialogOpen] = useState(false);
   const [advanceDialogOpen, setAdvanceDialogOpen] = useState(false);
   const [settlementDialogOpen, setSettlementDialogOpen] = useState(false);
+  const [walletSettleOpen, setWalletSettleOpen] = useState(false);
   const [editingSettlement, setEditingSettlement] = useState<import("@/types/rental.types").RentalSettlement | null>(null);
   const [multiSettlementDialogOpen, setMultiSettlementDialogOpen] = useState(false);
   const [inboundSettleOpen, setInboundSettleOpen] = useState(false);
@@ -815,10 +827,28 @@ export default function RentalOrderDetailsPage() {
       />
 
       <RentalSettlementDialog
-        open={settlementDialogOpen}
+        open={settlementDialogOpen && !walletSettleOpen}
         onClose={() => setSettlementDialogOpen(false)}
         order={order}
+        onSwitchToWallet={
+          isWalletEngineer
+            ? () => {
+                setSettlementDialogOpen(false);
+                setWalletSettleOpen(true);
+              }
+            : undefined
+        }
       />
+
+      {walletSettleOpen && userProfile && (
+        <RentalSettleViaWallet
+          open
+          onClose={() => setWalletSettleOpen(false)}
+          onSuccess={() => setWalletSettleOpen(false)}
+          order={order}
+          engineerId={userProfile.id}
+        />
+      )}
 
       <MultiPartySettlementDialog
         open={multiSettlementDialogOpen}
