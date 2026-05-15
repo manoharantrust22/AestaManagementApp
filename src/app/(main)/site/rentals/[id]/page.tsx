@@ -35,6 +35,7 @@ import {
   Screenshot as UpiIcon,
   Edit as EditIcon,
   DeleteOutline as DeleteIcon,
+  History as HistoryIcon,
 } from "@mui/icons-material";
 import PageHeader from "@/components/layout/PageHeader";
 import { useSite } from "@/contexts/SiteContext";
@@ -127,6 +128,7 @@ export default function RentalOrderDetailsPage() {
   const showReadyToSettle = allItemsReturned && !isSettled && order?.status !== "completed" && order?.status !== "cancelled";
   // Completed orders that still have unsettled parties
   const isCompletedUnsettled = order?.status === "completed" && !isFullySettled;
+  const isHistorical = order?.is_historical ?? false;
 
   if (isLoading) {
     return (
@@ -155,7 +157,7 @@ export default function RentalOrderDetailsPage() {
         title={`Order ${order.rental_order_number}`}
         actions={
           <Box display="flex" gap={1}>
-            {order.status === "draft" && (
+            {!isHistorical && order.status === "draft" && (
               <Button
                 variant="contained"
                 color="primary"
@@ -165,7 +167,7 @@ export default function RentalOrderDetailsPage() {
                 Activate Order
               </Button>
             )}
-            {order.status === "completed" && (
+            {!isHistorical && order.status === "completed" && (
               <Button
                 variant="outlined"
                 startIcon={<PaymentIcon />}
@@ -184,7 +186,7 @@ export default function RentalOrderDetailsPage() {
                 Settle
               </Button>
             )}
-            {["active", "partially_returned"].includes(order.status) && (
+            {!isHistorical && ["active", "partially_returned"].includes(order.status) && (
               <>
                 <Button
                   variant="outlined"
@@ -237,6 +239,14 @@ export default function RentalOrderDetailsPage() {
                             : "default"
                     }
                   />
+                  {isHistorical && (
+                    <Chip
+                      label="Historical record"
+                      size="small"
+                      variant="outlined"
+                      icon={<HistoryIcon fontSize="small" />}
+                    />
+                  )}
                   {order.is_overdue && (
                     <Chip
                       icon={<WarningIcon />}
@@ -369,7 +379,7 @@ export default function RentalOrderDetailsPage() {
                   <TableCell align="right">Outstanding</TableCell>
                   <TableCell align="right">Rate/Day</TableCell>
                   <TableCell>Status</TableCell>
-                  <TableCell align="center">Action</TableCell>
+                  {!isHistorical && <TableCell align="center">Action</TableCell>}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -426,18 +436,20 @@ export default function RentalOrderDetailsPage() {
                           variant="outlined"
                         />
                       </TableCell>
-                      <TableCell align="center">
-                        {outstanding > 0 && (
-                          <Tooltip title="Record Return">
-                            <IconButton
-                              size="small"
-                              onClick={() => handleRecordReturn(item)}
-                            >
-                              <ReturnIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                      </TableCell>
+                      {!isHistorical && (
+                        <TableCell align="center">
+                          {outstanding > 0 && (
+                            <Tooltip title="Record Return">
+                              <IconButton
+                                size="small"
+                                onClick={() => handleRecordReturn(item)}
+                              >
+                                <ReturnIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        </TableCell>
+                      )}
                     </TableRow>
                   );
                 })}
