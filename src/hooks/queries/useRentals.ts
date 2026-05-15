@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
+import dayjs from "dayjs";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
@@ -1588,27 +1589,23 @@ export function useRentalCostCalculation(
           )
         : null;
 
-    // For completed orders, use actual_return_date (set by historical records and normal return flow).
-    // Fall back to last return-record date, then today for still-active orders.
+    // Match the /site/rentals list + edit-dialog formula so vendor charges line up
+    // across all views. Completed → actual_return_date (or last return record);
+    // otherwise planned expected_return_date; only fall back to today if neither exists.
+    const excludeStart = (order as any).exclude_start_date ? 1 : 0;
     const effectiveEndDate =
       order.status === "completed" && order.actual_return_date
         ? new Date(order.actual_return_date)
         : allItemsReturned && lastReturnDate
         ? lastReturnDate
-        : now;
+        : expectedReturnDate ?? now;
 
-    const daysElapsed = Math.max(
-      1,
-      Math.ceil(
-        (effectiveEndDate.getTime() - startDate.getTime()) /
-          (1000 * 60 * 60 * 24)
-      )
-    );
+    const daysBetween = (from: Date, to: Date) =>
+      Math.max(1, dayjs(to).diff(dayjs(from), "day") + 1 - excludeStart);
+
+    const daysElapsed = daysBetween(startDate, effectiveEndDate);
     const expectedTotalDays = expectedReturnDate
-      ? Math.ceil(
-          (expectedReturnDate.getTime() - startDate.getTime()) /
-            (1000 * 60 * 60 * 24)
-        )
+      ? daysBetween(startDate, expectedReturnDate)
       : daysElapsed;
 
     const itemsCost: RentalItemCostBreakdown[] = (order.items || []).map(
@@ -1634,6 +1631,8 @@ export function useRentalCostCalculation(
 
         // For completed orders, use per-item expected return date if available (set by historical
         // records with custom per-item days), otherwise fall back to the order's actual_return_date.
+        // For non-completed orders, cap at planned expected_return_date so cost matches the list
+        // and edit-dialog (which never live-tick beyond the plan).
         const itemEndDate =
           order.status === "completed"
             ? item.item_expected_return_date
@@ -1641,15 +1640,9 @@ export function useRentalCostCalculation(
               : new Date(order.actual_return_date!)
             : item.quantity_outstanding === 0 && itemLastReturnDate
             ? itemLastReturnDate
-            : now;
+            : effectiveEndDate;
 
-        const daysRented = Math.max(
-          1,
-          Math.ceil(
-            (itemEndDate.getTime() - itemStartDate.getTime()) /
-              (1000 * 60 * 60 * 24)
-          )
-        );
+        const daysRented = daysBetween(itemStartDate, itemEndDate);
 
         const rateType = item.rate_type || "daily";
         const hoursUsed = item.hours_used || null;
@@ -2154,6 +2147,7 @@ export function useCreateHistoricalRental() {
           expected_return_date: data.end_date || undefined,
           actual_return_date: isDraft ? null : (data.end_date || null),
           status: isDraft ? "draft" : "completed",
+          is_historical: true,
           estimated_total: data.rental_total,
           actual_total: isDraft ? null : data.rental_total,
           exclude_start_date: data.exclude_start_date ?? false,
@@ -2323,6 +2317,7 @@ export function useUpdateHistoricalRental() {
           expected_return_date: data.end_date || undefined,
           actual_return_date: updStatus === "draft" ? null : (data.end_date || null),
           status: updStatus,
+          is_historical: true,
           estimated_total: data.rental_total,
           actual_total: updStatus === "draft" ? null : data.rental_total,
           exclude_start_date: data.exclude_start_date ?? false,
