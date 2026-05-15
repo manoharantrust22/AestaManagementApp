@@ -211,6 +211,7 @@ function CompanyRentalsPageInner() {
                             rental_item_id: item.id,
                             rental_item_name: item.name,
                             size_label: item.sizes?.[0]?.size_label ?? null,
+                            rental_item_size_id: item.sizes?.[0]?.id ?? null,
                             quantity: 10,
                             days: 25,
                           });

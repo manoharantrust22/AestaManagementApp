@@ -63,10 +63,6 @@ export default function RentalOrderCard({
   );
   const outstandingItems = totalItems - returnedItems;
 
-  const itemNames = (order.items || [])
-    .slice(0, 2)
-    .map((item) => item.rental_item?.name || "Unknown")
-    .join(", ");
   const hasMoreItems = (order.items || []).length > 2;
 
   const getChipColor = (
@@ -124,10 +120,28 @@ export default function RentalOrderCard({
           </Box>
 
           {/* Items Summary */}
-          <Typography variant="body2" color="text.secondary" mb={1}>
-            {itemNames}
-            {hasMoreItems && ` +${(order.items || []).length - 2} more`}
-          </Typography>
+          <Box display="flex" flexWrap="wrap" alignItems="center" gap={0.5} mb={1}>
+            {(order.items || []).slice(0, 2).map((item) => (
+              <Box key={item.id} display="flex" alignItems="center" gap={0.5}>
+                <Typography variant="body2" color="text.secondary">
+                  {item.rental_item?.name || "Unknown"}
+                </Typography>
+                {item.size_label_snapshot && (
+                  <Chip
+                    label={item.size_label_snapshot}
+                    size="small"
+                    variant="outlined"
+                    sx={{ height: 18, fontSize: "0.65rem" }}
+                  />
+                )}
+              </Box>
+            ))}
+            {hasMoreItems && (
+              <Typography variant="body2" color="text.secondary">
+                +{(order.items || []).length - 2} more
+              </Typography>
+            )}
+          </Box>
 
           {/* Dates */}
           <Box display="flex" alignItems="center" gap={2} mb={1.5}>

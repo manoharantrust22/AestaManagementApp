@@ -552,6 +552,7 @@ export interface RentalCostCalculation {
 export interface RentalItemCostBreakdown {
   itemId: string;
   itemName: string;
+  size_label_snapshot: string | null;
   quantity: number;
   quantityReturned: number;
   quantityOutstanding: number;
@@ -622,6 +623,7 @@ export interface EstimateBasketItem {
   rental_item_id: string;
   rental_item_name: string;
   size_label: string | null;     // null for items with no size variants
+  rental_item_size_id: string | null;  // populated when a variant was picked
   quantity: number;
   days: number;
 }

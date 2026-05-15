@@ -85,6 +85,7 @@ export function RentalItemInspectPane({
       rental_item_id: itemId,
       rental_item_name: itemName,
       size_label: effectiveSize,
+      rental_item_size_id: sizes.find((s) => s.size_label === effectiveSize)?.id ?? null,
       quantity: qty,
       days,
     });

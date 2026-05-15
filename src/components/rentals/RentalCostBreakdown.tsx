@@ -175,9 +175,19 @@ export default function RentalCostBreakdown({
                 <TableRow key={item.itemId}>
                   <TableCell sx={{ py: 0.75, fontSize: "0.8rem" }}>
                     <Box>
-                      <Typography variant="body2" fontSize="0.8rem">
-                        {item.itemName}
-                      </Typography>
+                      <Box display="flex" alignItems="center" flexWrap="wrap" gap={0.5}>
+                        <Typography variant="body2" fontSize="0.8rem">
+                          {item.itemName}
+                        </Typography>
+                        {item.size_label_snapshot && (
+                          <Chip
+                            label={item.size_label_snapshot}
+                            size="small"
+                            variant="outlined"
+                            sx={{ ml: 0.5 }}
+                          />
+                        )}
+                      </Box>
                       {item.quantityReturned > 0 && (
                         <Typography variant="caption" color="success.main">
                           {item.quantityReturned} returned

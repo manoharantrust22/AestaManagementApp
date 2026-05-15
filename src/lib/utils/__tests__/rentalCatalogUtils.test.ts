@@ -49,8 +49,8 @@ describe("computeVendorEstimates", () => {
   const vendorB = makeInventory("v2", "Vendor B", 12, { "6×1½": 11 });
 
   const basketItems = [
-    { id: "b1", rental_item_id: "item-1", rental_item_name: "Side Sheet", size_label: "6×1½", quantity: 50, days: 25 },
-    { id: "b2", rental_item_id: "item-1", rental_item_name: "Side Sheet", size_label: "4×1½", quantity: 20, days: 25 },
+    { id: "b1", rental_item_id: "item-1", rental_item_name: "Side Sheet", size_label: "6×1½", rental_item_size_id: null, quantity: 50, days: 25 },
+    { id: "b2", rental_item_id: "item-1", rental_item_name: "Side Sheet", size_label: "4×1½", rental_item_size_id: null, quantity: 20, days: 25 },
   ];
 
   const inventoryByItemId = {

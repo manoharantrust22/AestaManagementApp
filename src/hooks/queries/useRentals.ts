@@ -1663,6 +1663,7 @@ export function useRentalCostCalculation(
         return {
           itemId: item.id,
           itemName: (item as any).item_name_override || item.rental_item?.name || "Unknown",
+          size_label_snapshot: item.size_label_snapshot ?? null,
           quantity: item.quantity,
           quantityReturned: item.quantity_returned,
           quantityOutstanding: item.quantity_outstanding,

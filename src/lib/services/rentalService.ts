@@ -389,6 +389,7 @@ export function calculateRentalCost(
     return {
       itemId: item.id,
       itemName: item.rental_item?.name || "Unknown",
+      size_label_snapshot: item.size_label_snapshot ?? null,
       quantity: item.quantity,
       quantityReturned: item.quantity_returned,
       quantityOutstanding: item.quantity_outstanding,

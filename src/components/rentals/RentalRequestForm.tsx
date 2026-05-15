@@ -21,6 +21,7 @@ interface RequestItem {
   rental_item_id: string;
   rental_item_name: string;
   size_label: string | null;
+  rental_item_size_id: string | null;
   quantity: number;
 }
 
@@ -46,6 +47,7 @@ export function RentalRequestForm({
       rental_item_id: i.rental_item_id,
       rental_item_name: i.rental_item_name,
       size_label: i.size_label,
+      rental_item_size_id: i.rental_item_size_id,
       quantity: i.quantity,
     }))
   );
@@ -72,6 +74,8 @@ export function RentalRequestForm({
         daily_rate_default: 0,
         daily_rate_actual: 0,
         rate_type: "daily" as const,
+        rental_item_size_id: item.rental_item_size_id,
+        size_label_snapshot: item.size_label,
       })),
     });
     onSuccess?.();
