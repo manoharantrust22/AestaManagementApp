@@ -23,10 +23,7 @@ import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import dayjs, { Dayjs } from "dayjs";
 import { useSelectedCompany } from "@/contexts/CompanyContext";
-import {
-  useCompanyDailyPeek,
-  type DailyPeekSite,
-} from "@/hooks/queries/useCompanyDailyPeek";
+import { useCompanyDailyPeek } from "@/hooks/queries/useCompanyDailyPeek";
 import SitePeekCard from "./SitePeekCard";
 import SitePeekModal from "./SitePeekModal";
 
@@ -34,7 +31,7 @@ export default function DailyPeekSection() {
   const { selectedCompany } = useSelectedCompany();
   const [date, setDate] = useState<Dayjs>(() => dayjs());
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [selectedSite, setSelectedSite] = useState<DailyPeekSite | null>(null);
+  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
 
   const dateStr = useMemo(() => date.format("YYYY-MM-DD"), [date]);
   const isToday = date.isSame(dayjs(), "day");
@@ -45,6 +42,10 @@ export default function DailyPeekSection() {
   );
 
   const sites = data ?? [];
+  const selectedSite = useMemo(
+    () => (selectedSiteId ? sites.find((s) => s.siteId === selectedSiteId) ?? null : null),
+    [sites, selectedSiteId],
+  );
 
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
@@ -165,7 +166,7 @@ export default function DailyPeekSection() {
               <SitePeekCard
                 key={site.siteId}
                 site={site}
-                onClick={() => setSelectedSite(site)}
+                onClick={() => setSelectedSiteId(site.siteId)}
               />
             ))}
           </Box>
@@ -176,7 +177,7 @@ export default function DailyPeekSection() {
         open={Boolean(selectedSite)}
         site={selectedSite}
         date={dateStr}
-        onClose={() => setSelectedSite(null)}
+        onClose={() => setSelectedSiteId(null)}
       />
     </LocalizationProvider>
   );
