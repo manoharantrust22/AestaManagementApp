@@ -674,7 +674,7 @@ export default function HistoricalRentalDialog({
                       <TableHead>
                         <TableRow>
                           <TableCell>Item Name</TableCell>
-                          <TableCell sx={{ minWidth: 100 }}>Variant</TableCell>
+                          <TableCell sx={{ minWidth: 100 }}>Size</TableCell>
                           <TableCell align="right" sx={{ minWidth: 60 }}>Qty</TableCell>
                           <TableCell align="right" sx={{ minWidth: 80 }}>Rate/day</TableCell>
                           <TableCell align="right" sx={{ minWidth: 60 }}>Days</TableCell>

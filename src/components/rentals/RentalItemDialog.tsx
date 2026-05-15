@@ -176,7 +176,7 @@ export default function RentalItemDialog({
     const label = newRow.size_label.trim();
     if (!label) return;
     if (variants.some((v) => v.size_label === label)) {
-      setError(`Variant "${label}" already exists`);
+      setError(`Size "${label}" already exists`);
       return;
     }
     const rate = newRow.daily_rate.trim() === "" ? "" : parseFloat(newRow.daily_rate);
@@ -458,10 +458,10 @@ export default function RentalItemDialog({
 
         <Box sx={{ mt: 2 }}>
           <Typography variant="subtitle2" gutterBottom>
-            Size Variants
+            Sizes
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-            Each variant has its own rate and optional photo. The parent rate above is used when no variant is picked on an order.
+            Each size has its own rate and optional photo. The parent rate above is used when no size is picked on an order.
           </Typography>
 
           {variants.length > 0 && (

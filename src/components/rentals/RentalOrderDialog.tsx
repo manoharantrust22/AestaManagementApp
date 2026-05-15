@@ -157,7 +157,7 @@ export default function RentalOrderDialog({
       return;
     }
     if (itemVariants.length > 0 && !selectedVariant) {
-      setError("Please select a variant");
+      setError("Please select a size");
       return;
     }
     if (itemQuantity <= 0) {
@@ -445,10 +445,10 @@ export default function RentalOrderDialog({
           {itemVariants.length > 0 && (
             <Grid size={{ xs: 12, md: 3 }}>
               <FormControl fullWidth size="small" required>
-                <InputLabel>Variant</InputLabel>
+                <InputLabel>Size</InputLabel>
                 <Select
                   value={selectedSizeId ?? ""}
-                  label="Variant"
+                  label="Size"
                   onChange={(e) => setSelectedSizeId((e.target.value as string) || null)}
                 >
                   {itemVariants.map((v) => (
