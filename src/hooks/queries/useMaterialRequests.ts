@@ -959,28 +959,39 @@ export function useRequestLinkedPOs(requestId: string | undefined) {
 }
 
 /**
- * Get PO summary for all material requests in a site
- * Used to display PO linkage info in the Material Requests table
+ * Get PO summary for all material requests visible to a site.
+ * When siteGroupId is provided, also includes sibling-site group_stock requests —
+ * needed so a row showing a request created by Site A on Site B's view correctly
+ * displays "→ PO-X" instead of a stale "Create PO" affordance.
  */
-export function useRequestsPOSummary(siteId: string | undefined) {
+export function useRequestsPOSummary(
+  siteId: string | undefined,
+  options?: { siteGroupId?: string | null }
+) {
   const supabase = createClient() as any;
+  const siteGroupId = options?.siteGroupId ?? null;
 
   return useQuery({
     queryKey: siteId
-      ? ["material-requests", "po-summary", siteId]
+      ? ["material-requests", "po-summary", siteId, siteGroupId]
       : ["material-requests", "po-summary", "unknown"],
     queryFn: async () => {
       if (!siteId) return new Map<string, RequestPOSummary>();
 
       try {
-        // Step 1: Get all requests for this site with their items
-        const { data: requests, error: reqError } = await supabase
+        // Step 1: Get all requests visible to this site (own + sibling group_stock)
+        let reqQuery = supabase
           .from("material_requests")
           .select(`
             id,
             items:material_request_items(id, approved_qty)
-          `)
-          .eq("site_id", siteId);
+          `);
+        if (siteGroupId) {
+          reqQuery = reqQuery.or(`site_id.eq.${siteId},site_group_id.eq.${siteGroupId}`);
+        } else {
+          reqQuery = reqQuery.eq("site_id", siteId);
+        }
+        const { data: requests, error: reqError } = await reqQuery;
 
         if (reqError) throw reqError;
         if (!requests || requests.length === 0) return new Map<string, RequestPOSummary>();

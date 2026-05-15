@@ -1144,7 +1144,9 @@ export function useSiteMaterialExpenses(siteId: string | undefined) {
           }
         }
 
-        // 2. Fetch POs with advance payment that haven't been paid yet
+        // 2. Fetch POs with advance payment that haven't been paid yet.
+        // advance_paid defaults to 0 (not NULL), so .is(null) misses every newly created
+        // advance PO. Use `or(null OR 0)` to mean "no advance recorded yet".
         const { data: advancePOsData, error: advancePOsError } = await (supabase as any)
           .from("purchase_orders")
           .select(`
@@ -1159,7 +1161,7 @@ export function useSiteMaterialExpenses(siteId: string | undefined) {
           .eq("site_id", siteId)
           .eq("payment_timing", "advance")
           .in("status", ["draft", "pending_approval", "approved", "ordered", "partial_delivered"])
-          .is("advance_paid", null) // Not yet paid
+          .or("advance_paid.is.null,advance_paid.eq.0")
           .order("order_date", { ascending: false });
 
         if (advancePOsError && !isQueryError(advancePOsError)) {
@@ -1186,7 +1188,7 @@ export function useSiteMaterialExpenses(siteId: string | undefined) {
             .eq("site_group_id", siteData.site_group_id)
             .eq("payment_timing", "advance")
             .in("status", ["draft", "pending_approval", "approved", "ordered", "partial_delivered"])
-            .is("advance_paid", null)
+            .or("advance_paid.is.null,advance_paid.eq.0")
             .neq("site_id", siteId)
             .order("order_date", { ascending: false });
 

@@ -153,13 +153,17 @@ export default function MaterialRequestsPage() {
     () => (groupMembership as { allSites?: Array<{ id: string; name: string }> } | undefined)?.allSites ?? [],
     [groupMembership]
   );
+  const groupId = groupMembership?.groupId ?? null;
   const { data: allRequests = [], isLoading } = useMaterialRequests(
     selectedSite?.id,
     undefined,
-    { siteGroupId: groupMembership?.groupId ?? null }
+    { siteGroupId: groupId }
   );
   const { data: summary } = useRequestSummary(selectedSite?.id);
-  const { data: poSummaryMap = EMPTY_PO_SUMMARY_MAP } = useRequestsPOSummary(selectedSite?.id);
+  const { data: poSummaryMap = EMPTY_PO_SUMMARY_MAP } = useRequestsPOSummary(
+    selectedSite?.id,
+    { siteGroupId: groupId }
+  );
 
   const queryClient = useQueryClient();
   const cancelRequest = useCancelMaterialRequest();

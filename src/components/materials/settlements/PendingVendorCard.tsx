@@ -388,5 +388,17 @@ export function groupPendingByVendor(items: SettlementItem[]): PendingVendorGrou
     if (days > group.oldestDays) group.oldestDays = days;
   }
 
-  return Array.from(byKey.values()).sort((a, b) => b.oldestDays - a.oldestDays);
+  // Newest-first by default — sort each group's items by date desc, then sort
+  // the groups themselves by their newest item's date desc. The oldest-N-days
+  // badge on each card still surfaces stale items without dominating the layout.
+  for (const group of byKey.values()) {
+    group.items.sort(
+      (a, b) => (Date.parse(getItemDate(b)) || 0) - (Date.parse(getItemDate(a)) || 0)
+    );
+  }
+  return Array.from(byKey.values()).sort((a, b) => {
+    const aLatest = a.items[0] ? Date.parse(getItemDate(a.items[0])) || 0 : 0;
+    const bLatest = b.items[0] ? Date.parse(getItemDate(b.items[0])) || 0 : 0;
+    return bLatest - aLatest;
+  });
 }

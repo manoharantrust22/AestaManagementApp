@@ -70,7 +70,8 @@ export default function SettlementsTableView({
   onChangePayer,
 }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("date");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  // Default to newest-first so users see most recent bills/POs at the top.
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const sorted = useMemo(() => {
     const list = [...items];
