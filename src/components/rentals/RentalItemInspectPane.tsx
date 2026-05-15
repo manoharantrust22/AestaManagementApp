@@ -8,6 +8,7 @@ import {
   Divider,
   Drawer,
   IconButton,
+  InputAdornment,
   Stack,
   Tab,
   Tabs,
@@ -17,10 +18,19 @@ import {
   Skeleton,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
+import EditIcon from "@mui/icons-material/Edit";
+import AddIcon from "@mui/icons-material/Add";
 import AddShoppingCartIcon from "@mui/icons-material/AddShoppingCart";
-import { useRentalItemSizes, useRentalInventoryForItem, useUpdateRentalItem } from "@/hooks/queries/useRentals";
+import {
+  useRentalItemSizes,
+  useRentalInventoryForItem,
+  useUpdateRentalItem,
+  useAddRentalStoreInventory,
+} from "@/hooks/queries/useRentals";
 import { getRateForSize } from "@/lib/utils/rentalCatalogUtils";
 import { useEstimateBasket } from "./EstimateBasket";
+import RentalItemDialog from "./RentalItemDialog";
+import VendorAutocomplete from "@/components/common/VendorAutocomplete";
 import type { RentalRateType, RentalItemWithDetails } from "@/types/rental.types";
 import ImageUploadWithCrop from "@/components/common/ImageUploadWithCrop";
 import { createClient } from "@/lib/supabase/client";
@@ -48,9 +58,14 @@ export function RentalItemInspectPane({
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [qty, setQty] = useState(10);
   const [days, setDays] = useState(25);
+  const [editOpen, setEditOpen] = useState(false);
+  const [addVendorOpen, setAddVendorOpen] = useState(false);
+  const [newVendorId, setNewVendorId] = useState<string | null>(null);
+  const [newVendorRate, setNewVendorRate] = useState<string>("");
 
   const supabase = createClient();
   const updateItem = useUpdateRentalItem();
+  const addInventory = useAddRentalStoreInventory();
 
   const { data: sizes = [], isLoading: sizesLoading } = useRentalItemSizes(itemId ?? undefined);
   const { data: inventory = [], isLoading: invLoading } = useRentalInventoryForItem(itemId ?? undefined);
@@ -59,7 +74,31 @@ export function RentalItemInspectPane({
   useEffect(() => {
     setSelectedSize(null);
     setTab(0);
+    setAddVendorOpen(false);
+    setNewVendorId(null);
+    setNewVendorRate("");
   }, [itemId]);
+
+  const resetAddVendor = () => {
+    setAddVendorOpen(false);
+    setNewVendorId(null);
+    setNewVendorRate("");
+  };
+
+  const handleSaveVendor = async () => {
+    if (!itemId || !newVendorId) return;
+    const rate = parseFloat(newVendorRate);
+    if (!Number.isFinite(rate) || rate <= 0) return;
+    await addInventory.mutateAsync({
+      vendor_id: newVendorId,
+      rental_item_id: itemId,
+      daily_rate: rate,
+      min_rental_days: 1,
+      long_term_discount_percentage: 0,
+      long_term_threshold_days: 30,
+    });
+    resetAddVendor();
+  };
 
   const effectiveSize = selectedSize ?? (sizes[0]?.size_label ?? null);
 
@@ -130,9 +169,16 @@ export function RentalItemInspectPane({
             {itemName ?? "—"}
           </Typography>
         </Box>
-        <IconButton size="small" onClick={onClose}>
-          <CloseIcon fontSize="small" />
-        </IconButton>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          {item && (
+            <IconButton size="small" onClick={() => setEditOpen(true)} title="Edit item">
+              <EditIcon fontSize="small" />
+            </IconButton>
+          )}
+          <IconButton size="small" onClick={onClose}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Box>
       </Box>
 
       <Tabs
@@ -179,6 +225,73 @@ export function RentalItemInspectPane({
             )}
 
             <Divider sx={{ mb: 1.5 }} />
+
+            {/* Add Vendor row */}
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+              <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                VENDORS
+              </Typography>
+              {!addVendorOpen && (
+                <Button
+                  size="small"
+                  startIcon={<AddIcon fontSize="small" />}
+                  onClick={() => setAddVendorOpen(true)}
+                  sx={{ fontSize: 11, py: 0.25 }}
+                >
+                  Add Vendor
+                </Button>
+              )}
+            </Box>
+
+            {addVendorOpen && (
+              <Box
+                sx={{
+                  p: 1.25,
+                  mb: 1.5,
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 1.5,
+                  bgcolor: "action.hover",
+                }}
+              >
+                <Stack spacing={1}>
+                  <VendorAutocomplete
+                    size="small"
+                    label="Vendor"
+                    value={newVendorId}
+                    onChange={(val) => setNewVendorId(typeof val === "string" ? val : null)}
+                  />
+                  <TextField
+                    size="small"
+                    type="number"
+                    label={rateType === "hourly" ? "₹/hour" : "₹/day"}
+                    value={newVendorRate}
+                    onChange={(e) => setNewVendorRate(e.target.value)}
+                    InputProps={{
+                      startAdornment: <InputAdornment position="start">₹</InputAdornment>,
+                    }}
+                  />
+                  <Stack direction="row" spacing={1} justifyContent="flex-end">
+                    <Button size="small" onClick={resetAddVendor} disabled={addInventory.isPending}>
+                      Cancel
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      onClick={handleSaveVendor}
+                      disabled={
+                        !newVendorId ||
+                        !newVendorRate ||
+                        parseFloat(newVendorRate) <= 0 ||
+                        addInventory.isPending
+                      }
+                    >
+                      {addInventory.isPending ? "Saving…" : "Save"}
+                    </Button>
+                  </Stack>
+                </Stack>
+              </Box>
+            )}
 
             {/* Vendor rates */}
             {invLoading ? (
@@ -340,6 +453,14 @@ export function RentalItemInspectPane({
           Add to Estimate Basket
         </Button>
       </Box>
+
+      {editOpen && item && (
+        <RentalItemDialog
+          open={editOpen}
+          onClose={() => setEditOpen(false)}
+          item={item}
+        />
+      )}
     </Drawer>
   );
 }
