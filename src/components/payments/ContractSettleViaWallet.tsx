@@ -107,15 +107,14 @@ export default function ContractSettleViaWallet({
           );
         }
         const sc = subcontracts?.find((s) => s.id === payload.subcontractId);
-        const today = dayjs().format("YYYY-MM-DD");
         const result = await processContractPayment(supabase, {
           siteId: payload.siteId,
           laborerId,
           laborerName: sc?.laborer_name ?? "Mestri",
           amount: payload.amount,
           paymentType: "salary",
-          actualPaymentDate: today,
-          paymentForDate: today,
+          actualPaymentDate: payload.paymentDate,
+          paymentForDate: payload.paymentDate,
           paymentMode: "cash",
           paymentChannel: "engineer_wallet",
           payerSource: payload.payerSource,

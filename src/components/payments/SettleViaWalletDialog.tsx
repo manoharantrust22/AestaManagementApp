@@ -15,6 +15,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import dayjs from "dayjs";
 import {
   AccountBalanceWallet as WalletIcon,
   Close as CloseIcon,
@@ -66,9 +67,11 @@ export default function SettleViaWalletDialog({
   initialSubcontractId = null,
   showNotes = true,
   showProofUpload: _showProofUpload = false,
+  showPaymentDate = true,
   onConfirm,
   allowPartial = false,
 }: SettleViaWalletDialogProps) {
+  const today = useMemo(() => dayjs().format("YYYY-MM-DD"), []);
   const { showToast } = useToast();
 
   const balanceQuery = useEngineerWalletBalance(engineerId, siteId);
@@ -86,6 +89,7 @@ export default function SettleViaWalletDialog({
   const [payerSource, setPayerSource] = useState<PayerSource>(defaultPayerSource ?? lifoSource);
   const [customName, setCustomName] = useState("");
   const [showOverride, setShowOverride] = useState(false);
+  const [paymentDate, setPaymentDate] = useState<string>(today);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -98,9 +102,10 @@ export default function SettleViaWalletDialog({
     setSubcontractId(initialSubcontractId);
     setCustomName("");
     setShowOverride(false);
+    setPaymentDate(today);
     setSubmitting(false);
     setError(null);
-  }, [open, amount, initialSubcontractId]);
+  }, [open, amount, initialSubcontractId, today]);
 
   // Sync payerSource with LIFO whenever it resolves, unless user has
   // already opened the override (don't clobber their choice).
@@ -115,6 +120,7 @@ export default function SettleViaWalletDialog({
   const isInsufficient = balance < amountNum && !allowPartial;
   const needsCustomName =
     requiresPayerName(payerSource) && !customName.trim();
+  const paymentDateValid = Boolean(paymentDate) && paymentDate <= today;
 
   const sourceLabel = useMemo(() => {
     const fromRegistry = payerSourcesQuery.data?.find((s) => s.key === lifoSource)?.label;
@@ -129,6 +135,7 @@ export default function SettleViaWalletDialog({
     !isInsufficient &&
     !hasNoDeposit &&
     !needsCustomName &&
+    (!showPaymentDate || paymentDateValid) &&
     !submitting;
 
   const handleConfirm = async () => {
@@ -143,6 +150,7 @@ export default function SettleViaWalletDialog({
         subcontractId: enableSubcontractLink ? subcontractId : undefined,
         siteId,
         engineerId,
+        paymentDate: showPaymentDate ? paymentDate : today,
       };
       await onConfirm(payload);
       broadcastWalletChange();
@@ -206,6 +214,27 @@ export default function SettleViaWalletDialog({
                 : undefined
             }
             sx={{ mt: 1, mb: 1.5 }}
+          />
+        )}
+
+        {showPaymentDate && (
+          <TextField
+            label="Payment date"
+            type="date"
+            fullWidth
+            size="small"
+            value={paymentDate}
+            onChange={(e) => setPaymentDate(e.target.value)}
+            disabled={submitting}
+            inputProps={{ max: today }}
+            InputLabelProps={{ shrink: true }}
+            error={Boolean(paymentDate) && !paymentDateValid}
+            helperText={
+              Boolean(paymentDate) && !paymentDateValid
+                ? "Payment date cannot be in the future"
+                : undefined
+            }
+            sx={{ mt: editableAmount ? 0 : 1, mb: 1.5 }}
           />
         )}
 

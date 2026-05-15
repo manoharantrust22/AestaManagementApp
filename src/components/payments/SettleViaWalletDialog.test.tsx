@@ -141,6 +141,35 @@ describe("SettleViaWalletDialog", () => {
     });
   });
 
+  it("includes today's date as paymentDate in the payload by default", async () => {
+    render(<SettleViaWalletDialog {...defaultProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
+    await waitFor(() => {
+      expect(defaultProps.onConfirm).toHaveBeenCalledWith(
+        expect.objectContaining({
+          paymentDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        })
+      );
+    });
+  });
+
+  it("propagates a user-edited paymentDate into the payload", async () => {
+    render(<SettleViaWalletDialog {...defaultProps} />);
+    const dateField = screen.getByLabelText(/payment date/i);
+    fireEvent.change(dateField, { target: { value: "2026-05-10" } });
+    fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
+    await waitFor(() => {
+      expect(defaultProps.onConfirm).toHaveBeenCalledWith(
+        expect.objectContaining({ paymentDate: "2026-05-10" })
+      );
+    });
+  });
+
+  it("hides the Payment date field when showPaymentDate=false", () => {
+    render(<SettleViaWalletDialog {...defaultProps} showPaymentDate={false} />);
+    expect(screen.queryByLabelText(/payment date/i)).not.toBeInTheDocument();
+  });
+
   it("surfaces an inline error when onConfirm throws", async () => {
     const failing = vi.fn().mockRejectedValue(new Error("boom"));
     render(<SettleViaWalletDialog {...defaultProps} onConfirm={failing} />);

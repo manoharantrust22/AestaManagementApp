@@ -10,6 +10,14 @@ export interface SettleViaWalletPayload {
   proofUrl?: string | null;
   siteId: string;
   engineerId: string;
+  /**
+   * ISO date (YYYY-MM-DD) the user selected for the payment. Defaults to
+   * today. Callers that wire the dialog into mutations accepting an explicit
+   * settlement date should forward this; daily/market flows that derive the
+   * date from attendance rows can ignore it (they should also set
+   * `showPaymentDate={false}` so users don't see a misleading picker).
+   */
+  paymentDate: string;
 }
 
 export interface SettleViaWalletDialogProps {
@@ -36,6 +44,12 @@ export interface SettleViaWalletDialogProps {
 
   showNotes?: boolean;
   showProofUpload?: boolean;
+  /**
+   * Render the Payment date picker. Default true (today, capped at today).
+   * Pass false when the underlying mutation derives the date from another
+   * source (e.g. daily/market settlements use attendance row dates).
+   */
+  showPaymentDate?: boolean;
 
   onConfirm: (payload: SettleViaWalletPayload) => Promise<void>;
   allowPartial?: boolean;

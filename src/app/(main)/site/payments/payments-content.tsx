@@ -374,15 +374,14 @@ export default function PaymentsContent() {
       const sc = (siteSubcontractsQuery.data ?? []).find(
         (s) => s.id === payload.subcontractId
       );
-      const today = dayjs().format("YYYY-MM-DD");
       const result = await processContractPayment(supabase, {
         siteId: payload.siteId,
         laborerId,
         laborerName: sc?.laborer_name ?? "Mestri",
         amount: payload.amount,
         paymentType: "salary",
-        actualPaymentDate: today,
-        paymentForDate: today,
+        actualPaymentDate: payload.paymentDate,
+        paymentForDate: payload.paymentDate,
         paymentMode: "cash",
         paymentChannel: "engineer_wallet",
         payerSource: payload.payerSource,
@@ -1779,6 +1778,7 @@ export default function PaymentsContent() {
             engineerId={userProfile!.id}
             amount={totalAmount}
             summary={`${dateLabel} · ${laborerSummary}`}
+            showPaymentDate={false}
             onConfirm={async (payload) => {
               const settlementRecords: SettlementRecord[] = records.map((r) => ({
                 id: r.id,

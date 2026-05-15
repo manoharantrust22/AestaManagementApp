@@ -2,7 +2,6 @@
 
 import React, { useMemo } from "react";
 import { Box, Chip, Divider, Stack, Typography } from "@mui/material";
-import dayjs from "dayjs";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -163,7 +162,7 @@ export default function RentalSettleViaWallet({
         await settleRental.mutateAsync({
           rental_order_id: order.id,
           party_type: "vendor",
-          settlement_date: dayjs().format("YYYY-MM-DD"),
+          settlement_date: payload.paymentDate,
           total_rental_amount: totalRentalAmount,
           total_transport_amount: totalTransportAmount,
           total_damage_amount: totalDamageAmount,
@@ -183,7 +182,7 @@ export default function RentalSettleViaWallet({
           site_id: order.site_id,
           amount: payload.amount,
           payment_mode: "cash",
-          transaction_date: dayjs().format("YYYY-MM-DD"),
+          transaction_date: payload.paymentDate,
           notes: payload.notes ?? null,
           description: `Rental settlement: ${order.rental_order_number}`,
           recorded_by: userProfile.name || userProfile.email || "Engineer",
