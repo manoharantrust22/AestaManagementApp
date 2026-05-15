@@ -140,7 +140,8 @@ export function useRentalItems(categoryId?: string | null) {
         .select(
           `
           *,
-          category:rental_item_categories(id, name, code)
+          category:rental_item_categories(id, name, code),
+          sizes:rental_item_sizes(id, size_label, display_order, is_active, daily_rate, default_hourly_rate, image_url)
         `
         )
         .eq("is_active", true)
@@ -152,7 +153,10 @@ export function useRentalItems(categoryId?: string | null) {
 
       const { data, error } = await query;
       if (error) throw error;
-      return data as RentalItemWithDetails[];
+      return (data ?? []).map((item: any) => ({
+        ...item,
+        sizes: ((item.sizes as any[]) ?? []).filter((s: any) => s.is_active),
+      })) as RentalItemWithDetails[];
     },
   });
 }
@@ -1296,6 +1300,7 @@ export function useAddRentalStoreInventory() {
           variables.rental_item_id
         ),
       });
+      queryClient.invalidateQueries({ queryKey: rentalQueryKeys.items.all });
     },
   });
 }
@@ -1835,6 +1840,7 @@ export function useCreateRentalItemSize() {
       queryClient.invalidateQueries({
         queryKey: rentalQueryKeys.items.sizes(vars.rental_item_id),
       });
+      queryClient.invalidateQueries({ queryKey: rentalQueryKeys.items.all });
     },
   });
 }

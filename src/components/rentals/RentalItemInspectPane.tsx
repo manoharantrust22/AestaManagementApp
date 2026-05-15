@@ -259,6 +259,7 @@ export function RentalItemInspectPane({
                     size="small"
                     label="Vendor"
                     value={newVendorId}
+                    vendorType="rental_store"
                     onChange={(val) => setNewVendorId(typeof val === "string" ? val : null)}
                   />
                   <TextField

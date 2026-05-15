@@ -26,6 +26,7 @@ export interface VendorAutocompleteProps {
   onChange: (value: string | string[] | null, vendor?: VendorWithCategories | VendorWithCategories[] | null) => void;
   multiple?: boolean;
   categoryId?: string | null;
+  vendorType?: VendorType | VendorType[];
   excludeVendorIds?: string[];
   disabled?: boolean;
   error?: boolean;
@@ -57,6 +58,7 @@ const VendorAutocomplete = memo(function VendorAutocomplete({
   onChange,
   multiple = false,
   categoryId,
+  vendorType,
   excludeVendorIds = [],
   disabled = false,
   error = false,
@@ -73,6 +75,11 @@ const VendorAutocomplete = memo(function VendorAutocomplete({
   const filteredVendors = useMemo(() => {
     let vendors = allVendors.filter((v) => !excludeVendorIds.includes(v.id));
 
+    if (vendorType) {
+      const allowed = Array.isArray(vendorType) ? vendorType : [vendorType];
+      vendors = vendors.filter((v) => allowed.includes(v.vendor_type));
+    }
+
     // Apply local search filter
     if (inputValue.length >= 2) {
       const searchLower = inputValue.toLowerCase();
@@ -86,7 +93,7 @@ const VendorAutocomplete = memo(function VendorAutocomplete({
     }
 
     return vendors;
-  }, [allVendors, excludeVendorIds, inputValue]);
+  }, [allVendors, excludeVendorIds, inputValue, vendorType]);
 
   // Get selected value(s)
   const getSelectedValue = () => {
