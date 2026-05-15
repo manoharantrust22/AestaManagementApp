@@ -19,6 +19,7 @@ import type { PayerSource, SettlementRecord } from "@/types/settlement.types";
 import { requiresPayerName } from "@/types/settlement.types";
 import type { BatchAllocation } from "@/types/wallet.types";
 import { recordWalletSpending } from "./walletService";
+import { recordSpend } from "./engineerWalletV2";
 
 export interface SettlementResult {
   success: boolean;
@@ -1032,31 +1033,30 @@ export async function processContractPayment(
     settlementGroupId = groupData.id;
     settlementReference = groupData.settlement_reference;
 
-    // 2. If via engineer wallet, create engineer transaction
+    // 2. If via engineer wallet, debit the wallet atomically via wallet-v2 RPC.
+    // The RPC enforces a per-engineer advisory lock + balance check and writes
+    // a transaction_type='spend' row that v_engineer_wallet_balance recognises.
+    // On failure, cancel the settlement_group we just created so the ledger
+    // doesn't carry an orphan reference.
     if (config.paymentChannel === "engineer_wallet" && config.engineerId) {
-      const { data: txData, error: txError } = await (supabase
-        .from("site_engineer_transactions") as any)
-        .insert({
-          user_id: config.engineerId,
+      try {
+        const { id: txId } = await recordSpend(supabase, {
+          engineer_id: config.engineerId,
           site_id: config.siteId,
-          transaction_type: "received_from_company",
-          settlement_status: "pending_settlement",
           amount: config.amount,
-          description: `Contract payment for ${config.laborerName}`,
-          payment_mode: config.paymentMode,
+          transaction_date: config.actualPaymentDate,
+          payment_mode:
+            config.paymentMode === "upi" || config.paymentMode === "bank_transfer"
+              ? config.paymentMode
+              : "cash",
           proof_url: config.proofUrl || null,
-          is_settled: false,
+          notes: config.notes || null,
           recorded_by: config.userName,
           recorded_by_user_id: config.userId,
-          related_subcontract_id: config.subcontractId || null,
-          settlement_group_id: settlementGroupId,
-          settlement_reference: settlementReference,
-        })
-        .select()
-        .single();
-
-      if (txError) {
-        // Rollback: cancel settlement group
+          description: `Contract payment for ${config.laborerName} (${settlementReference})`,
+        });
+        engineerTransactionId = txId;
+      } catch (walletErr: any) {
         await supabase
           .from("settlement_groups")
           .update({
@@ -1064,15 +1064,12 @@ export async function processContractPayment(
             cancelled_at: new Date().toISOString(),
             cancelled_by: config.userName,
             cancelled_by_user_id: config.userId,
-            cancellation_reason: `Engineer transaction failed: ${txError.message}`,
+            cancellation_reason: `Engineer wallet debit failed: ${walletErr?.message ?? walletErr}`,
           })
           .eq("id", settlementGroupId);
-        throw txError;
+        throw walletErr;
       }
 
-      engineerTransactionId = txData.id;
-
-      // Update settlement_group with engineer_transaction_id
       await supabase
         .from("settlement_groups")
         .update({ engineer_transaction_id: engineerTransactionId })
@@ -1900,31 +1897,31 @@ export async function processWaterfallContractPayment(
     settlementGroupId = groupData.id;
     settlementReference = groupData.settlement_reference;
 
-    // 2. If via engineer wallet, create engineer transaction
+    // 2. If via engineer wallet, debit via wallet-v2 RPC. See processContractPayment
+    // for the rationale — the legacy site_engineer_transactions schema dropped
+    // its is_settled / settlement_status / settlement_group_id columns when
+    // wallet v2 shipped, and the v_engineer_wallet_balance view only recognises
+    // transaction_type='spend'.
     if (config.paymentChannel === "engineer_wallet" && config.engineerId) {
-      const { data: txData, error: txError } = await (supabase
-        .from("site_engineer_transactions") as any)
-        .insert({
-          user_id: config.engineerId,
+      try {
+        const { id: txId } = await recordSpend(supabase, {
+          engineer_id: config.engineerId,
           site_id: config.siteId,
-          transaction_type: "received_from_company",
-          settlement_status: "pending_settlement",
           amount: config.totalAmount,
-          description: `Contract payment (${weekRangeDesc}) - ${totalLaborers} laborers`,
-          payment_mode: normalizedPaymentMode,
+          transaction_date: paymentDate,
+          payment_mode:
+            normalizedPaymentMode === "upi" ||
+            normalizedPaymentMode === "bank_transfer"
+              ? normalizedPaymentMode
+              : "cash",
           proof_url: config.proofUrl || null,
-          is_settled: false,
+          notes: config.notes || null,
           recorded_by: config.userName,
           recorded_by_user_id: config.userId,
-          related_subcontract_id: config.subcontractId || null,
-          settlement_group_id: settlementGroupId,
-          settlement_reference: settlementReference,
-        })
-        .select()
-        .single();
-
-      if (txError) {
-        // Rollback: cancel settlement group
+          description: `Contract payment (${weekRangeDesc}) - ${totalLaborers} laborers (${settlementReference})`,
+        });
+        engineerTransactionId = txId;
+      } catch (walletErr: any) {
         await supabase
           .from("settlement_groups")
           .update({
@@ -1932,15 +1929,12 @@ export async function processWaterfallContractPayment(
             cancelled_at: new Date().toISOString(),
             cancelled_by: config.userName,
             cancelled_by_user_id: config.userId,
-            cancellation_reason: `Engineer transaction failed: ${txError.message}`,
+            cancellation_reason: `Engineer wallet debit failed: ${walletErr?.message ?? walletErr}`,
           })
           .eq("id", settlementGroupId);
-        throw txError;
+        throw walletErr;
       }
 
-      engineerTransactionId = txData.id;
-
-      // Update settlement_group with engineer_transaction_id
       await supabase
         .from("settlement_groups")
         .update({ engineer_transaction_id: engineerTransactionId })
@@ -2310,31 +2304,28 @@ export async function processDateWiseContractSettlement(
     settlementGroupId = groupData.id;
     settlementReference = groupData.settlement_reference;
 
-    // 6. If via engineer wallet, create engineer transaction
+    // 6. If via engineer wallet, debit via wallet-v2 RPC. See processContractPayment
+    // for the rationale on why the legacy site_engineer_transactions insert was
+    // removed.
     if (config.paymentChannel === "engineer_wallet" && config.engineerId) {
-      const { data: txData, error: txError } = await (supabase
-        .from("site_engineer_transactions") as any)
-        .insert({
-          user_id: config.engineerId,
+      try {
+        const { id: txId } = await recordSpend(supabase, {
+          engineer_id: config.engineerId,
           site_id: config.siteId,
-          transaction_type: "received_from_company",
-          settlement_status: "pending_settlement",
           amount: config.totalAmount,
-          description: `Contract settlement - Rs.${config.totalAmount.toLocaleString()}`,
-          payment_mode: config.paymentMode,
+          transaction_date: paymentDate,
+          payment_mode:
+            config.paymentMode === "upi" || config.paymentMode === "bank_transfer"
+              ? config.paymentMode
+              : "cash",
           proof_url: config.proofUrls?.[0] || null,
-          is_settled: false,
+          notes: config.notes || null,
           recorded_by: config.userName,
           recorded_by_user_id: config.userId,
-          related_subcontract_id: config.subcontractId || null,
-          settlement_group_id: settlementGroupId,
-          settlement_reference: settlementReference,
-        })
-        .select()
-        .single();
-
-      if (txError) {
-        // Rollback: cancel settlement group
+          description: `Contract settlement - Rs.${config.totalAmount.toLocaleString()} (${settlementReference})`,
+        });
+        engineerTransactionId = txId;
+      } catch (walletErr: any) {
         await supabase
           .from("settlement_groups")
           .update({
@@ -2342,15 +2333,12 @@ export async function processDateWiseContractSettlement(
             cancelled_at: new Date().toISOString(),
             cancelled_by: config.userName,
             cancelled_by_user_id: config.userId,
-            cancellation_reason: `Engineer transaction failed: ${txError.message}`,
+            cancellation_reason: `Engineer wallet debit failed: ${walletErr?.message ?? walletErr}`,
           })
           .eq("id", settlementGroupId);
-        throw txError;
+        throw walletErr;
       }
 
-      engineerTransactionId = txData.id;
-
-      // Update settlement_group with engineer_transaction_id
       await supabase
         .from("settlement_groups")
         .update({ engineer_transaction_id: engineerTransactionId })
