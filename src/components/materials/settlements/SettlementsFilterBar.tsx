@@ -279,9 +279,9 @@ export default function SettlementsFilterBar({
           sx={{ width: 170 }}
         >
           <MenuItem value="all">All types</MenuItem>
-          <MenuItem value="vendor">Vendor payments</MenuItem>
+          <MenuItem value="vendor">Vendor payments (incl. advance)</MenuItem>
           <MenuItem value="intersite">Inter-site</MenuItem>
-          <MenuItem value="advance">Advance PO</MenuItem>
+          <MenuItem value="advance">Advance only (pay before delivery)</MenuItem>
         </TextField>
 
         <ToggleButtonGroup

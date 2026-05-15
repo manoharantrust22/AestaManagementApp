@@ -156,9 +156,13 @@ export default function MaterialSettlementsPage() {
   const typeFilteredItems = useMemo(() => {
     if (filter.typeFilter === "all") return allItems;
     if (filter.typeFilter === "vendor") {
+      // "Vendor payments" = anything owed to a vendor for materials, regardless
+      // of payment timing. Advance POs (paid before delivery for a bulk discount)
+      // belong here — splitting them out hid bulk POs from the engineer's
+      // primary view, since their mental model is "money I owe a vendor".
       return allItems.filter((item) => {
         const t = getSettlementType(item);
-        return t === "own_site" || t === "group_po";
+        return t === "own_site" || t === "group_po" || t === "advance";
       });
     }
     if (filter.typeFilter === "intersite") {
@@ -504,6 +508,9 @@ export default function MaterialSettlementsPage() {
           Material purchases need to be settled before they appear in Site Expenses. Group POs are
           visible to every member site — any site can record the vendor payment, and the actual
           payer site can be picked at the moment of settlement.
+          <br />
+          <strong>Advance POs</strong> (bulk orders paid before delivery for a discount) appear
+          here as soon as the PO is created — settle them now so the vendor releases the first batch.
         </Typography>
       </Alert>
 
