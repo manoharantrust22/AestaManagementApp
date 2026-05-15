@@ -477,6 +477,7 @@ export interface RentalAdvanceFormData {
   payer_name?: string;
   proof_url?: string;
   notes?: string;
+  subcontract_id?: string;
 }
 
 export interface RentalSettlementFormData {

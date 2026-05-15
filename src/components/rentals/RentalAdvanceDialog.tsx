@@ -19,10 +19,12 @@ import {
   Alert,
   Paper,
   InputAdornment,
+  Autocomplete,
 } from "@mui/material";
 import { Close as CloseIcon } from "@mui/icons-material";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useRecordRentalAdvance } from "@/hooks/queries/useRentals";
+import { useSiteSubcontracts } from "@/hooks/queries/useSubcontracts";
 import FileUploader, { UploadedFile } from "@/components/common/FileUploader";
 import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
 import { createClient } from "@/lib/supabase/client";
@@ -67,7 +69,9 @@ export default function RentalAdvanceDialog({
   const recordAdvance = useRecordRentalAdvance();
   const { userProfile } = useAuth();
   const isSiteEngineer = userProfile?.role === "site_engineer";
+  const { data: subcontracts = [] } = useSiteSubcontracts(order.site_id);
 
+  const [subcontractId, setSubcontractId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [formData, setFormData] = useState<Omit<RentalAdvanceFormData, "rental_order_id">>({
     advance_date: dayjs().format("YYYY-MM-DD"),
@@ -112,6 +116,7 @@ export default function RentalAdvanceDialog({
       });
       setPayerSource("own_money");
       setCustomPayerName("");
+      setSubcontractId(null);
       setError("");
     }
   }, [open, currentBalance, defaultDate]);
@@ -142,6 +147,7 @@ export default function RentalAdvanceDialog({
             : undefined,
         proof_url: formData.proof_url || undefined,
         notes: formData.notes || undefined,
+        subcontract_id: subcontractId || undefined,
       });
       onSuccess?.();
       onClose();
@@ -370,6 +376,28 @@ export default function RentalAdvanceDialog({
               placeholder="Any additional notes..."
             />
           </Grid>
+
+          {/* Subcontract / Trade */}
+          {subcontracts.length > 0 && (
+            <Grid size={12}>
+              <Autocomplete
+                options={subcontracts}
+                getOptionLabel={(opt) =>
+                  opt.laborer_name ? `${opt.title} (${opt.laborer_name})` : opt.title
+                }
+                value={subcontracts.find((s) => s.id === subcontractId) ?? null}
+                onChange={(_, newVal) => setSubcontractId(newVal?.id ?? null)}
+                slotProps={{ popper: { disablePortal: false } }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Subcontract / Trade (optional)"
+                    helperText="Links this advance to the correct trade in expenses"
+                  />
+                )}
+              />
+            </Grid>
+          )}
 
           {/* After Payment Summary */}
           <Grid size={12}>
