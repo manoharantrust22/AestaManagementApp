@@ -24,15 +24,23 @@ When the user says **"move to prod"** or similar (e.g., "push to production", "d
 
 1. **Run `npm run build`** - Ensure production build passes with no errors
 2. **Run `git status`** - Check ALL uncommitted changes (staged, unstaged, and untracked)
-3. **Commit ALL changes** - Stage and commit everything with appropriate commit message(s)
-4. **Push to remote** - Push all commits to the remote repository (triggers the Next.js pipeline)
-5. **Deploy the Cloudflare Worker if `cloudflare-proxy/` has changes in this push** - The Next.js pipeline does NOT deploy the Worker. Run:
+3. **Apply pending Supabase migrations to prod FIRST (before pushing code)** - The Vercel pipeline only builds and deploys Next.js code; it does NOT run migrations. If code referencing a new column/RPC ships before its migration, the deploy will succeed but the app will 500 against prod.
+   - List local migration files: check `supabase/migrations/` for files not yet on prod.
+   - List applied migrations on prod: `mcp__supabase__list_migrations`.
+   - For each pending migration (in filename order), apply via `mcp__supabase__apply_migration`, passing the SQL contents and a `name` matching the file's timestamped slug.
+   - **Stop and surface the error if any migration fails** — do not proceed to push. A half-applied schema is worse than a delayed deploy.
+   - Confirm with the user before applying anything destructive (DROP TABLE, DROP COLUMN, type-narrowing ALTERs, data deletions).
+4. **Commit ALL changes** - Stage and commit everything with appropriate commit message(s). Migration files MUST be committed in the same push that deploys the code depending on them, so the repo and prod schema stay in sync.
+5. **Push to remote** - Push all commits to the remote repository (triggers the Next.js pipeline).
+6. **Deploy the Cloudflare Worker if `cloudflare-proxy/` has changes in this push** - The Next.js pipeline does NOT deploy the Worker. Run:
    ```
    cd cloudflare-proxy && npx wrangler deploy
    ```
    The Worker (`aesta-supabase-proxy.aestabuilders.workers.dev`) sits in front of all Supabase traffic — REST, Auth, Storage, and Realtime WebSocket — to bypass ISP-level blocks of `*.supabase.co` in India. A bug in the Worker silently breaks the production app even when the Next.js code is fine. To check if a deploy is needed: `git log -1 --name-only | grep '^cloudflare-proxy/'` — if any files match, deploy. Verify after with `npx wrangler tail` (or check the printed Version ID).
 
 **Important:** Do NOT selectively commit only some files. ALL pending changes must be included when "move to prod" is requested.
+
+**Migration ordering rule:** Schema first (step 3), then code (steps 4–5). Never the other way around.
 
 ## Test Credentials (for Playwright testing)
 - **Email**: Haribabu@nerasmclasses.onmicrosoft.com

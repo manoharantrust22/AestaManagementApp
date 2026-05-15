@@ -336,7 +336,11 @@
       "PowerShell(Get-Process -Name msedge -ErrorAction SilentlyContinue)",
       "PowerShell(Get-Process -Name \"node\" -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -eq \"\" } | Stop-Process -Force; Write-Output \"done\")",
       "PowerShell(netstat -ano)",
-      "PowerShell(Stop-Process -Id 11800 -Force)"
+      "PowerShell(Stop-Process -Id 11800 -Force)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\supabase\\\\migrations\" -Filter \"*.sql\")",
+      "Bash(Sort-Object)",
+      "PowerShell($env:PGPASSWORD = \"postgres\"; & \"C:\\\\Program Files\\\\PostgreSQL\\\\17\\\\bin\\\\psql.exe\" -h 127.0.0.1 -p 54322 -U postgres -d postgres -f \"supabase/migrations/20260516100000_material_requests_group_id_and_payer_rpcs.sql\" 2>&1 | Select-Object -Last 30)",
+      "Bash(awk 'NR>=614 && NR<=750' \"src/app/\\(main\\)/site/material-requests/page.tsx\")"
     ],
     "deny": [],
     "ask": [],

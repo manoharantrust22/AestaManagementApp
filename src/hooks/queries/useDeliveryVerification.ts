@@ -63,25 +63,32 @@ export interface POAwaitingDelivery {
 // ============================================
 
 /**
- * Fetch POs awaiting delivery (status = ordered or partial_delivered)
- * These are POs that need delivery to be recorded by site engineer
+ * Fetch POs awaiting delivery (status = ordered or partial_delivered).
+ * These are POs that need delivery to be recorded by a site engineer.
+ * When siteGroupId is provided, also includes sibling-site group POs so
+ * any engineer in the group can record the batch delivery.
  */
-export function usePOsAwaitingDelivery(siteId: string | undefined) {
+export function usePOsAwaitingDelivery(
+  siteId: string | undefined,
+  options?: { siteGroupId?: string | null }
+) {
   const supabase = createClient();
+  const siteGroupId = options?.siteGroupId ?? null;
 
   return useQuery({
     queryKey: siteId
-      ? [...queryKeys.purchaseOrders.bySite(siteId), "awaiting-delivery"]
+      ? [...queryKeys.purchaseOrders.bySite(siteId), "awaiting-delivery", siteGroupId]
       : ["purchase-orders", "awaiting-delivery"],
     queryFn: wrapQueryFn(async () => {
       if (!siteId) return [] as POAwaitingDelivery[];
 
-      const { data, error } = await supabase
+      let query = supabase
         .from("purchase_orders")
         .select(`
           id,
           po_number,
           site_id,
+          site_group_id,
           vendor_id,
           order_date,
           expected_delivery_date,
@@ -103,24 +110,32 @@ export function usePOsAwaitingDelivery(siteId: string | undefined) {
             brand:material_brands(id, brand_name, image_url)
           )
         `)
-        .eq("site_id", siteId)
         .in("status", ["ordered", "partial_delivered"])
         .order("order_date", { ascending: false });
+
+      if (siteGroupId) {
+        query = query.or(`site_id.eq.${siteId},site_group_id.eq.${siteGroupId}`);
+      } else {
+        query = query.eq("site_id", siteId);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
 
       // Transform data
       const transformed: POAwaitingDelivery[] = (data || []).map((po: any) => {
-        // Parse internal_notes to check if group stock
-        let isGroupStock = false;
-        let siteGroupId: string | null = null;
-        if (po.internal_notes) {
+        // Prefer the FK column added by 20260514140000; fall back to legacy
+        // internal_notes JSON for any historical row missed by the backfill.
+        let isGroupStock = po.site_group_id != null;
+        let poSiteGroupId: string | null = po.site_group_id ?? null;
+        if (!isGroupStock && po.internal_notes) {
           try {
             const notes = typeof po.internal_notes === "string"
               ? JSON.parse(po.internal_notes)
               : po.internal_notes;
             isGroupStock = notes?.is_group_stock === true;
-            siteGroupId = notes?.site_group_id || null;
+            poSiteGroupId = notes?.site_group_id || null;
           } catch {
             // Ignore parse errors
           }
@@ -138,7 +153,7 @@ export function usePOsAwaitingDelivery(siteId: string | undefined) {
           item_count: po.items?.length || 0,
           status: po.status,
           is_group_stock: isGroupStock,
-          site_group_id: siteGroupId,
+          site_group_id: poSiteGroupId,
           items: (po.items || []).map((item: any) => ({
             id: item.id,
             material_id: item.material_id,
@@ -318,16 +333,20 @@ export function useDeliveryVerificationDetails(deliveryId: string | undefined) {
 }
 
 /**
- * Fetch deliveries by site with verification status
+ * Fetch deliveries by site with verification status.
+ * When siteGroupId is provided, also includes deliveries recorded against
+ * sibling-site group POs so every group member sees the full delivery history.
  */
 export function useDeliveriesWithVerification(
   siteId: string | undefined,
   options?: {
     verificationStatus?: string;
     limit?: number;
+    siteGroupId?: string | null;
   }
 ) {
   const supabase = createClient();
+  const siteGroupId = options?.siteGroupId ?? null;
 
   return useQuery({
     queryKey: siteId
@@ -335,6 +354,16 @@ export function useDeliveriesWithVerification(
       : ["deliveries", "site", "verification"],
     queryFn: async () => {
       if (!siteId) return [] as PendingDeliveryVerification[];
+
+      // Resolve PO ids visible to this site (own + sibling group POs)
+      let visiblePoIds: string[] | null = null;
+      if (siteGroupId) {
+        const { data: poRows } = await supabase
+          .from("purchase_orders")
+          .select("id")
+          .or(`site_id.eq.${siteId},site_group_id.eq.${siteGroupId}`);
+        visiblePoIds = (poRows || []).map((r: { id: string }) => r.id);
+      }
 
       let query = supabase
         .from("deliveries")
@@ -353,8 +382,15 @@ export function useDeliveriesWithVerification(
             brand:material_brands(image_url)
           )
         `)
-        .eq("site_id", siteId)
         .order("delivery_date", { ascending: false });
+
+      if (visiblePoIds && visiblePoIds.length > 0) {
+        query = query.or(
+          `site_id.eq.${siteId},po_id.in.(${visiblePoIds.join(",")})`
+        );
+      } else {
+        query = query.eq("site_id", siteId);
+      }
 
       if (options?.limit) {
         query = query.limit(options.limit);

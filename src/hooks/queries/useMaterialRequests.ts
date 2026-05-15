@@ -83,19 +83,22 @@ async function withTimeout<T>(
 // ============================================
 
 /**
- * Fetch material requests for a site with optional status filter
+ * Fetch material requests for a site with optional status filter.
+ * When siteGroupId is provided, also fetches group_stock requests from sibling sites.
  */
 export function useMaterialRequests(
   siteId: string | undefined,
-  status?: MaterialRequestStatus | null
+  status?: MaterialRequestStatus | null,
+  options?: { siteGroupId?: string | null }
 ) {
   const supabase = createClient() as any;
+  const siteGroupId = options?.siteGroupId ?? null;
 
   return useQuery({
     queryKey: siteId
       ? status
-        ? [...queryKeys.materialRequests.bySite(siteId), status]
-        : queryKeys.materialRequests.bySite(siteId)
+        ? [...queryKeys.materialRequests.bySite(siteId), status, siteGroupId]
+        : [...queryKeys.materialRequests.bySite(siteId), siteGroupId]
       : ["material-requests", "unknown"],
     queryFn: async () => {
       if (!siteId) return [];
@@ -112,8 +115,13 @@ export function useMaterialRequests(
           )
         `
         )
-        .eq("site_id", siteId)
         .order("created_at", { ascending: false });
+
+      if (siteGroupId) {
+        query = query.or(`site_id.eq.${siteId},site_group_id.eq.${siteGroupId}`);
+      } else {
+        query = query.eq("site_id", siteId);
+      }
 
       if (status) {
         query = query.eq("status", status);
@@ -199,6 +207,18 @@ export function useCreateMaterialRequest() {
 
       console.log("[useCreateMaterialRequest] Inserting request...");
 
+      // Resolve site_group_id when purchase_type='group_stock' so the row
+      // shows up on sibling sites' lists (mirror of purchase_orders.site_group_id pattern).
+      let resolvedSiteGroupId: string | null = null;
+      if (data.purchase_type === 'group_stock') {
+        const { data: siteRow } = await (supabase as any)
+          .from("sites")
+          .select("site_group_id")
+          .eq("id", data.site_id)
+          .single();
+        resolvedSiteGroupId = (siteRow?.site_group_id as string | null) ?? null;
+      }
+
       // Insert request with timeout protection
       const { data: request, error: requestError } = await withTimeout(
         supabase
@@ -215,6 +235,7 @@ export function useCreateMaterialRequest() {
             notes: data.notes || null,
             purchase_type: data.purchase_type ?? 'own_site',
             delivery_type: data.delivery_type ?? 'one_time',
+            site_group_id: resolvedSiteGroupId,
           })
           .select()
           .single(),
@@ -360,16 +381,37 @@ export function useUpdateMaterialRequest() {
       // Ensure fresh session before mutation
       await ensureFreshSession();
 
+      // Re-resolve site_group_id whenever purchase_type changes — needed so a
+      // request flipped from own_site → group_stock becomes visible to siblings.
+      let resolvedSiteGroupId: string | null | undefined = undefined;
+      if (data.purchase_type !== undefined) {
+        if (data.purchase_type === 'group_stock' && data.site_id) {
+          const { data: siteRow } = await (supabase as any)
+            .from("sites")
+            .select("site_group_id")
+            .eq("id", data.site_id)
+            .single();
+          resolvedSiteGroupId = (siteRow?.site_group_id as string | null) ?? null;
+        } else {
+          resolvedSiteGroupId = null;
+        }
+      }
+
+      const updatePayload: Record<string, unknown> = {
+        section_id: data.section_id,
+        required_by_date: data.required_by_date,
+        priority: data.priority,
+        notes: data.notes,
+        updated_at: new Date().toISOString(),
+      };
+      if (data.purchase_type !== undefined) updatePayload.purchase_type = data.purchase_type;
+      if (data.delivery_type !== undefined) updatePayload.delivery_type = data.delivery_type;
+      if (resolvedSiteGroupId !== undefined) updatePayload.site_group_id = resolvedSiteGroupId;
+
       const { data: result, error } = await withTimeout(
         supabase
           .from("material_requests")
-          .update({
-            section_id: data.section_id,
-            required_by_date: data.required_by_date,
-            priority: data.priority,
-            notes: data.notes,
-            updated_at: new Date().toISOString(),
-          })
+          .update(updatePayload)
           .eq("id", id)
           .select()
           .single(),

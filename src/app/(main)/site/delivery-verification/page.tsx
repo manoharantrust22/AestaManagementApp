@@ -30,6 +30,7 @@ import {
 import PageHeader from "@/components/layout/PageHeader";
 import MaterialWorkflowBar from "@/components/materials/MaterialWorkflowBar";
 import { useSite } from "@/contexts/SiteContext";
+import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 import {
   useDeliveriesWithVerification,
   usePOsAwaitingDelivery,
@@ -150,13 +151,16 @@ export default function DeliveryVerificationPage() {
   const searchParams = useSearchParams();
   const grnParam = searchParams.get("grn");
 
-  // Fetch POs awaiting delivery
-  const { data: posAwaitingDelivery = [], isLoading: posLoading } =
-    usePOsAwaitingDelivery(selectedSite?.id);
+  const { data: groupMembership } = useSiteGroupMembership(selectedSite?.id);
+  const siteGroupId = groupMembership?.groupId ?? null;
 
-  // Fetch all deliveries with verification status
+  // Fetch POs awaiting delivery (own + sibling group POs)
+  const { data: posAwaitingDelivery = [], isLoading: posLoading } =
+    usePOsAwaitingDelivery(selectedSite?.id, { siteGroupId });
+
+  // Fetch all deliveries with verification status (own + sibling group)
   const { data: allDeliveries = [], isLoading: allLoading } =
-    useDeliveriesWithVerification(selectedSite?.id);
+    useDeliveriesWithVerification(selectedSite?.id, { siteGroupId });
 
   const handleRecordDelivery = useCallback((po: POAwaitingDelivery) => {
     setSelectedPO(po);

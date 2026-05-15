@@ -1166,11 +1166,45 @@ export function useSiteMaterialExpenses(siteId: string | undefined) {
           throw advancePOsError;
         }
 
+        // 2b. Sibling-group advance POs — visibility parity with the
+        // sibling expense fetch above; without this, a bulk PO created by
+        // Site A is invisible on Site B's settlement page.
+        let siblingAdvancePOs: any[] = [];
+        if (siteData?.site_group_id) {
+          const ownAdvanceIds = new Set((advancePOsData || []).map((p: any) => p.id));
+          const { data: siblingPOData, error: siblingPOError } = await (supabase as any)
+            .from("purchase_orders")
+            .select(`
+              *,
+              vendor:vendors(id, name, qr_code_url, upi_id),
+              items:purchase_order_items(
+                *,
+                material:materials(id, name, code, unit),
+                brand:material_brands(id, brand_name)
+              )
+            `)
+            .eq("site_group_id", siteData.site_group_id)
+            .eq("payment_timing", "advance")
+            .in("status", ["draft", "pending_approval", "approved", "ordered", "partial_delivered"])
+            .is("advance_paid", null)
+            .neq("site_id", siteId)
+            .order("order_date", { ascending: false });
+
+          if (siblingPOError && !isQueryError(siblingPOError)) {
+            console.warn("[useSiteMaterialExpenses] Sibling advance-PO query failed:", siblingPOError);
+          } else if (siblingPOData) {
+            siblingAdvancePOs = siblingPOData.filter((p: any) => !ownAdvanceIds.has(p.id));
+          }
+        }
+
         const expenses = [
           ...(expensesData || []),
           ...siblingGroupExpenses,
         ] as MaterialPurchaseExpenseWithDetails[];
-        const advancePOs = (advancePOsData || []) as any[];
+        const advancePOs = [
+          ...(advancePOsData || []),
+          ...siblingAdvancePOs,
+        ] as any[];
 
         // Debug logging
         console.log("[useSiteMaterialExpenses] Fetched expenses:", expenses.length);

@@ -62,6 +62,8 @@ import PendingVendorCard, {
 } from "@/components/materials/settlements/PendingVendorCard";
 import SettlementsTableView from "@/components/materials/settlements/SettlementsTableView";
 import SettlementInspectDrawer from "@/components/materials/settlements/SettlementInspectDrawer";
+import ChangePayerDialog from "@/components/materials/ChangePayerDialog";
+import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 
 const AIIngestionDialog = dynamic(
   () => import("@/components/ai-ingestion/AIIngestionDialog"),
@@ -124,6 +126,12 @@ export default function MaterialSettlementsPage() {
   const { data: materialExpensesData, isLoading } = useSiteMaterialExpenses(selectedSite?.id);
   const deleteMutation = useDeleteMaterialPurchase();
   const verifyBillMutation = useVerifyBill();
+  const { data: groupMembership } = useSiteGroupMembership(selectedSite?.id);
+  const groupSitesForChip = useMemo(
+    () => (groupMembership as { allSites?: Array<{ id: string; name: string }> } | undefined)?.allSites ?? [],
+    [groupMembership]
+  );
+  const [changePayerExpense, setChangePayerExpense] = useState<MaterialPurchaseExpenseWithDetails | null>(null);
 
   const { userProfile, user } = useAuth();
   const canEdit = hasEditPermission(userProfile?.role);
@@ -466,6 +474,7 @@ export default function MaterialSettlementsPage() {
                       onInspect={handleInspect}
                       onEdit={handleEdit}
                       onDelete={handleDeleteClick}
+                      onChangePayer={setChangePayerExpense}
                     />
                   </Collapse>
                 </Box>
@@ -598,6 +607,20 @@ export default function MaterialSettlementsPage() {
           }
         }}
       />
+
+      {/* Change Payer Dialog (group_stock expenses only) */}
+      {changePayerExpense && selectedSite?.id && (
+        <ChangePayerDialog
+          open={!!changePayerExpense}
+          onClose={() => setChangePayerExpense(null)}
+          entityType="expense"
+          entityId={changePayerExpense.id}
+          entityLabel={changePayerExpense.ref_code || "Expense"}
+          currentSiteId={selectedSite.id}
+          groupSites={groupSitesForChip}
+          alreadySettled={!!changePayerExpense.settlement_reference}
+        />
+      )}
     </Box>
   );
 }

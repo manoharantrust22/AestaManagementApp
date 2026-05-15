@@ -39,6 +39,7 @@ import {
   CheckCircleOutline as FulfilledIcon,
   Inventory2 as MaterialIcon,
   Close as CloseIcon,
+  SwapHoriz as SwapPayerIcon,
 } from "@mui/icons-material";
 import DataTable, { type MRT_ColumnDef } from "@/components/common/DataTable";
 import PageHeader from "@/components/layout/PageHeader";
@@ -47,6 +48,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { hasAdminPermission, hasEditPermission } from "@/lib/permissions";
+import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 import {
   useMaterialRequests,
   useRequestSummary,
@@ -56,6 +58,8 @@ import {
   useRejectMaterialRequest,
 } from "@/hooks/queries/useMaterialRequests";
 import MaterialRequestDialog from "@/components/materials/MaterialRequestDialog";
+import OriginSiteChip from "@/components/materials/OriginSiteChip";
+import ChangePayerDialog from "@/components/materials/ChangePayerDialog";
 import MaterialRequestDeleteConfirmationDialog from "@/components/materials/MaterialRequestDeleteConfirmationDialog";
 import RequestApprovalDialog from "@/components/materials/RequestApprovalDialog";
 import RequestDetailsDrawer from "@/components/materials/RequestDetailsDrawer";
@@ -118,6 +122,7 @@ export default function MaterialRequestsPage() {
   const [currentTab, setCurrentTab] = useState<TabValue>("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  const [changePayerRequest, setChangePayerRequest] = useState<MaterialRequestWithDetails | null>(null);
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -143,7 +148,16 @@ export default function MaterialRequestsPage() {
     }
   }, [searchParams, router]);
 
-  const { data: allRequests = [], isLoading } = useMaterialRequests(selectedSite?.id);
+  const { data: groupMembership } = useSiteGroupMembership(selectedSite?.id);
+  const groupSitesForChip = useMemo(
+    () => (groupMembership as { allSites?: Array<{ id: string; name: string }> } | undefined)?.allSites ?? [],
+    [groupMembership]
+  );
+  const { data: allRequests = [], isLoading } = useMaterialRequests(
+    selectedSite?.id,
+    undefined,
+    { siteGroupId: groupMembership?.groupId ?? null }
+  );
   const { data: summary } = useRequestSummary(selectedSite?.id);
   const { data: poSummaryMap = EMPTY_PO_SUMMARY_MAP } = useRequestsPOSummary(selectedSite?.id);
 
@@ -299,7 +313,7 @@ export default function MaterialRequestsPage() {
       {
         accessorKey: "request_number",
         header: "Request #",
-        size: 130,
+        size: 170,
         Cell: ({ row }) => (
           <Box>
             <Typography
@@ -310,9 +324,19 @@ export default function MaterialRequestsPage() {
             >
               {row.original.request_number}
             </Typography>
-            <Typography variant="caption" color="text.secondary">
+            <Typography variant="caption" color="text.secondary" display="block">
               {formatDate(row.original.request_date)}
             </Typography>
+            {selectedSite?.id && (
+              <Box sx={{ mt: 0.5 }}>
+                <OriginSiteChip
+                  originatingSiteId={row.original.site_id}
+                  currentSiteId={selectedSite.id}
+                  groupSites={groupSitesForChip}
+                  dense
+                />
+              </Box>
+            )}
           </Box>
         ),
       },
@@ -576,7 +600,7 @@ export default function MaterialRequestsPage() {
             : "-",
       },
     ],
-    [handleViewDetails, poSummaryMap, isAdmin, handleOpenConvertDialog, materialFilterOptions]
+    [handleViewDetails, poSummaryMap, isAdmin, handleOpenConvertDialog, materialFilterOptions, selectedSite?.id, groupSitesForChip]
   );
 
   // Memoized props for DataTable to prevent re-renders
@@ -598,6 +622,10 @@ export default function MaterialRequestsPage() {
       const hasRemainingItems = summary?.hasRemainingItems ?? true;
       const canCreatePO = ["approved", "ordered", "partial_fulfilled"].includes(request.status);
 
+      const canChangePayer =
+        request.purchase_type === 'group_stock'
+        && ["draft", "pending", "approved"].includes(request.status)
+        && canEdit;
       return (
         <Box sx={{ display: "flex", gap: 0.5 }}>
           {/* View Details - always show */}
@@ -606,6 +634,13 @@ export default function MaterialRequestsPage() {
               <ViewIcon fontSize="small" />
             </IconButton>
           </Tooltip>
+          {canChangePayer && (
+            <Tooltip title="Change Originating Site">
+              <IconButton size="small" onClick={() => setChangePayerRequest(request)}>
+                <SwapPayerIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
 
           {/* Approve/Reject - only for pending requests */}
           {request.status === "pending" && isAdmin && (
@@ -915,6 +950,19 @@ export default function MaterialRequestsPage() {
         requestNumber={requestToDelete?.request_number}
         siteId={selectedSite.id}
       />
+
+      {/* Change Originating Site Dialog (group requests only) */}
+      {changePayerRequest && selectedSite?.id && (
+        <ChangePayerDialog
+          open={!!changePayerRequest}
+          onClose={() => setChangePayerRequest(null)}
+          entityType="request"
+          entityId={changePayerRequest.id}
+          entityLabel={changePayerRequest.request_number}
+          currentSiteId={selectedSite.id}
+          groupSites={groupSitesForChip}
+        />
+      )}
 
       {/* Journey Drawer */}
       <Drawer

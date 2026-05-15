@@ -25,6 +25,7 @@ import {
   CheckCircle as SettledIcon,
   Pending as PendingIcon,
   Visibility as ViewIcon,
+  SwapHoriz as SwapPayerIcon,
 } from "@mui/icons-material";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import type {
@@ -54,6 +55,7 @@ interface Props {
   onInspect: (item: SettlementItem) => void;
   onEdit: (purchase: MaterialPurchaseExpenseWithDetails) => void;
   onDelete: (purchase: MaterialPurchaseExpenseWithDetails) => void;
+  onChangePayer?: (purchase: MaterialPurchaseExpenseWithDetails) => void;
 }
 
 export default function SettlementsTableView({
@@ -65,6 +67,7 @@ export default function SettlementsTableView({
   onInspect,
   onEdit,
   onDelete,
+  onChangePayer,
 }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -289,6 +292,13 @@ export default function SettlementsTableView({
                                 <EditIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
+                            {onChangePayer && purchase.purchase_type === "group_stock" && (
+                              <Tooltip title="Change Payer">
+                                <IconButton size="small" onClick={() => onChangePayer(purchase)}>
+                                  <SwapPayerIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
                             <Tooltip title="Delete">
                               <IconButton size="small" color="error" onClick={() => onDelete(purchase)}>
                                 <DeleteIcon fontSize="small" />

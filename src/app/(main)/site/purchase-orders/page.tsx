@@ -39,6 +39,7 @@ import {
   Groups as GroupStockIcon,
   Sync as SyncIcon,
   Inventory2 as MaterialIcon,
+  SwapHoriz as SwapPayerIcon,
 } from "@mui/icons-material";
 import DataTable, { type MRT_ColumnDef } from "@/components/common/DataTable";
 import PageHeader from "@/components/layout/PageHeader";
@@ -63,6 +64,8 @@ const UnifiedPurchaseOrderDialog = dynamic(
 );
 import RecordAndVerifyDeliveryDialog from "@/components/materials/RecordAndVerifyDeliveryDialog";
 import PODetailsDrawer from "@/components/materials/PODetailsDrawer";
+import OriginSiteChip from "@/components/materials/OriginSiteChip";
+import ChangePayerDialog from "@/components/materials/ChangePayerDialog";
 import PODeleteConfirmationDialog from "@/components/materials/PODeleteConfirmationDialog";
 import CreatePORedirectDialog from "@/components/materials/CreatePORedirectDialog";
 import type {
@@ -133,6 +136,9 @@ export default function PurchaseOrdersPage() {
   // Redirect dialog for direct PO creation
   const [redirectDialogOpen, setRedirectDialogOpen] = useState(false);
 
+  // Change payer dialog state (for group POs)
+  const [changePayerPO, setChangePayerPO] = useState<PurchaseOrderWithDetails | null>(null);
+
   const searchParams = useSearchParams();
   const router = useRouter();
   const { userProfile, user } = useAuth();
@@ -177,6 +183,10 @@ export default function PurchaseOrdersPage() {
   }, [isNewParam, vendorIdParam, materialIdParam, materialNameParam, unitParam, sourceParam, router]);
 
   const { data: groupMembership } = useSiteGroupMembership(selectedSite?.id);
+  const groupSitesForChip = useMemo(
+    () => (groupMembership as { allSites?: Array<{ id: string; name: string }> } | undefined)?.allSites ?? [],
+    [groupMembership]
+  );
   const { data: allPOs = [], isLoading } = usePurchaseOrders(
     selectedSite?.id,
     null,
@@ -435,11 +445,16 @@ export default function PurchaseOrdersPage() {
               <Typography variant="caption" color="text.secondary">
                 {formatDate(row.original.order_date)}
               </Typography>
-              {/* Show originating site when this is a cross-site group PO */}
-              {isGroupStock && row.original.site_id !== selectedSite?.id && row.original.site?.name && (
-                <Typography variant="caption" color="secondary.main" sx={{ display: "block" }}>
-                  From: {row.original.site.name}
-                </Typography>
+              {/* Originating site chip for cross-site group POs */}
+              {selectedSite?.id && (
+                <Box sx={{ mt: 0.5 }}>
+                  <OriginSiteChip
+                    originatingSiteId={row.original.site_id}
+                    currentSiteId={selectedSite.id}
+                    groupSites={groupSitesForChip}
+                    dense
+                  />
+                </Box>
               )}
             </Box>
           );
@@ -654,13 +669,16 @@ export default function PurchaseOrdersPage() {
             : "-",
       },
     ],
-    [handleViewDetails, syncStatusMap, vendorFilterOptions, statusFilterOptions, materialFilterOptions]
+    [handleViewDetails, syncStatusMap, vendorFilterOptions, statusFilterOptions, materialFilterOptions, selectedSite?.id, groupSitesForChip]
   );
 
   // Row actions
   const renderRowActions = useCallback(
     ({ row }: { row: { original: PurchaseOrderWithDetails } }) => {
       const po = row.original;
+      const canChangePayer = !!po.site_group_id
+        && ["draft","pending_approval","approved","ordered","partial_delivered"].includes(po.status)
+        && canEdit;
       return (
         <Box sx={{ display: "flex", gap: 0.5 }}>
           <Tooltip title="View Details">
@@ -668,6 +686,13 @@ export default function PurchaseOrdersPage() {
               <ViewIcon fontSize="small" />
             </IconButton>
           </Tooltip>
+          {canChangePayer && (
+            <Tooltip title="Change Payer">
+              <IconButton size="small" onClick={() => setChangePayerPO(po)}>
+                <SwapPayerIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
 
           {/* Draft POs - can edit, place order, or delete */}
           {po.status === "draft" && canEdit && (
@@ -976,6 +1001,19 @@ export default function PurchaseOrdersPage() {
         canEdit={canEdit}
         isAdmin={isAdmin}
       />
+
+      {/* Change Payer Dialog (group POs only) */}
+      {changePayerPO && selectedSite?.id && (
+        <ChangePayerDialog
+          open={!!changePayerPO}
+          onClose={() => setChangePayerPO(null)}
+          entityType="po"
+          entityId={changePayerPO.id}
+          entityLabel={changePayerPO.po_number}
+          currentSiteId={selectedSite.id}
+          groupSites={groupSitesForChip}
+        />
+      )}
 
       {/* Cancellation Reason Dialog */}
       <Dialog

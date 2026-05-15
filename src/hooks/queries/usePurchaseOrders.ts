@@ -1613,18 +1613,35 @@ export function useRecordAdvancePayment() {
 // ============================================
 
 /**
- * Fetch deliveries for a site
+ * Fetch deliveries for a site. When siteGroupId is provided, also includes
+ * deliveries recorded for group-stock POs in sibling sites — needed so a
+ * partial delivery recorded on one site is visible to all group members.
  */
 export function useDeliveries(
   siteId: string | undefined,
-  poId?: string | null
+  poId?: string | null,
+  options?: { siteGroupId?: string | null }
 ) {
   const supabase = createClient() as any;
+  const siteGroupId = options?.siteGroupId ?? null;
 
   return useQuery({
-    queryKey: ["deliveries", siteId, poId],
+    queryKey: ["deliveries", siteId, poId, siteGroupId],
     queryFn: async () => {
       if (!siteId) return [];
+
+      // Resolve PO ids visible to this site (own + group_stock siblings).
+      // We then filter deliveries by `po_id IN (...)`. This avoids the
+      // PostgREST limitation of OR-ing across a nested join column.
+      let visiblePoIds: string[] | null = null;
+      if (siteGroupId) {
+        const { data: poRows, error: poErr } = await supabase
+          .from("purchase_orders")
+          .select("id")
+          .or(`site_id.eq.${siteId},site_group_id.eq.${siteGroupId}`);
+        if (poErr) throw poErr;
+        visiblePoIds = (poRows || []).map((r: { id: string }) => r.id);
+      }
 
       let query = supabase
         .from("deliveries")
@@ -1632,7 +1649,7 @@ export function useDeliveries(
           `
           *,
           vendor:vendors(id, name, phone),
-          po:purchase_orders(id, po_number, status),
+          po:purchase_orders(id, po_number, status, site_id, site_group_id),
           items:delivery_items(
             id, material_id, received_qty, accepted_qty, rejected_qty, unit_price,
             material:materials(id, name, code, unit, image_url),
@@ -1640,8 +1657,16 @@ export function useDeliveries(
           )
         `
         )
-        .eq("site_id", siteId)
         .order("delivery_date", { ascending: false });
+
+      if (visiblePoIds && visiblePoIds.length > 0) {
+        // Union: deliveries recorded on this site OR on any visible group PO
+        query = query.or(
+          `site_id.eq.${siteId},po_id.in.(${visiblePoIds.join(",")})`
+        );
+      } else {
+        query = query.eq("site_id", siteId);
+      }
 
       if (poId) {
         query = query.eq("po_id", poId);
