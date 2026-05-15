@@ -53,6 +53,7 @@ import {
 } from "@/components/rentals";
 import { MultiPartySettlementDialog } from "@/components/rentals/MultiPartySettlementDialog";
 import { RentalSettlementEditDialog } from "@/components/rentals/RentalSettlementEditDialog";
+import HistoricalRentalDialog from "@/components/rentals/HistoricalRentalDialog";
 import {
   RENTAL_ORDER_STATUS_LABELS,
   RENTAL_ITEM_STATUS_LABELS,
@@ -83,6 +84,7 @@ export default function RentalOrderDetailsPage() {
   const [outboundSettleOpen, setOutboundSettleOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<RentalOrderItemWithDetails | undefined>();
   const [deletingAdvanceId, setDeletingAdvanceId] = useState<string | null>(null);
+  const [historicalDialogOpen, setHistoricalDialogOpen] = useState(false);
   const deleteAdvance = useDeleteRentalAdvance();
 
   const handleRecordReturn = (item?: RentalOrderItemWithDetails) => {
@@ -165,6 +167,16 @@ export default function RentalOrderDetailsPage() {
                 disabled={updateStatus.isPending}
               >
                 Activate Order
+              </Button>
+            )}
+            {isHistorical && order.status === "draft" && (
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<EditIcon />}
+                onClick={() => setHistoricalDialogOpen(true)}
+              >
+                Complete Record
               </Button>
             )}
             {!isHistorical && order.status === "completed" && (
@@ -837,6 +849,13 @@ export default function RentalOrderDetailsPage() {
           orderId={order.id}
         />
       )}
+
+      <HistoricalRentalDialog
+        open={historicalDialogOpen}
+        onClose={() => setHistoricalDialogOpen(false)}
+        siteId={order.site_id}
+        orderId={order.id}
+      />
     </Box>
   );
 }

@@ -528,7 +528,7 @@ export function useRentalOrders(
           ? new Date(order.expected_return_date)
           : null;
         const isOverdue = expectedReturnDate
-          ? now > expectedReturnDate && order.status !== "completed"
+          ? now > expectedReturnDate && order.status !== "completed" && !(order as any).is_historical
           : false;
 
         const accruedRentalCost = (order.items || []).reduce(
@@ -621,7 +621,9 @@ export function useOngoingRentals(siteId: string) {
         const expectedReturnDate = order.expected_return_date
           ? new Date(order.expected_return_date)
           : null;
-        const isOverdue = expectedReturnDate ? now > expectedReturnDate : false;
+        const isOverdue = expectedReturnDate
+          ? now > expectedReturnDate && !(order as any).is_historical
+          : false;
 
         const accruedRentalCost = (order.items || []).reduce(
           (sum: number, item: any) => {
@@ -732,7 +734,7 @@ export function useRentalOrder(id: string | undefined) {
         ? new Date(data.expected_return_date)
         : null;
       const isOverdue = expectedReturnDate
-        ? now > expectedReturnDate && data.status !== "completed"
+        ? now > expectedReturnDate && data.status !== "completed" && !(data as any).is_historical
         : false;
 
       // Get all returns to calculate proper end dates for cost calculation
@@ -1702,8 +1704,10 @@ export function useRentalCostCalculation(
     const balanceDue = grossTotal - advancesPaid;
 
     const isCompleted = order.status === "completed";
-    // Completed orders are never "overdue" — they're done
-    const isOverdue = isCompleted ? false : (expectedReturnDate ? now > expectedReturnDate : false);
+    // Completed orders and historical records are never "overdue" — both represent past rentals
+    const isOverdue = (isCompleted || order.is_historical)
+      ? false
+      : (expectedReturnDate ? now > expectedReturnDate : false);
     const daysOverdue =
       isOverdue && expectedReturnDate
         ? Math.ceil(
