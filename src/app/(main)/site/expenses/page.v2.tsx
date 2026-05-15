@@ -91,6 +91,7 @@ import { ExpenseKPICards } from "@/components/expenses/ExpenseKPICards";
 import { MoneyBreakdownCard } from "@/components/expenses/MoneyBreakdownCard";
 import { TradeMetricCards } from "@/components/expenses/TradeMetricCards";
 import RentalExpenseInspectPane from "@/components/expenses/RentalExpenseInspectPane";
+import { UnlinkedLinkPopper } from "@/components/expenses/UnlinkedLinkPopper";
 import { useSiteTrades } from "@/hooks/queries/useTrades";
 
 import type { Database } from "@/types/database.types";
@@ -202,6 +203,7 @@ export default function ExpensesPageV2() {
   const [rentalPaneOrderId, setRentalPaneOrderId] = useState<string | null>(null);
 
   const tableRef = useRef<HTMLDivElement>(null);
+  const [linkAnchor, setLinkAnchor] = useState<{ el: HTMLElement; row: ExpenseRow } | null>(null);
 
   // URL sync
   useEffect(() => {
@@ -995,13 +997,26 @@ export default function ExpensesPageV2() {
                           </Typography>
                         ) : (
                           <Box sx={{ mt: 0.25, ml: 1.5 }}>
-                            <Chip
-                              label="Unlinked"
-                              size="small"
-                              color="warning"
-                              variant="outlined"
-                              sx={{ height: 18, fontSize: 10, "& .MuiChip-label": { px: 0.75 } }}
-                            />
+                            {row.source_type === "misc_expense" ? (
+                              <Chip
+                                label="Unlinked"
+                                size="small"
+                                color="warning"
+                                variant="outlined"
+                                onClick={(e) => setLinkAnchor({ el: e.currentTarget, row })}
+                                sx={{ height: 18, fontSize: 10, cursor: "pointer", "& .MuiChip-label": { px: 0.75 } }}
+                              />
+                            ) : (
+                              <Tooltip title="Use Edit to link">
+                                <Chip
+                                  label="Unlinked"
+                                  size="small"
+                                  color="warning"
+                                  variant="outlined"
+                                  sx={{ height: 18, fontSize: 10, "& .MuiChip-label": { px: 0.75 } }}
+                                />
+                              </Tooltip>
+                            )}
                           </Box>
                         )
                       )}
@@ -1437,6 +1452,22 @@ export default function ExpensesPageV2() {
       />
 
       <RentalExpenseInspectPane orderId={rentalPaneOrderId} onClose={() => setRentalPaneOrderId(null)} />
+
+      {linkAnchor && (
+        <UnlinkedLinkPopper
+          open
+          anchorEl={linkAnchor.el}
+          miscExpenseId={linkAnchor.row.source_id}
+          siteTrades={siteTrades ?? []}
+          userId={userProfile?.id || ""}
+          userName={userProfile?.name || ""}
+          onClose={() => setLinkAnchor(null)}
+          onLinked={async () => {
+            setLinkAnchor(null);
+            await refetch();
+          }}
+        />
+      )}
     </Box>
   );
 }
