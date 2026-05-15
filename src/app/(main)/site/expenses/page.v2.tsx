@@ -311,15 +311,6 @@ export default function ExpensesPageV2() {
     return map;
   }, [siteTrades]);
 
-  // contract_id → subcontract title map
-  const contractToSubcontract = useMemo(() => {
-    const map = new Map<string, { title: string }>();
-    for (const t of siteTrades ?? []) {
-      for (const c of t.contracts) map.set(c.id, { title: c.title });
-    }
-    return map;
-  }, [siteTrades]);
-
   // Burn rate (client-side from loaded expenses)
   const burnRate = useMemo(
     () => computeBurnRate(expenses, financial ? Math.max(0, financial.totalContract - (summary?.total ?? 0)) : undefined),
@@ -382,7 +373,7 @@ export default function ExpensesPageV2() {
 
     const getKey = (row: ExpenseRow): string => {
       if (groupBy === "trade") {
-        if (!row.contract_id) return "Site-wide";
+        if (!row.contract_id) return "— Unlinked —";
         return contractToTrade.get(row.contract_id)?.name ?? "Site-wide";
       }
       if (groupBy === "kind") return LABOR_SET.has(row.expense_type) ? "Labor" : "Building";
@@ -984,8 +975,8 @@ export default function ExpensesPageV2() {
                           <Typography variant="caption" color="text.disabled">—</Typography>
                         </Box>
                       )}
-                      {!dense && (
-                        row.contract_id && contractToSubcontract.has(row.contract_id) ? (
+                      {row.contract_id && row.subcontract_title ? (
+                        !dense && (
                           <Typography
                             variant="caption"
                             color="text.secondary"
@@ -993,32 +984,32 @@ export default function ExpensesPageV2() {
                             display="block"
                             sx={{ fontSize: 11, mt: 0.25, ml: 1.5 }}
                           >
-                            {contractToSubcontract.get(row.contract_id)!.title}
+                            {row.subcontract_title}
                           </Typography>
-                        ) : (
-                          <Box sx={{ mt: 0.25, ml: 1.5 }}>
-                            {row.source_type === "misc_expense" ? (
+                        )
+                      ) : (
+                        <Box sx={{ mt: 0.25, ml: 1.5 }}>
+                          {row.source_type === "misc_expense" ? (
+                            <Chip
+                              label="Unlinked"
+                              size="small"
+                              color="warning"
+                              variant="outlined"
+                              onClick={(e) => setLinkAnchor({ el: e.currentTarget, row })}
+                              sx={{ height: 18, fontSize: 10, cursor: "pointer", "& .MuiChip-label": { px: 0.75 } }}
+                            />
+                          ) : (
+                            <Tooltip title="Use Edit to link">
                               <Chip
                                 label="Unlinked"
                                 size="small"
                                 color="warning"
                                 variant="outlined"
-                                onClick={(e) => setLinkAnchor({ el: e.currentTarget, row })}
-                                sx={{ height: 18, fontSize: 10, cursor: "pointer", "& .MuiChip-label": { px: 0.75 } }}
+                                sx={{ height: 18, fontSize: 10, "& .MuiChip-label": { px: 0.75 } }}
                               />
-                            ) : (
-                              <Tooltip title="Use Edit to link">
-                                <Chip
-                                  label="Unlinked"
-                                  size="small"
-                                  color="warning"
-                                  variant="outlined"
-                                  sx={{ height: 18, fontSize: 10, "& .MuiChip-label": { px: 0.75 } }}
-                                />
-                              </Tooltip>
-                            )}
-                          </Box>
-                        )
+                            </Tooltip>
+                          )}
+                        </Box>
                       )}
                     </TableCell>
 
