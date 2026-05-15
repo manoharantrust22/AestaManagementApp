@@ -16,7 +16,10 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { Close as CloseIcon } from "@mui/icons-material";
+import {
+  AccountBalanceWallet as WalletIcon,
+  Close as CloseIcon,
+} from "@mui/icons-material";
 import dayjs from "dayjs";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
@@ -27,7 +30,6 @@ import { processContractPayment } from "@/lib/services/settlementService";
 import FileUploader, { type UploadedFile } from "@/components/common/FileUploader";
 import type {
   ContractPaymentType,
-  PaymentChannel,
   PaymentMode,
 } from "@/types/payment.types";
 import type { PayerSource } from "@/types/settlement.types";
@@ -55,6 +57,14 @@ interface MestriSettleDialogProps {
   suggestedAmount?: number;
   /** Pre-selected subcontract (when the page already has a scope). */
   initialSubcontractId?: string | null;
+  /**
+   * When provided, renders a "Pay from wallet instead" affordance at the top
+   * of the dialog. Clicking closes Mestri and the caller is expected to open
+   * SettleViaWalletDialog (or the ContractSettleViaWallet launcher) with the
+   * same week / subcontract / amount context. Wired by callers that detect a
+   * wallet-enabled site engineer (e.g. TradeSettlementView).
+   */
+  onSwitchToWallet?: () => void;
 }
 
 const PAYMENT_MODES: { value: PaymentMode; label: string }[] = [
@@ -62,11 +72,6 @@ const PAYMENT_MODES: { value: PaymentMode; label: string }[] = [
   { value: "upi", label: "UPI" },
   { value: "net_banking", label: "Net banking" },
   { value: "other", label: "Other" },
-];
-
-const PAYMENT_CHANNELS: { value: PaymentChannel; label: string }[] = [
-  { value: "direct", label: "Direct (company)" },
-  { value: "engineer_wallet", label: "From engineer wallet" },
 ];
 
 const PAYMENT_TYPES: { value: ContractPaymentType; label: string }[] = [
@@ -85,6 +90,7 @@ export function MestriSettleDialog({
   weekEnd,
   suggestedAmount = 0,
   initialSubcontractId,
+  onSwitchToWallet,
 }: MestriSettleDialogProps) {
   const isDateOnly = mode === "date-only";
   const { userProfile } = useAuth();
@@ -115,7 +121,6 @@ export function MestriSettleDialog({
   );
   const [paymentType, setPaymentType] = useState<ContractPaymentType>("salary");
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("cash");
-  const [paymentChannel, setPaymentChannel] = useState<PaymentChannel>("direct");
   const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
   const [customPayerName, setCustomPayerName] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
@@ -132,7 +137,6 @@ export function MestriSettleDialog({
       setPaymentDate(dayjs().format("YYYY-MM-DD"));
       setPaymentType("salary");
       setPaymentMode("cash");
-      setPaymentChannel("direct");
       setPayerSource("own_money");
       setCustomPayerName("");
       setNotes("");
@@ -292,7 +296,7 @@ export function MestriSettleDialog({
           actualPaymentDate: paymentDate,
           paymentForDate: isDateOnly ? paymentDate : (weekStart as string),
           paymentMode,
-          paymentChannel,
+          paymentChannel: "direct",
           payerSource,
           customPayerName:
             payerSource === "custom" || payerSource === "other_site_money"
@@ -360,6 +364,19 @@ export function MestriSettleDialog({
       </DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
+          {onSwitchToWallet && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<WalletIcon fontSize="small" />}
+              onClick={onSwitchToWallet}
+              disabled={submitting}
+              sx={{ alignSelf: "flex-start", textTransform: "none" }}
+            >
+              Pay from wallet instead
+            </Button>
+          )}
+
           {error && <Alert severity="error">{error}</Alert>}
 
           {/* Subcontract picker */}
@@ -464,43 +481,22 @@ export function MestriSettleDialog({
             ))}
           </TextField>
 
-          {/* Mode + channel */}
-          <Stack direction="row" spacing={1.5}>
-            <TextField
-              id="mestri-payment-mode"
-              name="mestri-payment-mode"
-              label="Payment mode"
-              size="small"
-              select
-              value={paymentMode}
-              onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
-              sx={{ flex: 1 }}
-            >
-              {PAYMENT_MODES.map((p) => (
-                <MenuItem key={p.value} value={p.value}>
-                  {p.label}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              id="mestri-payment-channel"
-              name="mestri-payment-channel"
-              label="Channel"
-              size="small"
-              select
-              value={paymentChannel}
-              onChange={(e) =>
-                setPaymentChannel(e.target.value as PaymentChannel)
-              }
-              sx={{ flex: 1 }}
-            >
-              {PAYMENT_CHANNELS.map((p) => (
-                <MenuItem key={p.value} value={p.value}>
-                  {p.label}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Stack>
+          {/* Mode */}
+          <TextField
+            id="mestri-payment-mode"
+            name="mestri-payment-mode"
+            label="Payment mode"
+            size="small"
+            select
+            value={paymentMode}
+            onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
+          >
+            {PAYMENT_MODES.map((p) => (
+              <MenuItem key={p.value} value={p.value}>
+                {p.label}
+              </MenuItem>
+            ))}
+          </TextField>
 
           {/* UPI proof screenshot — required when payment mode is UPI */}
           {paymentMode === "upi" && (

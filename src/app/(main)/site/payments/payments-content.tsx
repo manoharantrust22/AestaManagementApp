@@ -51,9 +51,17 @@ import PaymentsLedger, {
   derivePendingLaborerType,
 } from "@/components/payments/PaymentsLedger";
 import { MestriSettleDialog } from "@/components/payments/MestriSettleDialog";
-import { ContractWalletSettleDialog } from "@/components/payments/ContractWalletSettleDialog";
 import PaymentDialog from "@/components/payments/PaymentDialog";
-import WalletSettleConfirmDialog from "@/components/payments/WalletSettleConfirmDialog";
+import SettleViaWalletDialog from "@/components/payments/SettleViaWalletDialog";
+import {
+  processSettlement,
+  processContractPayment,
+} from "@/lib/services/settlementService";
+import { createClient as createSupabaseClient } from "@/lib/supabase/client";
+import type { SettlementRecord } from "@/types/settlement.types";
+import type { SettleViaWalletPayload } from "@/types/settle-via-wallet.types";
+import { useSiteSubcontracts } from "@/hooks/queries/useSubcontracts";
+import { useWeekContractSubcontracts } from "@/hooks/queries/useWeekContractSubcontracts";
 import SettlementRefDetailDialog, {
   type SettlementDetails,
 } from "@/components/payments/SettlementRefDetailDialog";
@@ -272,7 +280,7 @@ export default function PaymentsContent() {
   }, [hideCancelled]);
   const { userProfile } = useAuth();
   const canEditSettlements = hasEditPermission(userProfile?.role);
-  // Wallet-enabled site engineers see the WalletSettleConfirmDialog on Daily+Market
+  // Wallet-enabled site engineers see the SettleViaWalletDialog on Daily+Market
   // Settle clicks instead of the legacy admin PaymentDialog. sites.company_id is a
   // real FK column on the Database type but the in-scope Site type narrowing here
   // isn't surfacing it — the plan calls for an `as any` cast to keep the access ergonomic.
@@ -325,6 +333,70 @@ export default function PaymentsContent() {
   // operates against all subcontracts on the site, and the RPCs treat null
   // as "aggregate across all subcontracts".
   const selectedSubcontractId: string | null = null;
+
+  // Powers the contract-wallet settle flow: lets us auto-pick the week's
+  // mestri when only one is present, and provides laborer_name for the
+  // processContractPayment payload without an extra round-trip.
+  const siteSubcontractsQuery = useSiteSubcontracts(selectedSite?.id);
+  const weekSubcontractsQuery = useWeekContractSubcontracts(
+    selectedSite?.id,
+    settleDialog?.weekStart,
+    settleDialog?.weekEnd,
+  );
+
+  const invalidateContractWalletCaches = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["salary-settlements"] });
+    void queryClient.invalidateQueries({ queryKey: ["contract-payments"] });
+    void queryClient.invalidateQueries({ queryKey: ["payments-ledger"] });
+    void queryClient.invalidateQueries({ queryKey: ["salary-slice-summary"] });
+    void queryClient.invalidateQueries({ queryKey: ["salary-waterfall"] });
+    void queryClient.invalidateQueries({ queryKey: ["payment-summary"] });
+  }, [queryClient]);
+
+  const contractWalletConfirm = useCallback(
+    async (payload: SettleViaWalletPayload) => {
+      if (!payload.subcontractId) {
+        throw new Error("Pick a subcontract / mestri to settle.");
+      }
+      const supabase = createSupabaseClient();
+      const { data: subRow, error: subErr } = await supabase
+        .from("subcontracts")
+        .select("laborer_id")
+        .eq("id", payload.subcontractId)
+        .single();
+      if (subErr) throw subErr;
+      const laborerId = (subRow as { laborer_id: string | null })?.laborer_id;
+      if (!laborerId) {
+        throw new Error(
+          "This subcontract has no laborer (mestri) attached — ask admin to assign one."
+        );
+      }
+      const sc = (siteSubcontractsQuery.data ?? []).find(
+        (s) => s.id === payload.subcontractId
+      );
+      const today = dayjs().format("YYYY-MM-DD");
+      const result = await processContractPayment(supabase, {
+        siteId: payload.siteId,
+        laborerId,
+        laborerName: sc?.laborer_name ?? "Mestri",
+        amount: payload.amount,
+        paymentType: "salary",
+        actualPaymentDate: today,
+        paymentForDate: today,
+        paymentMode: "cash",
+        paymentChannel: "engineer_wallet",
+        payerSource: payload.payerSource,
+        customPayerName: payload.customPayerName,
+        engineerId: payload.engineerId,
+        notes: payload.notes,
+        subcontractId: payload.subcontractId,
+        userId: userProfile!.id,
+        userName: userProfile!.name || userProfile!.email || "Unknown",
+      });
+      if (!result.success) throw new Error(result.error || "Settlement failed");
+    },
+    [siteSubcontractsQuery.data, userProfile]
+  );
 
   // For sites in audit mode, the existing tab content (Contract waterfall,
   // Daily+Market ledger, All ledger, KPI strip) scopes to 'current' so the
@@ -1500,19 +1572,39 @@ export default function PaymentsContent() {
       )}
 
       {settleDialog && (
-        isEngineerWalletSettle ? (
-          <ContractWalletSettleDialog
-            open
-            onClose={() => setSettleDialog(null)}
-            onSuccess={() => setSettleDialog(null)}
-            siteId={selectedSite.id}
-            engineerId={userProfile!.id}
-            subcontractId={selectedSubcontractId}
-            suggestedAmount={settleDialog.suggestedAmount}
-            weekStart={settleDialog.weekStart}
-            weekEnd={settleDialog.weekEnd}
-          />
-        ) : (
+        isEngineerWalletSettle ? (() => {
+          const allSubcontracts = siteSubcontractsQuery.data ?? [];
+          const weekIds = weekSubcontractsQuery.data ?? [];
+          const weekCandidates = weekIds.length
+            ? allSubcontracts.filter((s) => weekIds.includes(s.id))
+            : allSubcontracts;
+          const autoPicked =
+            weekCandidates.length === 1 ? weekCandidates[0].id : null;
+          const weekLabel =
+            settleDialog.weekStart && settleDialog.weekEnd
+              ? `${dayjs(settleDialog.weekStart).format("D MMM")} – ${dayjs(
+                  settleDialog.weekEnd
+                ).format("D MMM")}`
+              : undefined;
+          return (
+            <SettleViaWalletDialog
+              open
+              onClose={() => setSettleDialog(null)}
+              onSuccess={() => {
+                setSettleDialog(null);
+                invalidateContractWalletCaches();
+              }}
+              siteId={selectedSite.id}
+              engineerId={userProfile!.id}
+              amount={settleDialog.suggestedAmount ?? 0}
+              editableAmount
+              enableSubcontractLink
+              initialSubcontractId={selectedSubcontractId ?? autoPicked}
+              summary={weekLabel}
+              onConfirm={contractWalletConfirm}
+            />
+          );
+        })() : (
           <MestriSettleDialog
             open
             onClose={() => setSettleDialog(null)}
@@ -1527,16 +1619,28 @@ export default function PaymentsContent() {
       )}
 
       {recordPaymentOpen && (
-        isEngineerWalletSettle ? (
-          <ContractWalletSettleDialog
-            open
-            onClose={() => setRecordPaymentOpen(false)}
-            onSuccess={() => setRecordPaymentOpen(false)}
-            siteId={selectedSite.id}
-            engineerId={userProfile!.id}
-            subcontractId={selectedSubcontractId}
-          />
-        ) : (
+        isEngineerWalletSettle ? (() => {
+          const allSubcontracts = siteSubcontractsQuery.data ?? [];
+          const autoPicked =
+            allSubcontracts.length === 1 ? allSubcontracts[0].id : null;
+          return (
+            <SettleViaWalletDialog
+              open
+              onClose={() => setRecordPaymentOpen(false)}
+              onSuccess={() => {
+                setRecordPaymentOpen(false);
+                invalidateContractWalletCaches();
+              }}
+              siteId={selectedSite.id}
+              engineerId={userProfile!.id}
+              amount={0}
+              editableAmount
+              enableSubcontractLink
+              initialSubcontractId={selectedSubcontractId ?? autoPicked}
+              onConfirm={contractWalletConfirm}
+            />
+          );
+        })() : (
           <MestriSettleDialog
             open
             onClose={() => setRecordPaymentOpen(false)}
@@ -1648,24 +1752,64 @@ export default function PaymentsContent() {
         />
       )}
 
-      {dayDialog && isEngineerWalletSettle ? (
-        <WalletSettleConfirmDialog
-          open
-          onClose={() => setDayDialog(null)}
-          onSuccess={() => {
-            setDayDialog(null);
-            void queryClient.invalidateQueries({ queryKey: ["payments-ledger"] });
-            void queryClient.invalidateQueries({ queryKey: ["salary-slice-summary"] });
-            void queryClient.invalidateQueries({ queryKey: ["salary-waterfall"] });
-            void queryClient.invalidateQueries({ queryKey: ["payment-summary"] });
-          }}
-          date={dayDialog.date}
-          dateLabel={dayjs(dayDialog.date).format("DD MMM")}
-          dailyRecords={dayPendingQuery.data ?? []}
-          siteId={selectedSite!.id}
-          engineerId={userProfile!.id}
-        />
-      ) : dayDialog ? (
+      {dayDialog && isEngineerWalletSettle ? (() => {
+        const records = dayPendingQuery.data ?? [];
+        const totalAmount = records.reduce((sum, r) => sum + r.amount, 0);
+        const dailyCount = records.filter((r) => r.laborerType === "daily").length;
+        const marketCount = records.filter((r) => r.laborerType === "market").length;
+        const laborerSummary = [
+          dailyCount > 0 ? `${dailyCount} lab` : null,
+          marketCount > 0 ? `${marketCount} mkt` : null,
+        ]
+          .filter(Boolean)
+          .join(" + ") || `${records.length} laborers`;
+        const dateLabel = dayjs(dayDialog.date).format("DD MMM");
+        return (
+          <SettleViaWalletDialog
+            open
+            onClose={() => setDayDialog(null)}
+            onSuccess={() => {
+              setDayDialog(null);
+              void queryClient.invalidateQueries({ queryKey: ["payments-ledger"] });
+              void queryClient.invalidateQueries({ queryKey: ["salary-slice-summary"] });
+              void queryClient.invalidateQueries({ queryKey: ["salary-waterfall"] });
+              void queryClient.invalidateQueries({ queryKey: ["payment-summary"] });
+            }}
+            siteId={selectedSite!.id}
+            engineerId={userProfile!.id}
+            amount={totalAmount}
+            summary={`${dateLabel} · ${laborerSummary}`}
+            onConfirm={async (payload) => {
+              const settlementRecords: SettlementRecord[] = records.map((r) => ({
+                id: r.id,
+                sourceType: r.sourceType,
+                sourceId: r.sourceId,
+                laborerName: r.laborerName,
+                laborerType: r.laborerType,
+                amount: r.amount,
+                date: r.date,
+                isPaid: r.isPaid,
+                role: r.role,
+                count: r.count,
+              }));
+              const result = await processSettlement(createSupabaseClient(), {
+                siteId: payload.siteId,
+                records: settlementRecords,
+                totalAmount: payload.amount,
+                paymentMode: "cash",
+                paymentChannel: "engineer_wallet",
+                payerSource: payload.payerSource,
+                customPayerName: payload.customPayerName,
+                engineerId: payload.engineerId,
+                notes: payload.notes,
+                userId: userProfile!.id,
+                userName: userProfile!.name || userProfile!.email || "Unknown",
+              });
+              if (!result.success) throw new Error(result.error || "Settlement failed");
+            }}
+          />
+        );
+      })() : dayDialog ? (
         <PaymentDialog
           open
           onClose={() => setDayDialog(null)}
