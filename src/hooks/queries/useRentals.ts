@@ -173,7 +173,7 @@ export function useRentalItemsWithVendorStats(categoryId?: string | null) {
           `
           *,
           category:rental_item_categories(id, name, code),
-          sizes:rental_item_sizes(id, size_label, display_order, is_active),
+          sizes:rental_item_sizes(id, size_label, display_order, is_active, daily_rate, default_hourly_rate, image_url),
           inventory:rental_store_inventory(id, vendor_id, daily_rate, size_rates)
         `
         )
@@ -1838,6 +1838,71 @@ export function useCreateRentalItemSize() {
   });
 }
 
+export function useUpdateRentalItemSize() {
+  const queryClient = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    mutationFn: async ({ id, rental_item_id, data }: { id: string; rental_item_id: string; data: Partial<RentalItemSizeFormData> }) => {
+      await ensureFreshSession();
+
+      const { data: result, error } = await (supabase as any)
+        .from("rental_item_sizes")
+        .update(data)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return result as RentalItemSize;
+    },
+    onSuccess: (_, vars) => {
+      queryClient.invalidateQueries({
+        queryKey: rentalQueryKeys.items.sizes(vars.rental_item_id),
+      });
+      queryClient.invalidateQueries({ queryKey: rentalQueryKeys.items.list() });
+    },
+  });
+}
+
+export function useDeleteRentalItemSize() {
+  const queryClient = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    mutationFn: async ({ id, rental_item_id }: { id: string; rental_item_id: string }) => {
+      await ensureFreshSession();
+
+      const { count, error: refErr } = await (supabase as any)
+        .from("rental_order_items")
+        .select("id", { count: "exact", head: true })
+        .eq("rental_item_size_id", id);
+      if (refErr) throw refErr;
+
+      if ((count ?? 0) > 0) {
+        const { error } = await (supabase as any)
+          .from("rental_item_sizes")
+          .update({ is_active: false })
+          .eq("id", id);
+        if (error) throw error;
+        return { soft: true as const };
+      }
+
+      const { error } = await (supabase as any)
+        .from("rental_item_sizes")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+      return { soft: false as const };
+    },
+    onSuccess: (_, vars) => {
+      queryClient.invalidateQueries({
+        queryKey: rentalQueryKeys.items.sizes(vars.rental_item_id),
+      });
+      queryClient.invalidateQueries({ queryKey: rentalQueryKeys.items.list() });
+    },
+  });
+}
+
 export function useUpdateStoreInventorySizeRates() {
   const queryClient = useQueryClient();
   const supabase = createClient();
@@ -1868,7 +1933,7 @@ export function useCreateRentalRequest() {
   const supabase = createClient();
 
   return useMutation({
-    mutationFn: async (data: { site_id: string; order_date: string; start_date: string; estimated_days: number; notes?: string; items: Array<{ rental_item_id: string; quantity: number; daily_rate_default: number; daily_rate_actual: number; rate_type: "daily" | "weekly" | "monthly" | "hourly" }> }) => {
+    mutationFn: async (data: { site_id: string; order_date: string; start_date: string; estimated_days: number; notes?: string; items: Array<{ rental_item_id: string; quantity: number; daily_rate_default: number; daily_rate_actual: number; rate_type: "daily" | "weekly" | "monthly" | "hourly"; rental_item_size_id?: string | null; size_label_snapshot?: string | null }> }) => {
       await ensureFreshSession();
 
       const { items, ...orderData } = data;
