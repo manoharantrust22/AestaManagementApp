@@ -716,8 +716,8 @@ export default function SiteRentalsPage() {
                               <ViewIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
-                          {rental.status === "completed" && (
-                            <Tooltip title="Edit Record">
+                          {(rental.status === "completed" || rental.status === "draft") && (
+                            <Tooltip title={rental.status === "draft" ? "Continue Editing Draft" : "Edit Record"}>
                               <IconButton
                                 size="small"
                                 onClick={() => {

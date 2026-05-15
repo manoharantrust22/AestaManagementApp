@@ -197,6 +197,7 @@ export default function HistoricalRentalDialog({
   const supabase = createClient();
 
   const isEditMode = Boolean(orderId);
+  const isDraftOrder = existingOrder?.status === "draft";
   const isBusy = createHistorical.isPending || updateHistorical.isPending;
 
   // Basic info
@@ -454,35 +455,54 @@ export default function HistoricalRentalDialog({
     };
   }
 
-  async function handleSave(withSettlement: boolean) {
+  async function handleSave(withSettlement: boolean, asDraft = false) {
     setError(null);
 
     if (!vendorId) return setError("Please select a vendor.");
-    if (!startDate) return setError("Please enter start date.");
-    if (!endDate) return setError("Please enter end date.");
-    if (startDate > endDate) return setError("Start date must be before end date.");
-    const parsedTotal = parseFloat(rentalTotal);
-    if (!rentalTotal || isNaN(parsedTotal) || parsedTotal < 0)
-      return setError("Please enter a valid rental total.");
+    if (!asDraft) {
+      if (!startDate) return setError("Please enter start date.");
+      if (!endDate) return setError("Please enter end date.");
+      if (startDate > endDate) return setError("Start date must be before end date.");
+      const parsedTotal = parseFloat(rentalTotal);
+      if (!rentalTotal || isNaN(parsedTotal) || parsedTotal < 0)
+        return setError("Please enter a valid rental total.");
+    }
 
     const formData = buildFormData();
+    const status: "draft" | "completed" = asDraft ? "draft" : "completed";
     const payerSource = isSiteEngineer ? "own_money" : vendorSettlePayerSource;
     const inPayerSource = isSiteEngineer ? "own_money" : inDriverSettlePayerSource;
     const outPayerSource = isSiteEngineer ? "own_money" : outDriverSettlePayerSource;
 
     try {
       if (isEditMode && orderId) {
-        await updateHistorical.mutateAsync({ orderId, data: formData });
+        await updateHistorical.mutateAsync({
+          orderId,
+          data: {
+            ...formData,
+            status,
+            settlement: withSettlement && !asDraft
+              ? { final_amount: vendorBalance, settlement_date: vendorSettleDate, payer_source: payerSource, payment_mode: vendorSettleMode }
+              : undefined,
+            inbound_driver_settlement: withSettlement && !asDraft && inboundEnabled && inbound.paid_to === "driver"
+              ? { final_amount: inDriverAmount, settlement_date: inDriverSettleDate, payer_source: inPayerSource, payment_mode: inDriverSettleMode }
+              : undefined,
+            outbound_driver_settlement: withSettlement && !asDraft && outboundEnabled && outbound.paid_to === "driver"
+              ? { final_amount: outDriverAmount, settlement_date: outDriverSettleDate, payer_source: outPayerSource, payment_mode: outDriverSettleMode }
+              : undefined,
+          },
+        });
       } else {
         await createHistorical.mutateAsync({
           ...formData,
-          settlement: withSettlement
+          status,
+          settlement: withSettlement && !asDraft
             ? { final_amount: vendorBalance, settlement_date: vendorSettleDate, payer_source: payerSource, payment_mode: vendorSettleMode }
             : undefined,
-          inbound_driver_settlement: withSettlement && inboundEnabled && inbound.paid_to === "driver"
+          inbound_driver_settlement: withSettlement && !asDraft && inboundEnabled && inbound.paid_to === "driver"
             ? { final_amount: inDriverAmount, settlement_date: inDriverSettleDate, payer_source: inPayerSource, payment_mode: inDriverSettleMode }
             : undefined,
-          outbound_driver_settlement: withSettlement && outboundEnabled && outbound.paid_to === "driver"
+          outbound_driver_settlement: withSettlement && !asDraft && outboundEnabled && outbound.paid_to === "driver"
             ? { final_amount: outDriverAmount, settlement_date: outDriverSettleDate, payer_source: outPayerSource, payment_mode: outDriverSettleMode }
             : undefined,
         });
@@ -883,8 +903,8 @@ export default function HistoricalRentalDialog({
             </Accordion>
           </Grid>
 
-          {/* ── Section 4: Settlement (create mode only) ── */}
-          {!isEditMode && (
+          {/* ── Section 4: Settlement (create mode or completing a draft) ── */}
+          {(!isEditMode || isDraftOrder) && (
             <Grid size={12}>
               <Accordion
                 disableGutters
@@ -1055,7 +1075,7 @@ export default function HistoricalRentalDialog({
             </Grid>
           )}
 
-          {isEditMode && (
+          {isEditMode && !isDraftOrder && (
             <Grid size={12}>
               <Alert severity="info" variant="outlined">
                 Settlements cannot be changed here — use the Settle button on the record after saving.
@@ -1070,21 +1090,31 @@ export default function HistoricalRentalDialog({
       <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
         <Button onClick={handleClose} disabled={isBusy}>Cancel</Button>
         <Box sx={{ flex: 1 }} />
-        {isEditMode ? (
+        {isEditMode && !isDraftOrder ? (
+          // Editing a completed record — no status change
           <Button variant="contained" onClick={() => handleSave(false)} disabled={isBusy || loadingOrder}>
             {updateHistorical.isPending ? "Saving…" : "Save Changes"}
           </Button>
         ) : (
+          // Create mode OR editing a draft — all three options
           <>
+            <Button
+              variant="text"
+              color="inherit"
+              onClick={() => handleSave(false, true)}
+              disabled={isBusy}
+            >
+              Save Draft
+            </Button>
             <Button variant="outlined" onClick={() => handleSave(false)} disabled={isBusy}>
-              Save — Settle Later
+              {isDraftOrder ? "Complete — Settle Later" : "Save — Settle Later"}
             </Button>
             <Button
               variant="contained"
               onClick={() => handleSave(true)}
               disabled={isBusy || !settleNow}
             >
-              Save &amp; Mark Settled
+              {isDraftOrder ? "Complete & Mark Settled" : "Save & Mark Settled"}
             </Button>
           </>
         )}

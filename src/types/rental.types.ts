@@ -679,4 +679,5 @@ export interface HistoricalRentalFormData {
   settlement?: HistoricalSettlementFormData;              // vendor settlement
   inbound_driver_settlement?: HistoricalSettlementFormData;   // only when inbound paid_to = "driver"
   outbound_driver_settlement?: HistoricalSettlementFormData;  // only when outbound paid_to = "driver"
+  status?: "draft" | "completed";
 }

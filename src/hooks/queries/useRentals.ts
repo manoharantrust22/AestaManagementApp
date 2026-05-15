@@ -2069,19 +2069,21 @@ export function useCreateHistoricalRental() {
       const inboundAmount = inbound?.amount ?? 0;
       const outboundAmount = outbound?.amount ?? 0;
 
+      const isDraft = data.status === "draft";
+      const todayStr = new Date().toISOString().split("T")[0];
       const { data: order, error: orderError } = await supabase
         .from("rental_orders")
         .insert({
           site_id: data.site_id,
           vendor_id: data.vendor_id,
           rental_order_number: orderNumber,
-          order_date: data.end_date,
-          start_date: data.start_date,
-          expected_return_date: data.end_date,
-          actual_return_date: data.end_date,
-          status: "completed",
+          order_date: data.end_date || todayStr,
+          start_date: data.start_date || todayStr,
+          expected_return_date: data.end_date || undefined,
+          actual_return_date: isDraft ? null : (data.end_date || null),
+          status: isDraft ? "draft" : "completed",
           estimated_total: data.rental_total,
-          actual_total: data.rental_total,
+          actual_total: isDraft ? null : data.rental_total,
           exclude_start_date: data.exclude_start_date ?? false,
           transport_cost_outward: inboundAmount,
           transport_cost_return: outboundAmount,
@@ -2097,12 +2099,14 @@ export function useCreateHistoricalRental() {
 
       // Insert items if provided
       const excludeStart = data.exclude_start_date ?? false;
-      if (data.items.length > 0) {
-        const itemsToInsert = data.items.map((item) => {
-          // Compute end date per item from its days count
-          const startMs = new Date(data.start_date).getTime();
-          const itemEndDate = new Date(startMs + (item.days - (excludeStart ? 0 : 1)) * 86400000)
-            .toISOString().split("T")[0];
+      const validItemsCreate = data.items.filter((it) => it.item_name.trim());
+      if (validItemsCreate.length > 0) {
+        const itemsToInsert = validItemsCreate.map((item) => {
+          const startMs = data.start_date ? new Date(data.start_date).getTime() : Date.now();
+          const itemEndDate = data.end_date
+            ? new Date(startMs + (item.days - (excludeStart ? 0 : 1)) * 86400000)
+                .toISOString().split("T")[0]
+            : null;
           return {
             rental_order_id: order.id,
             rental_item_id: item.rental_item_id ?? null,
@@ -2111,10 +2115,10 @@ export function useCreateHistoricalRental() {
             daily_rate_default: item.daily_rate,
             daily_rate_actual: item.daily_rate,
             rate_type: "daily" as const,
-            item_start_date: data.start_date,
+            item_start_date: data.start_date || null,
             item_expected_return_date: itemEndDate,
-            status: "returned" as const,
-            quantity_returned: item.quantity,
+            status: isDraft ? ("active" as const) : ("returned" as const),
+            quantity_returned: isDraft ? 0 : item.quantity,
           };
         });
 
@@ -2143,8 +2147,8 @@ export function useCreateHistoricalRental() {
         if (advErr) throw new Error(`Failed to create advances: ${advErr.message}`);
       }
 
-      // Insert settlement(s) if provided
-      if (data.settlement) {
+      // Insert settlement(s) if provided (skip for drafts)
+      if (!isDraft && data.settlement) {
         const sett = data.settlement;
         const totalAdvances = data.advances.reduce((s, a) => s + a.amount, 0);
 
@@ -2235,16 +2239,18 @@ export function useUpdateHistoricalRental() {
 
       const inbound = data.inbound_transport;
       const outbound = data.outbound_transport;
+      const updStatus = data.status ?? "completed";
 
       const { error: orderError } = await supabase
         .from("rental_orders")
         .update({
           vendor_id: data.vendor_id,
-          start_date: data.start_date,
-          expected_return_date: data.end_date,
-          actual_return_date: data.end_date,
+          start_date: data.start_date || undefined,
+          expected_return_date: data.end_date || undefined,
+          actual_return_date: updStatus === "draft" ? null : (data.end_date || null),
+          status: updStatus,
           estimated_total: data.rental_total,
-          actual_total: data.rental_total,
+          actual_total: updStatus === "draft" ? null : data.rental_total,
           exclude_start_date: data.exclude_start_date ?? false,
           transport_cost_outward: inbound?.amount ?? 0,
           transport_cost_return: outbound?.amount ?? 0,
@@ -2264,12 +2270,15 @@ export function useUpdateHistoricalRental() {
         .eq("rental_order_id", orderId);
       if (delErr) throw new Error(`Failed to clear items: ${delErr.message}`);
 
-      if (data.items.length > 0) {
+      const validItemsUpd = data.items.filter((it) => it.item_name.trim());
+      if (validItemsUpd.length > 0) {
         const excludeStartUpd = data.exclude_start_date ?? false;
-        const itemsToInsert = data.items.map((item) => {
-          const startMsUpd = new Date(data.start_date).getTime();
-          const itemEndDateUpd = new Date(startMsUpd + (item.days - (excludeStartUpd ? 0 : 1)) * 86400000)
-            .toISOString().split("T")[0];
+        const itemsToInsert = validItemsUpd.map((item) => {
+          const startMsUpd = data.start_date ? new Date(data.start_date).getTime() : Date.now();
+          const itemEndDateUpd = data.end_date
+            ? new Date(startMsUpd + (item.days - (excludeStartUpd ? 0 : 1)) * 86400000)
+                .toISOString().split("T")[0]
+            : null;
           return {
             rental_order_id: orderId,
             rental_item_id: item.rental_item_id ?? null,
@@ -2278,16 +2287,84 @@ export function useUpdateHistoricalRental() {
             daily_rate_default: item.daily_rate,
             daily_rate_actual: item.daily_rate,
             rate_type: "daily" as const,
-            item_start_date: data.start_date,
+            item_start_date: data.start_date || null,
             item_expected_return_date: itemEndDateUpd,
-            status: "returned" as const,
-            quantity_returned: item.quantity,
+            status: updStatus === "draft" ? ("active" as const) : ("returned" as const),
+            quantity_returned: updStatus === "draft" ? 0 : item.quantity,
           };
         });
         const { error: itemsError } = await supabase
           .from("rental_order_items")
           .insert(itemsToInsert as any);
         if (itemsError) throw new Error(`Failed to update items: ${itemsError.message}`);
+      }
+
+      // Insert settlement(s) when completing a draft
+      if (updStatus === "completed" && data.settlement) {
+        const sett = data.settlement;
+        const totalAdvances = data.advances.reduce((s, a) => s + a.amount, 0);
+        const inboundAmt = inbound?.amount ?? 0;
+        const outboundAmt = outbound?.amount ?? 0;
+        const vendorTransport =
+          (inbound?.paid_to === "vendor" ? inboundAmt : 0) +
+          (outbound?.paid_to === "vendor" ? outboundAmt : 0);
+
+        const { data: settRef } = await supabase.rpc(
+          "generate_rental_settlement_reference",
+          { p_site_id: data.site_id }
+        );
+        const { error: settErr } = await supabase
+          .from("rental_settlements")
+          .insert({
+            rental_order_id: orderId,
+            party_type: "vendor",
+            settlement_date: sett.settlement_date,
+            settlement_reference: settRef,
+            total_rental_amount: data.rental_total,
+            total_transport_amount: vendorTransport,
+            total_damage_amount: 0,
+            total_advance_paid: totalAdvances,
+            balance_amount: sett.final_amount,
+            payment_mode: sett.payment_mode,
+            payment_channel: "direct",
+            payer_source: sett.payer_source,
+          });
+        if (settErr) throw new Error(`Failed to create settlement: ${settErr.message}`);
+
+        const driverSetts: Array<{
+          transport: typeof inbound | typeof outbound;
+          driverSett: HistoricalRentalFormData["inbound_driver_settlement"];
+        }> = [];
+        if (inbound?.paid_to === "driver")
+          driverSetts.push({ transport: inbound, driverSett: data.inbound_driver_settlement });
+        if (outbound?.paid_to === "driver")
+          driverSetts.push({ transport: outbound, driverSett: data.outbound_driver_settlement });
+
+        for (const { transport, driverSett } of driverSetts) {
+          if (!transport || !driverSett) continue;
+          const { data: driverRef } = await supabase.rpc(
+            "generate_rental_settlement_reference",
+            { p_site_id: data.site_id }
+          );
+          const { error: dErr } = await supabase
+            .from("rental_settlements")
+            .insert({
+              rental_order_id: orderId,
+              party_type: "transport",
+              party_name: transport.driver_name ?? "Driver",
+              settlement_date: driverSett.settlement_date,
+              settlement_reference: driverRef,
+              total_rental_amount: 0,
+              total_transport_amount: transport.amount,
+              total_damage_amount: 0,
+              total_advance_paid: 0,
+              balance_amount: driverSett.final_amount,
+              payment_mode: driverSett.payment_mode,
+              payment_channel: "direct",
+              payer_source: driverSett.payer_source,
+            });
+          if (dErr) throw new Error(`Failed to create driver settlement: ${dErr.message}`);
+        }
       }
 
       return orderId;
