@@ -181,12 +181,18 @@ export interface RentalItemSize {
   display_order: number;
   is_active: boolean;
   created_at: string;
+  daily_rate: number | null;            // catalog default daily rate for this variant
+  default_hourly_rate: number | null;   // used when parent rate_type = 'hourly'
+  image_url: string | null;             // optional; falls back to parent image_url
 }
 
 export interface RentalItemSizeFormData {
   rental_item_id: string;
   size_label: string;
   display_order?: number;
+  daily_rate?: number | null;
+  default_hourly_rate?: number | null;
+  image_url?: string | null;
 }
 
 export interface RentalOrder {
@@ -257,6 +263,8 @@ export interface RentalOrderItem {
   status: RentalItemStatus;
   specifications: string | null;
   notes: string | null;
+  rental_item_size_id: string | null;
+  size_label_snapshot: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -453,6 +461,8 @@ export interface RentalOrderItemFormData {
   item_expected_return_date?: string;
   specifications?: string;
   notes?: string;
+  rental_item_size_id?: string | null;
+  size_label_snapshot?: string | null;
 }
 
 export interface RentalReturnFormData {
