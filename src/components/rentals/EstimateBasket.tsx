@@ -18,19 +18,26 @@ interface EstimateBasketContextValue {
 const EstimateBasketContext = createContext<EstimateBasketContextValue | null>(null);
 
 export function EstimateBasketProvider({ children }: { children: React.ReactNode }) {
-  const [items, setItems] = useState<EstimateBasketItem[]>(() => {
-    if (typeof window === "undefined") return [];
+  const [items, setItems] = useState<EstimateBasketItem[]>([]);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Hydrate from localStorage AFTER mount so the first client render matches SSR
+  // (both produce []). Reading localStorage in useState's initializer caused
+  // React #418 hydration mismatches in the Badge/Button at the catalog top bar.
+  useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? JSON.parse(stored) : [];
+      if (stored) setItems(JSON.parse(stored));
     } catch {
-      return [];
+      /* ignore parse errors */
     }
-  });
+    setHydrated(true);
+  }, []);
 
   useEffect(() => {
+    if (!hydrated) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  }, [items]);
+  }, [items, hydrated]);
 
   const addItem = useCallback((item: Omit<EstimateBasketItem, "id">) => {
     setItems((prev) => {
