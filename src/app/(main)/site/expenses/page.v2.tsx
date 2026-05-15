@@ -191,7 +191,9 @@ export default function ExpensesPageV2() {
   );
 
   // New UI state
-  const [tradeFilter, setTradeFilter] = useState<string>("all");
+  const [tradeFilter, setTradeFilter] = useState<string>(
+    () => searchParams.get("trade") ?? "all",
+  );
   const [subKindFilter, setSubKindFilter] = useState<string>("all");
   const [groupBy, setGroupBy] = useState<GroupByOption>("none");
   const [dense, setDense] = useState(false);
@@ -209,9 +211,10 @@ export default function ExpensesPageV2() {
     if (activeTypes.length > 0) params.set("types", activeTypes.join(","));
     if (status !== "all") params.set("status", status);
     if (sitePayerId) params.set("payer", sitePayerId);
+    if (tradeFilter !== "all") params.set("trade", tradeFilter);
     const qs = params.toString();
     router.replace(`/site/expenses${qs ? `?${qs}` : ""}`, { scroll: false });
-  }, [search, group, activeTypes, status, sitePayerId, router]);
+  }, [search, group, activeTypes, status, sitePayerId, tradeFilter, router]);
 
   // Multi-payer settings
   const [hasMultiplePayers, setHasMultiplePayers] = useState(false);
@@ -306,6 +309,15 @@ export default function ExpensesPageV2() {
     return map;
   }, [siteTrades]);
 
+  // contract_id → subcontract title map
+  const contractToSubcontract = useMemo(() => {
+    const map = new Map<string, { title: string }>();
+    for (const t of siteTrades ?? []) {
+      for (const c of t.contracts) map.set(c.id, { title: c.title });
+    }
+    return map;
+  }, [siteTrades]);
+
   // Burn rate (client-side from loaded expenses)
   const burnRate = useMemo(
     () => computeBurnRate(expenses, financial ? Math.max(0, financial.totalContract - (summary?.total ?? 0)) : undefined),
@@ -332,7 +344,9 @@ export default function ExpensesPageV2() {
     let rows = searchedRows;
 
     if (tradeFilter !== "all") {
-      if (tradeFilter === "__site_wide__") {
+      if (tradeFilter === "__unlinked__") {
+        rows = rows.filter((r) => !r.contract_id);
+      } else if (tradeFilter === "__site_wide__") {
         rows = rows.filter((r) => !r.contract_id || !contractToTrade.has(r.contract_id));
       } else {
         rows = rows.filter((r) => {
@@ -730,6 +744,7 @@ export default function ExpensesPageV2() {
             sx={{ borderRadius: 99, fontSize: 13 }}
           >
             <MenuItem value="all">All trades</MenuItem>
+            <MenuItem value="__unlinked__">Unlinked</MenuItem>
             {siteTrades?.map((t) => (
               <MenuItem key={t.category.id} value={t.category.id}>{t.category.name}</MenuItem>
             ))}
