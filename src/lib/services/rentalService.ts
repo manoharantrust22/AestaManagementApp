@@ -353,25 +353,29 @@ export function calculateRentalCost(
   const expectedReturnDate = order.expected_return_date
     ? new Date(order.expected_return_date)
     : null;
+  const actualReturnDateObj = (order as any).actual_return_date
+    ? new Date((order as any).actual_return_date)
+    : null;
+  const excludeStart = (order as any).exclude_start_date ? 1 : 0;
 
-  const daysElapsed = Math.max(
-    1,
-    Math.ceil((now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
-  );
+  // Effective billing end date: completed → actual; else planned expected; else live "now".
+  // Matches the list/edit-dialog so cost figures stay consistent across views.
+  const effectiveEnd: Date =
+    actualReturnDateObj ?? expectedReturnDate ?? now;
+
+  const daysBetween = (from: Date, to: Date) =>
+    Math.max(1, dayjs(to).diff(dayjs(from), "day") + 1 - excludeStart);
+
+  const daysElapsed = daysBetween(startDate, effectiveEnd);
   const expectedTotalDays = expectedReturnDate
-    ? Math.ceil(
-        (expectedReturnDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
-      )
+    ? daysBetween(startDate, expectedReturnDate)
     : daysElapsed;
 
   const itemsCost: RentalItemCostBreakdown[] = (order.items || []).map((item) => {
     const itemStartDate = item.item_start_date
       ? new Date(item.item_start_date)
       : startDate;
-    const daysRented = Math.max(
-      1,
-      Math.ceil((now.getTime() - itemStartDate.getTime()) / (1000 * 60 * 60 * 24))
-    );
+    const daysRented = daysBetween(itemStartDate, effectiveEnd);
 
     const rateType = item.rate_type || "daily";
     const hoursUsed = item.hours_used || null;

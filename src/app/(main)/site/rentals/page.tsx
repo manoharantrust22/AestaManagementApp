@@ -453,7 +453,9 @@ export default function SiteRentalsPage() {
                     <TableCell>End Date</TableCell>
                     <TableCell>Duration</TableCell>
                     <TableCell>Status</TableCell>
-                    <TableCell align="right">Final Amt</TableCell>
+                    <TableCell align="right">Vendor</TableCell>
+                    <TableCell align="right">Inbound</TableCell>
+                    <TableCell align="right">Outbound</TableCell>
                     <TableCell align="right">Paid</TableCell>
                     <TableCell align="right">Balance</TableCell>
                     <TableCell align="center">Actions</TableCell>
@@ -475,10 +477,11 @@ export default function SiteRentalsPage() {
                     // Check if any item is hourly
                     const hasHourlyItems = items.some(item => item.rate_type === "hourly");
 
-                    const transportTotal = (rental.transport_cost_outward || 0) +
-                      (rental.transport_cost_return || 0) +
+                    const inboundTotal = (rental.transport_cost_outward || 0) +
                       (rental.loading_cost_outward || 0) +
                       (rental.unloading_cost_outward || 0);
+                    const outboundTotal = (rental.transport_cost_return || 0);
+                    const transportTotal = inboundTotal + outboundTotal;
 
                     // For completed orders use the stored actual_total (reflects user-entered or edited total).
                     // For active orders recalculate dynamically from items × days.
@@ -641,7 +644,7 @@ export default function SiteRentalsPage() {
                         </TableCell>
                         <TableCell align="right">
                           <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.25 }}>
-                            <Typography variant="body2">{formatCurrency(finalTotal)}</Typography>
+                            <Typography variant="body2">{formatCurrency(itemsTotal)}</Typography>
                             {wasNegotiated && (
                               <Chip
                                 size="small"
@@ -652,6 +655,16 @@ export default function SiteRentalsPage() {
                               />
                             )}
                           </Box>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" color={inboundTotal > 0 ? undefined : "text.disabled"}>
+                            {formatCurrency(inboundTotal)}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" color={outboundTotal > 0 ? undefined : "text.disabled"}>
+                            {formatCurrency(outboundTotal)}
+                          </Typography>
                         </TableCell>
                         <TableCell align="right">
                           <Typography color={isSettled ? "success.main" : undefined}>
