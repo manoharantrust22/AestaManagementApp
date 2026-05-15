@@ -219,7 +219,8 @@ function UnlinkedTeaSettlementRow({
       queryClient.invalidateQueries({ queryKey: ["tea-shop"] });
       queryClient.invalidateQueries({ queryKey: ["subcontract-spend"] });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg =
+        (err as { message?: string } | null)?.message ?? String(err);
       showError(`Failed to link: ${msg}`);
     } finally {
       setSaving(false);
