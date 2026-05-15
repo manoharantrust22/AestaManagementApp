@@ -41,8 +41,12 @@ import { useContractHeadcount } from "@/hooks/queries/useContractHeadcount";
 import { useContractMidEntries } from "@/hooks/queries/useContractMidEntries";
 import { WeeklyHeadcountSettleDialog } from "@/components/trades/WeeklyHeadcountSettleDialog";
 import { MestriSettleDialog } from "@/components/payments/MestriSettleDialog";
+import ContractSettleViaWallet from "@/components/payments/ContractSettleViaWallet";
 import DeleteContractSettlementDialog from "@/components/payments/DeleteContractSettlementDialog";
 import ContractSettlementEditDialog from "@/components/payments/ContractSettlementEditDialog";
+import { useAuth } from "@/contexts/AuthContext";
+import { useSelectedSite } from "@/contexts/SiteContext";
+import { useCurrentUserWalletEnabled } from "@/hooks/queries/useEngineerWalletV2";
 import type { LaborTrackingMode, TradeContract } from "@/types/trade.types";
 import type { TradeColor } from "@/theme/tradeColors";
 import type { DateWiseSettlement, PaymentMode, PaymentChannel } from "@/types/payment.types";
@@ -365,9 +369,19 @@ export function TradeSettlementView({
   const theme = useTheme();
   const mode: LaborTrackingMode = contract.laborTrackingMode;
 
+  const { userProfile } = useAuth();
+  const { selectedSite } = useSelectedSite();
+  const { data: isWalletEnabled } = useCurrentUserWalletEnabled(
+    userProfile?.id,
+    (selectedSite as any)?.company_id,
+  );
+  const isWalletEngineer =
+    userProfile?.role === "site_engineer" && isWalletEnabled === true;
+
   const [viewMode, setViewMode] = useState<"waterfall" | "by-settlement" | "by-date">("waterfall");
   const [selectedWeek, setSelectedWeek] = useState<WeekRow | null>(null);
   const [settleWeekStart, setSettleWeekStart] = useState<string | null>(null);
+  const [walletSettleOpen, setWalletSettleOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<SettlementRecord | null>(null);
   const [editTarget, setEditTarget] = useState<DateWiseSettlement | null>(null);
   const [headcountDeletingId, setHeadcountDeletingId] = useState<string | null>(null);
@@ -1051,7 +1065,7 @@ export function TradeSettlementView({
           contractTitle={contract.title}
         />
       )}
-      {settleWeekStart !== null && mode === "mid" && (() => {
+      {settleWeekStart !== null && mode === "mid" && !walletSettleOpen && (() => {
         const week = weeks.find((w) => w.weekStart === settleWeekStart);
         return (
           <MestriSettleDialog
@@ -1063,6 +1077,32 @@ export function TradeSettlementView({
             weekEnd={week?.weekEnd}
             suggestedAmount={week?.balance ?? 0}
             initialSubcontractId={contract.id}
+            onSwitchToWallet={
+              isWalletEngineer ? () => setWalletSettleOpen(true) : undefined
+            }
+          />
+        );
+      })()}
+      {settleWeekStart !== null && mode === "mid" && walletSettleOpen && userProfile && (() => {
+        const week = weeks.find((w) => w.weekStart === settleWeekStart);
+        return (
+          <ContractSettleViaWallet
+            open
+            onClose={() => {
+              setWalletSettleOpen(false);
+              setSettleWeekStart(null);
+            }}
+            onSuccess={() => {
+              setWalletSettleOpen(false);
+              setSettleWeekStart(null);
+              invalidateAll();
+            }}
+            siteId={contract.siteId}
+            engineerId={userProfile.id}
+            subcontractId={contract.id}
+            suggestedAmount={week?.balance ?? 0}
+            weekStart={settleWeekStart}
+            weekEnd={week?.weekEnd}
           />
         );
       })()}
