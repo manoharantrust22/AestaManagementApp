@@ -311,6 +311,12 @@ const companyNavCategories: NavCategory[] = [
         icon: <DescriptionIcon />,
         path: "/company/contracts",
       },
+      {
+        text: "Engineer Wallet",
+        icon: <PaymentIcon />,
+        path: "/company/engineer-wallet",
+        adminOnly: true,
+      },
     ],
   },
   {
@@ -554,11 +560,11 @@ export default function MainLayout({
     activeTab === "site" ? siteNavCategories : companyNavCategories;
 
   // Filter out categories based on permissions
-  // Temporarily showing all items to all users during development
+  const isAdmin = userProfile?.role === "admin";
   const filteredNavCategories = currentNavCategories
     .map((category) => ({
       ...category,
-      items: category.items.filter(() => true), // All items visible to all users
+      items: category.items.filter((item) => !item.adminOnly || isAdmin),
     }))
     .filter((category) => category.items.length > 0); // Remove empty categories
 
