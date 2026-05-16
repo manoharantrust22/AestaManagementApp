@@ -206,16 +206,20 @@ export function consolidateStock(
       : item.material_id;
 
     if (!map.has(key)) {
+      const parentMaterial = (item.material as any)?.parent_material as { id: string; name: string; image_url: string | null } | null | undefined;
+      const variantName = item.material?.name || "Unknown";
+      const materialName = parentMaterial?.name ? `${parentMaterial.name} · ${variantName}` : variantName;
+      const brandImageUrl = (item.brand as any)?.image_url as string | null | undefined;
       map.set(key, {
         key,
         material_id: item.material_id,
-        material_name: item.material?.name || "Unknown",
+        material_name: materialName,
         material_code: item.material?.code || null,
         brand_names: [],
         unit: (item.material?.unit as string) || "piece",
         category_id: item.material?.category_id ?? null,
         category_name: (item.material as any)?.category?.name ?? null,
-        image_url: (item.material as any)?.image_url ?? null,
+        image_url: (item.material as any)?.image_url ?? brandImageUrl ?? parentMaterial?.image_url ?? null,
         total_qty: 0,
         total_available_qty: 0,
         batch_count: 0,

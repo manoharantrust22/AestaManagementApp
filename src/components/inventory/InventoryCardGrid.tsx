@@ -75,14 +75,16 @@ function groupBatchesByMaterial(
     });
     const first = items[0];
     const rawBrand = (first as any)?.brand as { brand_name?: string; variant_name?: string } | null | undefined;
+    const parentMaterial = (first?.material as any)?.parent_material as { id: string; name: string } | null | undefined;
     const brandLabel = rawBrand?.brand_name
       ? rawBrand.variant_name
         ? `${rawBrand.brand_name} ${rawBrand.variant_name}`
         : rawBrand.brand_name
       : null;
+    const variantLabel = brandLabel ?? first?.material?.name ?? "Unknown";
     return {
       materialId,
-      materialName: brandLabel ?? first?.material?.name ?? "Unknown",
+      materialName: parentMaterial?.name ? `${parentMaterial.name} · ${variantLabel}` : variantLabel,
       items,
     };
   });

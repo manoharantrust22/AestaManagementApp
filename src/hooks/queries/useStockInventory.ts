@@ -137,8 +137,8 @@ export function useSiteStock(
           *,
           pricing_mode,
           total_weight,
-          material:materials(id, name, code, unit, category_id, reorder_level, weight_per_unit, length_per_piece, gst_rate, image_url),
-          brand:material_brands(id, brand_name, variant_name),
+          material:materials(id, name, code, unit, category_id, parent_id, reorder_level, weight_per_unit, length_per_piece, gst_rate, image_url, parent_material:materials!materials_parent_id_fkey(id, name, image_url)),
+          brand:material_brands(id, brand_name, variant_name, image_url),
           location:stock_locations(id, name)
         `
         )
@@ -293,8 +293,8 @@ export function useSiteStock(
             *,
             pricing_mode,
             total_weight,
-            material:materials(id, name, code, unit, category_id, reorder_level, weight_per_unit, length_per_piece, gst_rate, image_url),
-            brand:material_brands(id, brand_name, variant_name),
+            material:materials(id, name, code, unit, category_id, parent_id, reorder_level, weight_per_unit, length_per_piece, gst_rate, image_url, parent_material:materials!materials_parent_id_fkey(id, name, image_url)),
+            brand:material_brands(id, brand_name, variant_name, image_url),
             location:stock_locations(id, name),
             site:sites(id, name)
           `

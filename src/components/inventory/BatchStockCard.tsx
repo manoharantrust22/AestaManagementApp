@@ -14,16 +14,20 @@ interface Props {
 }
 
 export function BatchStockCard({ item, onRecordUsage }: Props) {
-  const rawBrand = (item as any).brand as { brand_name?: string; variant_name?: string } | null | undefined;
+  const rawBrand = (item as any).brand as { brand_name?: string; variant_name?: string; image_url?: string | null } | null | undefined;
+  const rawMaterial = item.material as any;
+  const parentMaterial = rawMaterial?.parent_material as { id: string; name: string; image_url: string | null } | null | undefined;
+
   const brandLabel = rawBrand?.brand_name
     ? rawBrand.variant_name
       ? `${rawBrand.brand_name} ${rawBrand.variant_name}`
       : rawBrand.brand_name
     : null;
-  const materialName = brandLabel ?? item.material?.name ?? "Unknown material";
+  const variantLabel = brandLabel ?? item.material?.name ?? "Unknown material";
+  const materialName = parentMaterial?.name ? `${parentMaterial.name} · ${variantLabel}` : variantLabel;
   const materialCode = item.material?.code ?? null;
   const unit = item.material?.unit ?? "";
-  const imageUrl = (item.material as { image_url?: string | null } | undefined)?.image_url ?? null;
+  const imageUrl = rawMaterial?.image_url ?? rawBrand?.image_url ?? parentMaterial?.image_url ?? null;
 
   // For shared batches the batch_unit_cost is the original purchase price; fall back to avg_unit_cost
   const unitCost =
