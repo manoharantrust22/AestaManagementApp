@@ -3,6 +3,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
+import { recordSpend } from "@/lib/services/engineerWalletV2";
+import { ENGINEER_WALLET_KEYS } from "@/hooks/queries/useEngineerWalletV2";
 import { generateOptimisticId } from "@/lib/optimistic";
 import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
@@ -1580,9 +1582,133 @@ export function useRecordAdvancePayment() {
       payment_reference?: string;
       payment_screenshot_url?: string;
       notes?: string;
+      // Wallet debit fields — only for group_stock POs paid by site engineer via wallet
+      engineer_id?: string;
+      wallet_site_id?: string;
+      recorded_by_user_id?: string;
+      recorded_by_name?: string;
+      site_group_id?: string | null;
+      paying_site_id?: string;
     }) => {
       await ensureFreshSession();
 
+      const isWalletPath = !!(
+        data.engineer_id &&
+        data.wallet_site_id &&
+        data.recorded_by_user_id &&
+        data.recorded_by_name
+      );
+
+      // For group_stock advance payments via engineer wallet:
+      // Create the GSP-* material_purchase_expenses row now so the record
+      // doesn't vanish from the settlements list after advance_paid is set.
+      // The delivery flow detects the existing row and skips re-creation.
+      let expenseId: string | null = null;
+      let walletDebited = false;
+
+      if (isWalletPath) {
+        const { data: existingExpense } = await supabase
+          .from("material_purchase_expenses")
+          .select("id")
+          .eq("purchase_order_id", data.po_id)
+          .maybeSingle();
+
+        if (existingExpense) {
+          expenseId = existingExpense.id;
+          // Mark existing row as paid and link wallet
+        } else {
+          // Fetch PO details needed for the expense row
+          const { data: po } = await supabase
+            .from("purchase_orders")
+            .select(`
+              id, po_number, site_id, vendor_id, total_amount, transport_cost,
+              vendor:vendors(id, name),
+              items:purchase_order_items(id, material_id, brand_id, quantity, unit_price)
+            `)
+            .eq("id", data.po_id)
+            .single();
+
+          if (po) {
+            const { data: refCode } = await supabase.rpc("generate_material_purchase_reference");
+            const totalQty = (po.items || []).reduce(
+              (sum: number, item: any) => sum + Number(item.quantity),
+              0
+            );
+
+            const { data: expense, error: expenseErr } = await supabase
+              .from("material_purchase_expenses")
+              .insert({
+                site_id: po.site_id,
+                ref_code: refCode || `MAT-${Date.now()}`,
+                purchase_type: "group_stock",
+                purchase_order_id: po.id,
+                vendor_id: po.vendor_id,
+                vendor_name: po.vendor?.name || null,
+                purchase_date: data.payment_date,
+                total_amount: po.total_amount || data.amount_paid,
+                transport_cost: po.transport_cost || 0,
+                status: "recorded",
+                is_paid: true,
+                paid_date: data.payment_date,
+                payment_mode: data.payment_mode || "cash",
+                payment_reference: data.payment_reference || null,
+                payment_screenshot_url: data.payment_screenshot_url || null,
+                amount_paid: data.amount_paid,
+                notes: data.notes || `Advance payment for PO ${po.po_number}`,
+                paying_site_id: data.paying_site_id || null,
+                site_group_id: data.site_group_id || null,
+                original_qty: totalQty || null,
+                remaining_qty: totalQty || null,
+                payment_channel: "engineer_wallet",
+              })
+              .select("id")
+              .single();
+
+            if (expenseErr) {
+              console.error("[useRecordAdvancePayment] Failed to create group_stock expense:", expenseErr);
+            } else {
+              expenseId = expense?.id ?? null;
+            }
+          }
+        }
+
+        // Debit the engineer wallet
+        try {
+          const spend = await recordSpend(supabase, {
+            engineer_id: data.engineer_id!,
+            site_id: data.wallet_site_id!,
+            amount: data.amount_paid,
+            transaction_date: data.payment_date,
+            payment_mode: "cash",
+            proof_url: data.payment_screenshot_url || null,
+            notes: data.notes || null,
+            recorded_by: data.recorded_by_name!,
+            recorded_by_user_id: data.recorded_by_user_id!,
+            description: `Group stock advance payment`,
+          });
+
+          if (spend?.id && expenseId) {
+            await supabase
+              .from("material_purchase_expenses")
+              .update({
+                engineer_transaction_id: spend.id,
+                is_paid: true,
+                paid_date: data.payment_date,
+                payment_channel: "engineer_wallet",
+              })
+              .eq("id", expenseId);
+          }
+          walletDebited = true;
+        } catch (walletErr) {
+          // Wallet debit failed — roll back the expense row we just created
+          if (expenseId) {
+            await supabase.from("material_purchase_expenses").delete().eq("id", expenseId);
+          }
+          throw walletErr;
+        }
+      }
+
+      // Record advance_paid on the PO
       const { error } = await supabase
         .from("purchase_orders")
         .update({
@@ -1595,7 +1721,7 @@ export function useRecordAdvancePayment() {
         .eq("id", data.po_id);
 
       if (error) throw error;
-      return { po_id: data.po_id, site_id: data.site_id };
+      return { po_id: data.po_id, site_id: data.site_id, walletDebited };
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({
@@ -1604,6 +1730,9 @@ export function useRecordAdvancePayment() {
       queryClient.invalidateQueries({
         queryKey: [...queryKeys.materialPurchases.bySite(result.site_id), "expenses"],
       });
+      if (result.walletDebited) {
+        queryClient.invalidateQueries({ queryKey: ENGINEER_WALLET_KEYS.all });
+      }
     },
   });
 }

@@ -199,6 +199,16 @@ export default function MaterialSettlementDialog({
     if (isPOAdvancePayment && purchaseOrder) {
       try {
         setError("");
+
+        // Detect group_stock PO so we can route wallet debit + expense creation
+        let parsedPONotes: any = null;
+        try {
+          parsedPONotes = typeof (purchaseOrder as any).internal_notes === "string"
+            ? JSON.parse((purchaseOrder as any).internal_notes)
+            : (purchaseOrder as any).internal_notes;
+        } catch { /* ignore */ }
+        const isGroupStockPO = parsedPONotes?.is_group_stock === true;
+
         await advancePaymentMutation.mutateAsync({
           po_id: purchaseOrder.id,
           site_id: purchaseOrder.site_id,
@@ -208,6 +218,15 @@ export default function MaterialSettlementDialog({
           payment_reference: paymentReference || undefined,
           payment_screenshot_url: paymentScreenshotUrl || undefined,
           notes: notes || undefined,
+          // Pass wallet fields for group_stock POs settled by site engineer
+          ...(isSiteEngineer && isGroupStockPO && engineerId && effectiveWalletSiteId ? {
+            engineer_id: engineerId,
+            wallet_site_id: effectiveWalletSiteId,
+            recorded_by_user_id: user?.id,
+            recorded_by_name: userProfile?.name || engineerId,
+            site_group_id: (purchaseOrder as any).site_group_id || parsedPONotes?.site_group_id || null,
+            paying_site_id: parsedPONotes?.payment_source_site_id || effectiveWalletSiteId,
+          } : {}),
         });
 
         onSuccess?.();
