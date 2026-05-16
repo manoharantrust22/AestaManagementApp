@@ -102,6 +102,15 @@ export default function MaterialSettlementDialog({
   // Determine if this is a PO advance payment or expense settlement
   const isPOAdvancePayment = !!purchaseOrder && !purchase;
 
+  // Detect group_stock PO so we can show "Complete Settlement" instead of "Advance Payment"
+  const poNotes = (() => {
+    try {
+      const n = (purchaseOrder as any)?.internal_notes;
+      return typeof n === "string" ? JSON.parse(n) : n;
+    } catch { return null; }
+  })();
+  const isGroupStockAdvancePO = isPOAdvancePayment && poNotes?.is_group_stock === true;
+
   // Get the effective PO (either passed directly or from purchase)
   const effectivePO = purchaseOrder || purchase?.purchase_order;
   const hasBill = !!effectivePO?.vendor_bill_url;
@@ -200,15 +209,6 @@ export default function MaterialSettlementDialog({
       try {
         setError("");
 
-        // Detect group_stock PO so we can route wallet debit + expense creation
-        let parsedPONotes: any = null;
-        try {
-          parsedPONotes = typeof (purchaseOrder as any).internal_notes === "string"
-            ? JSON.parse((purchaseOrder as any).internal_notes)
-            : (purchaseOrder as any).internal_notes;
-        } catch { /* ignore */ }
-        const isGroupStockPO = parsedPONotes?.is_group_stock === true;
-
         await advancePaymentMutation.mutateAsync({
           po_id: purchaseOrder.id,
           site_id: purchaseOrder.site_id,
@@ -219,13 +219,13 @@ export default function MaterialSettlementDialog({
           payment_screenshot_url: paymentScreenshotUrl || undefined,
           notes: notes || undefined,
           // Pass wallet fields for group_stock POs settled by site engineer
-          ...(isSiteEngineer && isGroupStockPO && engineerId && effectiveWalletSiteId ? {
+          ...(isSiteEngineer && isGroupStockAdvancePO && engineerId && effectiveWalletSiteId ? {
             engineer_id: engineerId,
             wallet_site_id: effectiveWalletSiteId,
-            recorded_by_user_id: user?.id,
-            recorded_by_name: userProfile?.name || engineerId,
-            site_group_id: (purchaseOrder as any).site_group_id || parsedPONotes?.site_group_id || null,
-            paying_site_id: parsedPONotes?.payment_source_site_id || effectiveWalletSiteId,
+            recorded_by_user_id: engineerId,
+            recorded_by_name: userProfile?.name || user?.email || "Unknown",
+            site_group_id: (purchaseOrder as any).site_group_id || poNotes?.site_group_id || null,
+            paying_site_id: poNotes?.payment_source_site_id || effectiveWalletSiteId,
           } : {}),
         });
 
@@ -343,8 +343,8 @@ export default function MaterialSettlementDialog({
   return (
     <Dialog open={open} onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <PaymentIcon color={isPOAdvancePayment ? "warning" : isGroupStockParent ? "secondary" : "success"} />
-        {isPOAdvancePayment ? "Record Advance Payment" : isGroupStockParent ? "Record Vendor Payment" : "Settle Material Purchase"}
+        <PaymentIcon color={isGroupStockAdvancePO ? "success" : isPOAdvancePayment ? "warning" : isGroupStockParent ? "secondary" : "success"} />
+        {isGroupStockAdvancePO ? "Complete Bulk Settlement" : isPOAdvancePayment ? "Record Advance Payment" : isGroupStockParent ? "Record Vendor Payment" : "Settle Material Purchase"}
       </DialogTitle>
 
       <DialogContent>
@@ -833,8 +833,8 @@ export default function MaterialSettlementDialog({
           }
         >
           {(settleMutation.isPending || advancePaymentMutation.isPending)
-            ? (isPOAdvancePayment ? "Recording..." : isGroupStockParent ? "Recording..." : "Settling...")
-            : (isPOAdvancePayment ? "Confirm Advance Payment" : isGroupStockParent ? "Confirm Vendor Payment" : "Confirm Settlement")}
+            ? (isGroupStockAdvancePO ? "Processing..." : isPOAdvancePayment ? "Recording..." : isGroupStockParent ? "Recording..." : "Settling...")
+            : (isGroupStockAdvancePO ? "Confirm Full Settlement" : isPOAdvancePayment ? "Confirm Advance Payment" : isGroupStockParent ? "Confirm Vendor Payment" : "Confirm Settlement")}
         </Button>
       </DialogActions>
 
