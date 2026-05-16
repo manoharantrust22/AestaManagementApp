@@ -965,6 +965,7 @@ export function useSettleMaterialPurchase() {
       // If recordSpend throws (WLT01 insufficient balance, etc.), roll the
       // UPDATE back so the row stays unpaid — otherwise the user would see
       // a "paid" row with no matching wallet debit.
+      let walletSpendId: string | null = null;
       if (
         data.payment_channel === "engineer_wallet" &&
         data.engineer_id &&
@@ -973,7 +974,7 @@ export function useSettleMaterialPurchase() {
         data.recorded_by_name
       ) {
         try {
-          await recordSpend(supabase as any, {
+          const spend = await recordSpend(supabase as any, {
             engineer_id: data.engineer_id,
             site_id: data.wallet_site_id,
             amount: data.amount_paid || expense?.total_amount || 0,
@@ -987,6 +988,7 @@ export function useSettleMaterialPurchase() {
               data.wallet_description ??
               `Material payment: ${settlementRef ?? data.id}`,
           });
+          walletSpendId = spend?.id ?? null;
         } catch (walletErr) {
           // Roll back the UPDATE so the row goes back to unpaid. If rollback
           // itself fails (network), surface a clear message — ops needs to
@@ -1014,6 +1016,30 @@ export function useSettleMaterialPurchase() {
             );
           }
           throw walletErr;
+        }
+      }
+
+      // Persist the wallet linkage on the expense row so downstream UIs
+      // (Stock & Batches, Inter-Site Settlement) can tell this was settled
+      // via wallet and trace back to the engineer transaction. Without this
+      // both columns stay at their defaults (`payment_channel='direct'`,
+      // `engineer_transaction_id=NULL`) even after a successful wallet debit.
+      // If this follow-up UPDATE fails the wallet debit has already happened
+      // and the expense is already marked paid — log loudly but do not throw,
+      // since rolling back the wallet spend from here is unsafe.
+      if (walletSpendId) {
+        const { error: linkErr } = await (supabase as any)
+          .from("material_purchase_expenses")
+          .update({
+            payment_channel: "engineer_wallet",
+            engineer_transaction_id: walletSpendId,
+          })
+          .eq("id", data.id);
+        if (linkErr) {
+          console.error(
+            "[Material] Wallet debit succeeded but failed to persist payment_channel/engineer_transaction_id on expense row",
+            { settleId: data.id, walletSpendId, linkErr },
+          );
         }
       }
 

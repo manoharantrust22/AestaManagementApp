@@ -37,6 +37,9 @@ import {
   BATCH_USAGE_SETTLEMENT_STATUS_LABELS,
   BATCH_USAGE_SETTLEMENT_STATUS_COLORS,
 } from "@/types/material.types";
+import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import type { PayerSource } from "@/types/settlement.types";
+import { requiresPayerName } from "@/types/settlement.types";
 
 interface InitiateBatchSettlementDialogProps {
   open: boolean;
@@ -73,6 +76,8 @@ export default function InitiateBatchSettlementDialog({
     new Date().toISOString().split("T")[0]
   );
   const [paymentReference, setPaymentReference] = useState<string>("");
+  const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
+  const [payerName, setPayerName] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [success, setSuccess] = useState<boolean>(false);
   const [settlementCode, setSettlementCode] = useState<string>("");
@@ -121,6 +126,8 @@ export default function InitiateBatchSettlementDialog({
       setPaymentMode("upi");
       setPaymentDate(new Date().toISOString().split("T")[0]);
       setPaymentReference("");
+      setPayerSource("own_money");
+      setPayerName("");
       setError("");
       setSuccess(false);
       setSettlementCode("");
@@ -148,6 +155,10 @@ export default function InitiateBatchSettlementDialog({
       setError("Please select a payment date");
       return;
     }
+    if (requiresPayerName(payerSource) && !payerName.trim()) {
+      setError("Please enter the payer name");
+      return;
+    }
 
     try {
       const result = await processSettlement.mutateAsync({
@@ -161,6 +172,8 @@ export default function InitiateBatchSettlementDialog({
           ? finalSettlementAmount
           : undefined,
         created_by: user?.id,
+        settlement_payer_source: payerSource,
+        settlement_payer_name: payerName.trim() || undefined,
       });
 
       setSuccess(true);
@@ -451,6 +464,19 @@ export default function InitiateBatchSettlementDialog({
               value={paymentReference}
               onChange={(e) => setPaymentReference(e.target.value)}
               placeholder="e.g., UPI transaction ID, bank reference"
+            />
+          </Grid>
+
+          {/* Payer Source — captured on the debtor BEXP-* row so /site/expenses
+              can show which money pool funded this settlement. */}
+          <Grid size={12}>
+            <PayerSourceSelector
+              value={payerSource}
+              customName={payerName}
+              onChange={setPayerSource}
+              onCustomNameChange={setPayerName}
+              siteId={debtorSiteId}
+              compact
             />
           </Grid>
 

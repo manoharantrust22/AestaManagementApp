@@ -351,6 +351,7 @@ export default function PaymentsContent() {
     void queryClient.invalidateQueries({ queryKey: ["salary-slice-summary"] });
     void queryClient.invalidateQueries({ queryKey: ["salary-waterfall"] });
     void queryClient.invalidateQueries({ queryKey: ["payment-summary"] });
+    void queryClient.invalidateQueries({ queryKey: ["settlements-list"] });
   }, [queryClient]);
 
   const contractWalletConfirm = useCallback(

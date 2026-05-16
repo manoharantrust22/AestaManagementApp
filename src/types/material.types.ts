@@ -2153,6 +2153,12 @@ export interface InitiateBatchSettlementFormData {
   payment_mode: string;
   payment_date: string;
   payment_reference?: string;
+  /** Debtor money source for the settlement (own_money, amma_money, client_money,
+   *  trust_account, other_site_money, custom). Persisted on the BEXP-* row so
+   *  /site/expenses can show who actually paid the inter-site settlement. */
+  settlement_payer_source?: string;
+  /** Free-text label for `custom` / `other_site_money` payer sources. */
+  settlement_payer_name?: string;
 }
 
 // Response from process_batch_settlement function

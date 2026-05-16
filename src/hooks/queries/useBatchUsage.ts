@@ -304,8 +304,11 @@ export function useProcessBatchSettlement() {
         p_payment_mode: data.payment_mode,
         p_payment_date: data.payment_date,
         p_payment_reference: data.payment_reference || null,
-        p_settlement_amount: data.settlement_amount || null, // NEW: bargaining amount
+        p_settlement_amount: data.settlement_amount || null, // bargaining amount
         p_created_by: data.created_by || null,
+        // NEW: debtor's payer source for this settlement — captured on the BEXP-* row.
+        p_settlement_payer_source: data.settlement_payer_source || null,
+        p_settlement_payer_name: data.settlement_payer_name || null,
       });
 
       if (error) {

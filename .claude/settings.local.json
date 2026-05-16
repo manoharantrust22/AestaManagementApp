@@ -346,7 +346,8 @@
       "Bash(awk '/^\\(export \\)?\\(async \\)?function|^export async function/{fname=$0} /is_settled: false/{print NR\": \"fname}' src/lib/services/settlementService.ts)",
       "Bash(awk 'NR>=278 && NR<=525 && /site_engineer_transactions|recordWalletSpending|recordSpend/' src/lib/services/settlementService.ts)",
       "Bash(awk '/^\\(export \\)?\\(async \\)?function|^export async function/{fname=$0} /recordWalletSpending\\\\\\(/{print NR\": \"fname}' src/lib/services/settlementService.ts)",
-      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\src\\\\app\\\\\\(main\\)\\\\site\\\\payments\" -Recurse -File)"
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\src\\\\app\\\\\\(main\\)\\\\site\\\\payments\" -Recurse -File)",
+      "PowerShell(Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -or $_.Path } | Select-Object Id, ProcessName, StartTime | Format-Table -AutoSize)"
     ],
     "deny": [],
     "ask": [],
