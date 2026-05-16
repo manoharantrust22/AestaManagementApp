@@ -10,6 +10,7 @@ import { allocateFIFO, type ConsolidatedStockItem } from "@/lib/utils/fifoAlloca
 import { useCreateMaterialUsageFIFO } from "@/hooks/queries/useMaterialUsage";
 
 export type DatePreset = "today" | "yesterday" | "this_week" | "last_week" | "this_month";
+type DateMode = DatePreset | "custom";
 
 export function getDateRangeFromPreset(
   preset: DatePreset,
@@ -36,12 +37,13 @@ export function getDateRangeFromPreset(
   }
 }
 
-const PRESET_LABELS: Record<DatePreset, string> = {
+const MODE_LABELS: Record<DateMode, string> = {
   today: "Today",
   yesterday: "Yesterday",
   this_week: "This week",
   last_week: "Last week",
   this_month: "This month",
+  custom: "Custom",
 };
 
 interface Props {
@@ -54,14 +56,16 @@ interface Props {
 
 export function QuickUsageSheet({ open, item, siteId, onClose, onSaved }: Props) {
   const [qty, setQty] = useState<string>("");
-  const [preset, setPreset] = useState<DatePreset>("today");
+  const [mode, setMode] = useState<DateMode>("today");
+  const [customDate, setCustomDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [note, setNote] = useState("");
 
   const createUsageFIFO = useCreateMaterialUsageFIFO();
 
   function handleClose() {
     setQty("");
-    setPreset("today");
+    setMode("today");
+    setCustomDate(format(new Date(), "yyyy-MM-dd"));
     setNote("");
     onClose();
   }
@@ -72,7 +76,9 @@ export function QuickUsageSheet({ open, item, siteId, onClose, onSaved }: Props)
     const allocations = allocateFIFO(item.batches, quantity, siteId);
     if (allocations.length === 0) return;
 
-    const { startDate, endDate } = getDateRangeFromPreset(preset);
+    const { startDate, endDate } = mode === "custom"
+      ? { startDate: customDate, endDate: null }
+      : getDateRangeFromPreset(mode);
     await createUsageFIFO.mutateAsync({
       siteId,
       usageDate: startDate,
@@ -84,7 +90,9 @@ export function QuickUsageSheet({ open, item, siteId, onClose, onSaved }: Props)
     handleClose();
   }
 
-  const { startDate, endDate } = getDateRangeFromPreset(preset);
+  const { startDate, endDate } = mode === "custom"
+    ? { startDate: customDate, endDate: null }
+    : getDateRangeFromPreset(mode);
   const dateLabel = endDate ? `${startDate} → ${endDate}` : startDate;
 
   return (
@@ -142,18 +150,30 @@ export function QuickUsageSheet({ open, item, siteId, onClose, onSaved }: Props)
           When was it used?
         </Typography>
         <ToggleButtonGroup
-          value={preset}
+          value={mode}
           exclusive
-          onChange={(_, v) => v && setPreset(v as DatePreset)}
+          onChange={(_, v) => v && setMode(v as DateMode)}
           sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 0.5, mt: 0.5, mb: 0.5, "& .MuiToggleButton-root": { borderRadius: 1.5, border: "1.5px solid #e0e0e0", fontSize: 11, py: 0.75 } }}
         >
-          {(Object.keys(PRESET_LABELS) as DatePreset[]).map((p) => (
-            <ToggleButton key={p} value={p}>{PRESET_LABELS[p]}</ToggleButton>
+          {(Object.keys(MODE_LABELS) as DateMode[]).map((m) => (
+            <ToggleButton key={m} value={m}>{MODE_LABELS[m]}</ToggleButton>
           ))}
         </ToggleButtonGroup>
-        <Typography variant="caption" color="primary" fontWeight={600} mb={1.5} display="block">
-          {dateLabel}
-        </Typography>
+        {mode === "custom" ? (
+          <TextField
+            type="date"
+            value={customDate}
+            onChange={(e) => setCustomDate(e.target.value)}
+            size="small"
+            fullWidth
+            inputProps={{ max: format(new Date(), "yyyy-MM-dd") }}
+            sx={{ mt: 0.5, mb: 1.5, "& .MuiOutlinedInput-root": { borderRadius: 1.5 } }}
+          />
+        ) : (
+          <Typography variant="caption" color="primary" fontWeight={600} mb={1.5} display="block">
+            {dateLabel}
+          </Typography>
+        )}
 
         {/* Note */}
         <TextField

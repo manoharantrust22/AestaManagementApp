@@ -347,7 +347,11 @@
       "Bash(awk 'NR>=278 && NR<=525 && /site_engineer_transactions|recordWalletSpending|recordSpend/' src/lib/services/settlementService.ts)",
       "Bash(awk '/^\\(export \\)?\\(async \\)?function|^export async function/{fname=$0} /recordWalletSpending\\\\\\(/{print NR\": \"fname}' src/lib/services/settlementService.ts)",
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\src\\\\app\\\\\\(main\\)\\\\site\\\\payments\" -Recurse -File)",
-      "PowerShell(Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -or $_.Path } | Select-Object Id, ProcessName, StartTime | Format-Table -AutoSize)"
+      "PowerShell(Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -or $_.Path } | Select-Object Id, ProcessName, StartTime | Format-Table -AutoSize)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\src\" -Recurse -Filter \"*inventory*\")",
+      "mcp__playwright__browser_network_request",
+      "Bash(Start-Sleep -Seconds 90)",
+      "Bash(Get-Content \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\aba3ef4f-7222-416d-a913-38dcb603aaad\\\\tasks\\\\b1b9tqray.output\" -Tail 30)"
     ],
     "deny": [],
     "ask": [],
