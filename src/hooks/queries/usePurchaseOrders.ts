@@ -1724,12 +1724,11 @@ export function useRecordAdvancePayment() {
       return { po_id: data.po_id, site_id: data.site_id, walletDebited };
     },
     onSuccess: (result) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.purchaseOrders.bySite(result.site_id),
-      });
-      queryClient.invalidateQueries({
-        queryKey: [...queryKeys.materialPurchases.bySite(result.site_id), "expenses"],
-      });
+      // Invalidate ALL material purchase caches — the PO site_id (ordering site)
+      // differs from the paying site shown on screen, so a site-scoped invalidation
+      // misses the settlement page the user is actually looking at.
+      queryClient.invalidateQueries({ queryKey: queryKeys.materialPurchases.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.bySite(result.site_id) });
       if (result.walletDebited) {
         queryClient.invalidateQueries({ queryKey: ENGINEER_WALLET_KEYS.all });
       }
