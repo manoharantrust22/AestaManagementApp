@@ -4,10 +4,24 @@ import { useState } from 'react';
 import { Box, Typography } from '@mui/material';
 import CalculatorWorkspace from './CalculatorWorkspace';
 import SitePickerForMR from './SitePickerForMR';
+import MaterialRequestDialog, { MRInitialItem } from '@/components/materials/MaterialRequestDialog';
+import { useEstimateBasket } from '@/contexts/EstimateBasketContext';
 
 export default function CalculatorPageContent() {
   const [sitePickerOpen, setSitePickerOpen] = useState(false);
-  const [, setSelectedSiteId] = useState<string | null>(null);
+  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
+  const [mrDialogOpen, setMrDialogOpen] = useState(false);
+  const { items, clearBasket } = useEstimateBasket();
+
+  const basketItems: MRInitialItem[] = items
+    .map((item) => ({
+      materialId: item.materialId ?? '',
+      qty: Math.ceil(item.computedOutput),
+      notes: item.pricingDimensionValue
+        ? `From calculator — ${item.outputLabel}: ${item.computedOutput.toFixed(3)} ${item.outputUnit} · ${item.pricingDimensionValue}`
+        : `From calculator — ${item.outputLabel}: ${item.computedOutput.toFixed(3)} ${item.outputUnit}`,
+    }))
+    .filter((i) => i.materialId !== '');
 
   return (
     <Box sx={{ maxWidth: 720, mx: 'auto', p: { xs: 2, sm: 3 } }}>
@@ -26,9 +40,18 @@ export default function CalculatorPageContent() {
         onSiteSelected={(siteId) => {
           setSelectedSiteId(siteId);
           setSitePickerOpen(false);
-          // TODO Task 15: open MaterialRequestDialog with basket items
+          setMrDialogOpen(true);
         }}
       />
+      {selectedSiteId && (
+        <MaterialRequestDialog
+          open={mrDialogOpen}
+          onClose={() => { setMrDialogOpen(false); clearBasket(); }}
+          request={null}
+          siteId={selectedSiteId}
+          initialItems={basketItems}
+        />
+      )}
     </Box>
   );
 }

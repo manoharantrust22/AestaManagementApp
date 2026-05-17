@@ -60,11 +60,18 @@ import type {
   RequestPriority,
 } from "@/types/material.types";
 
+export type MRInitialItem = {
+  materialId: string;
+  qty: number;
+  notes?: string;
+};
+
 interface MaterialRequestDialogProps {
   open: boolean;
   onClose: () => void;
   request: MaterialRequestWithDetails | null;
   siteId: string;
+  initialItems?: MRInitialItem[];
 }
 
 interface RequestItemRow extends MaterialRequestItemFormData {
@@ -87,6 +94,7 @@ export default function MaterialRequestDialog({
   onClose,
   request,
   siteId,
+  initialItems,
 }: MaterialRequestDialogProps) {
   const isMobile = useIsMobile();
   const { userProfile } = useAuth();
@@ -191,7 +199,22 @@ export default function MaterialRequestDialog({
       setPurchaseType('own_site');
       setDeliveryType('one_time');
       setNotes("");
-      setItems([]);
+      if (initialItems && initialItems.length > 0) {
+        const prefilled: RequestItemRow[] = initialItems.map((item) => {
+          const mat = materials.find((m) => m.id === item.materialId);
+          return {
+            material_id: item.materialId,
+            requested_qty: item.qty,
+            notes: item.notes,
+            materialName: mat?.name,
+            unit: mat?.unit,
+            availableStock: getAvailableStock(item.materialId),
+          };
+        });
+        setItems(prefilled);
+      } else {
+        setItems([]);
+      }
     }
     setError("");
     setSelectedMaterial(null);
