@@ -12,11 +12,14 @@ Next.js construction management application with Supabase backend, MUI component
 
 ## Common Commands
 ```bash
-npm run dev          # Start dev server (default port 3000)
+npm run dev:cloud    # Dev server with production Supabase (USE THIS for normal development)
+npm run dev:local    # Dev server with local Supabase (requires db:start + db:reset first)
+npm run dev          # Dev server (local Supabase) — avoid; use dev:cloud instead
 npm run build        # Production build
 npm run test         # Run tests
 npm run db:start     # Start local Supabase
-npm run db:reset     # Reset local database
+npm run db:reset     # Reset local database (seeds test user automatically)
+npx playwright test  # Run Playwright E2E tests (auto-starts dev:cloud, auto-logs in via /dev-login)
 ```
 
 ## "Move to Prod" Command
@@ -45,12 +48,13 @@ When the user says **"move to prod"** or similar (e.g., "push to production", "d
 ## Test Credentials (for Playwright testing)
 - **Email**: Haribabu@nerasmclasses.onmicrosoft.com
 - **Password**: Padma@123
+- **Note**: `/dev-login` sets this password automatically via the admin SDK before signing in — do NOT manually update `auth.users.encrypted_password` via SQL `crypt()`, it produces a hash GoTrue cannot verify.
 
 ## After UI Changes - REQUIRED
 After making any frontend/UI changes, I must verify and fix issues automatically:
 
 ### Visual Verification
-1. **Auto-login** using Playwright MCP: navigate to `http://localhost:3000/dev-login` (or 3001). This page auto-authenticates with test credentials and redirects to the dashboard — no manual form filling needed.
+1. **Auto-login** using Playwright MCP: navigate to `http://localhost:3000/dev-login`. This page calls `/api/dev-ensure-password` (sets password via GoTrue admin SDK) then signs in automatically — no manual form filling needed. Requires `npm run dev:cloud` or `npm run dev:local` to be running (or triggered automatically by `npx playwright test`).
 2. **Navigate to the target page** to verify the changes
 3. **Take a screenshot** to verify the changes rendered correctly
 4. **Check for visual issues** - look for broken layouts, missing elements, or styling problems
