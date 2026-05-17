@@ -76,6 +76,7 @@ import {
   Build as BuildIcon,
   Videocam as VideocamIcon,
   SmartToy as SmartToyIcon,
+  CalculateRounded as CalculateRoundedIcon,
 } from "@mui/icons-material";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
@@ -333,6 +334,11 @@ const companyNavCategories: NavCategory[] = [
         text: "Categories",
         icon: <InventoryIcon />,
         path: "/company/categories",
+      },
+      {
+        text: "Cost Calculator",
+        icon: <CalculateRoundedIcon />,
+        path: "/company/calculator",
       },
       {
         text: "Price Comparison",
