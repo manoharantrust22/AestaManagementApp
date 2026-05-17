@@ -1,6 +1,6 @@
 "use client";
 
-import React, { memo, useState, useEffect, useCallback } from "react";
+import React, { memo, useState } from "react";
 import {
   Box,
   Chip,
@@ -20,10 +20,11 @@ import {
   Edit as EditIcon,
   Close as CloseIcon,
 } from "@mui/icons-material";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
-import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
+import { wrapMutationFn, wrapQueryFn } from "@/lib/utils/timeout";
 import SectionAutocomplete from "../common/SectionAutocomplete";
 
 interface ActiveSection {
@@ -32,86 +33,90 @@ interface ActiveSection {
   phaseName: string | null;
 }
 
+const activeSectionQueryKey = (siteId: string | undefined) =>
+  ["active-section", siteId ?? "unknown"] as const;
+
 const ActiveSectionChip = memo(function ActiveSectionChip() {
   const { userProfile } = useAuth();
   const { selectedSite, refreshSites } = useSite();
-  const [activeSection, setActiveSection] = useState<ActiveSection | null>(null);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
   const isAdmin = userProfile?.role === "admin";
+  const siteId = selectedSite?.id;
 
-  const fetchActiveSection = useCallback(async () => {
-    if (!selectedSite?.id) {
-      setActiveSection(null);
-      return;
-    }
+  // One combined select via the FK relationship — supabase-js embeds the
+  // related building_sections row inline, so the old two-roundtrip pattern
+  // (sites → building_sections) collapses into a single request. React Query
+  // takes care of aborting in-flight fetches when siteId flips, so site
+  // switches can't leave a stale fetch racing the fresh one.
+  const { data: activeSection = null, isPending } = useQuery<ActiveSection | null>({
+    queryKey: activeSectionQueryKey(siteId),
+    enabled: !!siteId,
+    queryFn: wrapQueryFn<ActiveSection | null>(
+      async () => {
+        const supabase = createClient();
+        const { data, error } = await supabase
+          .from("sites")
+          .select(
+            `default_section_id,
+             building_sections!sites_default_section_id_fkey(
+               id,
+               name,
+               construction_phases(name)
+             )`,
+          )
+          .eq("id", siteId!)
+          .single();
 
-    setLoading(true);
-    try {
-      const supabase = createClient();
+        if (error) throw error;
 
-      // Wrap both queries in withTimeout — without it, a stalled fetch through
-      // the Cloudflare proxy (or any network hiccup) leaves `loading=true`
-      // forever because the await never settles, so neither catch nor finally
-      // runs. The user sees a permanent spinner in the page header until they
-      // hard-refresh.
-      const { data: siteData } = (await withTimeout(
-        Promise.resolve(
-          supabase
-            .from("sites")
-            .select("default_section_id")
-            .eq("id", selectedSite.id)
-            .single()
-        ),
-        TIMEOUTS.QUERY,
-        "ActiveSectionChip: sites.default_section_id timed out",
-      )) as { data: { default_section_id: string | null } | null };
+        const section = (data as unknown as {
+          default_section_id: string | null;
+          building_sections:
+            | { id: string; name: string; construction_phases: { name: string } | null }
+            | null;
+        } | null)?.building_sections;
 
-      if (!siteData?.default_section_id) {
-        setActiveSection(null);
-        setLoading(false);
-        return;
-      }
+        if (!section) return null;
+        return {
+          id: section.id,
+          name: section.name,
+          phaseName: section.construction_phases?.name ?? null,
+        };
+      },
+      { operationName: "ActiveSectionChip" },
+    ),
+  });
 
-      const { data: sectionData } = (await withTimeout(
-        Promise.resolve(
-          supabase
-            .from("building_sections")
-            .select(`
-              id,
-              name,
-              construction_phases(name)
-            `)
-            .eq("id", siteData.default_section_id)
-            .single()
-        ),
-        TIMEOUTS.QUERY,
-        "ActiveSectionChip: building_sections lookup timed out",
-      )) as { data: { id: string; name: string; construction_phases: { name: string } | null } | null };
-
-      if (sectionData) {
-        setActiveSection({
-          id: sectionData.id,
-          name: sectionData.name,
-          phaseName: sectionData.construction_phases?.name || null,
-        });
-      } else {
-        setActiveSection(null);
-      }
-    } catch (err) {
-      console.error("Error fetching active section:", err);
-      setActiveSection(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedSite?.id]);
-
-  useEffect(() => {
-    fetchActiveSection();
-  }, [fetchActiveSection]);
+  const saveMutation = useMutation({
+    mutationFn: wrapMutationFn(
+      async (nextSectionId: string | null) => {
+        if (!siteId) throw new Error("No site selected");
+        const supabase = createClient();
+        const { error } = await (
+          supabase.from("sites") as any
+        )
+          .update({ default_section_id: nextSectionId })
+          .eq("id", siteId);
+        if (error) throw error;
+      },
+      { operationName: "ActiveSectionChip.saveDefaultSection" },
+    ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: activeSectionQueryKey(siteId),
+      });
+      // Keep the global SiteContext cache (selectedSite.default_section_id)
+      // in sync with the new value.
+      await refreshSites();
+      handleCloseDialog();
+    },
+    onError: (err) => {
+      console.error("Error updating default section:", err);
+    },
+  });
 
   const handleOpenDialog = () => {
     if (!isAdmin) return;
@@ -124,37 +129,17 @@ const ActiveSectionChip = memo(function ActiveSectionChip() {
     setSelectedSectionId(null);
   };
 
-  const handleSave = async () => {
-    if (!selectedSite?.id || !isAdmin) return;
-
-    setSaving(true);
-    try {
-      const supabase = createClient();
-
-      // Note: Using type assertion until migration is run and types regenerated
-      const { error } = await (supabase
-        .from("sites")
-        .update({ default_section_id: selectedSectionId } as any)
-        .eq("id", selectedSite.id));
-
-      if (error) throw error;
-
-      // Refresh the active section
-      await fetchActiveSection();
-      await refreshSites();
-      handleCloseDialog();
-    } catch (err) {
-      console.error("Error updating default section:", err);
-    } finally {
-      setSaving(false);
-    }
+  const handleSave = () => {
+    if (!siteId || !isAdmin) return;
+    saveMutation.mutate(selectedSectionId);
   };
+
+  const saving = saveMutation.isPending;
 
   // Don't render if no site selected
   if (!selectedSite) return null;
 
-  // Show loading state
-  if (loading) {
+  if (isPending && !!siteId) {
     return (
       <Box
         sx={{

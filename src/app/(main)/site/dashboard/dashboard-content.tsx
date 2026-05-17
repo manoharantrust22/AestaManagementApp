@@ -685,21 +685,26 @@ export default function DashboardContent({
         </Grid>
       </Grid>
 
-      {/* Floating Action Button for Quick Attendance */}
-      <Tooltip title="Record Attendance" placement="left">
-        <Fab
-          color="primary"
-          onClick={() => router.push("/site/attendance")}
-          sx={{
-            position: "fixed",
-            bottom: { xs: 150, md: 90 },
-            right: { xs: 16, md: 24 },
-            zIndex: 1000,
-          }}
-        >
-          <AttendanceIcon />
-        </Fab>
-      </Tooltip>
+      {/* Floating Action Button for Quick Attendance — site_engineer only */}
+      {userProfile?.role === "site_engineer" && (
+        <Tooltip title="Record Attendance" placement="left">
+          <Fab
+            color="primary"
+            onClick={() => router.push("/site/attendance")}
+            sx={{
+              position: "fixed",
+              bottom: { xs: 80, md: 24 },
+              right: { xs: 16, md: 24 },
+              zIndex: 1000,
+              opacity: { xs: 1, md: 0.45 },
+              "&:hover": { opacity: 1 },
+              transition: "opacity 0.2s ease",
+            }}
+          >
+            <AttendanceIcon />
+          </Fab>
+        </Tooltip>
+      )}
     </Box>
   );
 }

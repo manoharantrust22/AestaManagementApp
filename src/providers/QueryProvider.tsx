@@ -13,6 +13,7 @@ import {
   refreshSessionDeduped,
   setSessionManagerQueryClient,
 } from "@/lib/auth/sessionManager";
+import { isAbortOrTimeoutError } from "@/lib/utils/timeout";
 
 /**
  * Checks if an error is a session/auth related error that should redirect to login.
@@ -258,6 +259,18 @@ export default function QueryProvider({
         },
         mutations: {
           retry: (failureCount, error: any) => {
+            // Don't retry on timeouts/aborts. The user already waited the
+            // full 25s (timeoutFetch) or wrapMutationFn ceiling once —
+            // retrying just makes them wait again on the same poisoned
+            // socket pool. Surface the timeout error to the dialog so the
+            // user can decide whether to retry manually. The connection-
+            // pool recovery handler still runs for the next attempt.
+            if (isAbortOrTimeoutError(error)) {
+              console.warn(
+                "[QueryClient] Mutation timed out/aborted — not retrying",
+              );
+              return false;
+            }
             const status = error?.status || error?.code;
             // Don't retry on client errors that won't succeed on retry
             // 400 = Bad Request (invalid data)
@@ -308,6 +321,34 @@ export default function QueryProvider({
           },
           networkMode: "always",
           onError: async (error) => {
+            // Mutation timeout: same pool-recovery dance as the query side
+            // (cancel in-flight + invalidate active), so the user's NEXT
+            // attempt opens fresh sockets instead of queuing behind the
+            // dead ones that just timed out. Debounced via the same
+            // _lastTimeoutRecoveryAt window as query timeouts so a burst
+            // of mutation+query timeouts only runs recovery once.
+            if (isAbortOrTimeoutError(error) && clientRef.current) {
+              const now = Date.now();
+              if (now - _lastTimeoutRecoveryAt >= TIMEOUT_RECOVERY_DEBOUNCE_MS) {
+                _lastTimeoutRecoveryAt = now;
+                console.warn(
+                  "[QueryClient] Mutation timeout — triggering connection-pool recovery",
+                );
+                try {
+                  await clientRef.current.cancelQueries();
+                } catch (err) {
+                  console.warn(
+                    "[QueryClient] cancelQueries threw during mutation-timeout recovery:",
+                    err,
+                  );
+                }
+                setTimeout(() => {
+                  clientRef.current?.invalidateQueries({ refetchType: "active" });
+                }, 500);
+              }
+              return;
+            }
+
             if (!isSessionError(error)) return;
 
             // Single deduped refresh — shared with QueryCache.onError, SessionManager,

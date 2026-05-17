@@ -26,6 +26,16 @@ const CACHEABLE_TABLES = new Set<string>([
 
 const CACHE_TTL_SECONDS = 60;
 
+// Upstream timeouts. The browser-side `timeoutFetch` aborts at 25s; setting
+// the Worker upstream slightly higher (30s HTTP / 15s WS) means the browser
+// abort wins normally — only when the browser is disconnected mid-call does
+// the Worker timeout fire and convert a half-open upstream socket into a
+// clean 504/502. Without these, a stuck Supabase upstream pinned the Worker
+// at "fetch in flight" until Cloudflare's 30s subrequest cap killed it
+// abruptly — appearing to the app as a hung socket with no error.
+const UPSTREAM_HTTP_TIMEOUT_MS = 30_000;
+const UPSTREAM_WS_TIMEOUT_MS = 15_000;
+
 // All headers that Supabase client sends
 const ALLOWED_HEADERS = [
   "Accept",
@@ -76,11 +86,16 @@ export default {
         return await fetch(targetUrl.toString(), {
           method: "GET",
           headers,
+          signal: AbortSignal.timeout(UPSTREAM_WS_TIMEOUT_MS),
         });
       } catch (error) {
+        const isTimeout =
+          error instanceof DOMException && error.name === "TimeoutError";
         return new Response(
           JSON.stringify({
-            error: "WebSocket upgrade failed",
+            error: isTimeout
+              ? "WebSocket upgrade timed out"
+              : "WebSocket upgrade failed",
             message: error instanceof Error ? error.message : "Unknown error",
           }),
           {
@@ -121,6 +136,7 @@ export default {
           ? request.body
           : undefined,
         redirect: "follow",
+        signal: AbortSignal.timeout(UPSTREAM_HTTP_TIMEOUT_MS),
       });
 
       // Build response with CORS headers
@@ -147,13 +163,15 @@ export default {
         headers: responseHeaders,
       });
     } catch (error) {
+      const isTimeout =
+        error instanceof DOMException && error.name === "TimeoutError";
       return new Response(
         JSON.stringify({
-          error: "Proxy error",
+          error: isTimeout ? "Upstream timed out" : "Proxy error",
           message: error instanceof Error ? error.message : "Unknown error",
         }),
         {
-          status: 502,
+          status: isTimeout ? 504 : 502,
           headers: {
             "Content-Type": "application/json",
             ...getCorsHeadersObj(request),

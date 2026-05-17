@@ -41,6 +41,10 @@ import {
 import CategoryAutocomplete from "@/components/common/CategoryAutocomplete";
 import FileUploader from "@/components/common/FileUploader";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
+import { SaveButton } from "@/components/common/SaveButton";
+import { InlineErrorBanner } from "@/components/common/InlineErrorBanner";
+import { useToast } from "@/contexts/ToastContext";
+import { isAbortOrTimeoutError } from "@/lib/utils/timeout";
 import { createClient } from "@/lib/supabase/client";
 import { calculatePieceWeight } from "@/lib/weightCalculation";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -129,6 +133,14 @@ export default function MaterialDialog({
   );
 
   const [error, setError] = useState("");
+  // True when the most recent save failed with a timeout/abort error, so the
+  // dialog renders the calm InlineErrorBanner with a prominent Retry button
+  // instead of the generic red Alert. Cleared on next attempt.
+  const [isTimeoutError, setIsTimeoutError] = useState(false);
+  // Brief "Saved" flash on the SaveButton before the dialog closes — gives
+  // the user a confidence beat that their work persisted.
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const { showProgress } = useToast();
   const [newBrandName, setNewBrandName] = useState("");
   const [isVariant, setIsVariant] = useState(false);
   const [variants, setVariants] = useState<VariantFormData[]>([]);
@@ -277,12 +289,30 @@ export default function MaterialDialog({
   const handleSubmit = async () => {
     if (!formData.name.trim()) {
       setError("Material name is required");
+      setIsTimeoutError(false);
       return;
     }
     if (isVariant && !formData.parent_id) {
       setError("Please select a parent material for this variant");
+      setIsTimeoutError(false);
       return;
     }
+    // Reset error state when a fresh attempt starts. Important so the
+    // InlineErrorBanner from a previous timeout doesn't linger while the
+    // user is mid-retry — the SaveButton's saving state is the only
+    // feedback during the next attempt.
+    setError("");
+    setIsTimeoutError(false);
+
+    // Material 3 progress toast — runs in parallel with the in-dialog
+    // SaveButton state. Two redundant feedback channels are intentional:
+    // the button anchors the user's attention to where they clicked, the
+    // toast guarantees the user notices even if they navigate away.
+    const materialLabel = formData.name.trim() || "material";
+    const toast = showProgress(
+      isEdit ? `Saving ${materialLabel}…` : `Creating ${materialLabel}…`,
+    );
+
     try {
       const dataToSubmit = {
         ...formData,
@@ -295,10 +325,35 @@ export default function MaterialDialog({
       } else {
         await createMaterial.mutateAsync(dataToSubmit);
       }
+      // Success path: flash a checkmark on the button + green toast.
+      // 700ms is long enough to register as positive feedback, short enough
+      // not to feel like the dialog is hanging on completion.
+      toast.update({
+        severity: "success",
+        message: isEdit ? `Saved ${materialLabel}` : `Created ${materialLabel}`,
+        duration: 3000,
+      });
+      setSaveSuccess(true);
       clearDraft();
-      onClose();
+      window.setTimeout(() => {
+        setSaveSuccess(false);
+        onClose();
+      }, 700);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to save material");
+      const message = err instanceof Error ? err.message : "Failed to save material";
+      const timedOut = isAbortOrTimeoutError(err);
+      setError(message);
+      setIsTimeoutError(timedOut);
+      // Persistent error toast with a Retry action that re-fires the same
+      // submit handler. Form data stays put, so the retry is genuinely a
+      // one-tap recovery from any transient network/proxy hiccup.
+      toast.update({
+        severity: "error",
+        message: timedOut
+          ? `Couldn't save ${materialLabel} — request timed out`
+          : `Couldn't save ${materialLabel}`,
+        action: { label: "Retry", onClick: () => { void handleSubmit(); } },
+      });
     }
   };
 
@@ -448,9 +503,22 @@ export default function MaterialDialog({
             </Alert>
           )}
           {error && (
-            <Alert severity="error" sx={{ fontSize: 12 }}>
-              {error}
-            </Alert>
+            isTimeoutError ? (
+              <InlineErrorBanner
+                title="Couldn't save — request timed out"
+                description="Your network or our proxy is slow right now. Your form is still here — tap Retry to try again."
+                onRetry={() => { void handleSubmit(); }}
+                onDismiss={() => { setError(""); setIsTimeoutError(false); }}
+              />
+            ) : (
+              <Alert
+                severity="error"
+                sx={{ fontSize: 12 }}
+                onClose={() => setError("")}
+              >
+                {error}
+              </Alert>
+            )
           )}
 
           {/* Basics */}
@@ -987,14 +1055,15 @@ export default function MaterialDialog({
         <Button onClick={onClose} disabled={isSubmitting} sx={{ textTransform: "none" }}>
           Cancel
         </Button>
-        <Button
-          variant="contained"
+        <SaveButton
+          isSaving={isSubmitting}
+          isError={Boolean(error)}
+          isSuccess={saveSuccess}
+          disabled={!formData.name.trim()}
+          idleLabel={isEdit ? "Save changes" : "Create material"}
+          errorLabel="Try again"
           onClick={handleSubmit}
-          disabled={isSubmitting || !formData.name.trim()}
-          sx={{ textTransform: "none" }}
-        >
-          {isSubmitting ? "Saving…" : isEdit ? "Save changes" : "Create material"}
-        </Button>
+        />
       </DialogActions>
 
       {/* Inline category creation */}

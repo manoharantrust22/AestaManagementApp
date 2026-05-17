@@ -91,3 +91,50 @@ export function wrapQueryFn<T>(
     return withTimeout(fn(ctx), timeoutMs, message);
   };
 }
+
+/**
+ * React-Query-shaped wrapper for `mutationFn`. Counterpart to `wrapQueryFn`.
+ *
+ * Why this exists separately from `timeoutFetch`: the supabase client already
+ * caps each individual fetch at 25s, but a mutationFn may chain several awaits
+ * — refresh session → fetch → fetch → fetch — and the user-visible cap is
+ * the sum, not the per-fetch limit. `wrapMutationFn` puts a single ceiling on
+ * the whole handler so the "Saving..." button cannot exceed it regardless of
+ * how many sub-calls the handler makes.
+ *
+ * Combined with QueryProvider's retry policy (which now skips retries on
+ * TimeoutError / AbortError), the user-visible max wait equals `timeoutMs`
+ * exactly, with no doubled wait from retries.
+ *
+ * Usage:
+ *   useMutation({
+ *     mutationFn: wrapMutationFn(async (input) => { ... }, { operationName: "updateMaterial" }),
+ *   });
+ */
+export function wrapMutationFn<TInput, TOutput>(
+  fn: (input: TInput) => Promise<TOutput>,
+  options: { timeoutMs?: number; operationName?: string } = {},
+): (input: TInput) => Promise<TOutput> {
+  const { timeoutMs = TIMEOUTS.DATABASE_OPERATION, operationName } = options;
+  return async (input: TInput) => {
+    const message = operationName
+      ? `${operationName} timed out after ${timeoutMs}ms — please try again`
+      : `Mutation timed out after ${timeoutMs}ms — please try again`;
+    return withTimeout(fn(input), timeoutMs, message);
+  };
+}
+
+/**
+ * Detects errors that originated from a timeout or an aborted fetch (either
+ * the browser-side `timeoutFetch` AbortSignal.timeout or a `wrapMutationFn` /
+ * `wrapQueryFn` race). The QueryProvider retry path uses this to skip retries
+ * for these errors — the user already waited the full ceiling once; retrying
+ * just makes them wait it again.
+ */
+export function isAbortOrTimeoutError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const name = String((error as { name?: unknown }).name ?? "");
+  if (name === "TimeoutError" || name === "AbortError") return true;
+  const message = String((error as { message?: unknown }).message ?? "");
+  return /timed out after \d+ms/i.test(message);
+}

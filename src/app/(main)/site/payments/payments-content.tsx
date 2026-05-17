@@ -1136,6 +1136,7 @@ export default function PaymentsContent() {
                       ? (row) => setHardDeleteTarget(row)
                       : undefined
                   }
+                  filter="contract"
                   emptyMessage={
                     hideCancelled && tabCancelledCount > 0
                       ? "No active contract settlements. Toggle 'Hide cancelled' off to see cancelled rows."
@@ -1380,6 +1381,7 @@ export default function PaymentsContent() {
                       ? (row) => setHardDeleteTarget(row)
                       : undefined
                   }
+                  filter="daily-market"
                   emptyMessage={
                     hideCancelled && tabCancelledCount > 0
                       ? "No active daily/market settlements. Toggle 'Hide cancelled' off to see cancelled rows."
@@ -1546,6 +1548,7 @@ export default function PaymentsContent() {
                       ? (row) => setHardDeleteTarget(row)
                       : undefined
                   }
+                  filter="all"
                   emptyMessage={
                     hideCancelled && tabCancelledCount > 0
                       ? "No active settlements. Toggle 'Hide cancelled' off to see cancelled rows."

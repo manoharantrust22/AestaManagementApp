@@ -12,9 +12,12 @@ import {
   alpha,
   useTheme,
 } from "@mui/material";
-import { DeleteForever as DeleteForeverIcon } from "@mui/icons-material";
+import {
+  DeleteForever as DeleteForeverIcon,
+  AccountBalanceWallet as WalletIcon,
+} from "@mui/icons-material";
 import dayjs from "dayjs";
-import type { SettlementListRow } from "@/hooks/queries/useSettlementsList";
+import type { SettlementListRow, SettlementsListFilter } from "@/hooks/queries/useSettlementsList";
 
 interface SettlementsListProps {
   rows: SettlementListRow[];
@@ -24,6 +27,8 @@ interface SettlementsListProps {
   emptyMessage?: string;
   /** When provided, cancelled rows render a trash icon that calls this. */
   onHardDelete?: (row: SettlementListRow) => void;
+  /** Which tab/filter is active — used to hide the type chip in daily-market tab. */
+  filter?: SettlementsListFilter;
 }
 
 function formatINR(n: number): string {
@@ -64,6 +69,7 @@ export function SettlementsList({
   onRowClick,
   emptyMessage,
   onHardDelete,
+  filter,
 }: SettlementsListProps) {
   const theme = useTheme();
 
@@ -107,7 +113,9 @@ export function SettlementsList({
                 display: "grid",
                 gridTemplateColumns: {
                   xs: "1fr auto",
-                  md: "150px 170px 1fr 110px 100px 36px",
+                  md: filter === "daily-market"
+                    ? "150px 170px 1fr 100px 36px"
+                    : "150px 170px 1fr 110px 100px 36px",
                 },
                 gap: { xs: 1, md: 1.5 },
                 alignItems: "center",
@@ -202,6 +210,33 @@ export function SettlementsList({
                       sx={{ height: 16, fontSize: 9.5, fontWeight: 600 }}
                     />
                   )}
+                  {r.paymentChannel === "engineer_wallet" && (
+                    <Chip
+                      size="small"
+                      icon={<WalletIcon sx={{ fontSize: "10px !important" }} />}
+                      label="Wallet"
+                      sx={{
+                        height: 16,
+                        fontSize: 9.5,
+                        fontWeight: 600,
+                        bgcolor: alpha(theme.palette.secondary.main, 0.12),
+                        color: "secondary.dark",
+                      }}
+                    />
+                  )}
+                  {r.recordedByName && (
+                    <Chip
+                      size="small"
+                      label={`By: ${r.recordedByName}`}
+                      sx={{
+                        height: 16,
+                        fontSize: 9.5,
+                        fontWeight: 500,
+                        color: "text.secondary",
+                        bgcolor: "action.hover",
+                      }}
+                    />
+                  )}
                   {r.hasProof && (
                     <Chip
                       size="small"
@@ -231,34 +266,36 @@ export function SettlementsList({
                 </Box>
               </Box>
 
-              {/* Type chip */}
-              <Box sx={{ display: { xs: "none", md: "block" }, justifySelf: "start" }}>
-                {r.isContract ? (
-                  <Chip
-                    size="small"
-                    label="💼 Contract"
-                    sx={{
-                      height: 20,
-                      fontSize: 10.5,
-                      fontWeight: 700,
-                      bgcolor: alpha(theme.palette.warning.main, 0.14),
-                      color: theme.palette.warning.dark,
-                    }}
-                  />
-                ) : (
-                  <Chip
-                    size="small"
-                    label="📅 Daily/Market"
-                    sx={{
-                      height: 20,
-                      fontSize: 10.5,
-                      fontWeight: 700,
-                      bgcolor: alpha(theme.palette.info.main, 0.14),
-                      color: theme.palette.info.dark,
-                    }}
-                  />
-                )}
-              </Box>
+              {/* Type chip — hidden in daily-market tab (all rows are the same type) */}
+              {filter !== "daily-market" && (
+                <Box sx={{ display: { xs: "none", md: "block" }, justifySelf: "start" }}>
+                  {r.isContract ? (
+                    <Chip
+                      size="small"
+                      label="💼 Contract"
+                      sx={{
+                        height: 20,
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        bgcolor: alpha(theme.palette.warning.main, 0.14),
+                        color: theme.palette.warning.dark,
+                      }}
+                    />
+                  ) : (
+                    <Chip
+                      size="small"
+                      label="📅 Daily/Market"
+                      sx={{
+                        height: 20,
+                        fontSize: 10.5,
+                        fontWeight: 700,
+                        bgcolor: alpha(theme.palette.info.main, 0.14),
+                        color: theme.palette.info.dark,
+                      }}
+                    />
+                  )}
+                </Box>
+              )}
 
               {/* Amount */}
               <Box sx={{ justifySelf: "end" }}>
@@ -332,18 +369,20 @@ export function SettlementsList({
                     label={getPaymentModeLabel(r.paymentMode)}
                     sx={{ height: 16, fontSize: 9.5 }}
                   />
-                  {r.isContract ? (
-                    <Chip
-                      size="small"
-                      label="Contract"
-                      sx={{ height: 16, fontSize: 9.5 }}
-                    />
-                  ) : (
-                    <Chip
-                      size="small"
-                      label="Daily"
-                      sx={{ height: 16, fontSize: 9.5 }}
-                    />
+                  {filter !== "daily-market" && (
+                    r.isContract ? (
+                      <Chip
+                        size="small"
+                        label="Contract"
+                        sx={{ height: 16, fontSize: 9.5 }}
+                      />
+                    ) : (
+                      <Chip
+                        size="small"
+                        label="Daily"
+                        sx={{ height: 16, fontSize: 9.5 }}
+                      />
+                    )
                   )}
                   {r.isCancelled && onHardDelete && (
                     <IconButton

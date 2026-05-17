@@ -30,10 +30,15 @@ let browserClient: ReturnType<typeof createBrowserClient<Database>> | null = nul
 // Hung fetches abort at the network level → socket freed → the existing
 // recovery handler's refetch opens a fresh socket and succeeds. Storage gets
 // a longer ceiling because file uploads legitimately take minutes.
-const REST_AUTH_TIMEOUT_MS = 45_000;
+// 25s for REST/Auth (was 45s): the lower ceiling is what surfaces the
+// "Saving..." infinite-spinner bug to the user as a real error within a
+// reasonable wait. Combined with the mutation retry path skipping
+// TimeoutError (see QueryProvider), end-to-end max wait on a stalled proxy
+// is ~25s — not 45s × 2 retries.
+const REST_AUTH_TIMEOUT_MS = 25_000;
 const STORAGE_TIMEOUT_MS = 5 * 60_000;
 
-const timeoutFetch: typeof fetch = (input, init = {}) => {
+const timeoutFetch: typeof fetch = async (input, init = {}) => {
   const url =
     typeof input === "string"
       ? input
@@ -45,7 +50,22 @@ const timeoutFetch: typeof fetch = (input, init = {}) => {
   const signal = init.signal
     ? AbortSignal.any([init.signal, timeoutSignal])
     : timeoutSignal;
-  return fetch(input, { ...init, signal });
+  try {
+    return await fetch(input, { ...init, signal });
+  } catch (err) {
+    // AbortSignal.timeout rejects with DOMException name="TimeoutError" and
+    // a terse "signal timed out" message. Re-throw with a friendlier message
+    // that dialogs' generic catch-blocks can surface to the user directly,
+    // and preserve the name so QueryProvider's retry path can detect it.
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      const friendly = new Error(
+        `Request timed out after ${Math.round(ms / 1000)}s — your network or our proxy is slow. Please try again.`,
+      );
+      friendly.name = "TimeoutError";
+      throw friendly;
+    }
+    throw err;
+  }
 };
 
 export function createClient() {
