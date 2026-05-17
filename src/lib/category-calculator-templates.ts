@@ -149,10 +149,11 @@ export const CALCULATOR_TEMPLATES: Record<string, CalculatorTemplate> = {
     outputLabel: 'Total weight (kg)',
     pricingDimension: 'brand',
     pricingDimensionLabel: 'Brand',
-    computeOutput: (values) => {
+    computeOutput: (values, units) => {
       const dia = `${values.diameter_mm ?? 12}mm`;
       const weightPerMeter = TMT_WEIGHTS_PER_METER[dia] ?? 0;
-      const lengthM = values.length ?? 0;
+      const rawLength = values.length ?? 0;
+      const lengthM = units.length === 'ft' ? rawLength * 0.3048 : rawLength;
       const qty = values.qty ?? 0;
       return weightPerMeter * lengthM * qty;
     },
