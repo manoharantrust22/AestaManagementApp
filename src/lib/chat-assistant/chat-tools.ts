@@ -620,12 +620,24 @@ async function findLaborerIds(
   const { data } = await supabase
     .from("laborers")
     .select("id, name")
-    .eq("site_id", site_id)
     .ilike("name", `%${laborer_name}%`);
   return {
     ids: data?.map((l) => l.id) ?? [],
     names: data?.map((l) => l.name) ?? [],
   };
+}
+
+// Get laborer IDs who have worked at a site (via attendance records)
+async function getSiteLaborerIds(
+  supabase: DbClient,
+  site_id: string
+): Promise<string[]> {
+  const { data } = await supabase
+    .from("daily_attendance")
+    .select("laborer_id")
+    .eq("site_id", site_id)
+    .eq("is_deleted", false);
+  return [...new Set(data?.map((r) => r.laborer_id) ?? [])];
 }
 
 // ============================================================================
@@ -690,8 +702,7 @@ async function execGetLaborerAttendance(args: Record<string, unknown>, supabase:
 
 async function execGetTotalSalary(args: Record<string, unknown>, supabase: DbClient): Promise<string> {
   const { site_id, date_from, date_to } = args as Record<string, string>;
-  const { data: laborers } = await supabase.from("laborers").select("id").eq("site_id", site_id);
-  const ids = laborers?.map((l) => l.id) ?? [];
+  const ids = await getSiteLaborerIds(supabase, site_id);
   if (!ids.length) return JSON.stringify({ total_salary: 0 });
   const { data, error } = await supabase
     .from("salary_periods")
@@ -706,8 +717,7 @@ async function execGetTotalSalary(args: Record<string, unknown>, supabase: DbCli
 
 async function execGetSalaryPaid(args: Record<string, unknown>, supabase: DbClient): Promise<string> {
   const { site_id, date_from, date_to } = args as Record<string, string>;
-  const { data: laborers } = await supabase.from("laborers").select("id").eq("site_id", site_id);
-  const laborerIds = laborers?.map((l) => l.id) ?? [];
+  const laborerIds = await getSiteLaborerIds(supabase, site_id);
   if (!laborerIds.length) return JSON.stringify({ salary_paid: 0 });
   // Get salary period IDs for these laborers in the date range
   const { data: periods } = await supabase
@@ -729,8 +739,7 @@ async function execGetSalaryPaid(args: Record<string, unknown>, supabase: DbClie
 
 async function execGetSalaryPending(args: Record<string, unknown>, supabase: DbClient): Promise<string> {
   const { site_id, date_from, date_to } = args as Record<string, string>;
-  const { data: laborers } = await supabase.from("laborers").select("id").eq("site_id", site_id);
-  const ids = laborers?.map((l) => l.id) ?? [];
+  const ids = await getSiteLaborerIds(supabase, site_id);
   if (!ids.length) return JSON.stringify({ salary_pending: 0 });
   const { data, error } = await supabase
     .from("salary_periods")
@@ -844,10 +853,14 @@ async function execGetDailyCost(args: Record<string, unknown>, supabase: DbClien
 
 async function execGetTotalAdvances(args: Record<string, unknown>, supabase: DbClient): Promise<string> {
   const { site_id, date_from, date_to } = args as Record<string, string>;
+  const laborerIds = await getSiteLaborerIds(supabase, site_id);
+  if (!laborerIds.length) return JSON.stringify({ total_advances: 0, count: 0 });
   const { data, error } = await supabase
     .from("advances")
     .select("amount")
-    .eq("site_id", site_id)
+    .in("laborer_id", laborerIds)
+    .eq("transaction_type", "advance")
+    .eq("is_deleted", false)
     .gte("date", date_from)
     .lte("date", date_to);
   if (error) return JSON.stringify({ error: error.message });
@@ -857,10 +870,14 @@ async function execGetTotalAdvances(args: Record<string, unknown>, supabase: DbC
 
 async function execGetPendingAdvances(args: Record<string, unknown>, supabase: DbClient): Promise<string> {
   const { site_id } = args as Record<string, string>;
+  const laborerIds = await getSiteLaborerIds(supabase, site_id);
+  if (!laborerIds.length) return JSON.stringify({ pending_advances: [], total_pending: 0 });
   const { data, error } = await supabase
     .from("advances")
-    .select("amount, date, laborers(name)")
-    .eq("site_id", site_id)
+    .select("amount, date, laborer_id, laborers(name)")
+    .in("laborer_id", laborerIds)
+    .eq("transaction_type", "advance")
+    .eq("is_deleted", false)
     .in("deduction_status", ["pending", "partial"])
     .order("date", { ascending: false });
   if (error) return JSON.stringify({ error: error.message });
@@ -880,10 +897,13 @@ async function execGetLaborerAdvance(args: Record<string, unknown>, supabase: Db
   const { data, error } = await supabase
     .from("advances")
     .select("amount, deduction_status, date")
-    .eq("site_id", site_id)
-    .in("laborer_id", ids);
+    .in("laborer_id", ids)
+    .eq("transaction_type", "advance")
+    .eq("is_deleted", false);
   if (error) return JSON.stringify({ error: error.message });
-  const pending = (data ?? []).filter((r) => r.deduction_status === "pending" || r.deduction_status === "partial").reduce((s, r) => s + (r.amount ?? 0), 0);
+  const pending = (data ?? [])
+    .filter((r) => r.deduction_status === "pending" || r.deduction_status === "partial")
+    .reduce((s, r) => s + (r.amount ?? 0), 0);
   const total = (data ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
   return JSON.stringify({ laborer_name: names[0], total_advances: total, pending_balance: pending });
 }
@@ -1156,21 +1176,18 @@ async function execGetTeaShopEntries(args: Record<string, unknown>, supabase: Db
 
 async function execGetLaborerCount(args: Record<string, unknown>, supabase: DbClient): Promise<string> {
   const { site_id } = args as Record<string, string>;
-  const { count, error } = await supabase
-    .from("laborers")
-    .select("id", { count: "exact", head: true })
-    .eq("site_id", site_id)
-    .eq("status", "active");
-  if (error) return JSON.stringify({ error: error.message });
-  return JSON.stringify({ active_laborers: count ?? 0 });
+  const laborerIds = await getSiteLaborerIds(supabase, site_id);
+  return JSON.stringify({ active_laborers: laborerIds.length });
 }
 
 async function execGetLaborersByCategory(args: Record<string, unknown>, supabase: DbClient): Promise<string> {
   const { site_id } = args as Record<string, string>;
+  const laborerIds = await getSiteLaborerIds(supabase, site_id);
+  if (!laborerIds.length) return JSON.stringify({ by_category: {}, total: 0 });
   const { data, error } = await supabase
     .from("laborers")
     .select("category_id, labor_categories(name)")
-    .eq("site_id", site_id)
+    .in("id", laborerIds)
     .eq("status", "active");
   if (error) return JSON.stringify({ error: error.message });
   const byCategory: Record<string, number> = {};
@@ -1183,10 +1200,15 @@ async function execGetLaborersByCategory(args: Record<string, unknown>, supabase
 
 async function execGetTeamList(args: Record<string, unknown>, supabase: DbClient): Promise<string> {
   const { site_id } = args as Record<string, string>;
+  // Look up company_id from site
+  const { data: site } = await supabase.from("sites").select("company_id").eq("id", site_id).single();
+  const company_id = site?.company_id;
+  if (!company_id) return JSON.stringify({ error: "Site not found" });
   const { data, error } = await supabase
     .from("teams")
     .select("name, leader_name")
-    .eq("site_id", site_id);
+    .eq("company_id", company_id)
+    .eq("status", "active");
   if (error) return JSON.stringify({ error: error.message });
   const teams = (data ?? []).map((t) => ({
     name: t.name,
@@ -1197,20 +1219,27 @@ async function execGetTeamList(args: Record<string, unknown>, supabase: DbClient
 
 async function execGetTeamMembers(args: Record<string, unknown>, supabase: DbClient): Promise<string> {
   const { site_id, team_name } = args as Record<string, string>;
+  const { data: site } = await supabase.from("sites").select("company_id").eq("id", site_id).single();
+  const company_id = site?.company_id;
   const { data: teamData, error: te } = await supabase
     .from("teams")
     .select("id, name")
-    .eq("site_id", site_id)
+    .eq("company_id", company_id ?? "")
     .ilike("name", `%${team_name}%`);
   if (te) return JSON.stringify({ error: te.message });
   if (!teamData?.length) return JSON.stringify({ error: `No team found matching "${team_name}"` });
   const teamId = teamData[0].id;
   const { data, error } = await supabase
     .from("laborers")
-    .select("name, category_id, status")
+    .select("name, category_id, status, labor_categories(name)")
     .eq("team_id", teamId);
   if (error) return JSON.stringify({ error: error.message });
-  return JSON.stringify({ team: teamData[0].name, members: data, count: data?.length ?? 0 });
+  const members = (data ?? []).map((r) => ({
+    name: r.name,
+    category: (r.labor_categories as any)?.name ?? r.category_id ?? "Unknown",
+    status: r.status,
+  }));
+  return JSON.stringify({ team: teamData[0].name, members, count: members.length });
 }
 
 // ============================================================================
@@ -1273,7 +1302,7 @@ async function execGetHolidayList(args: Record<string, unknown>, supabase: DbCli
   const { site_id, date_from, date_to } = args as Record<string, string>;
   const { data, error } = await supabase
     .from("site_holidays")
-    .select("date, name, description")
+    .select("date, reason, is_paid_holiday")
     .eq("site_id", site_id)
     .gte("date", date_from)
     .lte("date", date_to)
