@@ -121,3 +121,27 @@ export interface ChatState {
   filters: ChatFilters;
   isLoading: boolean;
 }
+
+// ============================================================================
+// Chat API Types (Groq integration)
+// ============================================================================
+
+export interface ConversationHistoryItem {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatApiRequest {
+  question: string;
+  siteId: string | null;        // null = All Sites (company-wide)
+  companyId: string;
+  siteName: string;
+  dateFrom: string;             // YYYY-MM-DD
+  dateTo: string;               // YYYY-MM-DD
+  history: ConversationHistoryItem[];
+}
+
+export interface ChatApiResponse {
+  answer: string;
+  error?: string;
+}
