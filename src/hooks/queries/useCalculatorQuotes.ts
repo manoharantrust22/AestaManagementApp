@@ -62,7 +62,7 @@ export function useCalculatorVendorQuotes(
             return {
               vendorId: row.vendor_id,
               vendorName: vendorData?.name ?? "Unknown Vendor",
-              unitPrice: row.current_price as number,
+              unitPrice: row.current_price!,
               updatedAt: row.last_price_update ?? row.updated_at ?? null,
               priceIncludesGst: row.price_includes_gst ?? false,
             };
