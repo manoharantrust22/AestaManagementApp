@@ -650,7 +650,7 @@ async function execGetAttendanceList(args: Record<string, unknown>, supabase: Db
   const { site_id, date_from, date_to } = args as Record<string, string>;
   const { data, error } = await supabase
     .from("daily_attendance")
-    .select("date, day_type, daily_earnings, laborer_id, laborers(name, category)")
+    .select("date, day_units, daily_earnings, laborer_id, laborers(name)")
     .eq("is_deleted", false)
     .eq("site_id", site_id)
     .gte("date", date_from)
@@ -660,8 +660,7 @@ async function execGetAttendanceList(args: Record<string, unknown>, supabase: Db
   const records = (data ?? []).map((r) => ({
     date: r.date,
     name: (r.laborers as any)?.name ?? "Unknown",
-    category: (r.laborers as any)?.category ?? "",
-    day_type: r.day_type,
+    day_type: r.day_units === 1 ? "full" : "half",
     earnings: r.daily_earnings,
   }));
   return JSON.stringify({ records, total: records.length });
@@ -673,14 +672,14 @@ async function execGetLaborerAttendance(args: Record<string, unknown>, supabase:
   if (!ids.length) return JSON.stringify({ error: `No laborer found matching "${laborer_name}"` });
   const { data, error } = await supabase
     .from("daily_attendance")
-    .select("date, day_type, daily_earnings")
+    .select("date, day_units, daily_earnings")
     .eq("is_deleted", false)
     .eq("site_id", site_id)
     .in("laborer_id", ids)
     .gte("date", date_from)
     .lte("date", date_to);
   if (error) return JSON.stringify({ error: error.message });
-  const total_days = (data ?? []).reduce((s, r) => s + (r.day_type === "full" ? 1 : 0.5), 0);
+  const total_days = (data ?? []).reduce((s, r) => s + (r.day_units ?? 0), 0);
   const total_earnings = (data ?? []).reduce((s, r) => s + (r.daily_earnings ?? 0), 0);
   return JSON.stringify({ laborer_name: names[0], records: data, total_days, total_earnings });
 }
@@ -708,14 +707,21 @@ async function execGetTotalSalary(args: Record<string, unknown>, supabase: DbCli
 async function execGetSalaryPaid(args: Record<string, unknown>, supabase: DbClient): Promise<string> {
   const { site_id, date_from, date_to } = args as Record<string, string>;
   const { data: laborers } = await supabase.from("laborers").select("id").eq("site_id", site_id);
-  const ids = laborers?.map((l) => l.id) ?? [];
-  if (!ids.length) return JSON.stringify({ salary_paid: 0 });
+  const laborerIds = laborers?.map((l) => l.id) ?? [];
+  if (!laborerIds.length) return JSON.stringify({ salary_paid: 0 });
+  // Get salary period IDs for these laborers in the date range
+  const { data: periods } = await supabase
+    .from("salary_periods")
+    .select("id")
+    .in("laborer_id", laborerIds)
+    .gte("week_ending", date_from)
+    .lte("week_ending", date_to);
+  const periodIds = periods?.map((p) => p.id) ?? [];
+  if (!periodIds.length) return JSON.stringify({ salary_paid: 0 });
   const { data, error } = await supabase
     .from("salary_payments")
     .select("amount")
-    .in("laborer_id", ids)
-    .gte("payment_date", date_from)
-    .lte("payment_date", date_to);
+    .in("salary_period_id", periodIds);
   if (error) return JSON.stringify({ error: error.message });
   const total = (data ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
   return JSON.stringify({ salary_paid: total, date_from, date_to });
@@ -742,17 +748,16 @@ async function execGetTopEarners(args: Record<string, unknown>, supabase: DbClie
   const { site_id, date_from, date_to, limit = 5 } = args as Record<string, unknown>;
   const { data, error } = await supabase
     .from("daily_attendance")
-    .select("laborer_id, daily_earnings, laborers(name, category)")
+    .select("laborer_id, daily_earnings, laborers(name)")
     .eq("is_deleted", false)
     .eq("site_id", site_id as string)
     .gte("date", date_from as string)
     .lte("date", date_to as string);
   if (error) return JSON.stringify({ error: error.message });
-  const byLaborer = new Map<string, { name: string; category: string; total: number }>();
+  const byLaborer = new Map<string, { name: string; total: number }>();
   for (const r of data ?? []) {
     const name = (r.laborers as any)?.name ?? r.laborer_id;
-    const cat = (r.laborers as any)?.category ?? "";
-    const existing = byLaborer.get(r.laborer_id) ?? { name, category: cat, total: 0 };
+    const existing = byLaborer.get(r.laborer_id) ?? { name, total: 0 };
     existing.total += r.daily_earnings ?? 0;
     byLaborer.set(r.laborer_id, existing);
   }
@@ -825,7 +830,9 @@ async function execGetDailyCost(args: Record<string, unknown>, supabase: DbClien
   if (error) return JSON.stringify({ error: error.message });
   const byDate: Record<string, number> = {};
   for (const r of data ?? []) {
-    byDate[r.date] = (byDate[r.date] ?? 0) + (r.amount ?? 0);
+    if (r.date) {
+      byDate[r.date] = (byDate[r.date] ?? 0) + (r.amount ?? 0);
+    }
   }
   const rows = Object.entries(byDate).map(([date, total]) => ({ date, total }));
   return JSON.stringify({ daily_costs: rows });
@@ -854,7 +861,7 @@ async function execGetPendingAdvances(args: Record<string, unknown>, supabase: D
     .from("advances")
     .select("amount, date, laborers(name)")
     .eq("site_id", site_id)
-    .eq("is_settled", false)
+    .in("deduction_status", ["pending", "partial"])
     .order("date", { ascending: false });
   if (error) return JSON.stringify({ error: error.message });
   const records = (data ?? []).map((r) => ({
@@ -872,11 +879,11 @@ async function execGetLaborerAdvance(args: Record<string, unknown>, supabase: Db
   if (!ids.length) return JSON.stringify({ error: `No laborer found matching "${laborer_name}"` });
   const { data, error } = await supabase
     .from("advances")
-    .select("amount, is_settled, date")
+    .select("amount, deduction_status, date")
     .eq("site_id", site_id)
     .in("laborer_id", ids);
   if (error) return JSON.stringify({ error: error.message });
-  const pending = (data ?? []).filter((r) => !r.is_settled).reduce((s, r) => s + (r.amount ?? 0), 0);
+  const pending = (data ?? []).filter((r) => r.deduction_status === "pending" || r.deduction_status === "partial").reduce((s, r) => s + (r.amount ?? 0), 0);
   const total = (data ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
   return JSON.stringify({ laborer_name: names[0], total_advances: total, pending_balance: pending });
 }
@@ -913,7 +920,7 @@ async function execGetPendingPurchaseOrders(args: Record<string, unknown>, supab
     .from("purchase_orders")
     .select("po_number, order_date, status, total_amount, vendors(name)")
     .eq("site_id", site_id)
-    .in("status", ["pending", "approved", "ordered", "partially_delivered"])
+    .in("status", ["pending_approval", "approved", "ordered", "partial_delivered"])
     .order("order_date", { ascending: false });
   if (error) return JSON.stringify({ error: error.message });
   const orders = (data ?? []).map((r) => ({
@@ -955,7 +962,7 @@ async function execGetMaterialUsage(args: Record<string, unknown>, supabase: DbC
     .from("stock_transactions")
     .select("quantity, transaction_date, stock_inventory(material_id, materials(name, unit))")
     .eq("site_id", site_id as string)
-    .eq("transaction_type", "issue")
+    .eq("transaction_type", "usage")
     .gte("transaction_date", date_from as string)
     .lte("transaction_date", date_to as string);
   if (error) return JSON.stringify({ error: error.message });
@@ -1048,19 +1055,16 @@ async function execGetContractSummary(args: Record<string, unknown>, supabase: D
   const { site_id } = args as Record<string, string>;
   const { data, error } = await supabase
     .from("subcontracts")
-    .select("contract_value, amount_paid, status, laborers(name)")
+    .select("total_value, status, laborers(name)")
     .eq("site_id", site_id);
   if (error) return JSON.stringify({ error: error.message });
   const contracts = (data ?? []).map((r) => ({
     laborer: (r.laborers as any)?.name ?? "Unknown",
-    contract_value: r.contract_value,
-    amount_paid: r.amount_paid,
+    total_value: r.total_value,
     status: r.status,
-    balance: (r.contract_value ?? 0) - (r.amount_paid ?? 0),
   }));
-  const total_value = contracts.reduce((s, r) => s + (r.contract_value ?? 0), 0);
-  const total_paid = contracts.reduce((s, r) => s + (r.amount_paid ?? 0), 0);
-  return JSON.stringify({ contracts, total_value, total_paid, balance_due: total_value - total_paid });
+  const total_value = contracts.reduce((s, r) => s + (r.total_value ?? 0), 0);
+  return JSON.stringify({ contracts, total_value });
 }
 
 async function execGetClientPayments(args: Record<string, unknown>, supabase: DbClient): Promise<string> {
@@ -1081,17 +1085,17 @@ async function execGetSettlementStatus(args: Record<string, unknown>, supabase: 
   const { site_id, date_from, date_to } = args as Record<string, string>;
   const { data, error } = await supabase
     .from("settlement_groups")
-    .select("week_ending, total_amount, status, laborers(name)")
+    .select("settlement_date, total_amount, is_cancelled, settlement_reference")
     .eq("site_id", site_id)
-    .gte("week_ending", date_from)
-    .lte("week_ending", date_to)
-    .order("week_ending", { ascending: false });
+    .gte("settlement_date", date_from)
+    .lte("settlement_date", date_to)
+    .order("settlement_date", { ascending: false });
   if (error) return JSON.stringify({ error: error.message });
   const groups = (data ?? []).map((r) => ({
-    mesthri: (r.laborers as any)?.name ?? "Unknown",
-    week_ending: r.week_ending,
+    settlement_date: r.settlement_date,
     amount: r.total_amount,
-    status: r.status,
+    status: r.is_cancelled ? "cancelled" : "paid",
+    reference: r.settlement_reference,
   }));
   return JSON.stringify({ settlement_groups: groups });
 }
@@ -1100,11 +1104,11 @@ async function execGetSettlementHistory(args: Record<string, unknown>, supabase:
   const { site_id, date_from, date_to } = args as Record<string, string>;
   const { data, error } = await supabase
     .from("settlement_groups")
-    .select("total_amount, status")
+    .select("total_amount, is_cancelled")
     .eq("site_id", site_id)
-    .eq("status", "paid")
-    .gte("week_ending", date_from)
-    .lte("week_ending", date_to);
+    .eq("is_cancelled", false)
+    .gte("settlement_date", date_from)
+    .lte("settlement_date", date_to);
   if (error) return JSON.stringify({ error: error.message });
   const total = (data ?? []).reduce((s, r) => s + (r.total_amount ?? 0), 0);
   return JSON.stringify({ total_settled: total, groups_settled: data?.length ?? 0 });
@@ -1123,11 +1127,11 @@ async function execGetTeaShopBalance(args: Record<string, unknown>, supabase: Db
   if (e1) return JSON.stringify({ error: e1.message });
   const { data: settlements, error: e2 } = await supabase
     .from("tea_shop_settlements")
-    .select("amount")
+    .select("amount_paid")
     .eq("site_id", site_id);
   if (e2) return JSON.stringify({ error: e2.message });
   const total_debit = (entries ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
-  const total_credit = (settlements ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
+  const total_credit = (settlements ?? []).reduce((s, r) => s + (r.amount_paid ?? 0), 0);
   const balance = total_debit - total_credit;
   return JSON.stringify({ balance, total_debit, total_credit });
 }
@@ -1156,7 +1160,7 @@ async function execGetLaborerCount(args: Record<string, unknown>, supabase: DbCl
     .from("laborers")
     .select("id", { count: "exact", head: true })
     .eq("site_id", site_id)
-    .eq("is_active", true);
+    .eq("status", "active");
   if (error) return JSON.stringify({ error: error.message });
   return JSON.stringify({ active_laborers: count ?? 0 });
 }
@@ -1165,13 +1169,13 @@ async function execGetLaborersByCategory(args: Record<string, unknown>, supabase
   const { site_id } = args as Record<string, string>;
   const { data, error } = await supabase
     .from("laborers")
-    .select("category")
+    .select("category_id, labor_categories(name)")
     .eq("site_id", site_id)
-    .eq("is_active", true);
+    .eq("status", "active");
   if (error) return JSON.stringify({ error: error.message });
   const byCategory: Record<string, number> = {};
   for (const r of data ?? []) {
-    const cat = r.category ?? "other";
+    const cat = (r.labor_categories as any)?.name ?? r.category_id ?? "other";
     byCategory[cat] = (byCategory[cat] ?? 0) + 1;
   }
   return JSON.stringify({ by_category: byCategory, total: data?.length ?? 0 });
@@ -1181,12 +1185,12 @@ async function execGetTeamList(args: Record<string, unknown>, supabase: DbClient
   const { site_id } = args as Record<string, string>;
   const { data, error } = await supabase
     .from("teams")
-    .select("name, leader:leader_laborer_id(name)")
+    .select("name, leader_name")
     .eq("site_id", site_id);
   if (error) return JSON.stringify({ error: error.message });
   const teams = (data ?? []).map((t) => ({
     name: t.name,
-    leader: (t.leader as any)?.name ?? "No leader",
+    leader: t.leader_name ?? "No leader",
   }));
   return JSON.stringify({ teams, count: teams.length });
 }
@@ -1203,7 +1207,7 @@ async function execGetTeamMembers(args: Record<string, unknown>, supabase: DbCli
   const teamId = teamData[0].id;
   const { data, error } = await supabase
     .from("laborers")
-    .select("name, category, is_active")
+    .select("name, category_id, status")
     .eq("team_id", teamId);
   if (error) return JSON.stringify({ error: error.message });
   return JSON.stringify({ team: teamData[0].name, members: data, count: data?.length ?? 0 });
@@ -1227,7 +1231,9 @@ async function execGetCrossSiteExpenses(args: Record<string, unknown>, supabase:
   if (error) return JSON.stringify({ error: error.message });
   const bySite: Record<string, number> = {};
   for (const r of data ?? []) {
-    bySite[r.site_id] = (bySite[r.site_id] ?? 0) + (r.amount ?? 0);
+    if (r.site_id) {
+      bySite[r.site_id] = (bySite[r.site_id] ?? 0) + (r.amount ?? 0);
+    }
   }
   const result = (sites ?? [])
     .map((s) => ({ site: s.name, total: bySite[s.id] ?? 0 }))
