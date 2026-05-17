@@ -41,6 +41,11 @@ interface CalculatorWorkspaceProps {
   fixedMaterialName?: string;
   fixedCategoryCode?: string;
   onConvertToRequest?: () => void;
+  /**
+   * When true, hides the top-right cart badge button and EstimateBasketDrawer.
+   * Use on pages that render EstimateBasketPanel inline alongside the workspace.
+   */
+  hideBasketControls?: boolean;
 }
 
 export default function CalculatorWorkspace({
@@ -48,6 +53,7 @@ export default function CalculatorWorkspace({
   fixedMaterialName,
   fixedCategoryCode,
   onConvertToRequest,
+  hideBasketControls = false,
 }: CalculatorWorkspaceProps) {
   const theme = useTheme();
   const { addItem, totalItems } = useEstimateBasket();
@@ -171,21 +177,23 @@ export default function CalculatorWorkspace({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-      {/* Top row: basket badge button */}
-      <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-        <Button
-          startIcon={
-            <Badge badgeContent={totalItems} color="primary">
-              <ShoppingCartRoundedIcon />
-            </Badge>
-          }
-          onClick={() => setBasketDrawerOpen(true)}
-          variant="outlined"
-          size="small"
-        >
-          Estimate Basket
-        </Button>
-      </Box>
+      {/* Top row: basket badge button — hidden when basket is shown inline */}
+      {!hideBasketControls && (
+        <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+          <Button
+            startIcon={
+              <Badge badgeContent={totalItems} color="primary">
+                <ShoppingCartRoundedIcon />
+              </Badge>
+            }
+            onClick={() => setBasketDrawerOpen(true)}
+            variant="outlined"
+            size="small"
+          >
+            Estimate Basket
+          </Button>
+        </Box>
+      )}
 
       {/* Material selector — hidden when fixedMaterialId is provided */}
       {!fixedMaterialId && (
@@ -353,15 +361,17 @@ export default function CalculatorWorkspace({
         }}
       />
 
-      {/* Estimate basket drawer */}
-      <EstimateBasketDrawer
-        open={basketDrawerOpen}
-        onClose={() => setBasketDrawerOpen(false)}
-        onConvertToRequest={() => {
-          onConvertToRequest?.();
-          setBasketDrawerOpen(false);
-        }}
-      />
+      {/* Estimate basket drawer — hidden when basket is shown inline */}
+      {!hideBasketControls && (
+        <EstimateBasketDrawer
+          open={basketDrawerOpen}
+          onClose={() => setBasketDrawerOpen(false)}
+          onConvertToRequest={() => {
+            onConvertToRequest?.();
+            setBasketDrawerOpen(false);
+          }}
+        />
+      )}
     </Box>
   );
 }
