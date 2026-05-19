@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Box,
   Button,
@@ -8,12 +9,16 @@ import {
   Drawer,
   IconButton,
   Stack,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
+import BookmarkAddOutlinedIcon from "@mui/icons-material/BookmarkAddOutlined";
+import FolderOpenOutlinedIcon from "@mui/icons-material/FolderOpenOutlined";
 import { useEstimateBasket, type EstimateItem } from "@/contexts/EstimateBasketContext";
 import { formatINR } from "@/lib/calculatorMath";
+import { BasketDraftsDialog } from "./BasketDraftsDialog";
 
 interface EstimateBasketDrawerProps {
   open: boolean;
@@ -101,6 +106,7 @@ export function EstimateBasketDrawer({
   onConvertToRequest,
 }: EstimateBasketDrawerProps) {
   const { items, removeItem, clearBasket, totalItems } = useEstimateBasket();
+  const [draftsDialog, setDraftsDialog] = useState<null | "save" | "load">(null);
 
   const grandTotal = items.reduce((sum, item) => {
     if (!item.selectedVendorId) return sum;
@@ -139,9 +145,27 @@ export function EstimateBasketDrawer({
             </Typography>
             <Chip label={totalItems} size="small" color="primary" />
           </Box>
-          <IconButton size="small" onClick={onClose}>
-            <CloseRoundedIcon fontSize="small" />
-          </IconButton>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
+            <Tooltip title="Load a saved draft">
+              <IconButton size="small" onClick={() => setDraftsDialog("load")}>
+                <FolderOpenOutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={totalItems === 0 ? "Add items to save a draft" : "Save basket as draft"}>
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={() => setDraftsDialog("save")}
+                  disabled={totalItems === 0}
+                >
+                  <BookmarkAddOutlinedIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <IconButton size="small" onClick={onClose}>
+              <CloseRoundedIcon fontSize="small" />
+            </IconButton>
+          </Box>
         </Box>
 
         {/* Content */}
@@ -239,6 +263,13 @@ export function EstimateBasketDrawer({
           </>
         )}
       </Box>
+      {draftsDialog && (
+        <BasketDraftsDialog
+          open
+          mode={draftsDialog}
+          onClose={() => setDraftsDialog(null)}
+        />
+      )}
     </Drawer>
   );
 }

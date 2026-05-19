@@ -51,6 +51,7 @@ const UNITS: MaterialUnit[] = [
   "cum",
   "nos",
   "rmt",
+  "ft",
   "box",
   "set",
 ];
@@ -121,11 +122,12 @@ export function VendorQuoteDialog({
     }
   }, [material]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // For teak, the brand name encodes the product type (Log → cft, Palagai → sqft).
+  // For teak, the brand name encodes the product type (Log → cft, Palagai → ft).
+  // Palagai brands are named "Palagai {width}\" · {quality}" — keyed by running foot.
   // Auto-snap the unit when the user picks (or changes) the brand.
   useEffect(() => {
     if (!brand) return;
-    if (brand.brand_name.startsWith('Palagai')) setUnit('sqft');
+    if (brand.brand_name.startsWith('Palagai')) setUnit('ft');
     else if (brand.brand_name.startsWith('Log')) setUnit('cft');
   }, [brand]);
 

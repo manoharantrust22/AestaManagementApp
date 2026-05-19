@@ -34,6 +34,8 @@ interface EstimateBasketContextType {
   removeItem: (id: string) => void;
   updateItem: (id: string, patch: Partial<Omit<EstimateItem, 'id'>>) => void;
   clearBasket: () => void;
+  /** Replace the current basket with the given items (used by load-draft). */
+  loadItems: (items: EstimateItem[]) => void;
   totalItems: number;
 }
 
@@ -76,6 +78,13 @@ export function EstimateBasketProvider({
     setItems([]);
   }, []);
 
+  const loadItems = useCallback((next: EstimateItem[]) => {
+    // Loaded drafts may have stale or duplicate client ids; remint to be safe.
+    setItems(
+      next.map((item) => ({ ...item, id: crypto.randomUUID() })),
+    );
+  }, []);
+
   const value = useMemo<EstimateBasketContextType>(
     () => ({
       items,
@@ -83,9 +92,10 @@ export function EstimateBasketProvider({
       removeItem,
       updateItem,
       clearBasket,
+      loadItems,
       totalItems: items.length,
     }),
-    [items, addItem, removeItem, updateItem, clearBasket]
+    [items, addItem, removeItem, updateItem, clearBasket, loadItems]
   );
 
   return (

@@ -40,7 +40,7 @@ import {
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/contexts/ToastContext";
-import { useMaterials } from "@/hooks/queries/useMaterials";
+import { useMaterials, useMaterialBrands } from "@/hooks/queries/useMaterials";
 import { useSiteStock } from "@/hooks/queries/useStockInventory";
 import {
   useCreateMaterialRequest,
@@ -156,6 +156,83 @@ export default function MaterialRequestDialog({
   const [newItemFirstBatchQty, setNewItemFirstBatchQty] = useState("");
   const [newItemNotes, setNewItemNotes] = useState("");
 
+  // Teak-specific entry — only used when selected material is TEA-0001.
+  // Log: priced per cft, free width input.
+  // Palagai: priced per running foot, width chosen from discrete chips (5"–12"),
+  //          thickness defaults to 1.5" (rate stored at that thickness, scales
+  //          linearly until real vendor rates for other thicknesses are entered).
+  const TEAK_CODE = "TEA-0001";
+  const PALAGAI_WIDTHS_IN = [5, 6, 7, 8, 9, 10, 12] as const;
+  type PalagaiWidthIn = (typeof PALAGAI_WIDTHS_IN)[number];
+  const PALAGAI_REFERENCE_THICKNESS_IN = 1.5;
+  type TeakType = "Log" | "Palagai";
+  type TeakQuality = "1st Quality" | "2nd Quality";
+  const [teakType, setTeakType] = useState<TeakType>("Log");
+  const [teakQuality, setTeakQuality] = useState<TeakQuality>("1st Quality");
+  const [palagaiWidthIn, setPalagaiWidthIn] = useState<PalagaiWidthIn>(7);
+  const [teakLengthFt, setTeakLengthFt] = useState("");
+  const [teakWidthIn, setTeakWidthIn] = useState(""); // Log only
+  const [teakThicknessIn, setTeakThicknessIn] = useState(""); // Log: required. Palagai: default 1.5".
+  const [teakPieces, setTeakPieces] = useState("");
+
+  const isTeak = selectedMaterial?.code === TEAK_CODE;
+  const teakUnit: "cft" | "ft" = teakType === "Log" ? "cft" : "ft";
+
+  const { data: teakBrands = [] } = useMaterialBrands(
+    isTeak ? selectedMaterial?.id : undefined,
+  );
+
+  const resolvedTeakBrand = useMemo(() => {
+    if (!isTeak) return null;
+    const name =
+      teakType === "Log"
+        ? `Log · ${teakQuality}`
+        : `Palagai ${palagaiWidthIn}" · ${teakQuality}`;
+    return teakBrands.find((b) => b.brand_name === name) ?? null;
+  }, [isTeak, teakBrands, teakType, teakQuality, palagaiWidthIn]);
+
+  // Effective Palagai thickness for scaling vendor rates + populating notes.
+  const palagaiThicknessIn =
+    parseFloat(teakThicknessIn) > 0
+      ? parseFloat(teakThicknessIn)
+      : PALAGAI_REFERENCE_THICKNESS_IN;
+  const palagaiNeedsScaleNote =
+    isTeak &&
+    teakType === "Palagai" &&
+    Math.abs(palagaiThicknessIn - PALAGAI_REFERENCE_THICKNESS_IN) > 0.001;
+
+  const teakComputedQty = useMemo(() => {
+    if (!isTeak) return 0;
+    const L = parseFloat(teakLengthFt) || 0;
+    const Q = parseFloat(teakPieces) || 0;
+    if (teakType === "Log") {
+      const W = parseFloat(teakWidthIn) || 0;
+      const T = parseFloat(teakThicknessIn) || 0;
+      if (!L || !W || !T || !Q) return 0;
+      return (W / 12) * (T / 12) * L * Q;
+    }
+    // Palagai: running feet = length × pieces (width × thickness affect price, not qty)
+    if (!L || !Q) return 0;
+    return L * Q;
+  }, [
+    isTeak,
+    teakType,
+    teakLengthFt,
+    teakWidthIn,
+    teakThicknessIn,
+    teakPieces,
+  ]);
+
+  const resetTeakEntry = () => {
+    setTeakType("Log");
+    setTeakQuality("1st Quality");
+    setPalagaiWidthIn(7);
+    setTeakLengthFt("");
+    setTeakWidthIn("");
+    setTeakThicknessIn("");
+    setTeakPieces("");
+  };
+
   // Ref to prevent double submissions (more reliable than state)
   const isSubmittingRef = useRef(false);
 
@@ -221,6 +298,7 @@ export default function MaterialRequestDialog({
     setNewItemQty("");
     setNewItemFirstBatchQty("");
     setNewItemNotes("");
+    resetTeakEntry();
     setRemovedItemIds([]);
     // Reset submission guard when dialog opens/closes
     isSubmittingRef.current = false;
@@ -232,6 +310,82 @@ export default function MaterialRequestDialog({
       setError("Please select a material");
       return;
     }
+
+    if (isTeak) {
+      if (!resolvedTeakBrand) {
+        setError(
+          `Could not find brand for ${teakType} · ${teakQuality}${
+            teakType === "Palagai" ? ` (${palagaiWidthIn}")` : ""
+          } — check the teak catalog.`,
+        );
+        return;
+      }
+      const L = parseFloat(teakLengthFt) || 0;
+      const Q = parseFloat(teakPieces) || 0;
+      const W =
+        teakType === "Log" ? parseFloat(teakWidthIn) || 0 : palagaiWidthIn;
+      const T =
+        teakType === "Log"
+          ? parseFloat(teakThicknessIn) || 0
+          : palagaiThicknessIn;
+      if (teakType === "Log" && (!L || !W || !T || !Q)) {
+        setError("Enter length, width, thickness and number of pieces.");
+        return;
+      }
+      if (teakType === "Palagai" && (!L || !Q)) {
+        setError("Enter length and number of pieces.");
+        return;
+      }
+      if (teakComputedQty <= 0) {
+        setError("Computed quantity must be greater than zero.");
+        return;
+      }
+      // Allow the same teak material to be added more than once under different
+      // brands — duplicate-guard by (material, brand) instead of material alone.
+      if (
+        items.some(
+          (item) =>
+            item.material_id === selectedMaterial.id &&
+            item.brand_id === resolvedTeakBrand.id,
+        )
+      ) {
+        setError(`${resolvedTeakBrand.brand_name} is already in this request.`);
+        return;
+      }
+
+      const dimsLabel =
+        teakType === "Log"
+          ? `${W}\" × ${T}\" × ${L}ft × ${Q}pcs`
+          : `${palagaiWidthIn}\" × ${T}\" × ${L}ft × ${Q}pcs`;
+      const baseNotes = `${resolvedTeakBrand.brand_name} — ${dimsLabel}`;
+      const finalNotes = newItemNotes
+        ? `${baseNotes} | ${newItemNotes}`
+        : baseNotes;
+
+      const firstBatch = deliveryType === "bulk" && newItemFirstBatchQty
+        ? parseFloat(newItemFirstBatchQty)
+        : undefined;
+
+      const newItem: RequestItemRow = {
+        material_id: selectedMaterial.id,
+        brand_id: resolvedTeakBrand.id,
+        requested_qty: parseFloat(teakComputedQty.toFixed(3)),
+        first_batch_qty: firstBatch,
+        notes: finalNotes,
+        materialName: `${selectedMaterial.name} — ${resolvedTeakBrand.brand_name}`,
+        unit: teakUnit,
+        availableStock: getAvailableStock(selectedMaterial.id),
+      };
+
+      setItems([...items, newItem]);
+      setSelectedMaterial(null);
+      resetTeakEntry();
+      setNewItemFirstBatchQty("");
+      setNewItemNotes("");
+      setError("");
+      return;
+    }
+
     if (!newItemQty || parseFloat(newItemQty) <= 0) {
       setError("Please enter a valid quantity");
       return;
@@ -584,19 +738,21 @@ export default function MaterialRequestDialog({
             />
           </Grid>
 
-          <Grid size={{ xs: deliveryType === 'bulk' ? 3 : 4, md: 2 }}>
-            <TextField
-              fullWidth
-              size="small"
-              type="number"
-              label="Total Qty"
-              value={newItemQty}
-              onChange={(e) => setNewItemQty(e.target.value)}
-              slotProps={{ input: { inputProps: { min: 0, step: 0.01 } } }}
-            />
-          </Grid>
+          {!isTeak && (
+            <Grid size={{ xs: deliveryType === 'bulk' ? 3 : 4, md: 2 }}>
+              <TextField
+                fullWidth
+                size="small"
+                type="number"
+                label="Total Qty"
+                value={newItemQty}
+                onChange={(e) => setNewItemQty(e.target.value)}
+                slotProps={{ input: { inputProps: { min: 0, step: 0.01 } } }}
+              />
+            </Grid>
+          )}
 
-          {deliveryType === 'bulk' && (
+          {!isTeak && deliveryType === 'bulk' && (
             <Grid size={{ xs: 3, md: 2 }}>
               <TextField
                 fullWidth
@@ -611,28 +767,235 @@ export default function MaterialRequestDialog({
             </Grid>
           )}
 
-          <Grid size={{ xs: deliveryType === 'bulk' ? 6 : 8, md: 3 }}>
-            <TextField
-              fullWidth
-              size="small"
-              label="Notes"
-              value={newItemNotes}
-              onChange={(e) => setNewItemNotes(e.target.value)}
-              placeholder="Optional"
-            />
-          </Grid>
+          {!isTeak && (
+            <Grid size={{ xs: deliveryType === 'bulk' ? 6 : 8, md: 3 }}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Notes"
+                value={newItemNotes}
+                onChange={(e) => setNewItemNotes(e.target.value)}
+                placeholder="Optional"
+              />
+            </Grid>
+          )}
 
-          <Grid size={{ xs: 12, md: 2 }}>
-            <Button
-              fullWidth
-              variant="outlined"
-              startIcon={<AddIcon />}
-              onClick={handleAddItem}
-              sx={{ height: 40 }}
-            >
-              Add
-            </Button>
-          </Grid>
+          {!isTeak && (
+            <Grid size={{ xs: 12, md: 2 }}>
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<AddIcon />}
+                onClick={handleAddItem}
+                sx={{ height: 40 }}
+              >
+                Add
+              </Button>
+            </Grid>
+          )}
+
+          {isTeak && (
+            <Grid size={12}>
+              <Paper variant="outlined" sx={{ p: 2, bgcolor: "action.hover" }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                  Teak wood — {teakType === "Log"
+                    ? "enter per-piece dimensions; total in cft"
+                    : "pick plank width; total in running feet (rate × thickness ratio when ≠ 1.5″)"}
+                </Typography>
+                <Grid container spacing={1.5} alignItems="center">
+                  <Grid size={{ xs: 12, md: 4 }}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                        Type
+                      </Typography>
+                      <ToggleButtonGroup
+                        value={teakType}
+                        exclusive
+                        onChange={(_, val) => { if (val) setTeakType(val as TeakType); }}
+                        size="small"
+                        fullWidth
+                      >
+                        <ToggleButton value="Log">Log</ToggleButton>
+                        <ToggleButton value="Palagai">Palagai</ToggleButton>
+                      </ToggleButtonGroup>
+                    </Box>
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 5 }}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                        Quality
+                      </Typography>
+                      <ToggleButtonGroup
+                        value={teakQuality}
+                        exclusive
+                        onChange={(_, val) => { if (val) setTeakQuality(val as TeakQuality); }}
+                        size="small"
+                        fullWidth
+                      >
+                        <ToggleButton value="1st Quality">1st Quality</ToggleButton>
+                        <ToggleButton value="2nd Quality">2nd Quality</ToggleButton>
+                      </ToggleButtonGroup>
+                    </Box>
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 3 }}>
+                    {!resolvedTeakBrand && (
+                      <Typography variant="caption" color="warning.main">
+                        Brand &ldquo;{teakType} · {teakQuality}&rdquo; not found in catalog.
+                      </Typography>
+                    )}
+                  </Grid>
+
+                  {teakType === "Palagai" && (
+                    <Grid size={12}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                        Plank width
+                      </Typography>
+                      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                        {PALAGAI_WIDTHS_IN.map((w) => (
+                          <ToggleButton
+                            key={w}
+                            value={w}
+                            selected={palagaiWidthIn === w}
+                            onClick={() => setPalagaiWidthIn(w)}
+                            size="small"
+                            sx={{ px: 1.5, py: 0.25 }}
+                          >
+                            {w}&quot;
+                          </ToggleButton>
+                        ))}
+                      </Box>
+                    </Grid>
+                  )}
+
+                  <Grid size={{ xs: 6, md: 2 }}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      type="number"
+                      label="Length (ft)"
+                      value={teakLengthFt}
+                      onChange={(e) => setTeakLengthFt(e.target.value)}
+                      slotProps={{ input: { inputProps: { min: 0, step: 0.1 } } }}
+                    />
+                  </Grid>
+                  {teakType === "Log" && (
+                    <Grid size={{ xs: 6, md: 2 }}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        type="number"
+                        label="Width (in)"
+                        value={teakWidthIn}
+                        onChange={(e) => setTeakWidthIn(e.target.value)}
+                        slotProps={{ input: { inputProps: { min: 0, step: 0.1 } } }}
+                      />
+                    </Grid>
+                  )}
+                  <Grid size={{ xs: 6, md: 2 }}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      type="number"
+                      label={
+                        teakType === "Palagai"
+                          ? "Thickness (in, default 1.5)"
+                          : "Thickness (in)"
+                      }
+                      value={teakThicknessIn}
+                      onChange={(e) => setTeakThicknessIn(e.target.value)}
+                      placeholder={teakType === "Palagai" ? "1.5" : undefined}
+                      slotProps={{ input: { inputProps: { min: 0, step: 0.1 } } }}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 6, md: 2 }}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      type="number"
+                      label="No. of pieces"
+                      value={teakPieces}
+                      onChange={(e) => setTeakPieces(e.target.value)}
+                      slotProps={{ input: { inputProps: { min: 1, step: 1 } } }}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 4 }}>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        flexDirection: "column",
+                        justifyContent: "center",
+                        minHeight: 40,
+                        px: 1.5,
+                        py: 0.5,
+                        border: 1,
+                        borderColor: "divider",
+                        borderRadius: 1,
+                        bgcolor: "background.paper",
+                      }}
+                    >
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                        <Typography variant="caption" color="text.secondary">
+                          Total
+                        </Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                          {teakComputedQty > 0
+                            ? `${teakComputedQty.toFixed(3)} ${teakUnit}`
+                            : `— ${teakUnit}`}
+                        </Typography>
+                      </Box>
+                      {teakComputedQty > 0 && (parseFloat(teakPieces) || 0) > 1 && (
+                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem" }}>
+                          {(teakComputedQty / (parseFloat(teakPieces) || 1)).toFixed(3)} {teakUnit}/pc × {teakPieces} pcs
+                        </Typography>
+                      )}
+                      {palagaiNeedsScaleNote && (
+                        <Typography variant="caption" color="warning.main" sx={{ fontSize: "0.7rem" }}>
+                          Vendor rate scales by ×{(palagaiThicknessIn / PALAGAI_REFERENCE_THICKNESS_IN).toFixed(2)} for {palagaiThicknessIn.toFixed(2)}″ thickness
+                        </Typography>
+                      )}
+                    </Box>
+                  </Grid>
+
+                  <Grid size={{ xs: 12, md: deliveryType === "bulk" ? 4 : 8 }}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Extra notes (optional)"
+                      value={newItemNotes}
+                      onChange={(e) => setNewItemNotes(e.target.value)}
+                      placeholder="Dimensions are auto-added; type any extra context"
+                    />
+                  </Grid>
+                  {deliveryType === "bulk" && (
+                    <Grid size={{ xs: 6, md: 2 }}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        type="number"
+                        label={`1st batch (${teakUnit})`}
+                        value={newItemFirstBatchQty}
+                        onChange={(e) => setNewItemFirstBatchQty(e.target.value)}
+                        slotProps={{ input: { inputProps: { min: 0, step: 0.01 } } }}
+                        placeholder="Optional"
+                      />
+                    </Grid>
+                  )}
+                  <Grid size={{ xs: 12, md: 2 }}>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      startIcon={<AddIcon />}
+                      onClick={handleAddItem}
+                      sx={{ height: 40 }}
+                      disabled={teakComputedQty <= 0 || !resolvedTeakBrand}
+                    >
+                      Add
+                    </Button>
+                  </Grid>
+                </Grid>
+              </Paper>
+            </Grid>
+          )}
 
           {/* Items Table */}
           <Grid size={12}>

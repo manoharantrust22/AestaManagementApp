@@ -86,23 +86,31 @@ export default function CalculatorWorkspace({
   const TEAK_TYPES = ['Log', 'Palagai'] as const;
   type TeakType = (typeof TEAK_TYPES)[number];
   type TeakOutputUnit = 'cft' | 'sqft' | 'ft';
+  // Palagai is priced per running foot, rate varies by (width × quality).
+  // Default output unit for Palagai is therefore `ft`, not sqft.
   const DEFAULT_TEAK_UNIT: Record<TeakType, TeakOutputUnit> = {
     Log: 'cft',
-    Palagai: 'sqft',
+    Palagai: 'ft',
   };
-  const PALAGAI_THICKNESS_IN = 1.5;
+  // Stored vendor rates assume this thickness; effective rate scales linearly
+  // with thickness ratio until real rates for other thicknesses are entered.
+  const PALAGAI_REFERENCE_THICKNESS_IN = 1.5;
+  const PALAGAI_WIDTHS_IN = [5, 6, 7, 8, 9, 10, 12] as const;
+  type PalagaiWidthIn = (typeof PALAGAI_WIDTHS_IN)[number];
   const isTeak = selectedMaterialCode === 'TEA-0001';
 
   const [teakType, setTeakType] = useState<TeakType>('Log');
   const [outputUnit, setOutputUnit] = useState<TeakOutputUnit>('cft');
+  const [palagaiWidthIn, setPalagaiWidthIn] = useState<PalagaiWidthIn>(7);
 
   const effectiveTemplate = useMemo(() => {
     if (!isTeak) return template;
 
-    // Strip thickness input for Palagai (locked at 1.5") and pick label by unit
+    // For Palagai the width is chosen via a chip selector (discrete market
+    // widths), so drop the freeform width input from the template.
     const inputs =
       teakType === 'Palagai'
-        ? template.inputs.filter((f) => f.key !== 'thickness')
+        ? template.inputs.filter((f) => f.key !== 'width')
         : template.inputs;
 
     const labelByUnit: Record<TeakOutputUnit, string> = {
@@ -124,24 +132,24 @@ export default function CalculatorWorkspace({
           values.length ?? 0,
           (units.length ?? 'ft') as LengthUnit,
         );
-        const widthFt = toFeet(
-          values.width ?? 0,
-          (units.width ?? 'in') as LengthUnit,
-        );
-        const thicknessFt =
+        const widthFt =
           teakType === 'Log'
             ? toFeet(
-                values.thickness ?? 0,
-                (units.thickness ?? 'in') as LengthUnit,
+                values.width ?? 0,
+                (units.width ?? 'in') as LengthUnit,
               )
-            : PALAGAI_THICKNESS_IN / 12;
+            : palagaiWidthIn / 12;
+        const thicknessFt = toFeet(
+          values.thickness ?? 0,
+          (units.thickness ?? 'in') as LengthUnit,
+        );
         const qty = values.qty ?? 0;
         if (outputUnit === 'cft') return lengthFt * widthFt * thicknessFt * qty;
         if (outputUnit === 'sqft') return lengthFt * widthFt * qty;
         return lengthFt * qty; // 'ft' (running)
       },
     };
-  }, [isTeak, teakType, outputUnit, template]);
+  }, [isTeak, teakType, outputUnit, palagaiWidthIn, template]);
 
   // ── Dimension inputs ───────────────────────────────────────────────────────
   const [values, setValues] = useState<Record<string, number | "">>(() =>
@@ -223,7 +231,44 @@ export default function CalculatorWorkspace({
     setSelectedVendorId(null);
     setTeakType('Log');
     setOutputUnit('cft');
+    setPalagaiWidthIn(7);
   }
+
+  // Brand-name prefix that the active teak chip combo maps to.
+  // Log → "Log · "; Palagai → "Palagai {width}\" · " (composite width brand).
+  const teakBrandPrefix = isTeak
+    ? teakType === 'Log'
+      ? 'Log · '
+      : `Palagai ${palagaiWidthIn}" · `
+    : null;
+
+  // Thickness scaling for Palagai: vendor rate is stored at the reference
+  // thickness (1.5"). If the user picks a different thickness, scale linearly
+  // until real vendor rates for that thickness are entered.
+  const palagaiThicknessIn =
+    typeof values.thickness === 'number' && values.thickness > 0
+      ? toFeet(values.thickness, (units.thickness ?? 'in') as LengthUnit) * 12
+      : PALAGAI_REFERENCE_THICKNESS_IN;
+  const palagaiThicknessScale =
+    isTeak && teakType === 'Palagai'
+      ? palagaiThicknessIn / PALAGAI_REFERENCE_THICKNESS_IN
+      : 1;
+  const palagaiNeedsScaleNote =
+    isTeak &&
+    teakType === 'Palagai' &&
+    Math.abs(palagaiThicknessIn - PALAGAI_REFERENCE_THICKNESS_IN) > 0.001;
+
+  // Quotes with thickness-scaled unit prices (only matters for Palagai when
+  // user picks a thickness other than 1.5"). For Log and non-teak materials
+  // this is a passthrough.
+  const displayQuotes = useMemo(
+    () =>
+      quotes.map((q) => ({
+        ...q,
+        unitPrice: q.unitPrice * palagaiThicknessScale,
+      })),
+    [quotes, palagaiThicknessScale],
+  );
 
   function handleAddToBasket() {
     if (!selectedMaterialId || computedOutput <= 0) return;
@@ -240,7 +285,7 @@ export default function CalculatorWorkspace({
       outputUnit: effectiveTemplate.outputUnit,
       outputLabel: effectiveTemplate.outputLabel,
       pricingDimensionValue: selectedBrandName,
-      vendorQuotes: quotes.map((q) => ({
+      vendorQuotes: displayQuotes.map((q) => ({
         vendorId: q.vendorId,
         vendorName: q.vendorName,
         unitPrice: q.unitPrice,
@@ -350,17 +395,32 @@ export default function CalculatorWorkspace({
             {TEAK_TYPES.map((t) => (
               <Chip
                 key={t}
-                label={t === 'Palagai' ? 'Palagai (1.5")' : t}
+                label={t}
                 onClick={() => {
                   setTeakType(t);
                   setOutputUnit(DEFAULT_TEAK_UNIT[t]);
-                  // Preserve quality across type switch: if user had "Log · 1st"
-                  // and switches to Palagai, try to land on "Palagai · 1st".
-                  const qualitySuffix = selectedBrandName?.split(' · ')[1];
+                  // Seed thickness for Palagai (1.5" reference) so the user
+                  // doesn't see an empty field when they switch types.
+                  if (t === 'Palagai') {
+                    setValues((prev) => ({
+                      ...prev,
+                      thickness: PALAGAI_REFERENCE_THICKNESS_IN,
+                    }));
+                    setUnits((prev) => ({ ...prev, thickness: 'in' }));
+                  }
+                  // Preserve quality across type switch. For Log, target
+                  // "Log · {quality}". For Palagai, target
+                  // "Palagai {width}\" · {quality}" using the current chip.
+                  const qualitySuffix = selectedBrandName
+                    ?.split(' · ')
+                    .slice(1)
+                    .join(' · ');
                   if (qualitySuffix) {
-                    const next = brands.find(
-                      (b) => b.brand_name === `${t} · ${qualitySuffix}`,
-                    );
+                    const nextName =
+                      t === 'Log'
+                        ? `Log · ${qualitySuffix}`
+                        : `Palagai ${palagaiWidthIn}" · ${qualitySuffix}`;
+                    const next = brands.find((b) => b.brand_name === nextName);
                     setSelectedBrandId(next?.id ?? null);
                     setSelectedBrandName(next?.brand_name ?? null);
                   } else {
@@ -377,8 +437,51 @@ export default function CalculatorWorkspace({
         </Box>
       )}
 
+      {/* Palagai width chip selector — only when Palagai mode active */}
+      {isTeak && teakType === 'Palagai' && (
+        <Box>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            display="block"
+            sx={{ mb: 0.75 }}
+          >
+            Plank width
+          </Typography>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+            {PALAGAI_WIDTHS_IN.map((w) => (
+              <Chip
+                key={w}
+                label={`${w}"`}
+                onClick={() => {
+                  setPalagaiWidthIn(w);
+                  // Re-target the brand row for the new width, preserving quality.
+                  const qualitySuffix = selectedBrandName
+                    ?.split(' · ')
+                    .slice(1)
+                    .join(' · ');
+                  if (qualitySuffix) {
+                    const next = brands.find(
+                      (b) => b.brand_name === `Palagai ${w}" · ${qualitySuffix}`,
+                    );
+                    setSelectedBrandId(next?.id ?? null);
+                    setSelectedBrandName(next?.brand_name ?? null);
+                  } else {
+                    setSelectedBrandId(null);
+                    setSelectedBrandName(null);
+                  }
+                  setSelectedVendorId(null);
+                }}
+                variant={palagaiWidthIn === w ? 'filled' : 'outlined'}
+                color={palagaiWidthIn === w ? 'primary' : 'default'}
+              />
+            ))}
+          </Box>
+        </Box>
+      )}
+
       {/* Brand/quality chips — for teak, filter to the active type's brands */}
-      {showBrandChips && (
+      {showBrandChips && teakBrandPrefix !== null && (
         <Box>
           <Typography
             variant="caption"
@@ -389,19 +492,40 @@ export default function CalculatorWorkspace({
             {template.pricingDimensionLabel}
           </Typography>
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-            {(isTeak
-              ? brands.filter((b) =>
-                  b.brand_name.startsWith(`${teakType} · `),
-                )
-              : brands
-            ).map((b) => (
+            {brands
+              .filter((b) => b.brand_name.startsWith(teakBrandPrefix))
+              .map((b) => (
+                <Chip
+                  key={b.id}
+                  label={b.brand_name.replace(teakBrandPrefix, '')}
+                  onClick={() => {
+                    setSelectedBrandId(b.id);
+                    setSelectedBrandName(b.brand_name);
+                    setSelectedVendorId(null);
+                  }}
+                  variant={selectedBrandId === b.id ? 'filled' : 'outlined'}
+                  color={selectedBrandId === b.id ? 'primary' : 'default'}
+                  sx={{ mr: 0.5 }}
+                />
+              ))}
+          </Box>
+        </Box>
+      )}
+      {showBrandChips && !isTeak && (
+        <Box>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            display="block"
+            sx={{ mb: 0.75 }}
+          >
+            {template.pricingDimensionLabel}
+          </Typography>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+            {brands.map((b) => (
               <Chip
                 key={b.id}
-                label={
-                  isTeak
-                    ? b.brand_name.replace(`${teakType} · `, '')
-                    : b.brand_name
-                }
+                label={b.brand_name}
                 onClick={() => {
                   setSelectedBrandId(b.id);
                   setSelectedBrandName(b.brand_name);
@@ -483,6 +607,17 @@ export default function CalculatorWorkspace({
               </Typography>
             )}
           </Box>
+          {(numericValues.qty ?? 0) > 1 && computedOutput > 0 && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: "block", mt: 0.5 }}
+            >
+              {(computedOutput / numericValues.qty).toFixed(3)}{" "}
+              {effectiveTemplate.outputUnit} per piece × {numericValues.qty} pcs
+              = {computedOutput.toFixed(3)} {effectiveTemplate.outputUnit}
+            </Typography>
+          )}
           {isTeak && !teakUnitMatchesDefault && (
             <Typography
               variant="caption"
@@ -490,7 +625,17 @@ export default function CalculatorWorkspace({
               sx={{ display: "block", mt: 0.5 }}
             >
               Vendor rates only auto-fill on the default unit
-              (cft for Log, sqft for Palagai). Switch back to see prices.
+              (cft for Log, ft for Palagai). Switch back to see prices.
+            </Typography>
+          )}
+          {palagaiNeedsScaleNote && (
+            <Typography
+              variant="caption"
+              color="warning.main"
+              sx={{ display: "block", mt: 0.5 }}
+            >
+              Rate scaled from 1.5″ base by ×{palagaiThicknessScale.toFixed(2)}
+              {" "}for {palagaiThicknessIn.toFixed(2)}″ thickness — confirm with vendor.
             </Typography>
           )}
         </Box>
@@ -504,7 +649,7 @@ export default function CalculatorWorkspace({
             Vendor prices
           </Typography>
           <VendorQuoteList
-            quotes={quotes}
+            quotes={displayQuotes}
             isLoading={quotesLoading}
             computedOutput={computedOutput}
             outputUnit={effectiveTemplate.outputUnit}

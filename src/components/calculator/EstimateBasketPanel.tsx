@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Box,
   Button,
@@ -8,16 +9,20 @@ import {
   IconButton,
   Paper,
   Stack,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import DeleteRoundedIcon from "@mui/icons-material/DeleteRounded";
 import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
+import BookmarkAddOutlinedIcon from "@mui/icons-material/BookmarkAddOutlined";
+import FolderOpenOutlinedIcon from "@mui/icons-material/FolderOpenOutlined";
 import {
   useEstimateBasket,
   type EstimateItem,
 } from "@/contexts/EstimateBasketContext";
 import { getCalculatorTemplate } from "@/lib/category-calculator-templates";
 import { formatINR } from "@/lib/calculatorMath";
+import { BasketDraftsDialog } from "./BasketDraftsDialog";
 
 interface EstimateBasketPanelProps {
   onConvertToRequest: () => void;
@@ -124,6 +129,7 @@ function BasketItemRow({
 
 export function EstimateBasketPanel({ onConvertToRequest }: EstimateBasketPanelProps) {
   const { items, removeItem, clearBasket, totalItems } = useEstimateBasket();
+  const [draftsDialog, setDraftsDialog] = useState<null | "save" | "load">(null);
 
   const grandTotal = items.reduce((sum, item) => {
     if (!item.selectedVendorId) return sum;
@@ -175,16 +181,39 @@ export function EstimateBasketPanel({ onConvertToRequest }: EstimateBasketPanelP
             <Chip label={totalItems} size="small" color="primary" />
           )}
         </Box>
-        {totalItems > 0 && (
-          <Button
-            size="small"
-            color="error"
-            onClick={clearBasket}
-            sx={{ textTransform: "none", fontSize: "0.75rem" }}
-          >
-            Clear all
-          </Button>
-        )}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
+          <Tooltip title="Load a saved draft">
+            <IconButton
+              size="small"
+              onClick={() => setDraftsDialog("load")}
+              aria-label="Load saved draft"
+            >
+              <FolderOpenOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title={totalItems === 0 ? "Add items to save a draft" : "Save basket as draft"}>
+            <span>
+              <IconButton
+                size="small"
+                onClick={() => setDraftsDialog("save")}
+                disabled={totalItems === 0}
+                aria-label="Save current basket as draft"
+              >
+                <BookmarkAddOutlinedIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          {totalItems > 0 && (
+            <Button
+              size="small"
+              color="error"
+              onClick={clearBasket}
+              sx={{ textTransform: "none", fontSize: "0.75rem" }}
+            >
+              Clear all
+            </Button>
+          )}
+        </Box>
       </Box>
 
       {/* Content */}
@@ -271,6 +300,14 @@ export function EstimateBasketPanel({ onConvertToRequest }: EstimateBasketPanelP
             </Button>
           </Box>
         </>
+      )}
+
+      {draftsDialog && (
+        <BasketDraftsDialog
+          open
+          mode={draftsDialog}
+          onClose={() => setDraftsDialog(null)}
+        />
       )}
     </Paper>
   );

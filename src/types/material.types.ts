@@ -27,6 +27,7 @@ export type MaterialUnit =
   | "cum"
   | "nos"
   | "rmt"
+  | "ft"
   | "box"
   | "set";
 
@@ -1680,6 +1681,7 @@ export const MATERIAL_UNIT_LABELS: Record<MaterialUnit, string> = {
   cum: "Cubic Meter",
   nos: "Numbers",
   rmt: "Running Meter",
+  ft: "Running Feet",
   box: "Box",
   set: "Set",
 };

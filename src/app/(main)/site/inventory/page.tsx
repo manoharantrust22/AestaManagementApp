@@ -120,6 +120,7 @@ const UNIT_LABELS: Record<MaterialUnit, string> = {
   cum: "Cum",
   nos: "Nos",
   rmt: "Rmt",
+  ft: "Ft",
   box: "Box",
   set: "Set",
 };
