@@ -113,9 +113,9 @@ export function SettlementsList({
                 display: "grid",
                 gridTemplateColumns: {
                   xs: "1fr auto",
-                  md: filter === "daily-market"
-                    ? "150px 170px 1fr 100px 36px"
-                    : "150px 170px 1fr 110px 100px 36px",
+                  md: filter === "all"
+                    ? "150px 170px 1fr 110px 100px 36px"
+                    : "150px 170px 1fr 100px 36px",
                 },
                 gap: { xs: 1, md: 1.5 },
                 alignItems: "center",
@@ -266,8 +266,8 @@ export function SettlementsList({
                 </Box>
               </Box>
 
-              {/* Type chip — hidden in daily-market tab (all rows are the same type) */}
-              {filter !== "daily-market" && (
+              {/* Type chip — only shown on All tab where rows are mixed type */}
+              {filter === "all" && (
                 <Box sx={{ display: { xs: "none", md: "block" }, justifySelf: "start" }}>
                   {r.isContract ? (
                     <Chip
@@ -369,7 +369,7 @@ export function SettlementsList({
                     label={getPaymentModeLabel(r.paymentMode)}
                     sx={{ height: 16, fontSize: 9.5 }}
                   />
-                  {filter !== "daily-market" && (
+                  {filter === "all" && (
                     r.isContract ? (
                       <Chip
                         size="small"

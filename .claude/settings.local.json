@@ -392,7 +392,12 @@
       "PowerShell($key = \\(Get-Content \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\.env.local\" | Where-Object { $_ -match \"^GROQ_API_KEY=\" } | ForEach-Object { \\($_ -split \"=\", 2\\)[1] }\\); $key | npx vercel env add GROQ_API_KEY preview --force 2>&1)",
       "Bash(Set-Location 'C:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp')",
       "Bash(pwsh -Command \"while\\(!\\(Test-Path 'C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\76a50d05-139b-4eb8-ac3c-9c0515d60dc1\\\\tasks\\\\bswhryjmv.output'\\)\\){ Start-Sleep -Milliseconds 100 }; Get-Content 'C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\76a50d05-139b-4eb8-ac3c-9c0515d60dc1\\\\tasks\\\\bswhryjmv.output' -Wait\")",
-      "Bash(Get-ChildItem supabase/migrations -Name)"
+      "Bash(Get-ChildItem supabase/migrations -Name)",
+      "Bash(Wait-Process -Name node -ErrorAction SilentlyContinue -Timeout 180)",
+      "Bash(Get-Content -Path \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\76a50d05-139b-4eb8-ac3c-9c0515d60dc1\\\\tasks\\\\bsvtphegk.output\" -Tail 20)",
+      "Bash(Get-Content \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\76a50d05-139b-4eb8-ac3c-9c0515d60dc1\\\\tasks\\\\btbu5yl81.output\" -Tail 50)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\" -Recurse -Filter \"*calculator*\" -ErrorAction SilentlyContinue)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\" -Recurse -Directory -ErrorAction SilentlyContinue)"
     ],
     "deny": [],
     "ask": [],
