@@ -64,6 +64,10 @@ export type MRInitialItem = {
   materialId: string;
   qty: number;
   notes?: string;
+  /** Composite brand row (e.g. teak `Log · 1st Quality`) — preserved when converting from basket. */
+  brandId?: string | null;
+  /** Display unit override — needed when the brand's price unit (e.g. cft, ft) differs from material.unit. */
+  unit?: string;
 };
 
 interface MaterialRequestDialogProps {
@@ -281,10 +285,12 @@ export default function MaterialRequestDialog({
           const mat = materials.find((m) => m.id === item.materialId);
           return {
             material_id: item.materialId,
+            brand_id: item.brandId ?? undefined,
             requested_qty: item.qty,
             notes: item.notes,
             materialName: mat?.name,
-            unit: mat?.unit,
+            // Honour the basket's pricing unit (cft / ft) over the catalog default (piece).
+            unit: item.unit ?? mat?.unit,
             availableStock: getAvailableStock(item.materialId),
           };
         });

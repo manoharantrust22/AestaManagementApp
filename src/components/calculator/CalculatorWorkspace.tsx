@@ -284,6 +284,7 @@ export default function CalculatorWorkspace({
       computedOutput,
       outputUnit: effectiveTemplate.outputUnit,
       outputLabel: effectiveTemplate.outputLabel,
+      brandId: selectedBrandId,
       pricingDimensionValue: selectedBrandName,
       vendorQuotes: displayQuotes.map((q) => ({
         vendorId: q.vendorId,

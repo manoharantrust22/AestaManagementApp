@@ -18,6 +18,8 @@ export type EstimateItem = {
   computedOutput: number; // e.g. 4.375 (cft)
   outputUnit: string; // e.g. 'cft'
   outputLabel: string; // e.g. 'Gana adi (cft)'
+  /** Composite brand id resolved from quality (+ Palagai width) — used when converting to MR. */
+  brandId: string | null;
   pricingDimensionValue: string | null; // e.g. '2nd Quality' or brand name
   vendorQuotes: {
     vendorId: string;

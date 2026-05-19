@@ -19,7 +19,13 @@ export default function CalculatorPageContent() {
   const basketItems: MRInitialItem[] = items
     .map((item) => ({
       materialId: item.materialId ?? "",
-      qty: Math.ceil(item.computedOutput),
+      // Preserve the exact computed cft/ft figure — rounding to integers here
+      // (the old `Math.ceil`) caused the MR row qty to be misread as piece
+      // count when the priced unit is cft / ft, and the downstream PO line
+      // multiplied the rounded count by the per-cft/ft rate.
+      qty: parseFloat(item.computedOutput.toFixed(3)),
+      brandId: item.brandId,
+      unit: item.outputUnit,
       notes: item.pricingDimensionValue
         ? `From calculator — ${item.outputLabel}: ${item.computedOutput.toFixed(3)} ${item.outputUnit} · ${item.pricingDimensionValue}`
         : `From calculator — ${item.outputLabel}: ${item.computedOutput.toFixed(3)} ${item.outputUnit}`,
