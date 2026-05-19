@@ -27,11 +27,13 @@ const QUERY_KEY = ["estimateBasketDrafts"] as const;
 
 export function useEstimateBasketDrafts() {
   const supabase = createClient() as unknown as AnySupabase;
-  const { userProfile } = useAuth();
+  // user.id is the Supabase auth uuid (auth.uid()), which RLS checks against.
+  // userProfile.id is the application users.id — different value.
+  const { user } = useAuth();
 
   return useQuery({
-    queryKey: [...QUERY_KEY, userProfile?.id],
-    enabled: !!userProfile?.id,
+    queryKey: [...QUERY_KEY, user?.id],
+    enabled: !!user?.id,
     queryFn: wrapQueryFn(
       async () => {
         const { data, error } = await supabase
@@ -50,7 +52,9 @@ export function useEstimateBasketDrafts() {
 export function useSaveEstimateBasketDraft() {
   const supabase = createClient() as unknown as AnySupabase;
   const queryClient = useQueryClient();
-  const { userProfile } = useAuth();
+  // user.id is the Supabase auth uuid (auth.uid()), which RLS checks against.
+  // userProfile.id is the application users.id — different value.
+  const { user } = useAuth();
 
   return useMutation({
     mutationFn: async (args: {
@@ -59,9 +63,9 @@ export function useSaveEstimateBasketDraft() {
       items: EstimateItem[];
       notes?: string | null;
     }) => {
-      if (!userProfile?.id) throw new Error("Not signed in");
+      if (!user?.id) throw new Error("Not signed in");
       const payload = {
-        user_id: userProfile.id,
+        user_id: user.id,
         name: args.name.trim(),
         items: args.items,
         item_count: args.items.length,
