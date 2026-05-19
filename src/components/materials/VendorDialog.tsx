@@ -81,6 +81,7 @@ export default function VendorDialog({
   const [uploadingQr, setUploadingQr] = useState(false);
   const [uploadingShopPhoto, setUploadingShopPhoto] = useState(false);
   const [taxDetailsExpanded, setTaxDetailsExpanded] = useState(false);
+  const [sameAsAddress, setSameAsAddress] = useState(false);
 
   // Memoize initial form data based on vendor prop
   const initialFormData = useMemo<VendorFormData>(
@@ -160,9 +161,43 @@ export default function VendorDialog({
     }
   }, [open, vendor]);
 
+  // Initialize "Same as address" toggle when dialog opens
+  useEffect(() => {
+    if (open) {
+      if (vendor) {
+        const matches =
+          !!vendor.address &&
+          vendor.store_address === vendor.address &&
+          (vendor.store_city || "") === (vendor.city || "") &&
+          (vendor.store_pincode || "") === (vendor.pincode || "");
+        setSameAsAddress(matches);
+      } else {
+        setSameAsAddress(false);
+      }
+    }
+  }, [open, vendor]);
+
   const handleChange = (field: keyof VendorFormData, value: unknown) => {
     updateField(field, value as VendorFormData[typeof field]);
     setError("");
+    if (sameAsAddress) {
+      if (field === "address") {
+        updateField("store_address", value as VendorFormData["store_address"]);
+      } else if (field === "city") {
+        updateField("store_city", value as VendorFormData["store_city"]);
+      } else if (field === "pincode") {
+        updateField("store_pincode", value as VendorFormData["store_pincode"]);
+      }
+    }
+  };
+
+  const handleSameAsAddressToggle = (checked: boolean) => {
+    setSameAsAddress(checked);
+    if (checked) {
+      updateField("store_address", formData.address);
+      updateField("store_city", formData.city);
+      updateField("store_pincode", formData.pincode);
+    }
   };
 
   // QR Code upload handler
@@ -564,6 +599,18 @@ export default function VendorDialog({
               )}
 
               <Grid size={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={sameAsAddress}
+                      onChange={(e) => handleSameAsAddressToggle(e.target.checked)}
+                    />
+                  }
+                  label="Same as address"
+                />
+              </Grid>
+
+              <Grid size={12}>
                 <TextField
                   fullWidth
                   label="Store Address"
@@ -572,6 +619,7 @@ export default function VendorDialog({
                   multiline
                   rows={2}
                   placeholder="Physical store/warehouse address"
+                  disabled={sameAsAddress}
                 />
               </Grid>
               <Grid size={{ xs: 6, md: 4 }}>
@@ -580,6 +628,7 @@ export default function VendorDialog({
                   label="Store City"
                   value={formData.store_city}
                   onChange={(e) => handleChange("store_city", e.target.value)}
+                  disabled={sameAsAddress}
                 />
               </Grid>
               <Grid size={{ xs: 6, md: 4 }}>
@@ -588,6 +637,7 @@ export default function VendorDialog({
                   label="Store Pincode"
                   value={formData.store_pincode}
                   onChange={(e) => handleChange("store_pincode", e.target.value)}
+                  disabled={sameAsAddress}
                 />
               </Grid>
               <Grid size={{ xs: 6, md: 4 }}>
