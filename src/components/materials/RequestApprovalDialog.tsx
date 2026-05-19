@@ -36,6 +36,8 @@ interface RequestApprovalDialogProps {
 interface ApprovalItem {
   itemId: string;
   materialName: string;
+  brandName: string | null;
+  notes: string | null;
   unit: string;
   requested_qty: number;
   approved_qty: number;
@@ -67,6 +69,8 @@ export default function RequestApprovalDialog({
       const approvalItems: ApprovalItem[] = request.items.map((item) => ({
         itemId: item.id,
         materialName: item.material?.name || "",
+        brandName: item.brand?.brand_name ?? null,
+        notes: item.notes ?? null,
         unit: item.material?.unit || "",
         requested_qty: item.requested_qty,
         approved_qty: item.requested_qty, // Default to requested amount
@@ -222,10 +226,32 @@ export default function RequestApprovalDialog({
               {items.map((item, index) => (
                 <TableRow key={item.itemId}>
                   <TableCell>
-                    <Typography variant="body2">{item.materialName}</Typography>
-                    <Typography variant="caption" color="text.secondary">
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
+                      <Typography variant="body2" fontWeight={600}>
+                        {item.materialName}
+                      </Typography>
+                      {item.brandName && (
+                        <Chip
+                          label={item.brandName}
+                          size="small"
+                          variant="outlined"
+                          sx={{ height: 20, fontSize: "0.7rem" }}
+                        />
+                      )}
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" display="block">
                       {item.unit}
                     </Typography>
+                    {item.notes && (
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        display="block"
+                        sx={{ mt: 0.25, fontStyle: "italic" }}
+                      >
+                        {item.notes}
+                      </Typography>
+                    )}
                   </TableCell>
                   <TableCell align="right">{item.requested_qty}</TableCell>
                   <TableCell align="right">
