@@ -26,7 +26,7 @@ export interface WalletBalancePreviewProps {
 }
 
 export default function WalletBalancePreview({
-  engineerName: _engineerName,
+  engineerName,
   siteName,
   currentBalance,
   amount,
@@ -54,7 +54,7 @@ export default function WalletBalancePreview({
             direction="row"
             alignItems="center"
             spacing={1}
-            sx={{ mb: 1.5 }}
+            sx={{ mb: 0.5 }}
           >
             <AccountBalanceWallet fontSize="small" color="primary" />
             <Typography
@@ -65,10 +65,17 @@ export default function WalletBalancePreview({
               Your wallet · {siteName}
             </Typography>
           </Stack>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: "block", mb: 1, opacity: 0.7 }}
+          >
+            {engineerName}
+          </Typography>
 
           <Stack spacing={0.5}>
             <Row label="Current balance" value={`₹${fmt(currentBalance)}`} />
-            <Row label="This expense" value={`−₹${fmt(amount)}`} />
+            <Row label="This expense" value={amount > 0 ? `−₹${fmt(amount)}` : `₹${fmt(amount)}`} />
             <Box sx={{ borderTop: 1, borderColor: "divider", my: 0.5 }} />
             <Row
               label="After this expense"
@@ -84,6 +91,8 @@ export default function WalletBalancePreview({
         <Alert
           severity="warning"
           icon={<WarningAmber fontSize="inherit" />}
+          role="status"
+          aria-label="Wallet overdraft after this expense"
           sx={{ mt: 1, "& .MuiAlert-message": { fontSize: "0.85rem" } }}
         >
           Wallet overdraft — company will owe you ₹{fmt(afterBalance)} after this expense.
@@ -115,9 +124,10 @@ function Row({
         {label}
       </Typography>
       <Typography
-        variant={bold ? "h6" : "body2"}
+        variant="body2"
         sx={{
           fontWeight: bold ? 700 : 500,
+          fontSize: bold ? "1.05rem" : undefined,
           color: negative ? "error.main" : "text.primary",
         }}
       >

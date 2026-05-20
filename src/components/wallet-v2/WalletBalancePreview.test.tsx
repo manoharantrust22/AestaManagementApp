@@ -14,6 +14,7 @@ describe("WalletBalancePreview", () => {
       />
     );
     expect(screen.getByText(/Your wallet · Padmavathy/i)).toBeInTheDocument();
+    expect(screen.getByText("Ajith")).toBeInTheDocument();
     expect(screen.getByText("₹10,000")).toBeInTheDocument();
     expect(screen.getByText("−₹330")).toBeInTheDocument();
     expect(screen.getByText("₹9,670")).toBeInTheDocument();
@@ -44,6 +45,20 @@ describe("WalletBalancePreview", () => {
       />
     );
     expect(screen.getByText(/Wallet overdraft/i)).toBeInTheDocument();
+  });
+
+  it("does not render a negative sign on the expense row when amount is zero", () => {
+    render(
+      <WalletBalancePreview
+        engineerName="Ajith"
+        siteName="Padmavathy"
+        currentBalance={10000}
+        amount={0}
+      />
+    );
+    // The expense row should read "₹0", not "−₹0"
+    expect(screen.queryByText("−₹0")).not.toBeInTheDocument();
+    expect(screen.getAllByText("₹0").length).toBeGreaterThan(0);
   });
 
   it("renders skeleton when isLoading is true", () => {
