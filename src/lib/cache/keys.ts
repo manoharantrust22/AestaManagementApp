@@ -353,6 +353,12 @@ export const queryKeys = {
       ['reports', 'payments', siteId, { from, to }] as const,
   },
 
+  settlementReport: {
+    all: ['settlement-report'] as const,
+    byScope: (siteIds: string[], from: string, to: string, categoryId: string | null) =>
+      ['settlement-report', { siteIds: [...siteIds].sort(), from, to, categoryId }] as const,
+  },
+
   stats: {
     all: ['stats'] as const,
     company: () => ['stats', 'company'] as const,
