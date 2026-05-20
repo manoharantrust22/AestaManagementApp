@@ -25,6 +25,8 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Tabs,
+  Tab,
 } from "@mui/material";
 import {
   TrendingUp,
@@ -51,6 +53,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import PageHeader from "@/components/layout/PageHeader";
+import SettlementReportTab from "@/components/reports/settlements/SettlementReportTab";
 import dayjs from "dayjs";
 
 const COLORS = [
@@ -77,6 +80,7 @@ export default function CompanyReportsPage() {
   const { userProfile } = useAuth();
   const supabase = createClient();
 
+  const [activeTab, setActiveTab] = useState<"overview" | "settlements">("overview");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [reportType, setReportType] = useState<"monthly" | "weekly" | "custom">(
@@ -298,6 +302,19 @@ export default function CompanyReportsPage() {
         subtitle="Analytics and reports across all sites"
       />
 
+      <Tabs
+        value={activeTab}
+        onChange={(_, v) => setActiveTab(v)}
+        sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }}
+      >
+        <Tab value="overview" label="Overview" />
+        <Tab value="settlements" label="Settlements" />
+      </Tabs>
+
+      {activeTab === "settlements" && <SettlementReportTab />}
+
+      {activeTab === "overview" && (
+        <>
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError("")}>
           {error}
@@ -553,6 +570,8 @@ export default function CompanyReportsPage() {
             </Paper>
           </Grid>
         </Grid>
+      )}
+        </>
       )}
     </Box>
   );
