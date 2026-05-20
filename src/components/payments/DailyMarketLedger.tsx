@@ -434,7 +434,7 @@ function LaborerChip({
           textUnderlineOffset: 3,
         }}
       >
-        {count} {kind}
+        {count} {kind === "contract" ? "con" : kind === "market" ? "mkt" : "daily"}
       </Box>
     </Tooltip>
   );
