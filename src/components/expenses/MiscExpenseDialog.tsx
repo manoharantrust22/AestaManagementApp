@@ -38,6 +38,9 @@ import type { PayerSource } from "@/types/settlement.types";
 import { useVendors } from "@/hooks/queries/useVendors";
 import { useLaborers } from "@/hooks/queries/useLaborers";
 import type { Database } from "@/types/database.types";
+import WalletBalancePreview from "@/components/wallet-v2/WalletBalancePreview";
+import { useEngineerWalletBalance } from "@/hooks/queries/useEngineerWalletV2";
+import { isSiteEngineerPayingFromWallet } from "./walletPayerLock";
 
 type PaymentMode = Database["public"]["Enums"]["payment_mode"];
 import dayjs from "dayjs";
@@ -118,6 +121,17 @@ export default function MiscExpenseDialog({
     }
     return [];
   }, [selectedCategory, vendors, laborers]);
+
+  // Wallet balance for site engineers — disabled (no fetch) for other roles.
+  const balanceQuery = useEngineerWalletBalance(
+    isSiteEngineer ? userProfile?.id : undefined,
+    selectedSite?.id
+  );
+  const walletOnlyView = isSiteEngineerPayingFromWallet({
+    userRole: userProfile?.role,
+    payerType,
+    createWalletTransaction,
+  });
 
   useEffect(() => {
     if (open) {
@@ -450,105 +464,119 @@ export default function MiscExpenseDialog({
           sx={{ mb: 3 }}
         />
 
-        {/* Who is Paying */}
-        <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
-          <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-            WHO IS PAYING?
-          </Typography>
+        {walletOnlyView && selectedSite && (
+          <WalletBalancePreview
+            engineerName={userProfile?.name ?? "You"}
+            siteName={selectedSite.name}
+            currentBalance={balanceQuery.data?.balance ?? 0}
+            amount={amount}
+            isLoading={balanceQuery.isLoading}
+          />
+        )}
 
-          <RadioGroup
-            value={payerType}
-            onChange={(e) => {
-              setPayerType(e.target.value as "site_engineer" | "company_direct");
-              if (e.target.value === "company_direct") {
-                setSelectedEngineerId("");
-              }
-            }}
-          >
-            {!isSiteEngineer && (
-              <FormControlLabel
-                value="company_direct"
-                control={<Radio size="small" />}
-                label="Company Direct"
-                disabled={isEditMode}
-              />
-            )}
-            <FormControlLabel
-              value="site_engineer"
-              control={<Radio size="small" />}
-              label="Via Site Engineer"
-              disabled={isEditMode || isSiteEngineer}
-            />
-          </RadioGroup>
+        {!walletOnlyView && (
+          <>
+            {/* Who is Paying */}
+            <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+                WHO IS PAYING?
+              </Typography>
 
-          {payerType === "site_engineer" && (
-            <Box sx={{ mt: 2, pl: 3 }}>
-              <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-                <InputLabel>Select Engineer</InputLabel>
-                <Select
-                  value={selectedEngineerId}
-                  onChange={(e) => {
-                    setSelectedEngineerId(e.target.value);
-                      }}
-                  label="Select Engineer"
-                  disabled={isEditMode || isSiteEngineer}
-                >
-                  {engineers.map((eng) => (
-                    <MenuItem key={eng.id} value={eng.id}>
-                      {eng.name}
-                      {eng.wallet_balance !== undefined && (
-                        <Typography
-                          component="span"
-                          variant="caption"
-                          color={eng.wallet_balance >= amount ? "success.main" : "error.main"}
-                          sx={{ ml: 1 }}
-                        >
-                          (₹{eng.wallet_balance?.toLocaleString()} available)
-                        </Typography>
-                      )}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              {!isEditMode && selectedEngineerId && (
-                isSiteEngineer ? (
-                  <Alert severity="info" sx={{ mt: 1 }}>
-                    Wallet auto-debit: ON. Site engineer purchases must always settle
-                    from your own site wallet — no direct-pay option.
-                  </Alert>
-                ) : (
+              <RadioGroup
+                value={payerType}
+                onChange={(e) => {
+                  setPayerType(e.target.value as "site_engineer" | "company_direct");
+                  if (e.target.value === "company_direct") {
+                    setSelectedEngineerId("");
+                  }
+                }}
+              >
+                {!isSiteEngineer && (
                   <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={createWalletTransaction}
-                        onChange={(e) => setCreateWalletTransaction(e.target.checked)}
-                        size="small"
-                      />
-                    }
-                    label={
-                      <Box>
-                        <Typography variant="body2">Deduct from wallet</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Debits the engineer&apos;s LIFO wallet pool for this site
-                        </Typography>
-                      </Box>
-                    }
+                    value="company_direct"
+                    control={<Radio size="small" />}
+                    label="Company Direct"
+                    disabled={isEditMode}
                   />
-                )
-              )}
-            </Box>
-          )}
-        </Paper>
+                )}
+                <FormControlLabel
+                  value="site_engineer"
+                  control={<Radio size="small" />}
+                  label="Via Site Engineer"
+                  disabled={isEditMode || isSiteEngineer}
+                />
+              </RadioGroup>
 
-        {/* Payment Source */}
-        <PayerSourceSelector
-          value={payerSource}
-          customName={customPayerName}
-          onChange={setPayerSource}
-          onCustomNameChange={setCustomPayerName}
-          compact
-        />
+              {payerType === "site_engineer" && (
+                <Box sx={{ mt: 2, pl: 3 }}>
+                  <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                    <InputLabel>Select Engineer</InputLabel>
+                    <Select
+                      value={selectedEngineerId}
+                      onChange={(e) => {
+                        setSelectedEngineerId(e.target.value);
+                      }}
+                      label="Select Engineer"
+                      disabled={isEditMode || isSiteEngineer}
+                    >
+                      {engineers.map((eng) => (
+                        <MenuItem key={eng.id} value={eng.id}>
+                          {eng.name}
+                          {eng.wallet_balance !== undefined && (
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              color={eng.wallet_balance >= amount ? "success.main" : "error.main"}
+                              sx={{ ml: 1 }}
+                            >
+                              (₹{eng.wallet_balance?.toLocaleString()} available)
+                            </Typography>
+                          )}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  {!isEditMode && selectedEngineerId && (
+                    isSiteEngineer ? (
+                      <Alert severity="info" sx={{ mt: 1 }}>
+                        Wallet auto-debit: ON. Site engineer purchases must always settle
+                        from your own site wallet — no direct-pay option.
+                      </Alert>
+                    ) : (
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={createWalletTransaction}
+                            onChange={(e) => setCreateWalletTransaction(e.target.checked)}
+                            size="small"
+                          />
+                        }
+                        label={
+                          <Box>
+                            <Typography variant="body2">Deduct from wallet</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Debits the engineer&apos;s LIFO wallet pool for this site
+                            </Typography>
+                          </Box>
+                        }
+                      />
+                    )
+                  )}
+                </Box>
+              )}
+            </Paper>
+
+            {/* Payment Source */}
+            <PayerSourceSelector
+              value={payerSource}
+              customName={customPayerName}
+              onChange={setPayerSource}
+              onCustomNameChange={setCustomPayerName}
+              compact
+            />
+          </>
+        )}
 
         {/* Payment Mode */}
         <FormControl fullWidth size="small" sx={{ mb: 3 }}>
