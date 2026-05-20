@@ -239,11 +239,12 @@ export default function TeaShopSettlementDialog({
     if (!selectedSite) return;
 
     try {
-      // Fetch teams first to avoid FK ambiguity issues
+      // Fetch teams first to avoid FK ambiguity issues.
+      // Teams are company-scoped (no site_id since 2026-05-07 mesthri refactor);
+      // RLS already restricts to current company.
       const { data: teamsData } = await supabase
         .from("teams")
-        .select("id, name")
-        .eq("site_id", selectedSite.id);
+        .select("id, name");
 
       const teamsMap = new Map<string, string>();
       (teamsData || []).forEach((t: any) => teamsMap.set(t.id, t.name));
