@@ -42,6 +42,7 @@ import {
   useTheme,
 } from "@mui/material";
 import {
+  AccountBalanceWallet,
   Add,
   Close,
   Delete,
@@ -926,28 +927,38 @@ export default function ExpensesPageV2() {
 
                     {/* Ref */}
                     <TableCell sx={{ py: dense ? 0.5 : 1 }}>
-                      {row.settlement_reference ? (
-                        <Box
-                          component="span"
-                          onClick={() => handleRefClick(row)}
-                          sx={{
-                            cursor: "pointer",
-                            fontSize: 11,
-                            fontFamily: "monospace",
-                            color: refChipColor(row.settlement_reference),
-                            bgcolor: `${refChipColor(row.settlement_reference)}15`,
-                            px: 0.75,
-                            py: 0.25,
-                            borderRadius: 1,
-                            whiteSpace: "nowrap",
-                            "&:hover": { opacity: 0.8 },
-                          }}
-                        >
-                          {row.settlement_reference}
-                        </Box>
-                      ) : (
-                        <Typography variant="caption" color="text.disabled">—</Typography>
-                      )}
+                      <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+                        {row.settlement_reference ? (
+                          <Box
+                            component="span"
+                            onClick={() => handleRefClick(row)}
+                            sx={{
+                              cursor: "pointer",
+                              fontSize: 11,
+                              fontFamily: "monospace",
+                              color: refChipColor(row.settlement_reference),
+                              bgcolor: `${refChipColor(row.settlement_reference)}15`,
+                              px: 0.75,
+                              py: 0.25,
+                              borderRadius: 1,
+                              whiteSpace: "nowrap",
+                              "&:hover": { opacity: 0.8 },
+                            }}
+                          >
+                            {row.settlement_reference}
+                          </Box>
+                        ) : (
+                          <Typography variant="caption" color="text.disabled">—</Typography>
+                        )}
+                        {row.engineer_transaction_id && (
+                          <Tooltip title="Paid via site engineer wallet">
+                            <AccountBalanceWallet
+                              sx={{ fontSize: 14, color: "primary.main", flexShrink: 0 }}
+                              aria-label="Paid via site engineer wallet"
+                            />
+                          </Tooltip>
+                        )}
+                      </Box>
                     </TableCell>
 
                     {/* Vendor / Description */}
