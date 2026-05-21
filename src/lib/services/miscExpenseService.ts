@@ -126,7 +126,15 @@ export async function createMiscExpense(
       proof_url: proofUrl || null,
       subcontract_id: formData.subcontract_id || null,
       notes: formData.notes || null,
-      is_cleared: formData.payer_type === "company_direct", // Direct = cleared, engineer = pending
+      // Cleared = the company's money has actually left.
+      // - company_direct → company paid the vendor directly → cleared
+      // - site_engineer WITH wallet debit (engineerTransactionId set) → company's
+      //   money left via the engineer's wallet (which was funded by company
+      //   deposits) → cleared
+      // - site_engineer WITHOUT wallet debit (engineer paid out-of-pocket) →
+      //   pending until the company reimburses the engineer
+      is_cleared:
+        formData.payer_type === "company_direct" || engineerTransactionId !== null,
       created_by: userId,
       created_by_name: userName,
     };
