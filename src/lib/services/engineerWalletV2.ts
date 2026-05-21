@@ -174,6 +174,61 @@ export async function getWalletLedger(
   return { rows: page, next_cursor };
 }
 
+/**
+ * Combined ledger across multiple engineers — used by the company All Engineers
+ * overview. Same shape and cursor as getWalletLedger; just swaps eq(user_id) for
+ * in(user_id, …) so we can paginate the union without N parallel queries.
+ *
+ * Returns plain WalletLedgerEntry rows; the hook layer enriches with engineer +
+ * site display names from the already-cached useWalletEnabledEngineers data.
+ */
+export async function getCompanyWalletLedger(
+  supabase: SupabaseClient,
+  userIds: string[],
+  filters: WalletLedgerFilters = {}
+): Promise<WalletLedgerPage> {
+  if (userIds.length === 0) {
+    return { rows: [], next_cursor: null };
+  }
+  const limit = filters.limit ?? DEFAULT_LEDGER_PAGE;
+
+  let query = supabase
+    .from("site_engineer_transactions")
+    .select("*")
+    .in("user_id", userIds)
+    .is("cancelled_at", null)
+    .order("transaction_date", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(limit + 1);
+
+  if (filters.type && filters.type !== "all") {
+    query = query.eq("transaction_type", filters.type);
+  }
+  if (filters.date_from) query = query.gte("transaction_date", filters.date_from);
+  if (filters.date_to) query = query.lte("transaction_date", filters.date_to);
+  if (filters.site_id) query = query.eq("site_id", filters.site_id);
+
+  if (filters.cursor) {
+    const { transaction_date, id } = filters.cursor;
+    query = query.or(
+      `transaction_date.lt.${transaction_date},and(transaction_date.eq.${transaction_date},id.lt.${id})`
+    );
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const rows = (data ?? []) as WalletLedgerEntry[];
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const last = page[page.length - 1];
+  const next_cursor = hasMore && last
+    ? { transaction_date: last.transaction_date, id: last.id }
+    : null;
+
+  return { rows: page, next_cursor };
+}
+
 export async function getWalletEnabledEngineers(
   supabase: SupabaseClient,
   companyId: string

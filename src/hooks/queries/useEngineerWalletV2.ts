@@ -16,6 +16,7 @@ import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { wrapQueryFn } from "@/lib/utils/timeout";
 import {
+  getCompanyWalletLedger,
   getEngineerSiteBalances,
   getLatestDepositPayerSource,
   getWalletBalance,
@@ -38,6 +39,8 @@ export const ENGINEER_WALLET_KEYS = {
     ["engineer-wallet", "site-balances", userId, companyId] as const,
   ledger: (userId: string, filters: WalletLedgerFilters) =>
     ["engineer-wallet", "ledger", userId, filters] as const,
+  companyLedger: (companyId: string, userIds: string[], filters: WalletLedgerFilters) =>
+    ["engineer-wallet", "company-ledger", companyId, userIds.slice().sort().join(","), filters] as const,
   enabledEngineers: (companyId: string) =>
     ["engineer-wallet", "enabled-engineers", companyId] as const,
   pools: (userId: string, siteId: string) =>
@@ -176,6 +179,37 @@ export function useEngineerWalletLedger(
     initialPageParam: null as WalletLedgerPage["next_cursor"],
     queryFn: ({ pageParam }) =>
       getWalletLedger(supabase, userId as string, {
+        ...filters,
+        cursor: pageParam as WalletLedgerPage["next_cursor"],
+      }),
+    getNextPageParam: (lastPage) => lastPage.next_cursor,
+  });
+}
+
+/**
+ * Combined ledger across all wallet-enabled engineers in a company.
+ * Powers the All Engineers overview on /company/engineer-wallet.
+ *
+ * Pass the cached engineer IDs from useWalletEnabledEngineers — this hook does
+ * not refetch the member list. Disabled until userIds is non-empty.
+ */
+export function useCompanyWalletLedger(
+  companyId: string | undefined,
+  userIds: string[],
+  filters: Omit<WalletLedgerFilters, "cursor"> = {}
+) {
+  useCrossTabInvalidate();
+  const supabase = createClient();
+  const enabled = Boolean(companyId) && userIds.length > 0;
+  return useInfiniteQuery<WalletLedgerPage, Error, InfiniteData<WalletLedgerPage>>({
+    queryKey: enabled
+      ? ENGINEER_WALLET_KEYS.companyLedger(companyId as string, userIds, filters)
+      : ["engineer-wallet", "company-ledger", "_disabled"],
+    enabled,
+    staleTime: 30_000,
+    initialPageParam: null as WalletLedgerPage["next_cursor"],
+    queryFn: ({ pageParam }) =>
+      getCompanyWalletLedger(supabase, userIds, {
         ...filters,
         cursor: pageParam as WalletLedgerPage["next_cursor"],
       }),

@@ -44,6 +44,12 @@ interface WalletLedgerListProps {
   isFetchingNextPage: boolean;
   onLoadMore: () => void;
   onRowClick?: (entry: WalletLedgerEntry) => void;
+  /** When provided, renders an engineer chip on each row. Used in the company
+   *  All Engineers ledger to disambiguate which engineer the transaction belongs to. */
+  engineerNameByUserId?: Map<string, string>;
+  /** When provided, renders a site chip on each row. Useful when the ledger is
+   *  not already filtered to a single site. */
+  siteNameBySiteId?: Map<string, string>;
 }
 
 export default function WalletLedgerList({
@@ -53,6 +59,8 @@ export default function WalletLedgerList({
   isFetchingNextPage,
   onLoadMore,
   onRowClick,
+  engineerNameByUserId,
+  siteNameBySiteId,
 }: WalletLedgerListProps) {
   const rows = pages.flatMap((p) => p.rows);
 
@@ -128,10 +136,27 @@ export default function WalletLedgerList({
                 </ListItemAvatar>
                 <ListItemText
                   primary={
-                    <Stack direction="row" alignItems="center" spacing={1}>
+                    <Stack direction="row" alignItems="center" spacing={1} sx={{ flexWrap: "wrap", rowGap: 0.5 }}>
                       <Typography variant="body2" fontWeight={600}>
                         {meta.label}
                       </Typography>
+                      {engineerNameByUserId && engineerNameByUserId.get(row.user_id) && (
+                        <Chip
+                          size="small"
+                          label={engineerNameByUserId.get(row.user_id)}
+                          color="primary"
+                          variant="outlined"
+                          sx={{ height: 20, fontSize: "0.65rem" }}
+                        />
+                      )}
+                      {siteNameBySiteId && row.site_id && siteNameBySiteId.get(row.site_id) && (
+                        <Chip
+                          size="small"
+                          label={siteNameBySiteId.get(row.site_id)}
+                          variant="outlined"
+                          sx={{ height: 20, fontSize: "0.65rem", color: "text.secondary" }}
+                        />
+                      )}
                       {row.transaction_type === "deposit" && row.payer_source && (
                         <Chip
                           size="small"
