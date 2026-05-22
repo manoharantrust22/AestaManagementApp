@@ -141,6 +141,13 @@ export type VendorBillPolicy = "always_bills" | "bills_unless_cash" | "no_bills"
  * material (or any of its active variant children). Backed by the RPC
  * public.get_material_vendor_summary(uuid).
  */
+export interface VariantPriceEntry {
+  variant_id: string;
+  variant_name: string;
+  variant_code: string | null;
+  price: number;
+}
+
 export interface MaterialVendorSummary {
   vendor_id: string;
   vendor_name: string;
@@ -161,6 +168,13 @@ export interface MaterialVendorSummary {
   total_purchased_value: number | null;
   total_purchased_qty: number | null;
   purchase_count: number;
+  /**
+   * Per-variant breakdown of the vendor's quotes, when the parent material
+   * has variants and this vendor quoted at least one of them. Empty array
+   * for materials without variants or when the vendor only quoted the parent.
+   * Sorted by variant name.
+   */
+  variant_prices: VariantPriceEntry[];
 }
 
 // ============================================
@@ -1304,6 +1318,14 @@ export interface VariantFormData {
   rods_per_bundle?: number | null;
   // Dynamic specifications based on category template
   specifications?: Record<string, unknown>;
+  // Image (gallery filename mapped to /Material_Photo/{file})
+  image_url?: string | null;
+  // Optional first-vendor quote captured in the inline Add Variant card.
+  // When present, useAddVariantToMaterial chains an upsert into vendor_inventory
+  // against the newly-created variant's material_id.
+  initial_vendor_id?: string | null;
+  initial_vendor_price?: number | null;
+  initial_vendor_notes?: string | null;
 }
 
 // Extended form data for creating a material with variants in one operation

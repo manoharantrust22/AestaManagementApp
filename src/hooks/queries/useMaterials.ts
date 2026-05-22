@@ -1568,6 +1568,8 @@ export function useAddVariantToMaterial() {
           rods_per_bundle: variant.rods_per_bundle,
           // Dynamic specifications based on category template
           specifications: variant.specifications || null,
+          // Variant image (from gallery picker)
+          image_url: variant.image_url ?? null,
         })
         .select()
         .single();
@@ -1592,6 +1594,35 @@ export function useAddVariantToMaterial() {
             }))
           )
           .throwOnError();
+      }
+
+      // Optional first-vendor quote chained from the inline Add Variant card.
+      // Variants are first-class materials (parent_id != null), so the vendor
+      // price row points at the new variant's id via material_id — same shape
+      // as AddVendorToMaterialDialog uses for variant-supplying vendors.
+      if (variant.initial_vendor_id && variant.initial_vendor_price && variant.initial_vendor_price > 0) {
+        const { error: invErr } = await (supabase as any)
+          .from("vendor_inventory")
+          .insert({
+            vendor_id: variant.initial_vendor_id,
+            material_id: result.id,
+            current_price: variant.initial_vendor_price,
+            unit: parentMaterial.unit,
+            gst_rate: parentMaterial.gst_rate ?? 18,
+            price_includes_gst: true,
+            price_includes_transport: true,
+            is_available: true,
+            min_order_qty: 1,
+            lead_time_days: 1,
+            notes: variant.initial_vendor_notes?.trim() || null,
+            last_price_update: new Date().toISOString(),
+          });
+        if (invErr) {
+          // Don't fail the whole variant create — the variant is in, the price
+          // just didn't land. Surface to console; the user can re-attach via
+          // the Vendors tab.
+          console.error("Failed to insert initial vendor quote:", invErr);
+        }
       }
 
       return result as Material;
@@ -1627,7 +1658,7 @@ export function useMaterialVariants(parentId: string | undefined) {
         .from("materials")
         .select(
           `
-          id, name, code, unit,
+          id, name, code, unit, image_url, parent_id, category_id, specifications,
           weight_per_unit, weight_unit,
           length_per_piece, length_unit,
           rods_per_bundle,

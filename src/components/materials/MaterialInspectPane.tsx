@@ -19,7 +19,6 @@ import {
   alpha,
   useMediaQuery,
   useTheme,
-  Popover,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -31,11 +30,10 @@ import {
   Star as StarIcon,
   StarBorder as StarBorderIcon,
   MoreVert as MoreVertIcon,
-  PhotoCamera as PhotoCameraIcon,
   AddCircleOutline as AddCircleOutlineIcon,
 } from "@mui/icons-material";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
-import { useMaterial, useMaterialVariants, useMaterialBrands, useUpdateMaterial, useBrandVariantLinks } from "@/hooks/queries/useMaterials";
+import { useMaterial, useMaterialVariants, useMaterialBrands, useBrandVariantLinks } from "@/hooks/queries/useMaterials";
 import {
   useMaterialVendorSummary,
   useMaterialPriceHistory,
@@ -46,6 +44,7 @@ import { PriceHistorySparkline } from "@/components/shared/PriceHistorySparkline
 import { ArrowForward as ArrowForwardIcon } from "@mui/icons-material";
 import { VendorBillChips } from "@/components/materials/inspect/VendorBillChips";
 import { RecordPriceDialog } from "./RecordPriceDialog";
+import VariantInlineCard from "./VariantInlineCard";
 import type {
   MaterialUnit,
   MaterialWithDetails,
@@ -331,7 +330,12 @@ export function MaterialInspectPane({
           ) : activeTab === "brands" ? (
             <BrandsTab isLoading={brandLinksLoading} brandLinks={brandLinks} variants={variants} />
           ) : activeTab === "variants" ? (
-            <VariantsTab isLoading={variantsLoading} variants={variants} canEdit={canEdit} />
+            <VariantsTab
+              isLoading={variantsLoading}
+              variants={variants}
+              canEdit={canEdit}
+              parentMaterial={material}
+            />
           ) : activeTab === "price-history" ? (
             <>
               <PriceHistoryTab
@@ -606,10 +610,28 @@ function VendorSummaryRow({
   const theme = useTheme();
   const updateBillPolicy = useUpdateVendorBillPolicy();
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const [variantsExpanded, setVariantsExpanded] = useState(false);
   const clickable = !!onVendorClick;
   const brandChips = summary.brand_chips || [];
   const overflowBrands = brandChips.length > 3 ? brandChips.length - 3 : 0;
   const lastUpdated = summary.latest_quote_updated;
+  const variantPrices = summary.variant_prices || [];
+  const hasVariantPrices = variantPrices.length > 0;
+  // Min/max range across variants for the headline price display
+  const variantPriceMin = hasVariantPrices
+    ? Math.min(...variantPrices.map((vp) => vp.price))
+    : null;
+  const variantPriceMax = hasVariantPrices
+    ? Math.max(...variantPrices.map((vp) => vp.price))
+    : null;
+  const variantsCollapsedCount = 2;
+  const visibleVariants = variantsExpanded
+    ? variantPrices
+    : variantPrices.slice(0, variantsCollapsedCount);
+  const hiddenVariantsCount = Math.max(
+    0,
+    variantPrices.length - variantsCollapsedCount
+  );
 
   const openMenu = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
@@ -695,7 +717,33 @@ function VendorSummaryRow({
           </Typography>
         </Box>
         <Box sx={{ textAlign: "right", flexShrink: 0 }}>
-          {summary.min_price != null ? (
+          {hasVariantPrices && variantPriceMin != null && variantPriceMax != null ? (
+            <>
+              <Typography
+                sx={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  fontVariantNumeric: "tabular-nums",
+                  color: "success.dark",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {variantPriceMin === variantPriceMax
+                  ? formatCurrency(variantPriceMin)
+                  : `${formatCurrency(variantPriceMin)} – ${formatCurrency(variantPriceMax)}`}
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: 9.5,
+                  color: "text.secondary",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.4,
+                }}
+              >
+                {variantPrices.length} variant{variantPrices.length === 1 ? "" : "s"} · per {unitLabel}
+              </Typography>
+            </>
+          ) : summary.min_price != null ? (
             <>
               <Typography
                 sx={{
@@ -782,6 +830,119 @@ function VendorSummaryRow({
                 }}
               />
             </Tooltip>
+          ) : null}
+        </Box>
+      ) : null}
+
+      {/* Per-variant price chips (only when parent has variants this vendor quotes) */}
+      {hasVariantPrices ? (
+        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 0.25 }}>
+          {visibleVariants.map((vp) => (
+            <Box
+              key={vp.variant_id}
+              sx={{
+                display: "inline-flex",
+                alignItems: "baseline",
+                gap: 0.5,
+                px: 0.75,
+                py: 0.25,
+                borderRadius: 1,
+                border: 1,
+                borderColor: alpha(theme.palette.success.main, 0.3),
+                bgcolor: alpha(theme.palette.success.main, 0.06),
+              }}
+            >
+              <Typography
+                sx={{
+                  fontSize: 10.5,
+                  fontWeight: 600,
+                  color: "text.primary",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  maxWidth: 140,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {vp.variant_name}
+              </Typography>
+              <Typography
+                sx={{
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  fontVariantNumeric: "tabular-nums",
+                  color: "success.dark",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {formatCurrency(vp.price)}
+              </Typography>
+            </Box>
+          ))}
+          {hiddenVariantsCount > 0 && !variantsExpanded ? (
+            <Box
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                setVariantsExpanded(true);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  setVariantsExpanded(true);
+                }
+              }}
+              sx={{
+                display: "inline-flex",
+                alignItems: "center",
+                px: 0.75,
+                py: 0.25,
+                borderRadius: 1,
+                border: 1,
+                borderColor: "divider",
+                cursor: "pointer",
+                fontSize: 10.5,
+                fontWeight: 600,
+                color: "text.secondary",
+                "&:hover": { color: "primary.main", borderColor: "primary.main" },
+              }}
+            >
+              +{hiddenVariantsCount} more
+            </Box>
+          ) : null}
+          {variantsExpanded && variantPrices.length > variantsCollapsedCount ? (
+            <Box
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                setVariantsExpanded(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  setVariantsExpanded(false);
+                }
+              }}
+              sx={{
+                display: "inline-flex",
+                alignItems: "center",
+                px: 0.75,
+                py: 0.25,
+                borderRadius: 1,
+                border: 1,
+                borderColor: "divider",
+                cursor: "pointer",
+                fontSize: 10.5,
+                fontWeight: 600,
+                color: "text.secondary",
+                "&:hover": { color: "primary.main", borderColor: "primary.main" },
+              }}
+            >
+              Collapse
+            </Box>
           ) : null}
         </Box>
       ) : null}
@@ -998,44 +1159,15 @@ function VariantsTab({
   isLoading,
   variants,
   canEdit = false,
+  parentMaterial,
 }: {
   isLoading: boolean;
   variants: MaterialWithDetails[];
   canEdit?: boolean;
+  parentMaterial: MaterialWithDetails;
 }) {
-  const [pickerAnchor, setPickerAnchor] = useState<{ el: HTMLElement; variantId: string } | null>(null);
-  const updateMaterial = useUpdateMaterial();
-
-  const GALLERY_PHOTOS: string[] = ["CRI2HP30Stage.jpeg",
-  "Chamber_brick.jpg",
-  "Country_nattu_brick.jpeg",
-  "Cover-Block.webp",
-  "Msand.jpg",
-  "PanelCRI.jpeg",
-  "amman-tmt-bar-500x500.webp",
-  "binding_wire.jpg",
-  "chettinadPPC43.png",
-  "flyash.jpg",
-  "mukkal_Jalli.jpg",
-  "ondra_jalli.webp",
-  "psand.png",
-  "red_Brick.jpg"];
-
-  const openPicker = (e: React.MouseEvent<HTMLElement>, variantId: string) => {
-    e.stopPropagation();
-    setPickerAnchor({ el: e.currentTarget, variantId });
-  };
-  const closePicker = () => setPickerAnchor(null);
-
-  const assignImage = (imageName: string | null) => {
-    if (!pickerAnchor) return;
-    const url = imageName ? `/Material_Photo/${imageName}` : null;
-    updateMaterial.mutate({
-      id: pickerAnchor.variantId,
-      data: { image_url: url ?? undefined },
-    });
-    closePicker();
-  };
+  // Which row is in inline-edit mode (variantId), or "add" for the new-variant card
+  const [editing, setEditing] = useState<string | "add" | null>(null);
 
   if (isLoading) {
     return (
@@ -1046,19 +1178,28 @@ function VariantsTab({
       </Box>
     );
   }
-  if (variants.length === 0) {
-    return (
-      <Box sx={{ p: 3, textAlign: "center" }}>
-        <Typography variant="body2" color="text.secondary">
-          No variants for this material.
-        </Typography>
-      </Box>
-    );
-  }
+
   return (
-    <>
-      <Box sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
-        {variants.map((v) => (
+    <Box sx={{ p: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
+      {variants.length === 0 && editing !== "add" && (
+        <Box sx={{ p: 2, textAlign: "center" }}>
+          <Typography variant="body2" color="text.secondary">
+            No variants for this material yet.
+          </Typography>
+        </Box>
+      )}
+
+      {variants.map((v) =>
+        editing === v.id ? (
+          <VariantInlineCard
+            key={v.id}
+            mode="edit"
+            parentMaterial={parentMaterial}
+            variant={v}
+            onCancel={() => setEditing(null)}
+            onSaved={() => setEditing(null)}
+          />
+        ) : (
           <Box
             key={v.id}
             sx={{
@@ -1072,36 +1213,14 @@ function VariantsTab({
               alignItems: "center",
             }}
           >
-            <Box sx={{ position: "relative", flexShrink: 0 }}>
+            <Box sx={{ flexShrink: 0 }}>
               <EntityImageAvatar
                 src={v.image_url}
                 name={v.name}
-                size={36}
+                size={40}
                 fallbackIcon={<InventoryIcon />}
                 tint="primary"
               />
-              {canEdit && (
-                <Tooltip title="Change image" placement="top">
-                  <IconButton
-                    size="small"
-                    onClick={(e) => openPicker(e, v.id)}
-                    sx={{
-                      position: "absolute",
-                      bottom: -6,
-                      right: -6,
-                      width: 18,
-                      height: 18,
-                      bgcolor: "background.paper",
-                      border: 1,
-                      borderColor: "divider",
-                      "&:hover": { bgcolor: "action.hover" },
-                      p: 0,
-                    }}
-                  >
-                    <PhotoCameraIcon sx={{ fontSize: 11 }} />
-                  </IconButton>
-                </Tooltip>
-              )}
             </Box>
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Typography sx={{ fontSize: 13, fontWeight: 700 }}>{v.name}</Typography>
@@ -1116,61 +1235,52 @@ function VariantsTab({
                 {[v.code, UNIT_LABELS[v.unit as MaterialUnit] || v.unit].filter(Boolean).join(" · ")}
               </Typography>
             </Box>
+            {canEdit && (
+              <Tooltip title="Edit variant" placement="top">
+                <IconButton size="small" onClick={() => setEditing(v.id)}>
+                  <EditIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+            )}
           </Box>
-        ))}
-      </Box>
+        )
+      )}
 
-      {/* Image picker popover */}
-      <Popover
-        open={Boolean(pickerAnchor)}
-        anchorEl={pickerAnchor?.el}
-        onClose={closePicker}
-        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
-        transformOrigin={{ vertical: "top", horizontal: "left" }}
-        slotProps={{ paper: { sx: { p: 1.5, width: 280 } } }}
-      >
-        <Typography sx={{ fontSize: 11, fontWeight: 700, mb: 1, color: "text.secondary", textTransform: "uppercase", letterSpacing: 0.5 }}>
-          Choose image
-        </Typography>
-        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 0.75 }}>
-          {GALLERY_PHOTOS.map((fname) => (
-            <Tooltip key={fname} title={fname.replace(/\.[^.]+$/, "").replace(/_/g, " ")} placement="top">
-              <Box
-                component="img"
-                src={`/Material_Photo/${fname}`}
-                alt={fname}
-                onClick={() => assignImage(fname)}
-                sx={{
-                  width: "100%",
-                  aspectRatio: "1",
-                  objectFit: "cover",
-                  borderRadius: 1,
-                  cursor: "pointer",
-                  border: 2,
-                  borderColor: "transparent",
-                  "&:hover": { borderColor: "primary.main" },
-                }}
-              />
-            </Tooltip>
-          ))}
-        </Box>
+      {/* Add Variant: inline card or "+ Add" affordance */}
+      {canEdit && editing === "add" && (
+        <VariantInlineCard
+          mode="add"
+          parentMaterial={parentMaterial}
+          onCancel={() => setEditing(null)}
+          onSaved={() => setEditing(null)}
+        />
+      )}
+      {canEdit && editing !== "add" && (
         <Box
-          onClick={() => assignImage(null)}
+          onClick={() => setEditing("add")}
           sx={{
-            mt: 1,
-            pt: 1,
-            borderTop: 1,
+            px: 1.5,
+            py: 1.25,
+            border: "1px dashed",
             borderColor: "divider",
-            fontSize: 12,
-            color: "text.secondary",
+            borderRadius: 1.5,
+            display: "flex",
+            gap: 1,
+            alignItems: "center",
             cursor: "pointer",
-            "&:hover": { color: "error.main" },
+            color: "text.secondary",
+            "&:hover": {
+              borderColor: "primary.main",
+              color: "primary.main",
+              bgcolor: alpha("#1976d2", 0.04),
+            },
           }}
         >
-          Remove image
+          <AddCircleOutlineIcon sx={{ fontSize: 18 }} />
+          <Typography sx={{ fontSize: 13, fontWeight: 600 }}>Add variant</Typography>
         </Box>
-      </Popover>
-    </>
+      )}
+    </Box>
   );
 }
 
