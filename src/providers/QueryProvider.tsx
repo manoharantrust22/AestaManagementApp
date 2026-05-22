@@ -78,14 +78,23 @@ function redirectToLogin(): void {
 }
 
 /**
- * Detects errors thrown by the wrapQueryFn timeout race — message shape is
- * "<operationName> timed out after <ms>ms" (or the bare "Query timed out
- * after <ms>ms" when no operationName was supplied).
+ * Detects errors thrown by any timeout race — wrapQueryFn/wrapMutationFn use
+ * "<op> timed out after <ms>ms", but bespoke hooks (useCompanyDailyPeek,
+ * useMaterialUsage, useMaterialRequests, fuzzyMatch, etc.) use "Ns" or
+ * "N seconds". Also checks `name === "TimeoutError"` set by withTimeout so
+ * the message format doesn't have to match at all.
+ *
+ * Why the broad match: if this returns false on a real timeout, the
+ * connection-pool recovery path below is skipped, and the app stays stuck
+ * on skeletons until the user refreshes — the exact bug this regex was
+ * silently failing on for the dashboard daily peek error.
  */
 function isTimeoutError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
+  const name = String((error as { name?: unknown }).name ?? "");
+  if (name === "TimeoutError") return true;
   const message = String((error as { message?: unknown }).message ?? "");
-  return /timed out after \d+ms/i.test(message);
+  return /timed out after \d+\s*(ms|s|seconds?)\b/i.test(message);
 }
 
 // Module-level debounce for the timeout-recovery path. When a Cloudflare-proxy

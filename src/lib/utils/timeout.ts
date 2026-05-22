@@ -21,7 +21,9 @@ export async function withTimeout<T>(
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
-      reject(new Error(errorMessage));
+      const err = new Error(errorMessage);
+      err.name = "TimeoutError";
+      reject(err);
     }, timeoutMs);
   });
 
@@ -136,5 +138,11 @@ export function isAbortOrTimeoutError(error: unknown): boolean {
   const name = String((error as { name?: unknown }).name ?? "");
   if (name === "TimeoutError" || name === "AbortError") return true;
   const message = String((error as { message?: unknown }).message ?? "");
-  return /timed out after \d+ms/i.test(message);
+  // Match every timeout-message format actually produced across the codebase:
+  //   "...timed out after 10000ms" (wrapQueryFn/wrapMutationFn)
+  //   "...timed out after 10s." (useCompanyDailyPeek, useAttendanceForDate, fuzzyMatch)
+  //   "...timed out after 30 seconds." (useMaterialUsage, useMaterialRequests)
+  // Without this, custom-message timeouts skip the QueryCache pool-recovery
+  // path and leave the app stuck on skeletons until the user refreshes.
+  return /timed out after \d+\s*(ms|s|seconds?)\b/i.test(message);
 }

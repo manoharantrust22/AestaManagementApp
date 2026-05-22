@@ -32,7 +32,9 @@ async function withTimeout<T>(
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
-      reject(new Error(`Operation '${operationName}' timed out after ${timeoutMs / 1000} seconds. Please try again.`));
+      const err = new Error(`Operation '${operationName}' timed out after ${timeoutMs / 1000} seconds. Please try again.`);
+      err.name = "TimeoutError";
+      reject(err);
     }, timeoutMs);
   });
 

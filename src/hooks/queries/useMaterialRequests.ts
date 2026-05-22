@@ -65,7 +65,9 @@ async function withTimeout<T>(
       isTimedOut = true;
       const errorMsg = `Operation '${operationName}' timed out after ${timeoutMs / 1000} seconds. Please try again.`;
       console.error(`[withTimeout] TIMEOUT: ${errorMsg}`);
-      reject(new Error(errorMsg));
+      const err = new Error(errorMsg);
+      err.name = "TimeoutError";
+      reject(err);
     }, timeoutMs);
   });
 
