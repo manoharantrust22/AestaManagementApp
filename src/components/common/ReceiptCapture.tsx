@@ -50,6 +50,10 @@ export function ReceiptCapture({
   const [error, setError] = useState<string | null>(null);
 
   const upload = async (file: File) => {
+    if (file.size > 10 * 1024 * 1024) {
+      setError("File too large (max 10 MB). Please compress and try again.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -57,13 +61,13 @@ export function ReceiptCapture({
       const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
       const path = `${folder}/${safeName}`;
       const supabase = createClient();
-      const { publicUrl } = await hardenedUpload({
+      const { path: returnedPath, publicUrl } = await hardenedUpload({
         supabase,
         bucketName: bucket,
         filePath: path,
         file,
       });
-      onChange({ url: publicUrl, storage_path: path });
+      onChange({ url: publicUrl, storage_path: returnedPath });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
@@ -132,27 +136,33 @@ export function ReceiptCapture({
       ) : (
         <ButtonGroup variant="outlined" size="small" disabled={disabled || busy}>
           <Tooltip title="Upload file">
-            <Button
-              aria-label="file"
-              onClick={() => fileInputRef.current?.click()}
-              startIcon={busy ? <CircularProgress size={14} /> : <FileIcon fontSize="small" />}
-            >
-              File
-            </Button>
+            <span>
+              <Button
+                aria-label="file"
+                onClick={() => fileInputRef.current?.click()}
+                startIcon={busy ? <CircularProgress size={14} /> : <FileIcon fontSize="small" />}
+              >
+                File
+              </Button>
+            </span>
           </Tooltip>
           <Tooltip title="Paste from clipboard">
-            <Button aria-label="paste" onClick={handlePaste} startIcon={<PasteIcon fontSize="small" />}>
-              Paste
-            </Button>
+            <span>
+              <Button aria-label="paste" onClick={handlePaste} startIcon={<PasteIcon fontSize="small" />}>
+                Paste
+              </Button>
+            </span>
           </Tooltip>
           <Tooltip title="Take photo">
-            <Button
-              aria-label="camera"
-              onClick={() => cameraInputRef.current?.click()}
-              startIcon={<CameraIcon fontSize="small" />}
-            >
-              Camera
-            </Button>
+            <span>
+              <Button
+                aria-label="camera"
+                onClick={() => cameraInputRef.current?.click()}
+                startIcon={<CameraIcon fontSize="small" />}
+              >
+                Camera
+              </Button>
+            </span>
           </Tooltip>
         </ButtonGroup>
       )}
