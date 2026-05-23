@@ -406,7 +406,8 @@
       "PowerShell(Get-NetTCPConnection -LocalPort 3000,3001 -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Listen' } | ForEach-Object { $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; if \\($proc\\) { Write-Output \"Port $\\($_.LocalPort\\) -> PID $\\($proc.Id\\) \\($\\($proc.ProcessName\\)\\)\" } })",
       "PowerShell(Stop-Process -Id 16708 -Force -ErrorAction SilentlyContinue; Stop-Process -Id 38984 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; Get-NetTCPConnection -LocalPort 3000,3001 -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Listen' } | ForEach-Object { Write-Output \"Still listening: port $\\($_.LocalPort\\)\" }; if \\(Test-Path .next\\) { Remove-Item -Path .next -Recurse -Force; Write-Output \".next cleared\" } else { Write-Output \"no .next\" })",
       "Bash(python3)",
-      "Bash(sed 's/<[^>]*>//g')"
+      "Bash(sed 's/<[^>]*>//g')",
+      "Bash(grep -r \"spot\\\\|cash\\\\|direct\\\\|petty\\\\|quick\" \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\docs\" 2>nul | head -10)"
     ],
     "deny": [],
     "ask": [],
@@ -415,7 +416,8 @@
       "C:\\Users\\Haribabu\\Documents\\AppsCopilot\\AestaManagementApp",
       "\\tmp",
       "c:\\Users\\Haribabu\\Documents\\AppsCopilot\\AestaManagementApp\\docs\\superpowers\\specs",
-      "c:\\tmp\\brainstorm\\content"
+      "c:\\tmp\\brainstorm\\content",
+      "c:\\Users\\Haribabu\\Documents\\AppsCopilot\\AestaManagementApp"
     ]
   }
 }

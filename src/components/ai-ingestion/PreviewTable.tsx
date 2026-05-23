@@ -5,10 +5,11 @@
 
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Box,
   Chip,
+  CircularProgress,
   IconButton,
   Stack,
   Table,
@@ -29,7 +30,13 @@ import {
   TrendingUp as UpIcon,
   TrendingFlat as FlatIcon,
   Lightbulb as TipIcon,
+  PhotoCamera as PhotoCameraIcon,
+  Close as CloseIcon,
+  AutoFixHigh as ReplaceIcon,
 } from "@mui/icons-material";
+
+import { createClient } from "@/lib/supabase/client";
+import { hardenedUpload } from "@/lib/storage/uploadHelpers";
 
 import type {
   ResolvedPreview,
@@ -74,6 +81,15 @@ export default function PreviewTable({ preview, summary, onPatch }: PreviewTable
               overrideMaterialName: patch.overrideMaterialName,
             }
           : r,
+      ),
+    }));
+  };
+
+  const setRowPhoto = (rowIndex: number, photoUrl: string | null) => {
+    onPatch((prev) => ({
+      ...prev,
+      rows: prev.rows.map((r) =>
+        r.index === rowIndex ? { ...r, productPhotoUrl: photoUrl } : r,
       ),
     }));
   };
@@ -131,6 +147,9 @@ export default function PreviewTable({ preview, summary, onPatch }: PreviewTable
               </TableCell>
               <TableCell sx={{ width: 110 }} align="right">
                 Total
+              </TableCell>
+              <TableCell sx={{ width: 70 }} align="center">
+                Photo
               </TableCell>
               <TableCell sx={{ width: 56 }} />
             </TableRow>
@@ -212,6 +231,15 @@ export default function PreviewTable({ preview, summary, onPatch }: PreviewTable
                     <Typography variant="body2">
                       {row.totalPrice !== null ? `₹${formatNumber(row.totalPrice)}` : "—"}
                     </Typography>
+                  </TableCell>
+                  <TableCell align="center" sx={{ p: 0.5 }}>
+                    <PhotoCell
+                      photoUrl={row.productPhotoUrl}
+                      existingImageUrl={row.existingImageUrl}
+                      rowName={displayName(row)}
+                      onUploaded={(url) => setRowPhoto(row.index, url)}
+                      onCleared={() => setRowPhoto(row.index, null)}
+                    />
                   </TableCell>
                   <TableCell>
                     <Tooltip title="Edit match">
@@ -361,6 +389,157 @@ function vendorMatchLabel(preview: ResolvedPreview): string {
 
 function formatNumber(n: number): string {
   return n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+}
+
+/**
+ * Per-row product photo upload affordance. Empty state shows a small camera
+ * button; populated state shows the thumbnail + a clear (×) action. When the
+ * row matched an existing material that already has an image_url, a small
+ * "replaces existing" hint shows below the thumbnail (the user sees this
+ * BEFORE clicking Confirm, so commit-time overwrite is deliberate).
+ *
+ * Uploads to the existing `work-updates` storage bucket under `product-photos/`
+ * to match the variant photo path used by VariantInlineCard — same bucket,
+ * same CDN behavior, no extra storage policy needed.
+ */
+function PhotoCell({
+  photoUrl,
+  existingImageUrl,
+  rowName,
+  onUploaded,
+  onCleared,
+}: {
+  photoUrl: string | null;
+  existingImageUrl: string | null;
+  rowName: string;
+  onUploaded: (url: string) => void;
+  onCleared: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const willReplaceExisting = !!existingImageUrl && !!photoUrl;
+
+  const handlePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (inputRef.current) inputRef.current.value = "";
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Max 5 MB");
+      return;
+    }
+    if (!/^image\/(jpeg|png|webp|jpg)$/i.test(file.type)) {
+      setError("JPEG / PNG / WebP only");
+      return;
+    }
+    setError(null);
+    setUploading(true);
+    try {
+      const supabase = createClient();
+      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+      const slug = rowName.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 40);
+      const filePath = `product-photos/ingest-${slug}-${Date.now()}.${ext}`;
+      const { publicUrl } = await hardenedUpload({
+        supabase,
+        bucketName: "work-updates",
+        filePath,
+        file,
+        contentType: file.type,
+      });
+      onUploaded(publicUrl);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Upload failed";
+      setError(msg);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0.25 }}>
+      {photoUrl ? (
+        <Box sx={{ position: "relative", width: 44, height: 44 }}>
+          <Box
+            component="img"
+            src={photoUrl}
+            alt={rowName}
+            sx={{
+              width: 44,
+              height: 44,
+              objectFit: "cover",
+              borderRadius: 1,
+              border: 1,
+              borderColor: "divider",
+            }}
+          />
+          <Tooltip title="Remove photo" placement="top">
+            <IconButton
+              size="small"
+              onClick={onCleared}
+              disabled={uploading}
+              aria-label="Remove photo"
+              sx={{
+                position: "absolute",
+                top: -6,
+                right: -6,
+                width: 18,
+                height: 18,
+                bgcolor: "background.paper",
+                border: 1,
+                borderColor: "divider",
+                "&:hover": { bgcolor: "error.light" },
+              }}
+            >
+              <CloseIcon sx={{ fontSize: 11 }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      ) : (
+        <Tooltip
+          title={existingImageUrl ? "Replace catalog photo" : "Attach product photo"}
+          placement="top"
+        >
+          <IconButton
+            size="small"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            aria-label="Attach photo"
+            sx={{
+              width: 44,
+              height: 44,
+              border: "1px dashed",
+              borderColor: existingImageUrl ? "warning.main" : "divider",
+              borderRadius: 1,
+              color: existingImageUrl ? "warning.main" : "text.secondary",
+              "&:hover": { borderColor: "primary.main", color: "primary.main" },
+            }}
+          >
+            {uploading ? <CircularProgress size={16} /> : <PhotoCameraIcon sx={{ fontSize: 18 }} />}
+          </IconButton>
+        </Tooltip>
+      )}
+      {willReplaceExisting ? (
+        <Tooltip title="This material already has a catalog photo. Confirming will replace it." placement="top">
+          <Stack direction="row" spacing={0.25} alignItems="center">
+            <ReplaceIcon sx={{ fontSize: 10, color: "warning.main" }} />
+            <Typography sx={{ fontSize: 9, color: "warning.main", fontWeight: 600 }}>
+              replaces
+            </Typography>
+          </Stack>
+        </Tooltip>
+      ) : null}
+      {error ? (
+        <Typography sx={{ fontSize: 9, color: "error.main" }}>{error}</Typography>
+      ) : null}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        style={{ display: "none" }}
+        onChange={handlePicked}
+      />
+    </Box>
+  );
 }
 
 // Re-export the row outcome type so consumers don't need a separate import.

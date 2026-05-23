@@ -166,6 +166,13 @@ export interface MaterialVendorSummary {
   latest_quote_updated: string | null;
   last_purchase_date: string | null;
   last_purchase_amount: number | null;
+  /**
+   * bill_url from the chronologically-latest purchase from this vendor for
+   * this material. Populated from material_purchase_expenses.bill_url —
+   * `null` when the vendor has no purchases or the latest one was recorded
+   * without a bill attached.
+   */
+  last_bill_url: string | null;
   total_purchased_value: number | null;
   total_purchased_qty: number | null;
   purchase_count: number;
@@ -404,6 +411,11 @@ export interface PriceHistory {
   recorded_by: string | null;
   notes: string | null;
   created_at: string;
+  // Bill provenance — populated by AI ingest, AddHistoricalPurchaseDialog,
+  // and manual vendor-rate entry on the catalog (when a bill is attached).
+  bill_url: string | null;
+  bill_number: string | null;
+  bill_date: string | null;
 }
 
 // ============================================
@@ -1334,6 +1346,13 @@ export interface VariantFormData {
   initial_vendor_id?: string | null;
   initial_vendor_price?: number | null;
   initial_vendor_notes?: string | null;
+  /**
+   * Optional bill PDF/image URL backing the manually-entered vendor rate.
+   * Uploaded to the `purchase-documents` storage bucket. Persisted as a
+   * `price_history` row with `source='manual'` so the bill surfaces wherever
+   * `bill_url` is rendered (catalog row, vendor inspect, price history tab).
+   */
+  initial_vendor_bill_url?: string | null;
 }
 
 // Extended form data for creating a material with variants in one operation

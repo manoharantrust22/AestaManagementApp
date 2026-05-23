@@ -31,6 +31,7 @@ import {
   StarBorder as StarBorderIcon,
   MoreVert as MoreVertIcon,
   AddCircleOutline as AddCircleOutlineIcon,
+  Receipt as ReceiptIcon,
 } from "@mui/icons-material";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
 import { useMaterial, useMaterialVariants, useMaterialBrands, useBrandVariantLinks } from "@/hooks/queries/useMaterials";
@@ -954,16 +955,35 @@ function VendorSummaryRow({
             display: "flex",
             gap: 1,
             flexWrap: "wrap",
+            alignItems: "center",
             fontSize: 10.5,
             color: "text.secondary",
             mt: 0.25,
           }}
         >
           {summary.last_purchase_date ? (
-            <span>
-              Last: <strong>{formatCurrency(summary.last_purchase_amount ?? 0)}</strong> on{" "}
-              {formatDate(summary.last_purchase_date)}
-            </span>
+            <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+              <span>
+                Last: <strong>{formatCurrency(summary.last_purchase_amount ?? 0)}</strong> on{" "}
+                {formatDate(summary.last_purchase_date)}
+              </span>
+              {summary.last_bill_url ? (
+                <Tooltip title="View bill from latest purchase" placement="top">
+                  <IconButton
+                    size="small"
+                    component="a"
+                    href={summary.last_bill_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    sx={{ p: 0.25, color: "primary.main" }}
+                    aria-label="View bill"
+                  >
+                    <ReceiptIcon sx={{ fontSize: 13 }} />
+                  </IconButton>
+                </Tooltip>
+              ) : null}
+            </Box>
           ) : null}
           {summary.total_purchased_value != null ? (
             <span>
@@ -1617,17 +1637,34 @@ function PriceHistoryTab({
               >
                 {formatDate(entry.recorded_date)}
               </Typography>
-              <Typography
-                sx={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {entry.vendor?.name ?? "—"}
-              </Typography>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
+                <Typography
+                  sx={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {entry.vendor?.name ?? "—"}
+                </Typography>
+                {entry.bill_url ? (
+                  <Tooltip title="View bill" placement="top">
+                    <IconButton
+                      size="small"
+                      component="a"
+                      href={entry.bill_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      sx={{ p: 0.25, color: "primary.main", flexShrink: 0 }}
+                      aria-label="View bill"
+                    >
+                      <ReceiptIcon sx={{ fontSize: 12 }} />
+                    </IconButton>
+                  </Tooltip>
+                ) : null}
+              </Box>
               <Box sx={{ textAlign: "right" }}>
                 <Typography
                   sx={{

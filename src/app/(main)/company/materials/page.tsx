@@ -43,6 +43,7 @@ import { useMaterialVendorCounts } from "@/hooks/queries/useVendorInventory";
 import {
   useMaterialOrderStats,
   useMaterialBestPrices,
+  useMaterialLatestPurchases,
 } from "@/hooks/queries/useMaterialOrderStats";
 import { FilterBar, type FilterChipDef } from "@/components/common/FilterBar";
 import { ViewToggle, type ViewMode } from "@/components/common/ViewToggle";
@@ -168,6 +169,7 @@ export default function MaterialsPage() {
   const { data: vendorCounts = {} } = useMaterialVendorCounts();
   const { data: orderStats } = useMaterialOrderStats();
   const { data: bestPrices } = useMaterialBestPrices();
+  const { data: latestPurchases } = useMaterialLatestPurchases();
   const deleteMaterial = useDeleteMaterial();
   const updateMaterial = useUpdateMaterial();
 
@@ -468,6 +470,7 @@ export default function MaterialsPage() {
                   vendorCount={vendorCounts[m.id] || 0}
                   bestPrice={bp?.unit_price}
                   bestPriceVendor={bp?.vendor_name}
+                  latestPurchase={latestPurchases?.get(m.id) ?? null}
                   isFrequent={isFrequent}
                   selected={top?.kind === "material" && top.id === m.id}
                   canEdit={canEdit}

@@ -1630,6 +1630,7 @@ export function useAddVariantToMaterial() {
       // price row points at the new variant's id via material_id — same shape
       // as AddVendorToMaterialDialog uses for variant-supplying vendors.
       if (variant.initial_vendor_id && variant.initial_vendor_price && variant.initial_vendor_price > 0) {
+        const billUrl = variant.initial_vendor_bill_url ?? null;
         const { error: invErr } = await (supabase as any)
           .from("vendor_inventory")
           .insert({
@@ -1645,6 +1646,9 @@ export function useAddVariantToMaterial() {
             lead_time_days: 1,
             notes: variant.initial_vendor_notes?.trim() || null,
             last_price_update: new Date().toISOString(),
+            // Stamp the source so vendor_inventory carries provenance even
+            // for entries without a separate price_history row.
+            price_source: billUrl ? "bill" : "manual",
           });
         if (invErr) {
           // Don't fail the whole variant create — the variant is in, the price
@@ -1652,16 +1656,60 @@ export function useAddVariantToMaterial() {
           // the Vendors tab.
           console.error("Failed to insert initial vendor quote:", invErr);
         }
+
+        // Manual-rate provenance: when the user attached a bill, write a
+        // price_history row so the bill surfaces wherever bill_url is rendered
+        // (catalog row "Last:" line, vendor inspect, price-history tab).
+        // No material_purchase_expenses row is created — the catalog stays a
+        // company-level rate book; actual purchase recording still flows
+        // through /site AI ingest or AddHistoricalPurchaseDialog.
+        if (billUrl) {
+          const today = new Date().toISOString().slice(0, 10);
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          const { error: phErr } = await (supabase as any)
+            .from("price_history")
+            .insert({
+              vendor_id: variant.initial_vendor_id,
+              material_id: result.id,
+              brand_id: null,
+              price: variant.initial_vendor_price,
+              price_includes_gst: true,
+              gst_rate: parentMaterial.gst_rate ?? null,
+              recorded_date: today,
+              source: "manual",
+              source_reference: "VariantInlineCard manual entry",
+              unit: parentMaterial.unit,
+              recorded_by: user?.id ?? null,
+              notes: variant.initial_vendor_notes?.trim() || null,
+              bill_url: billUrl,
+              bill_date: today,
+            });
+          if (phErr) {
+            console.error("Failed to insert price_history with bill:", phErr);
+          }
+        }
       }
 
       return result as Material;
     },
     onSuccess: (newVariant, variables) => {
-      // Immediately inject the new variant so the dialog shows it without waiting for refetch
+      // Optimistic: inject the new variant so the list updates in the same tick.
       queryClient.setQueryData<MaterialWithDetails[]>(
         ["materials", "variants", variables.parentId],
-        (old = []) => [...old, newVariant as unknown as MaterialWithDetails]
+        (old = []) => {
+          if (old.some((v) => v.id === (newVariant as Material).id)) return old;
+          return [...old, newVariant as unknown as MaterialWithDetails];
+        }
       );
+      // Force a canonical refetch of the variants list so it picks up the
+      // joined columns (brands, image_url shape) that the bare insert row
+      // doesn't carry. Without this an injected row can look subtly wrong
+      // (e.g., missing image_url cast or brands array) until manual refresh.
+      queryClient.refetchQueries({
+        queryKey: ["materials", "variants", variables.parentId],
+      });
       queryClient.invalidateQueries({ queryKey: ["materials"] });
       queryClient.invalidateQueries({ queryKey: ["material", variables.parentId] });
       queryClient.invalidateQueries({

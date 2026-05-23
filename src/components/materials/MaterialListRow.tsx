@@ -23,11 +23,13 @@ import {
   Whatshot as FireIcon,
   Inventory2 as InventoryIcon,
   Store as StoreIcon,
+  Receipt as ReceiptIcon,
 } from "@mui/icons-material";
 import { ListRow } from "@/components/common/ListRow";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
-import { formatCurrency } from "@/lib/formatters";
+import { formatCurrency, formatDate } from "@/lib/formatters";
 import type { MaterialWithDetails, MaterialUnit } from "@/types/material.types";
+import type { MaterialLatestPurchase } from "@/hooks/queries/useMaterialOrderStats";
 
 const UNIT_LABELS: Record<MaterialUnit, string> = {
   kg: "Kg",
@@ -56,6 +58,12 @@ interface MaterialListRowProps {
   vendorCount: number;
   bestPrice?: number | null;
   bestPriceVendor?: string | null;
+  /**
+   * Chronologically-latest purchase of this material (from v_material_latest_purchase).
+   * Surfaces a "Last: ₹X · vendor · date · 📎" line under the best-price chip,
+   * with the 📎 linking to the bill_url when present.
+   */
+  latestPurchase?: MaterialLatestPurchase | null;
   isFrequent?: boolean;
   selected?: boolean;
   canEdit?: boolean;
@@ -75,6 +83,7 @@ export function MaterialListRow({
   vendorCount,
   bestPrice,
   bestPriceVendor,
+  latestPurchase,
   isFrequent = false,
   selected = false,
   canEdit = false,
@@ -133,18 +142,62 @@ export function MaterialListRow({
   secondaryParts.push(unitLabel);
   if (material.category?.name) secondaryParts.push(material.category.name);
 
+  // "Last:" line is rendered only when a purchase history exists. Distinct
+  // from "best price" (lowest across vendors, shown on the right) — this is
+  // the chronologically-most-recent purchase + an optional bill link.
+  const lastPurchaseLine = latestPurchase ? (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
+      <Typography
+        sx={{
+          fontSize: 10.5,
+          color: "text.secondary",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        Last:{" "}
+        <Box component="span" sx={{ fontWeight: 700, color: "text.primary", fontVariantNumeric: "tabular-nums" }}>
+          {formatCurrency(latestPurchase.last_unit_price)}
+        </Box>
+        {latestPurchase.last_vendor_name ? ` · ${latestPurchase.last_vendor_name}` : ""}
+        {" · "}
+        {formatDate(latestPurchase.last_purchase_date)}
+      </Typography>
+      {latestPurchase.last_bill_url ? (
+        <Tooltip title="View bill from latest purchase" placement="top">
+          <IconButton
+            size="small"
+            component="a"
+            href={latestPurchase.last_bill_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            sx={{ p: 0.25, color: "primary.main" }}
+            aria-label="View bill"
+          >
+            <ReceiptIcon sx={{ fontSize: 13 }} />
+          </IconButton>
+        </Tooltip>
+      ) : null}
+    </Box>
+  ) : null;
+
   const secondary = (
-    <Typography
-      sx={{
-        fontSize: 11,
-        color: "text.secondary",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {secondaryParts.join(" · ")}
-    </Typography>
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 0.125, minWidth: 0 }}>
+      <Typography
+        sx={{
+          fontSize: 11,
+          color: "text.secondary",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {secondaryParts.join(" · ")}
+      </Typography>
+      {lastPurchaseLine}
+    </Box>
   );
 
   const chips = (

@@ -29,6 +29,22 @@ export interface MaterialBestPrice {
 }
 
 /**
+ * Chronologically-latest purchase per material, from
+ * material_purchase_expense_items joined to material_purchase_expenses.
+ * Distinct from "best price" (cheapest across vendors) — this is the most
+ * recent in time and carries a bill_url when one was attached at ingest.
+ * Sourced from the v_material_latest_purchase SQL view.
+ */
+export interface MaterialLatestPurchase {
+  material_id: string;
+  last_purchase_date: string;
+  last_unit_price: number;
+  last_vendor_id: string | null;
+  last_vendor_name: string | null;
+  last_bill_url: string | null;
+}
+
+/**
  * Fetch order statistics for all materials
  * Used for sorting by frequency (frequently ordered materials first)
  */
@@ -147,6 +163,41 @@ export function useMaterialBestPrices() {
       return priceMap;
     }, { operationName: "useMaterialBestPrices" }),
     staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+/**
+ * Fetch the chronologically-latest purchase per material from the
+ * v_material_latest_purchase view. One row per material that has at least
+ * one purchase line item. Returned as a Map keyed by material_id for O(1)
+ * lookup from the catalog list.
+ */
+export function useMaterialLatestPurchases() {
+  const supabase = createClient();
+
+  return useQuery({
+    queryKey: ["materials", "latest-purchases"],
+    queryFn: wrapQueryFn(async () => {
+      const { data, error } = await (supabase as any)
+        .from("v_material_latest_purchase")
+        .select(
+          "material_id, last_purchase_date, last_unit_price, last_vendor_id, last_vendor_name, last_bill_url"
+        );
+
+      if (error) {
+        // View may not be deployed yet in some environments — degrade gracefully
+        // rather than blowing up the whole catalog list. The chip just won't render.
+        console.warn("Could not fetch material latest purchases:", error.message);
+        return new Map<string, MaterialLatestPurchase>();
+      }
+
+      const map = new Map<string, MaterialLatestPurchase>();
+      for (const row of (data || []) as MaterialLatestPurchase[]) {
+        map.set(row.material_id, row);
+      }
+      return map;
+    }, { operationName: "useMaterialLatestPurchases" }),
+    staleTime: 5 * 60 * 1000,
   });
 }
 

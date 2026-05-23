@@ -106,6 +106,20 @@ export interface ResolvedPreviewRow {
    * `null` for new materials with no history yet.
    */
   priceContext: RowPriceContext | null;
+  /**
+   * Per-line-item product photo, uploaded inside PreviewTable before commit
+   * (stored at `work-updates/product-photos/...`). On commit, this URL is
+   * patched onto `materials.image_url` for the resolved material — new
+   * materials always receive the photo; existing materials receive it after
+   * the user saw `existingImageUrl` and the "replaces existing photo" hint.
+   */
+  productPhotoUrl: string | null;
+  /**
+   * Existing `materials.image_url` for a matched row, fetched at preview
+   * time so PreviewTable can warn the user before overwriting. `null` for
+   * NEW rows and matched rows with no photo set yet.
+   */
+  existingImageUrl: string | null;
 }
 
 export interface ResolvedPreview {

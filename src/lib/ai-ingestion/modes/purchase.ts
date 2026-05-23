@@ -116,7 +116,9 @@ export function createPurchaseMode(
       });
 
       // Price intelligence (best-effort — failures degrade to null priceContext rather than blocking the preview)
-      const [priceCtxRes, vendorSummaryRes] = await Promise.all([
+      // Existing-image lookup: for matched rows, fetch the catalog's current
+      // image_url so PreviewTable can warn before overwriting on commit.
+      const [priceCtxRes, vendorSummaryRes, existingImagesRes] = await Promise.all([
         matchedMaterialIds.length > 0
           ? (supabase as any).rpc("get_purchase_price_context", {
               p_material_ids: matchedMaterialIds,
@@ -129,7 +131,20 @@ export function createPurchaseMode(
               p_days: 30,
             })
           : Promise.resolve({ data: null, error: null }),
+        matchedMaterialIds.length > 0
+          ? supabase
+              .from("materials")
+              .select("id, image_url")
+              .in("id", matchedMaterialIds)
+          : Promise.resolve({ data: [], error: null }),
       ]);
+
+      const existingImageByMaterialId = new Map<string, string | null>();
+      if (!existingImagesRes.error && Array.isArray(existingImagesRes.data)) {
+        for (const row of existingImagesRes.data as Array<{ id: string; image_url: string | null }>) {
+          existingImageByMaterialId.set(row.id, row.image_url);
+        }
+      }
 
       const priceCtxByMaterialId = new Map<string, RowPriceContext>();
       if (!priceCtxRes.error && Array.isArray(priceCtxRes.data)) {
@@ -198,6 +213,11 @@ export function createPurchaseMode(
           }
         }
 
+        const existingImageUrl =
+          match.status === "matched"
+            ? existingImageByMaterialId.get(match.entity.id) ?? null
+            : null;
+
         return {
           index,
           rawName: item.name,
@@ -221,6 +241,8 @@ export function createPurchaseMode(
           overrideMaterialName: null,
           warnings,
           priceContext,
+          productPhotoUrl: null,
+          existingImageUrl,
         };
       });
 
@@ -276,13 +298,69 @@ export function createPurchaseMode(
       // Defensive: surface the date used so the user sees what was sent
       const _ = splitCategoryHint; // keep import alive (used by service)
       void _;
-      return commitPurchase({
+      const result = await commitPurchase({
         parsed,
         preview,
         ctx,
         queryClient,
         onPhaseChange,
       });
+
+      // Post-commit: for any preview row with a uploaded product photo,
+      // stamp it onto materials.image_url. Resolution order per row:
+      //   matched / override-id rows → use that material_id directly.
+      //   NEW rows → look up the most recently-created material whose name
+      //   equals the chosen name (commitPurchase just created it via the
+      //   resolve_material RPC; created_at within the last 60s).
+      // Failures are logged but do NOT roll back the commit — the bill,
+      // line items, and price history are already saved; the photo patch
+      // is decorative.
+      const rowsWithPhoto = preview.rows.filter((r) => r.productPhotoUrl);
+      if (rowsWithPhoto.length > 0) {
+        const supabase = createClient();
+        for (const row of rowsWithPhoto) {
+          try {
+            let materialId: string | null = row.overrideMaterialId ?? null;
+            if (!materialId && row.materialMatch.kind === "matched") {
+              materialId = row.materialMatch.entity.id;
+            }
+            if (!materialId) {
+              const lookupName = row.overrideMaterialName ?? row.rawName;
+              const { data: lookup } = await supabase
+                .from("materials")
+                .select("id")
+                .eq("name", lookupName)
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              materialId = (lookup as { id?: string } | null)?.id ?? null;
+            }
+            if (!materialId) {
+              console.warn(
+                "[ai-ingest] photo patch skipped: could not resolve material_id for row",
+                row.index,
+              );
+              continue;
+            }
+            const { error: imgErr } = await (supabase as any)
+              .from("materials")
+              .update({ image_url: row.productPhotoUrl })
+              .eq("id", materialId);
+            if (imgErr) {
+              console.warn(
+                "[ai-ingest] photo patch failed for material",
+                materialId,
+                imgErr.message,
+              );
+            }
+          } catch (err) {
+            console.warn("[ai-ingest] photo patch threw for row", row.index, err);
+          }
+        }
+        await queryClient.invalidateQueries({ queryKey: ["materials"] });
+      }
+
+      return result;
     },
 
     summary(parsed) {

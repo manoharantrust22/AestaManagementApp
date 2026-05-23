@@ -45,6 +45,8 @@ import { isSiteEngineerPayingFromWallet } from "@/components/expenses/walletPaye
 import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
 import { recordSpend } from "@/lib/services/engineerWalletV2";
+import { useEngineerWalletBalance } from "@/hooks/queries/useEngineerWalletV2";
+import WalletBalancePreview from "@/components/wallet-v2/WalletBalancePreview";
 import type { Database } from "@/types/database.types";
 
 type TeaShopAccount = Database["public"]["Tables"]["tea_shop_accounts"]["Row"];
@@ -118,6 +120,7 @@ export default function TeaShopSettlementDialog({
   const isEditMode = !!settlement;
   const { userProfile } = useAuth();
   const { selectedSite } = useSite();
+  const isSiteEngineer = userProfile?.role === "site_engineer";
   const supabase = createClient();
   const queryClient = useQueryClient();
 
@@ -133,8 +136,20 @@ export default function TeaShopSettlementDialog({
   const [createWalletTransaction, setCreateWalletTransaction] = useState(true);
   const [notes, setNotes] = useState("");
   const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
   const [customPayerName, setCustomPayerName] = useState("");
+
+  // Wallet balance for site engineers — disabled for other roles.
+  const balanceQuery = useEngineerWalletBalance(
+    isSiteEngineer ? userProfile?.id : undefined,
+    selectedSite?.id
+  );
+  const walletOnlyView = isSiteEngineerPayingFromWallet({
+    userRole: userProfile?.role,
+    payerType,
+    createWalletTransaction,
+  });
 
   // Settlement mode: waterfall (allocate to entries) or standalone (historical/no allocation)
   const [settlementMode, setSettlementMode] = useState<"waterfall" | "standalone">("waterfall");
@@ -187,6 +202,7 @@ export default function TeaShopSettlementDialog({
         setNotes(settlement.notes || "");
         setSelectedSubcontractId(settlement.subcontract_id || "");
         setProofUrl((settlement as any).proof_url || null);
+        setReceiptUrl((settlement as any).receipt_url || null);
         setPayerSource((settlement as any).payer_source || "own_money");
         setCustomPayerName((settlement as any).payer_name || "");
       } else {
@@ -199,6 +215,7 @@ export default function TeaShopSettlementDialog({
         setNotes("");
         setSelectedSubcontractId("");
         setProofUrl(null);
+        setReceiptUrl(null);
         setPayerSource("own_money");
         setCustomPayerName("");
         setSettlementMode("waterfall");
@@ -208,6 +225,19 @@ export default function TeaShopSettlementDialog({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, settlement]); // Exclude pendingBalance to allow user overrides and prevent loop
+
+  // Site engineers always pay via their own wallet — auto-select, pre-fill, and
+  // force the wallet debit so there is no opt-out path to a "company direct" record.
+  // `open` is in the deps so this re-runs every time the dialog opens — otherwise
+  // the form-reset effect above clobbers payerType back to "company_direct" and the
+  // wallet-only view never activates.
+  useEffect(() => {
+    if (open && isSiteEngineer && userProfile?.id && !isEditMode) {
+      setPayerType("site_engineer");
+      setSelectedEngineerId(userProfile.id);
+      setCreateWalletTransaction(true);
+    }
+  }, [open, isSiteEngineer, userProfile?.id, isEditMode]);
 
   // Auto-suggest subcontract when the site has exactly one active option.
   // Only fires in create mode and only when nothing is selected yet, so the
@@ -465,11 +495,6 @@ export default function TeaShopSettlementDialog({
       return;
     }
 
-    if (paymentMode !== "cash" && !proofUrl) {
-      setError("Please upload payment proof screenshot (required for non-cash payments)");
-      return;
-    }
-
     // Soft confirm before saving a brand-new settlement with no subcontract
     // link. Skipped on edit (user is consciously editing the row) and bypassed
     // when the user has already clicked "Save anyway" in the confirm dialog.
@@ -549,6 +574,7 @@ export default function TeaShopSettlementDialog({
         recorded_by_user_id: userProfile?.id || null,
         subcontract_id: selectedSubcontractId || null,
         proof_url: proofUrl,
+        receipt_url: receiptUrl,
         payer_source: payerSource,
         payer_name: (payerSource === "custom" || payerSource === "other_site_money")
           ? customPayerName
@@ -950,66 +976,78 @@ export default function TeaShopSettlementDialog({
           sx={{ mb: 3 }}
         />
 
-        {/* Who is Paying */}
-        <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
-          <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-            WHO IS PAYING?
-          </Typography>
-
-          <RadioGroup
-            value={payerType}
-            onChange={(e) => setPayerType(e.target.value as "site_engineer" | "company_direct")}
-          >
-            <FormControlLabel
-              value="site_engineer"
-              control={<Radio />}
-              label="Site Engineer"
+        {/* Site engineers — locked to wallet-only. Show balance preview instead of picker. */}
+        {walletOnlyView ? (
+          <Box sx={{ mb: 3 }}>
+            <WalletBalancePreview
+              engineerName={userProfile?.name ?? "You"}
+              siteName={selectedSite?.name ?? ""}
+              currentBalance={balanceQuery.data?.balance ?? 0}
+              amount={amountPaying}
+              isLoading={balanceQuery.isLoading}
             />
-            <FormControlLabel
-              value="company_direct"
-              control={<Radio />}
-              label="Company Direct"
-            />
-          </RadioGroup>
+          </Box>
+        ) : (
+          <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
+              WHO IS PAYING?
+            </Typography>
 
-          {payerType === "site_engineer" && (
-            <Box sx={{ mt: 2, pl: 4 }}>
-              <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-                <InputLabel>Select Engineer</InputLabel>
-                <Select
-                  value={selectedEngineerId}
-                  onChange={(e) => setSelectedEngineerId(e.target.value)}
-                  label="Select Engineer"
-                >
-                  {engineers.map((eng) => (
-                    <MenuItem key={eng.id} value={eng.id}>
-                      {eng.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+            <RadioGroup
+              value={payerType}
+              onChange={(e) => setPayerType(e.target.value as "site_engineer" | "company_direct")}
+            >
+              <FormControlLabel
+                value="site_engineer"
+                control={<Radio />}
+                label="Site Engineer"
+              />
+              <FormControlLabel
+                value="company_direct"
+                control={<Radio />}
+                label="Company Direct"
+              />
+            </RadioGroup>
 
-              {!isEditMode && (
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={createWalletTransaction}
-                      onChange={(e) => setCreateWalletTransaction(e.target.checked)}
-                    />
-                  }
-                  label={
-                    <Box>
-                      <Typography variant="body2">Create wallet transaction</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Records as &quot;Spent on Behalf&quot; in engineer wallet
-                      </Typography>
-                    </Box>
-                  }
-                />
-              )}
-            </Box>
-          )}
-        </Paper>
+            {payerType === "site_engineer" && (
+              <Box sx={{ mt: 2, pl: 4 }}>
+                <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                  <InputLabel>Select Engineer</InputLabel>
+                  <Select
+                    value={selectedEngineerId}
+                    onChange={(e) => setSelectedEngineerId(e.target.value)}
+                    label="Select Engineer"
+                  >
+                    {engineers.map((eng) => (
+                      <MenuItem key={eng.id} value={eng.id}>
+                        {eng.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                {!isEditMode && (
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={createWalletTransaction}
+                        onChange={(e) => setCreateWalletTransaction(e.target.checked)}
+                      />
+                    }
+                    label={
+                      <Box>
+                        <Typography variant="body2">Create wallet transaction</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Records as &quot;Spent on Behalf&quot; in engineer wallet
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                )}
+              </Box>
+            )}
+          </Paper>
+        )}
 
         {/* Payment Source — hidden for site engineers paying from wallet
             (source derived from wallet deposit attribution in Phase 2). */}
@@ -1061,25 +1099,37 @@ export default function TeaShopSettlementDialog({
           </Select>
         </FormControl>
 
-        {/* Payment Proof Uploader - required for all non-cash payments */}
-        {paymentMode !== "cash" && (
-          <Box sx={{ mb: 3 }}>
-            <FileUploader
-              supabase={supabase}
-              bucketName="settlement-proofs"
-              folderPath={`tea-shop/${shop.id}`}
-              fileNamePrefix="tea-settlement"
-              accept="image"
-              label="Payment Screenshot (Required)"
-              helperText="Upload screenshot of payment confirmation"
-              compact
-              uploadOnSelect
-              value={proofUrl ? { name: "Payment Proof", size: 0, url: proofUrl } : null}
-              onUpload={(file: UploadedFile) => setProofUrl(file.url)}
-              onRemove={() => setProofUrl(null)}
-            />
-          </Box>
-        )}
+        {/* Payment proofs — both optional. Paste-from-clipboard supported natively by FileUploader. */}
+        <Box sx={{ mb: 3, display: "flex", flexDirection: "column", gap: 2 }}>
+          <FileUploader
+            supabase={supabase}
+            bucketName="settlement-proofs"
+            folderPath={`tea-shop/${shop.id}`}
+            fileNamePrefix="tea-receipt"
+            accept="image"
+            label="Shop Receipt (Optional)"
+            helperText="Photo of shop bill or notebook page. Paste from clipboard supported."
+            compact
+            uploadOnSelect
+            value={receiptUrl ? { name: "Receipt", size: 0, url: receiptUrl } : null}
+            onUpload={(file: UploadedFile) => setReceiptUrl(file.url)}
+            onRemove={() => setReceiptUrl(null)}
+          />
+          <FileUploader
+            supabase={supabase}
+            bucketName="settlement-proofs"
+            folderPath={`tea-shop/${shop.id}`}
+            fileNamePrefix="tea-settlement"
+            accept="image"
+            label="Payment Screenshot (Optional)"
+            helperText="UPI / bank transfer confirmation. Paste from clipboard supported."
+            compact
+            uploadOnSelect
+            value={proofUrl ? { name: "Payment Proof", size: 0, url: proofUrl } : null}
+            onUpload={(file: UploadedFile) => setProofUrl(file.url)}
+            onRemove={() => setProofUrl(null)}
+          />
+        </Box>
 
         {/* Notes */}
         <TextField
