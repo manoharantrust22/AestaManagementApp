@@ -161,32 +161,52 @@ export function TradeMetricCards({
         </Typography>
       </Box>
 
-      {/* Grid */}
+      {/* Grid on desktop, horizontal scroll-snap strip on mobile */}
       <Box
         sx={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+          display: { xs: "flex", md: "grid" },
+          gridTemplateColumns: { md: "repeat(auto-fill, minmax(200px, 1fr))" },
           gap: 1.5,
+          // Mobile: horizontal scroll-snap
+          overflowX: { xs: "auto", md: "visible" },
+          scrollSnapType: { xs: "x mandatory", md: "none" },
+          pb: { xs: 1, md: 0 },
+          px: { xs: 0.5, md: 0 },
+          "&::-webkit-scrollbar": { display: "none" },
+          scrollbarWidth: "none",
         }}
       >
         {activeCards.map((card) => (
-          <ActiveTradeCard
+          <Box
             key={card.key}
-            card={card}
-            onCardClick={onCardClick}
-          />
+            sx={{
+              minWidth: { xs: "70vw", md: "auto" },
+              flex: { xs: "0 0 auto", md: "initial" },
+              scrollSnapAlign: { xs: "start", md: "none" },
+            }}
+          >
+            <ActiveTradeCard card={card} onCardClick={onCardClick} />
+          </Box>
         ))}
         {emptyCards.map((card) => (
-          <EmptyTradeCard
+          <Box
             key={card.key}
-            card={card}
-            onCardClick={onCardClick}
-            onAdd={
-              card.tradeCategoryId
-                ? () => onEmptyCardClick?.(card.tradeCategoryId!)
-                : undefined
-            }
-          />
+            sx={{
+              minWidth: { xs: "70vw", md: "auto" },
+              flex: { xs: "0 0 auto", md: "initial" },
+              scrollSnapAlign: { xs: "start", md: "none" },
+            }}
+          >
+            <EmptyTradeCard
+              card={card}
+              onCardClick={onCardClick}
+              onAdd={
+                card.tradeCategoryId
+                  ? () => onEmptyCardClick?.(card.tradeCategoryId!)
+                  : undefined
+              }
+            />
+          </Box>
         ))}
       </Box>
     </Box>
