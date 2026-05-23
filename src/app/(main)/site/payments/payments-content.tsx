@@ -385,8 +385,11 @@ export default function PaymentsContent() {
         paymentForDate: payload.paymentDate,
         paymentMode: "cash",
         paymentChannel: "engineer_wallet",
-        payerSource: payload.payerSource,
-        customPayerName: payload.customPayerName,
+        payer: {
+          mode: "single",
+          source: payload.payerSource,
+          name: payload.customPayerName || undefined,
+        },
         engineerId: payload.engineerId,
         notes: payload.notes,
         subcontractId: payload.subcontractId,
