@@ -108,6 +108,36 @@ const INITIAL_RESULT_LIMIT = 50;
 export const MAX_RESULT_LIMIT = 2000;
 export const LOAD_MORE_STEP = 50;
 
+export const PAGE_SIZE = 50;
+
+export interface Cursor {
+  date: string;
+  id: string;
+}
+
+export function buildCursorFromLastRow(rows: ExpenseRow[]): Cursor | null {
+  if (rows.length === 0) return null;
+  const last = rows[rows.length - 1];
+  return { date: last.date, id: last.id };
+}
+
+// PostgREST or-filter string for "(date, id) < (cursor.date, cursor.id)"
+// in date-DESC, id-DESC ordering. Used as `.or(buildCursorPredicate(c))`.
+export function buildCursorPredicate(c: Cursor): string {
+  return `date.lt.${c.date},and(date.eq.${c.date},id.lt.${c.id})`;
+}
+
+export function appendPageDedupe(
+  prev: ExpenseRow[],
+  next: ExpenseRow[],
+): ExpenseRow[] {
+  if (next.length === 0) return prev;
+  const seen = new Set(prev.map((r) => r.id));
+  const fresh = next.filter((r) => !seen.has(r.id));
+  if (fresh.length === 0) return prev;
+  return [...prev, ...fresh];
+}
+
 interface Args {
   siteId: string | null | undefined;
   dateFrom: string | null;
