@@ -34,6 +34,14 @@
 --   * atomic_record_wallet_spend restricts payment_mode to
 --     ('cash','upi','bank_transfer'); the RPC coerces any other input
 --     (cheque/credit) to 'cash' for the wallet leg.
+-- 12. inter_site_material_settlements mirror is DEFERRED. The table's actual schema
+--     (settlement_code, from_site_id, to_site_id, week_number, period_start/end,
+--     total_amount) does not fit the plan's per-batch percentage mirror pattern.
+--     The spot_purchase_allocations table becomes the source of truth for spot-batch
+--     group splits; downstream reads (office reports, Task M dashboards, Task N
+--     verification) query spot_purchase_allocations directly. If cross-site weekly
+--     reconciliation is needed later, generate inter_site_material_settlements rows
+--     from the locked spot_purchase_allocations + matching period bounds.
 
 BEGIN;
 
@@ -493,6 +501,11 @@ BEGIN
   END IF;
   IF p_allocations IS NULL OR jsonb_typeof(p_allocations) <> 'array' THEN
     RAISE EXCEPTION 'p_allocations must be a JSON array';
+  END IF;
+
+  -- Authorization: caller must be able to access the batch's site
+  IF NOT can_access_site((SELECT site_id FROM material_purchase_expenses WHERE id = p_batch_id)) THEN
+    RAISE EXCEPTION 'access denied for batch %', p_batch_id USING ERRCODE = '42501';
   END IF;
 
   -- Validate sum to 100 (±0.01 tolerance for rounding).
