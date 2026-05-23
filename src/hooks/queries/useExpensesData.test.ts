@@ -5,8 +5,8 @@ import {
   appendPageDedupe,
   PAGE_SIZE,
   type Cursor,
+  type ExpenseRow,
 } from "./useExpensesData";
-import type { ExpenseRow } from "./useExpensesData";
 
 const mkRow = (id: string, date: string): ExpenseRow =>
   ({ id, date, site_id: "s1", amount: 0 } as ExpenseRow);
@@ -20,6 +20,12 @@ describe("buildCursorFromLastRow", () => {
     expect(buildCursorFromLastRow(rows)).toEqual({
       date: "2026-05-09",
       id: "b",
+    });
+  });
+  it("returns the single row's date+id when array has length 1", () => {
+    expect(buildCursorFromLastRow([mkRow("only", "2026-05-10")])).toEqual({
+      date: "2026-05-10",
+      id: "only",
     });
   });
 });
@@ -56,6 +62,11 @@ describe("appendPageDedupe", () => {
   it("returns prev unchanged when next is empty", () => {
     const prev = [mkRow("a", "2026-05-10")];
     expect(appendPageDedupe(prev, [])).toBe(prev);
+  });
+  it("returns the new page verbatim when prev is empty", () => {
+    const next = [mkRow("a", "2026-05-10"), mkRow("b", "2026-05-09")];
+    const result = appendPageDedupe([], next);
+    expect(result.map((r) => r.id)).toEqual(["a", "b"]);
   });
 });
 

@@ -104,8 +104,10 @@ export function typesForGroup(group: ExpenseGroup): readonly string[] {
   return [...LABOR_TYPES, ...BUILDING_TYPES];
 }
 
+/** @deprecated Replaced by PAGE_SIZE; removed in the cursor-pagination refactor. */
 const INITIAL_RESULT_LIMIT = 50;
 export const MAX_RESULT_LIMIT = 2000;
+/** @deprecated Replaced by PAGE_SIZE; removed in the cursor-pagination refactor. */
 export const LOAD_MORE_STEP = 50;
 
 export const PAGE_SIZE = 50;
@@ -121,8 +123,17 @@ export function buildCursorFromLastRow(rows: ExpenseRow[]): Cursor | null {
   return { date: last.date, id: last.id };
 }
 
-// PostgREST or-filter string for "(date, id) < (cursor.date, cursor.id)"
-// in date-DESC, id-DESC ordering. Used as `.or(buildCursorPredicate(c))`.
+/**
+ * PostgREST or-filter string for `(date, id) < (cursor.date, cursor.id)`.
+ *
+ * Encodes the "strictly older than cursor" predicate for newest-first
+ * (date DESC, id DESC) pagination ONLY. Do not use for ascending order —
+ * callers requiring ASC need the symmetric `gt`/`eq+gt` predicate, which
+ * this function does not provide. The caller is responsible for ensuring
+ * the surrounding query is ordered DESC.
+ *
+ * Used as `.or(buildCursorPredicate(c))` in Supabase JS query chains.
+ */
 export function buildCursorPredicate(c: Cursor): string {
   return `date.lt.${c.date},and(date.eq.${c.date},id.lt.${c.id})`;
 }
