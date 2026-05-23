@@ -19,12 +19,15 @@ import {
   HourglassEmpty as PendingIcon,
   Inventory2 as InventoryIcon,
   Warning as LowStockIcon,
+  ShoppingCart as BoughtIcon,
+  Splitscreen as SplitIcon,
 } from "@mui/icons-material";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSelectedSite } from "@/contexts/SiteContext";
 import { useMaterialRequests } from "@/hooks/queries/useMaterialRequests";
 import { usePOsAwaitingDelivery } from "@/hooks/queries/useDeliveryVerification";
 import { useSiteStock } from "@/hooks/queries/useStockInventory";
+import { useUnallocatedSpotBatches } from "@/hooks/queries/useSpotPurchases";
 
 interface TileSpec {
   label: string;
@@ -50,6 +53,8 @@ export default function SiteTodayPage() {
   const { data: pendingRequests = [] } = useMaterialRequests(siteId, "pending");
   const { data: awaitingDelivery = [] } = usePOsAwaitingDelivery(siteId);
   const { data: stockItems = [] } = useSiteStock(siteId);
+  const siteGroupId = selectedSite?.site_group_id ?? null;
+  const { data: unallocated = [] } = useUnallocatedSpotBatches(siteGroupId);
 
   const lowStockCount = useMemo(
     () => stockItems.filter((s) => (s.available_qty || 0) > 0 && (s.available_qty || 0) <= 5).length,
@@ -77,6 +82,13 @@ export default function SiteTodayPage() {
       href: "/site/delivery-verification",
       icon: <DeliveryIcon sx={{ fontSize: 36 }} />,
       accent: "secondary",
+    },
+    {
+      label: "Bought at shop",
+      description: "Recorded purchase you already paid for",
+      href: "/site/spot-purchase",
+      icon: <BoughtIcon sx={{ fontSize: 36 }} />,
+      accent: "primary",
     },
   ];
 
@@ -163,6 +175,16 @@ export default function SiteTodayPage() {
             onClick={() => router.push("/site/inventory")}
             clickable
           />
+          {siteGroupId && unallocated.length > 0 && (
+            <Chip
+              icon={<SplitIcon />}
+              label={`${unallocated.length} batch${unallocated.length === 1 ? "" : "es"} need allocation`}
+              color="warning"
+              variant="filled"
+              onClick={() => router.push("/site/spot-purchase?tab=allocations")}
+              clickable
+            />
+          )}
         </Stack>
       </Box>
     </Box>
