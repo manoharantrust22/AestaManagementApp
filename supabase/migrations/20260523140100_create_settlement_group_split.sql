@@ -1,11 +1,27 @@
 -- Extend create_settlement_group with p_payer_source_split.
--- When NULL: existing single-source behaviour (writes p_payer_source as-is).
--- When NOT NULL: validates via validate_payer_source_split, writes
---   payer_source='split', payer_source_split=<input>, payer_name=NULL.
 --
--- Preserves the v3.0 audit-logging on unique_violation from
--- 20260113130000_fix_global_settlement_sequence.sql (settlement_creation_audit
--- insert + retry-exhaustion exception with HINT).
+-- BUILDS ON: 20260523100000_settlement_idempotency_key.sql (idempotency overload
+-- with 20 params ending in p_idempotency_key uuid). This migration replaces
+-- that overload by:
+--   1. Dropping the exact 20-arg signature shipped by 20260523100000 (otherwise
+--      PG installs the new 21-arg version as a SECOND overload, leaving the
+--      idempotency-only one alive and ambiguous).
+--   2. Recreating the function with p_payer_source_split jsonb DEFAULT NULL
+--      appended AFTER p_idempotency_key.
+--
+-- Combined semantics:
+--   p_idempotency_key NOT NULL    -> early-return matching row (network-retry safe)
+--   p_payer_source_split NOT NULL -> validate via validate_payer_source_split()
+--                                    and write payer_source='split', payer_name=NULL
+--
+-- Lock semantics inherited unchanged from 20260523100000: per (site + date).
+-- (The v3.0 per-date lock was narrowed to site+date in the idempotency migration;
+-- whether to widen it back is a separate latent issue tracked outside this PR.)
+
+DROP FUNCTION IF EXISTS create_settlement_group(
+  uuid, date, numeric, integer, text, text, text, text, text, text,
+  uuid, uuid, uuid, text, text, date, text, jsonb, text[], uuid
+);
 
 CREATE OR REPLACE FUNCTION create_settlement_group(
   p_site_id uuid,
@@ -27,6 +43,7 @@ CREATE OR REPLACE FUNCTION create_settlement_group(
   p_settlement_type text DEFAULT 'date_wise',
   p_week_allocations jsonb DEFAULT NULL,
   p_proof_urls text[] DEFAULT NULL,
+  p_idempotency_key uuid DEFAULT NULL,
   p_payer_source_split jsonb DEFAULT NULL
 )
 RETURNS TABLE (
@@ -34,6 +51,7 @@ RETURNS TABLE (
   settlement_reference text
 )
 LANGUAGE plpgsql
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_date_code TEXT;
@@ -48,17 +66,26 @@ DECLARE
   v_effective_payer_source TEXT;
   v_effective_payer_name TEXT;
 BEGIN
-  -- CRITICAL: Lock must be per DATE only (not per site+date)
-  -- Because settlement_reference is globally unique across all sites
-  v_lock_key := ('x' || substr(md5(p_settlement_date::text), 1, 8))::bit(32)::int;
+  -- =========================================================================
+  -- IDEMPOTENCY CHECK: Return existing row if key was already committed
+  -- =========================================================================
+  -- Handles the scenario where the RPC committed but the network response was
+  -- lost. The client retries with the same key and gets back the original row.
+  IF p_idempotency_key IS NOT NULL THEN
+    SELECT sg.id, sg.settlement_reference
+    INTO id, settlement_reference
+    FROM settlement_groups sg
+    WHERE sg.idempotency_key = p_idempotency_key;
 
-  -- Acquire advisory lock for this DATE (not site+date)
-  PERFORM pg_advisory_xact_lock(v_lock_key);
+    IF FOUND THEN
+      RETURN NEXT;
+      RETURN;
+    END IF;
+  END IF;
 
-  -- Get current date in YYMMDD format
-  v_date_code := TO_CHAR(p_settlement_date, 'YYMMDD');
-
-  -- Resolve effective payer attribution.
+  -- =========================================================================
+  -- RESOLVE EFFECTIVE PAYER FIELDS (split validation short-circuits early)
+  -- =========================================================================
   -- When a split payload is supplied, validate it and force payer_source='split'
   -- with payer_name=NULL (the split JSONB carries per-source amounts/names).
   IF p_payer_source_split IS NOT NULL THEN
@@ -70,11 +97,20 @@ BEGIN
     v_effective_payer_name := p_payer_name;
   END IF;
 
-  -- Retry Loop
+  -- =========================================================================
+  -- ADVISORY LOCK: Per site + date to prevent concurrent sequence collisions
+  -- =========================================================================
+  v_lock_key := ('x' || substr(md5(p_site_id::text || p_settlement_date::text), 1, 8))::bit(32)::int;
+  PERFORM pg_advisory_xact_lock(v_lock_key);
+
+  v_date_code := TO_CHAR(p_settlement_date, 'YYMMDD');
+
+  -- =========================================================================
+  -- RETRY LOOP: Handle unique_violation on settlement_reference
+  -- =========================================================================
   WHILE v_retry_count < v_max_retries LOOP
     BEGIN
-      -- Find the next sequence number for this DATE across ALL sites
-      -- REMOVED: site_id filter (settlement_reference is globally unique)
+      -- Next sequence number for this site + date
       SELECT COALESCE(MAX(
         CAST(
           SUBSTRING(sg.settlement_reference FROM 'SET-' || v_date_code || '-(\d+)')
@@ -83,24 +119,24 @@ BEGIN
       ), 0) + 1
       INTO v_next_seq
       FROM settlement_groups sg
-      WHERE sg.settlement_reference LIKE 'SET-' || v_date_code || '-%'
+      WHERE sg.site_id = p_site_id
+        AND sg.settlement_reference LIKE 'SET-' || v_date_code || '-%'
         AND sg.settlement_reference ~ ('^SET-' || v_date_code || '-\d+$');
 
       v_calculated_max := v_next_seq - 1;
 
-      -- Count total records for this date (across all sites)
       SELECT COUNT(DISTINCT sg2.settlement_reference)
       INTO v_existing_count
       FROM settlement_groups sg2
-      WHERE sg2.settlement_reference LIKE 'SET-' || v_date_code || '-%'
+      WHERE sg2.site_id = p_site_id
+        AND sg2.settlement_reference LIKE 'SET-' || v_date_code || '-%'
         AND sg2.settlement_reference ~ ('^SET-' || v_date_code || '-\d+$');
 
       IF v_calculated_max != v_existing_count AND v_existing_count > 0 THEN
-        RAISE WARNING 'Settlement reference mismatch for date %: calculated max=%, actual count=%. Possible sequence gaps or duplicates.',
-          p_settlement_date, v_calculated_max, v_existing_count;
+        RAISE WARNING 'Settlement reference mismatch for site % date %: calculated max=%, actual count=%. Possible sequence gaps or duplicates.',
+          p_site_id, p_settlement_date, v_calculated_max, v_existing_count;
       END IF;
 
-      -- Format: SET-YYMMDD-NNN
       IF v_next_seq < 1000 THEN
         v_reference := 'SET-' || v_date_code || '-' || LPAD(v_next_seq::TEXT, 3, '0');
       ELSE
@@ -109,7 +145,6 @@ BEGIN
 
       v_new_id := gen_random_uuid();
 
-      -- Insert the settlement group
       INSERT INTO settlement_groups (
         id,
         settlement_reference,
@@ -132,6 +167,7 @@ BEGIN
         settlement_type,
         week_allocations,
         proof_urls,
+        idempotency_key,
         payer_source_split
       ) VALUES (
         v_new_id,
@@ -155,10 +191,10 @@ BEGIN
         p_settlement_type,
         p_week_allocations,
         p_proof_urls,
+        p_idempotency_key,
         p_payer_source_split
       );
 
-      -- Success
       id := v_new_id;
       settlement_reference := v_reference;
       RETURN NEXT;
@@ -168,7 +204,6 @@ BEGIN
       WHEN unique_violation THEN
         v_retry_count := v_retry_count + 1;
 
-        -- Audit Logging
         BEGIN
           INSERT INTO settlement_creation_audit (
             site_id,
@@ -187,7 +222,8 @@ BEGIN
               'calculated_max', v_calculated_max,
               'existing_count', v_existing_count,
               'next_seq', v_next_seq,
-              'date_code', v_date_code
+              'date_code', v_date_code,
+              'idempotency_key', p_idempotency_key
             )
           );
         EXCEPTION
@@ -196,7 +232,7 @@ BEGIN
         END;
 
         IF v_retry_count >= v_max_retries THEN
-          RAISE EXCEPTION 'Failed to create settlement reference after % retries. Attempted: %, Existing settlements for this date: %, Last calculated sequence: %. This may indicate duplicate references in the database. Please run check_settlement_reference_integrity() and contact support.',
+          RAISE EXCEPTION 'Failed to create settlement reference after % retries. Attempted: %, Existing settlements for this date: %, Last calculated sequence: %.',
             v_max_retries,
             v_reference,
             v_existing_count,
@@ -215,22 +251,8 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION create_settlement_group IS
-  'Atomically creates a settlement_group with guaranteed unique sequential reference (SET-YYMMDD-NNN format). Global sequence per date across all sites. Accepts an optional p_payer_source_split JSONB; when provided, validates via validate_payer_source_split(p_split, p_total, p_site_id) and stores payer_source=''split'' with payer_name=NULL. Version 3.1';
-
 GRANT EXECUTE ON FUNCTION create_settlement_group TO authenticated;
 GRANT EXECUTE ON FUNCTION create_settlement_group TO service_role;
 
--- Success message
-DO $$
-BEGIN
-  RAISE NOTICE '====================================================================';
-  RAISE NOTICE 'Extended create_settlement_group with p_payer_source_split';
-  RAISE NOTICE '====================================================================';
-  RAISE NOTICE 'New optional trailing param: p_payer_source_split jsonb DEFAULT NULL';
-  RAISE NOTICE 'Single-source callers unchanged (omit the new param)';
-  RAISE NOTICE 'Split path validates via validate_payer_source_split() and forces';
-  RAISE NOTICE '  payer_source=split, payer_name=NULL';
-  RAISE NOTICE 'Audit-logging on unique_violation preserved from v3.0';
-  RAISE NOTICE '====================================================================';
-END $$;
+COMMENT ON FUNCTION create_settlement_group IS
+  'Atomically creates a settlement_group with idempotency support AND optional payer-source split. Idempotency: same p_idempotency_key returns the original row instead of duplicating (safe client-side retry). Split: when p_payer_source_split is non-null, validates via validate_payer_source_split(p_payer_source_split, p_total_amount, p_site_id) and stores payer_source=''split'' with payer_name=NULL. Built on 20260523100000 (idempotency) + 20260113130000 (v3.0 audit/retry).';
