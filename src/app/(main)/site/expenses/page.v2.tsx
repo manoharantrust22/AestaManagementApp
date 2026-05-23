@@ -1343,36 +1343,6 @@ export default function ExpensesPageV2() {
             ) : (
               expensesTable
             )}
-
-            {/* Mobile FAB */}
-            {canEdit && (
-              <Box
-                component="button"
-                onClick={() => handleOpenDialog()}
-                sx={{
-                  position: "fixed",
-                  bottom: 24,
-                  right: 24,
-                  zIndex: 1200,
-                  bgcolor: "primary.main",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 99,
-                  px: 3,
-                  py: 1.5,
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  boxShadow: "0 10px 24px rgba(25, 118, 210, .35)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 0.5,
-                  "&:hover": { bgcolor: "primary.dark" },
-                }}
-              >
-                <Add sx={{ fontSize: 18 }} /> Add expense
-              </Box>
-            )}
           </>
         ) : (
           /* Desktop layout */
