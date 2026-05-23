@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import {
   Box,
   Typography,
@@ -17,7 +18,11 @@ import {
   Warning as WarningIcon,
   CheckCircle as CheckIcon,
 } from "@mui/icons-material";
-import type { RentalCostCalculation, RentalSettlement } from "@/types/rental.types";
+import type {
+  RentalCostCalculation,
+  RentalSettlement,
+  TransportHandler,
+} from "@/types/rental.types";
 import { getPayerSourceLabel } from "@/components/settlement/PayerSourceSelector";
 import dayjs from "dayjs";
 
@@ -27,6 +32,10 @@ interface RentalCostBreakdownProps {
   compact?: boolean;
   settlement?: RentalSettlement | null;
   settledPartyTypes?: Set<string>;
+  /** Who handles outward transport. NULL is treated as 'vendor' (bundled into vendor settlement). */
+  outwardBy?: TransportHandler | null;
+  /** Who handles return transport. NULL is treated as 'vendor' (bundled into vendor settlement). */
+  returnBy?: TransportHandler | null;
   onSettleInbound?: () => void;
   onSettleOutbound?: () => void;
 }
@@ -37,6 +46,8 @@ export default function RentalCostBreakdown({
   compact = false,
   settlement = null,
   settledPartyTypes,
+  outwardBy = null,
+  returnBy = null,
   onSettleInbound,
   onSettleOutbound,
 }: RentalCostBreakdownProps) {
@@ -244,7 +255,10 @@ export default function RentalCostBreakdown({
         )}
 
         {transportCostOutward > 0 && (() => {
-          const isSettled = settledPartyTypes?.has("transport_inbound") || settledPartyTypes?.has("transport");
+          const isVendorHandled = outwardBy == null || outwardBy === "vendor";
+          const isSettled =
+            settledPartyTypes?.has("transport_inbound") ||
+            settledPartyTypes?.has("transport");
           return (
             <Box display="flex" justifyContent="space-between" alignItems="center">
               <Typography variant="body2" color="text.secondary">
@@ -252,7 +266,7 @@ export default function RentalCostBreakdown({
               </Typography>
               <Box display="flex" alignItems="center" gap={0.75}>
                 <Typography variant="body2">₹{transportCostOutward.toLocaleString()}</Typography>
-                {isSettled ? (
+                {isVendorHandled ? null : isSettled ? (
                   <CheckIcon sx={{ fontSize: 16 }} color="success" />
                 ) : onSettleInbound ? (
                   <Tooltip title="Settle inbound transport">
@@ -272,7 +286,10 @@ export default function RentalCostBreakdown({
         })()}
 
         {transportCostReturn > 0 && (() => {
-          const isSettled = settledPartyTypes?.has("transport_outbound") || settledPartyTypes?.has("transport");
+          const isVendorHandled = returnBy == null || returnBy === "vendor";
+          const isSettled =
+            settledPartyTypes?.has("transport_outbound") ||
+            settledPartyTypes?.has("transport");
           return (
             <Box display="flex" justifyContent="space-between" alignItems="center">
               <Typography variant="body2" color="text.secondary">
@@ -280,7 +297,7 @@ export default function RentalCostBreakdown({
               </Typography>
               <Box display="flex" alignItems="center" gap={0.75}>
                 <Typography variant="body2">₹{transportCostReturn.toLocaleString()}</Typography>
-                {isSettled ? (
+                {isVendorHandled ? null : isSettled ? (
                   <CheckIcon sx={{ fontSize: 16 }} color="success" />
                 ) : onSettleOutbound ? (
                   <Tooltip title="Settle return transport">
