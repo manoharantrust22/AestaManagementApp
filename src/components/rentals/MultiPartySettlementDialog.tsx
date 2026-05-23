@@ -179,7 +179,7 @@ export function MultiPartySettlementDialog({ open, onClose, order, focusedPartyT
         party_name: p.party_name || null,
         settlement_date: p.settlement_date,
         total_rental_amount: partyType === "vendor" ? rentalAmount : 0,
-        total_transport_amount: isTransport ? p.amount : 0,
+        total_transport_amount: partyType === "vendor" ? vendorBundledTransport : (isTransport ? p.amount : 0),
         total_damage_amount: 0,
         negotiated_final_amount: p.amount,
         total_advance_paid: partyType === "vendor" ? totalAdvances : 0,
