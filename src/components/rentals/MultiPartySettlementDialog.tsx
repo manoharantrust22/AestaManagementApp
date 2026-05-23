@@ -88,8 +88,24 @@ export function MultiPartySettlementDialog({ open, onClose, order, focusedPartyT
     ((order as any).loading_cost_return ?? 0) +
     ((order as any).unloading_cost_return ?? 0);
 
+  // Vendor-handled transport (handler in 'vendor' or NULL) is part of the vendor's bill,
+  // not a separate party. Fold those amounts into the vendor balance and omit the
+  // separate transport rows from the party list.
+  const inboundIsVendor = order.outward_by == null || order.outward_by === "vendor";
+  const outboundIsVendor = order.return_by == null || order.return_by === "vendor";
+  const vendorBundledTransport =
+    (inboundIsVendor ? inboundAmount : 0) +
+    (outboundIsVendor ? outboundAmount : 0);
+
+  // Defense-in-depth: if a caller focuses a transport party but the handler is vendor,
+  // coerce to vendor so we never render an empty/missing party row.
+  const effectiveFocusedPartyType: typeof focusedPartyType =
+    focusedPartyType === "transport_inbound" && inboundIsVendor ? "vendor"
+    : focusedPartyType === "transport_outbound" && outboundIsVendor ? "vendor"
+    : focusedPartyType;
+
   const grossTotal = rentalAmount + inboundAmount + outboundAmount;
-  const vendorBalance = Math.max(0, rentalAmount - totalAdvances);
+  const vendorBalance = Math.max(0, rentalAmount + vendorBundledTransport - totalAdvances);
 
   const alreadySettled = new Set((order.settlements ?? []).map((s) => s.party_type));
   const defaultPayer = isSiteEngineer ? "Engineer Wallet" : "Company Account";
@@ -117,8 +133,8 @@ export function MultiPartySettlementDialog({ open, onClose, order, focusedPartyT
       party_name: order.vendor?.name ?? "",
     },
     transport: makeParty(inboundAmount + outboundAmount, true),
-    transport_inbound: makeParty(inboundAmount, inboundAmount === 0),
-    transport_outbound: makeParty(outboundAmount, outboundAmount === 0),
+    transport_inbound: makeParty(inboundAmount, inboundIsVendor || inboundAmount === 0),
+    transport_outbound: makeParty(outboundAmount, outboundIsVendor || outboundAmount === 0),
     loading_unloading: { ...makeParty(loadingAmount, true), party_name: "Site Laborers" },
   });
 
@@ -184,14 +200,14 @@ export function MultiPartySettlementDialog({ open, onClose, order, focusedPartyT
 
   const activePartyTypes: RentalSettlementPartyType[] = [
     "vendor",
-    "transport_inbound",
-    "transport_outbound",
+    ...(!inboundIsVendor ? (["transport_inbound"] as const) : []),
+    ...(!outboundIsVendor ? (["transport_outbound"] as const) : []),
     "loading_unloading",
   ];
 
-  // Only show parties that haven't been settled yet; if focusedPartyType is set, show only that one
-  const visiblePartyTypes = focusedPartyType
-    ? activePartyTypes.filter((pt) => pt === focusedPartyType && !alreadySettled.has(pt))
+  // Only show parties that haven't been settled yet; if effectiveFocusedPartyType is set, show only that one
+  const visiblePartyTypes = effectiveFocusedPartyType
+    ? activePartyTypes.filter((pt) => pt === effectiveFocusedPartyType && !alreadySettled.has(pt))
     : activePartyTypes.filter((pt) => !alreadySettled.has(pt));
 
   const partyColors: Record<RentalSettlementPartyType, "success" | "info" | "warning"> = {
@@ -204,16 +220,16 @@ export function MultiPartySettlementDialog({ open, onClose, order, focusedPartyT
 
   const originalAmounts: Partial<Record<RentalSettlementPartyType, number>> = {
     vendor: vendorBalance,
-    transport_inbound: inboundAmount,
-    transport_outbound: outboundAmount,
+    transport_inbound: inboundIsVendor ? 0 : inboundAmount,
+    transport_outbound: outboundIsVendor ? 0 : outboundAmount,
     loading_unloading: loadingAmount,
   };
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>
-        {focusedPartyType
-          ? `${RENTAL_SETTLEMENT_PARTY_LABELS[focusedPartyType]} Settlement — ${order.rental_order_number}`
+        {effectiveFocusedPartyType
+          ? `${RENTAL_SETTLEMENT_PARTY_LABELS[effectiveFocusedPartyType]} Settlement — ${order.rental_order_number}`
           : `Settlement — ${order.rental_order_number}`}
       </DialogTitle>
 
