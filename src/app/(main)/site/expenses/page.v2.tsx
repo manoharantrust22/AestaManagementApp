@@ -30,6 +30,7 @@ import {
   TableContainer,
   TableFooter,
   TableHead,
+  TableSortLabel,
   TableRow,
   Tab,
   Tabs,
@@ -197,6 +198,7 @@ export default function ExpensesPageV2() {
     () => searchParams.get("trade") ?? "all",
   );
   const [subKindFilter, setSubKindFilter] = useState<string>("all");
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
   const [groupBy, setGroupBy] = useState<GroupByOption>("none");
   const [dense, setDense] = useState(false);
   const [mobileTab, setMobileTab] = useState<0 | 1>(0);
@@ -293,6 +295,7 @@ export default function ExpensesPageV2() {
       expenseTypes: activeTypes.length > 0 ? activeTypes : null,
       status,
       sitePayerId,
+      sortDir,
     });
 
   const { data: financial, isLoading: financialLoading } = useExpensePageKPIs(selectedSite?.id);
@@ -850,7 +853,30 @@ export default function ExpensesPageV2() {
         <Table stickyHeader size="small">
           <TableHead>
             <TableRow>
-              {["Date", "Ref", "Vendor / Description", "Trade / Subcontract", "Kind", "Status", "Amount", ""].map((h) => (
+              <TableCell
+                sortDirection={sortDir}
+                sx={{
+                  fontWeight: 700,
+                  fontSize: 11,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  color: "text.secondary",
+                  bgcolor: "background.paper",
+                  py: dense ? 0.75 : 1,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <TableSortLabel
+                  active
+                  direction={sortDir}
+                  onClick={() =>
+                    setSortDir((d) => (d === "desc" ? "asc" : "desc"))
+                  }
+                >
+                  Date
+                </TableSortLabel>
+              </TableCell>
+              {["Ref", "Vendor / Description", "Trade / Subcontract", "Kind", "Status", "Amount", ""].map((h) => (
                 <TableCell
                   key={h}
                   align={h === "Amount" ? "right" : "left"}
