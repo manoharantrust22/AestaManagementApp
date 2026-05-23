@@ -448,6 +448,19 @@ BEGIN
 
   -- Provisional group allocation (optional).
   IF v_alloc_mode = 'group' AND payload ? 'provisional_split' THEN
+    DECLARE
+      v_split_sum numeric;
+    BEGIN
+      SELECT COALESCE(SUM((value->>'percentage')::numeric), 0)
+        INTO v_split_sum
+        FROM jsonb_array_elements(payload->'provisional_split');
+      -- Guard: > 0 lets the supervisor submit an empty split (allocation
+      -- deferred entirely). When provided, the split must sum to 100.
+      IF v_split_sum > 0 AND abs(v_split_sum - 100) > 0.01 THEN
+        RAISE EXCEPTION 'provisional_split must sum to 100 (got %)', v_split_sum;
+      END IF;
+    END;
+
     FOR v_alloc IN SELECT * FROM jsonb_array_elements(payload->'provisional_split') LOOP
       INSERT INTO spot_purchase_allocations (
         batch_id, site_id, percentage, is_final
