@@ -1820,8 +1820,11 @@ export default function PaymentsContent() {
                 totalAmount: payload.amount,
                 paymentMode: "cash",
                 paymentChannel: "engineer_wallet",
-                payerSource: payload.payerSource,
-                customPayerName: payload.customPayerName,
+                payer: {
+                  mode: "single",
+                  source: payload.payerSource,
+                  name: payload.customPayerName || undefined,
+                },
                 engineerId: payload.engineerId,
                 notes: payload.notes,
                 userId: userProfile!.id,

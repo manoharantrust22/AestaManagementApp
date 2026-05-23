@@ -464,8 +464,11 @@ export default function UnifiedSettlementDialog({
       totalAmount: calculatedAmounts.selected,
       paymentMode,
       paymentChannel,
-      payerSource,
-      customPayerName: payerSource === "custom" ? customPayerName : undefined,
+      payer: {
+        mode: "single",
+        source: payerSource,
+        name: payerSource === "custom" ? customPayerName || undefined : undefined,
+      },
       engineerId: paymentChannel === "engineer_wallet" ? selectedEngineerId : undefined,
       engineerReference: paymentChannel === "engineer_wallet" ? engineerReference : undefined,
       proofUrl: proofFile?.url,
