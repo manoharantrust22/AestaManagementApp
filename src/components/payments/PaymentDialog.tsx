@@ -13,17 +13,13 @@ import {
   Radio,
   FormControlLabel,
   FormControl,
-  InputLabel,
   Select,
   MenuItem,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
   Alert,
   CircularProgress,
   Divider,
   Avatar,
-  Chip,
   LinearProgress,
   Collapse,
 } from "@mui/material";
@@ -32,9 +28,6 @@ import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import {
   Payment as PaymentIcon,
-  AccountBalanceWallet as WalletIcon,
-  Person as PersonIcon,
-  Close as CloseIcon,
   Info as InfoIcon,
 } from "@mui/icons-material";
 import { createClient } from "@/lib/supabase/client";
@@ -43,11 +36,11 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
 import { createSalaryExpense } from "@/lib/services/notificationService";
 import { processContractPayment, processSettlement } from "@/lib/services/settlementService";
-import { getLatestDepositPayerSource } from "@/lib/services/engineerWalletV2";
 import FileUploader, { UploadedFile } from "@/components/common/FileUploader";
 import SubcontractLinkSelector from "./SubcontractLinkSelector";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
 import { isSiteEngineerPayingFromWallet } from "@/components/expenses/walletPayerLock";
+import { validatePayerSourceInput } from "@/lib/settlement/payerSource";
 import { useToast } from "@/contexts/ToastContext";
 import dayjs from "dayjs";
 import type {
@@ -57,15 +50,11 @@ import type {
   WeeklyContractLaborer,
   ContractPaymentType,
 } from "@/types/payment.types";
-import type { PayerSource, SettlementRecord } from "@/types/settlement.types";
-
-interface Engineer {
-  id: string;
-  name: string;
-  email: string;
-  avatar_url: string | null;
-  wallet_balance?: number;
-}
+import type {
+  PayerSource,
+  PayerSourceInput,
+  SettlementRecord,
+} from "@/types/settlement.types";
 
 export default function PaymentDialog({
   open,
@@ -83,10 +72,12 @@ export default function PaymentDialog({
 
   // Form state
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("upi");
-  const [paymentChannel, setPaymentChannel] =
-    useState<PaymentChannel>("direct");
-  const [selectedEngineerId, setSelectedEngineerId] = useState<string>("");
-  const [engineerReference, setEngineerReference] = useState<string>("");
+  // Phase-1 payer-source-split refactor removed the "Via Site Engineer"
+  // channel toggle from this dialog. Engineer-wallet flows now happen in
+  // dedicated dialogs (MestriSettleDialog etc.). PaymentDialog always
+  // records a direct payment; the const is kept so downstream readers and
+  // the SettlementConfig field stay populated without further changes.
+  const paymentChannel: PaymentChannel = "direct";
   const [subcontractId, setSubcontractId] = useState<string | null>(
     defaultSubcontractId || null
   );
@@ -97,20 +88,19 @@ export default function PaymentDialog({
   const [actualPaymentDate, setActualPaymentDate] = useState<dayjs.Dayjs>(dayjs());
   const [paymentType, setPaymentType] = useState<ContractPaymentType>("salary");
 
-  // Money source tracking
-  const [moneySource, setMoneySource] = useState<PayerSource>("own_money");
-  const [moneySourceName, setMoneySourceName] = useState<string>("");
-  const [depositPayerSource, setDepositPayerSource] = useState<string | null>(null);
-
-  const isSiteEngineer = userProfile?.role === "site_engineer";
+  // Payer source — unified single-or-split input. Phase 1 of the
+  // payer-source-split refactor: this replaces the previous
+  // moneySource / moneySourceName pair.
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
 
   // For partial payments (weekly)
   const [isPartialPayment, setIsPartialPayment] = useState(false);
   const [partialAmount, setPartialAmount] = useState<number>(0);
 
   // Data state
-  const [engineers, setEngineers] = useState<Engineer[]>([]);
-  const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -138,113 +128,17 @@ export default function PaymentDialog({
     return totalAmount;
   }, [isPartialPayment, partialAmount, totalAmount]);
 
-  // Fetch site engineers
-  useEffect(() => {
-    const fetchEngineers = async () => {
-      if (!selectedSite?.id) return;
-
-      setLoading(true);
-      try {
-        // Get site engineers from users table (only site_engineer role)
-        const { data: usersData } = await supabase
-          .from("users")
-          .select("id, name, email, avatar_url")
-          .eq("role", "site_engineer")
-          .eq("status", "active");
-
-        const engineerList: Engineer[] = (usersData || []).map((u: any) => ({
-          id: u.id,
-          name: u.name,
-          email: u.email,
-          avatar_url: u.avatar_url,
-        }));
-
-        // Get wallet balances from v2 view
-        const { data: balanceRows } = await (supabase as any)
-          .from("v_engineer_wallet_balance")
-          .select("user_id, balance")
-          .in("user_id", engineerList.map((e) => e.id))
-          .eq("site_id", selectedSite.id);
-        const balanceMap = Object.fromEntries(
-          (balanceRows ?? []).map((r: any) => [r.user_id, r.balance as number])
-        );
-        for (const eng of engineerList) {
-          eng.wallet_balance = balanceMap[eng.id] ?? 0;
-        }
-
-        setEngineers(engineerList);
-      } catch (err) {
-        console.error("Error fetching engineers:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (open) {
-      fetchEngineers();
-    }
-  }, [selectedSite?.id, open, supabase]);
-
-  // Auto-select wallet channel for site engineers
-  useEffect(() => {
-    if (isSiteEngineer) setPaymentChannel("engineer_wallet");
-  }, [isSiteEngineer]);
-
-  // Fetch deposit payer source when engineer selected in wallet mode
-  useEffect(() => {
-    const fetchDepositSource = async () => {
-      if (paymentChannel !== "engineer_wallet" || !selectedEngineerId || !selectedSite?.id) {
-        setDepositPayerSource(null);
-        return;
-      }
-      const { payer_source } = await getLatestDepositPayerSource(supabase, selectedEngineerId, selectedSite.id);
-      setDepositPayerSource(payer_source);
-      if (payer_source) setMoneySource(payer_source as PayerSource);
-    };
-    fetchDepositSource();
-  }, [selectedEngineerId, paymentChannel, selectedSite?.id]);
-
-  // Generate default reference for engineer
-  useEffect(() => {
-    if (paymentChannel === "engineer_wallet" && !engineerReference) {
-      if (isWeeklyPayment && weeklyPayment) {
-        const weekLabel = `Week ${dayjs(weeklyPayment.weekStart).format("MMM D")}-${dayjs(weeklyPayment.weekEnd).format("D")}`;
-        setEngineerReference(
-          `${weeklyPayment.laborer.laborerName} weekly salary ${weekLabel}`
-        );
-      } else if (dailyRecords.length > 0) {
-        const date = dailyRecords[0].date;
-        const types = [
-          ...new Set(dailyRecords.map((r) => r.laborerType)),
-        ].join(" & ");
-        setEngineerReference(
-          `${types} laborers payment for ${dayjs(date).format("MMM D, YYYY")}`
-        );
-      }
-    }
-  }, [
-    paymentChannel,
-    isWeeklyPayment,
-    weeklyPayment,
-    dailyRecords,
-    engineerReference,
-  ]);
-
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
       setPaymentMode("upi");
-      setPaymentChannel("direct");
-      setSelectedEngineerId("");
-      setEngineerReference("");
       setSubcontractId(defaultSubcontractId || null);
       setProofUrl(null);
       setNotes("");
       setIsPartialPayment(false);
       setPartialAmount(0);
       setError(null);
-      setMoneySource("own_money");
-      setMoneySourceName("");
+      setPayer({ mode: "single", source: "own_money" });
       setActualPaymentDate(dayjs()); // Default to today
       setPaymentType("salary"); // Default to salary
 
@@ -271,14 +165,14 @@ export default function PaymentDialog({
   const handleSubmit = async (bypassNoLinkConfirm = false) => {
     if (!selectedSite?.id || !userProfile) return;
 
-    // Validation
-    if (paymentChannel === "engineer_wallet" && !selectedEngineerId) {
-      setError("Please select a site engineer");
+    if (isPartialPayment && partialAmount <= 0) {
+      setError("Please enter a valid payment amount");
       return;
     }
 
-    if (isPartialPayment && partialAmount <= 0) {
-      setError("Please enter a valid payment amount");
+    const payerCheckSubmit = validatePayerSourceInput(payer, paymentAmount);
+    if (!payerCheckSubmit.ok) {
+      setError(payerCheckSubmit.reason);
       return;
     }
 
@@ -324,10 +218,10 @@ export default function PaymentDialog({
         return;
       }
 
-      // Daily/Market payments — single path for both direct and engineer_wallet.
-      // processSettlement handles wallet debit via atomic_record_wallet_spend RPC
-      // (wallet v2) when paymentChannel === "engineer_wallet", and writes attendance
-      // is_paid / settlement_group_id / payer_source internally.
+      // Daily/Market payments — direct path only after the phase-1 cleanup;
+      // the wallet channel was removed from this dialog. processSettlement
+      // writes attendance is_paid / settlement_group_id / payer_source(_split)
+      // internally.
       const settlementRecords: SettlementRecord[] = dailyRecords.map(record => ({
         id: record.id,
         sourceType: record.sourceType,
@@ -347,11 +241,7 @@ export default function PaymentDialog({
         totalAmount: paymentAmount,
         paymentMode: paymentMode,
         paymentChannel: paymentChannel,
-        engineerId: paymentChannel === "engineer_wallet" ? selectedEngineerId : undefined,
-        engineerReference: paymentChannel === "engineer_wallet" ? engineerReference : undefined,
-        payerSource: moneySource,
-        customPayerName: (moneySource === "other_site_money" || moneySource === "custom")
-          ? moneySourceName : undefined,
+        payer,
         proofUrl: proofUrl || undefined,
         notes: notes || undefined,
         subcontractId: subcontractId || undefined,
@@ -380,6 +270,15 @@ export default function PaymentDialog({
     laborer: WeeklyContractLaborer,
     weekStart: string
   ) => {
+    // processContractPayment is still on the legacy single-payer-source shape
+    // (TODO(payer-split-phase-2) in settlementService.ts). For phase-1 we
+    // collapse a split selection back to its first row so the weekly contract
+    // path keeps working; full split support lands when that service migrates.
+    const legacyPayerSource: PayerSource =
+      payer.mode === "single" ? payer.source : payer.rows[0]?.source ?? "own_money";
+    const legacyPayerName: string | undefined =
+      payer.mode === "single" ? payer.name : payer.rows[0]?.name;
+
     // Use the new processContractPayment service for contract weekly payments
     const result = await processContractPayment(supabase, {
       siteId: selectedSite!.id,
@@ -391,9 +290,11 @@ export default function PaymentDialog({
       paymentForDate: weekStart,
       paymentMode: paymentMode,
       paymentChannel: paymentChannel,
-      payerSource: moneySource,
-      customPayerName: (moneySource === "other_site_money" || moneySource === "custom") ? moneySourceName : undefined,
-      engineerId: paymentChannel === "engineer_wallet" ? selectedEngineerId : undefined,
+      payerSource: legacyPayerSource,
+      customPayerName:
+        (legacyPayerSource === "other_site_money" || legacyPayerSource === "custom")
+          ? legacyPayerName
+          : undefined,
       proofUrl: proofUrl || undefined,
       notes: notes || undefined,
       subcontractId: subcontractId || undefined,
@@ -438,7 +339,9 @@ export default function PaymentDialog({
     setProofUrl(null);
   }, []);
 
-  const selectedEngineer = engineers.find((e) => e.id === selectedEngineerId);
+  // Payer-source validation result, used by both the submit-button disabled
+  // prop and the inline reason rendered under the actions row.
+  const payerCheck = validatePayerSourceInput(payer, paymentAmount);
 
   // Title based on payment type
   const dialogTitle = isWeeklyPayment
@@ -711,104 +614,30 @@ export default function PaymentDialog({
           </RadioGroup>
         </Box>
 
-        {/* Payment Channel — hidden for site engineers (always wallet) */}
-        {!isSiteEngineer && (
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Payment Channel
-            </Typography>
-            <ToggleButtonGroup
-              exclusive
-              value={paymentChannel}
-              onChange={(_, v) => v && setPaymentChannel(v)}
-              fullWidth
-              size="small"
-            >
-              <ToggleButton value="direct">
-                <PaymentIcon sx={{ mr: 1 }} fontSize="small" />
-                Direct Payment
-              </ToggleButton>
-              <ToggleButton value="engineer_wallet">
-                <WalletIcon sx={{ mr: 1 }} fontSize="small" />
-                Via Site Engineer
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-        )}
-
-        {/* Money Source — hidden for site engineers paying from wallet (source
-            is derived from deposits). Admin still sees it disabled when wallet. */}
+        {/* Payer Source — single or split. The outer guard suppresses the
+            picker when a site engineer pays from their own wallet (source
+            is derived from deposits). With the channel toggle removed in
+            phase-1, paymentChannel is always "direct", so the predicate
+            is effectively false; the guard stays in place for symmetry
+            with other dialogs and for the future phase-2 wallet path. */}
         {!isSiteEngineerPayingFromWallet({
           userRole: userProfile?.role,
           payerType: "site_engineer",
-          createWalletTransaction: paymentChannel === "engineer_wallet",
+          // paymentChannel is hardcoded "direct" after phase-1 cleanup; this
+          // wallet flag is always false until phase-2 reintroduces the
+          // engineer wallet path. Kept as a literal so TS narrows correctly.
+          createWalletTransaction: false,
         }) && (
-          <PayerSourceSelector
-            value={moneySource}
-            customName={moneySourceName}
-            onChange={setMoneySource}
-            onCustomNameChange={setMoneySourceName}
-            disabled={processing || paymentChannel === "engineer_wallet"}
-          />
-        )}
-
-        {/* Engineer Selection */}
-        <Collapse in={paymentChannel === "engineer_wallet"}>
           <Box sx={{ mb: 3 }}>
-            <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-              <InputLabel>Select Site Engineer</InputLabel>
-              <Select
-                value={selectedEngineerId}
-                onChange={(e) => setSelectedEngineerId(e.target.value)}
-                label="Select Site Engineer"
-                disabled={loading}
-              >
-                {loading ? (
-                  <MenuItem disabled>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      <CircularProgress size={18} />
-                      <Typography variant="body2">Loading engineers...</Typography>
-                    </Box>
-                  </MenuItem>
-                ) : engineers.length === 0 ? (
-                  <MenuItem disabled>
-                    <Typography variant="body2" color="text.secondary">
-                      No site engineers found
-                    </Typography>
-                  </MenuItem>
-                ) : (
-                  engineers.map((eng) => (
-                    <MenuItem key={eng.id} value={eng.id}>
-                      <Box
-                        sx={{ display: "flex", alignItems: "center", gap: 1.5 }}
-                      >
-                        <Avatar src={eng.avatar_url || undefined} sx={{ width: 28, height: 28 }}>
-                          {eng.name?.[0]}
-                        </Avatar>
-                        <Box>
-                          <Typography variant="body2">{eng.name}</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Balance: Rs.{(eng.wallet_balance || 0).toLocaleString()}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </MenuItem>
-                  ))
-                )}
-              </Select>
-            </FormControl>
-
-            <TextField
-              fullWidth
-              size="small"
-              label="Reference/Purpose"
-              placeholder="What is this payment for?"
-              value={engineerReference}
-              onChange={(e) => setEngineerReference(e.target.value)}
-              helperText="This helps the engineer know which payment to settle"
+            <PayerSourceSplitInput
+              value={payer}
+              onChange={setPayer}
+              total={paymentAmount}
+              siteId={selectedSite?.id}
+              disabled={processing}
             />
           </Box>
-        </Collapse>
+        )}
 
         {/* Subcontract Linking */}
         {allowSubcontractLink && (
@@ -891,24 +720,35 @@ export default function PaymentDialog({
         </Box>
       </DialogContent>
 
-      <DialogActions sx={{ px: 3, py: 2 }}>
-        <Button onClick={onClose} disabled={processing}>
-          Cancel
-        </Button>
-        <Button
-          variant="contained"
-          onClick={() => handleSubmit()}
-          disabled={
-            processing ||
-            (paymentChannel === "engineer_wallet" && !selectedEngineerId) ||
-            (isPartialPayment && partialAmount <= 0)
-          }
-          startIcon={processing ? <CircularProgress size={20} /> : undefined}
-        >
-          {processing
-            ? "Processing..."
-            : `Confirm Settlement Rs.${paymentAmount.toLocaleString()}`}
-        </Button>
+      <DialogActions sx={{ px: 3, py: 2, flexDirection: "column", alignItems: "stretch" }}>
+        {!payerCheck.ok && payer.mode === "split" && (
+          <Typography
+            variant="caption"
+            color="error.main"
+            sx={{ display: "block", mb: 1, textAlign: "right" }}
+          >
+            {payerCheck.reason}
+          </Typography>
+        )}
+        <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1 }}>
+          <Button onClick={onClose} disabled={processing}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => handleSubmit()}
+            disabled={
+              processing ||
+              (isPartialPayment && partialAmount <= 0) ||
+              !payerCheck.ok
+            }
+            startIcon={processing ? <CircularProgress size={20} /> : undefined}
+          >
+            {processing
+              ? "Processing..."
+              : `Confirm Settlement Rs.${paymentAmount.toLocaleString()}`}
+          </Button>
+        </Box>
       </DialogActions>
 
       {/* Soft confirm before saving with no subcontract link. Stacked dialog
