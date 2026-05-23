@@ -768,17 +768,42 @@ export default function ExpensesPageV2() {
       <PageHeader
         title="All Site Expenses"
         titleChip={<ScopeChip />}
-        subtitle={`Track expenses for ${selectedSite.name}`}
+        subtitle={isMobile ? undefined : `Track expenses for ${selectedSite.name}`}
+        titleVariant={isMobile ? "h6" : undefined}
         actions={
-          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-            <Button variant="contained" startIcon={<Add />} onClick={() => handleOpenDialog()} disabled={!canEdit} size="small">
-              Add Expense
-            </Button>
-            <Tooltip title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}>
-              <IconButton size="small" onClick={() => setIsFullscreen((v) => !v)}>
-                {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
-              </IconButton>
-            </Tooltip>
+          <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+            {isMobile ? (
+              <Tooltip title="Add expense">
+                <span>
+                  <IconButton
+                    color="primary"
+                    onClick={() => handleOpenDialog()}
+                    disabled={!canEdit}
+                    aria-label="Add expense"
+                    size="small"
+                  >
+                    <Add />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            ) : (
+              <Button
+                variant="contained"
+                startIcon={<Add />}
+                onClick={() => handleOpenDialog()}
+                disabled={!canEdit}
+                size="small"
+              >
+                Add Expense
+              </Button>
+            )}
+            {!isMobile && (
+              <Tooltip title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}>
+                <IconButton size="small" onClick={() => setIsFullscreen((v) => !v)}>
+                  {isFullscreen ? <FullscreenExitIcon /> : <FullscreenIcon />}
+                </IconButton>
+              </Tooltip>
+            )}
           </Box>
         }
       />

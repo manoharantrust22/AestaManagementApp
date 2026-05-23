@@ -1,6 +1,7 @@
 'use client'
 
 import { Box, Typography, IconButton, Tooltip } from '@mui/material'
+import type { TypographyProps } from '@mui/material'
 import { ArrowBack } from '@mui/icons-material'
 import { useRouter } from 'next/navigation'
 
@@ -8,6 +9,7 @@ interface PageHeaderProps {
   title: string
   subtitle?: string
   titleChip?: React.ReactNode  // Chip/badge displayed next to the title
+  titleVariant?: TypographyProps['variant']
   showBack?: boolean
   actions?: React.ReactNode
 }
@@ -16,6 +18,7 @@ export default function PageHeader({
   title,
   subtitle,
   titleChip,
+  titleVariant,
   showBack = true,
   actions,
 }: PageHeaderProps) {
@@ -57,7 +60,7 @@ export default function PageHeader({
         <Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography
-              variant="h6"
+              variant={titleVariant ?? "h6"}
               fontWeight={600}
               sx={{ fontSize: { xs: '1rem', sm: '1.25rem', md: '1.5rem' } }}
             >
