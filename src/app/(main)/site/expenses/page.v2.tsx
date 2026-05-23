@@ -992,7 +992,7 @@ export default function ExpensesPageV2() {
       )}
 
       {/* Table */}
-      <TableContainer sx={{ overflow: "visible" }}>
+      <TableContainer sx={{ overflowX: "auto" }}>
         <Table stickyHeader size="small">
           <TableHead>
             <TableRow>
