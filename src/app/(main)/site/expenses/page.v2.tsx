@@ -682,6 +682,17 @@ export default function ExpensesPageV2() {
 
   // ─── Expenses table section ───────────────────────────────────────────────
 
+  const headerCellSx = {
+    fontWeight: 700,
+    fontSize: 11,
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.5,
+    color: "text.secondary",
+    bgcolor: "background.paper",
+    py: dense ? 0.75 : 1,
+    whiteSpace: "nowrap" as const,
+  };
+
   const expensesTable = (
     <Paper ref={tableRef} variant="outlined" sx={{ borderRadius: 2, overflow: "hidden", mb: 4 }}>
       {/* Toolbar row 1 */}
@@ -853,19 +864,9 @@ export default function ExpensesPageV2() {
         <Table stickyHeader size="small">
           <TableHead>
             <TableRow>
-              <TableCell
-                sortDirection={sortDir}
-                sx={{
-                  fontWeight: 700,
-                  fontSize: 11,
-                  textTransform: "uppercase",
-                  letterSpacing: 0.5,
-                  color: "text.secondary",
-                  bgcolor: "background.paper",
-                  py: dense ? 0.75 : 1,
-                  whiteSpace: "nowrap",
-                }}
-              >
+              <TableCell sortDirection={sortDir} sx={headerCellSx}>
+                {/* Date is the only sortable column today, so `active` is always true.
+                    When a second sortable column is added, switch to active={sortKey === "date"}. */}
                 <TableSortLabel
                   active
                   direction={sortDir}
@@ -880,16 +881,7 @@ export default function ExpensesPageV2() {
                 <TableCell
                   key={h}
                   align={h === "Amount" ? "right" : "left"}
-                  sx={{
-                    fontWeight: 700,
-                    fontSize: 11,
-                    textTransform: "uppercase",
-                    letterSpacing: 0.5,
-                    color: "text.secondary",
-                    bgcolor: "background.paper",
-                    py: dense ? 0.75 : 1,
-                    whiteSpace: "nowrap",
-                  }}
+                  sx={headerCellSx}
                 >
                   {h}
                 </TableCell>
