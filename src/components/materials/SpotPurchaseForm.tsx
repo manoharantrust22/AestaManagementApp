@@ -18,6 +18,7 @@ import {
 import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
 
 import { ReceiptCapture, type ReceiptCaptureValue } from "@/components/common/ReceiptCapture";
+import { RateUpdatePromptDialog } from "./RateUpdatePromptDialog";
 import WalletBalancePreview from "@/components/wallet-v2/WalletBalancePreview";
 import { useMaterials, useMaterialCategories } from "@/hooks/queries/useMaterials";
 import { useVendors } from "@/hooks/queries/useVendors";
@@ -85,6 +86,12 @@ export default function SpotPurchaseForm() {
   const [notes, setNotes] = useState("");
   const [groupSplit, setGroupSplit] = useState<GroupSplitRow[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [postSubmitRatePrompt, setPostSubmitRatePrompt] = useState<
+    {
+      items: { material_id: string; vendor_id: string; name: string; paid: number; catalog: number }[];
+      batchId: string;
+    } | null
+  >(null);
 
   const itemsLineTotal = useMemo(
     () => items.reduce((s, it) => s + (Number(it.qty) || 0) * (Number(it.rate) || 0), 0),
@@ -170,9 +177,27 @@ export default function SpotPurchaseForm() {
         : {}),
     };
     try {
-      await create.mutateAsync(payload);
-      // RateUpdatePromptDialog wired in Task F; for now, on submit success just redirect.
-      router.push("/site/today");
+      const result = await create.mutateAsync(payload);
+      const mismatches = items
+        .filter(
+          (it) =>
+            it.material?.id &&
+            it.catalogRate !== undefined &&
+            vendor?.id &&
+            Math.abs(it.rate - it.catalogRate) >= 0.01
+        )
+        .map((it) => ({
+          material_id: it.material!.id,
+          vendor_id: vendor!.id,
+          name: materials.find((m) => m.id === it.material!.id)?.name ?? "—",
+          paid: Number(it.rate),
+          catalog: Number(it.catalogRate),
+        }));
+      if (mismatches.length > 0) {
+        setPostSubmitRatePrompt({ items: mismatches, batchId: result.batch_id });
+      } else {
+        router.push("/site/today");
+      }
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Could not record spot purchase");
     }
@@ -399,6 +424,17 @@ export default function SpotPurchaseForm() {
           {create.isPending ? "Recording…" : "Record spot purchase"}
         </Button>
       </Box>
+
+      {postSubmitRatePrompt && (
+        <RateUpdatePromptDialog
+          batchId={postSubmitRatePrompt.batchId}
+          items={postSubmitRatePrompt.items}
+          onClose={() => {
+            setPostSubmitRatePrompt(null);
+            router.push("/site/today");
+          }}
+        />
+      )}
     </Stack>
   );
 }
