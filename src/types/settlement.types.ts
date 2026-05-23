@@ -185,3 +185,17 @@ export interface UnifiedExpense {
   created_at: string;
   is_deleted: boolean;
 }
+
+// A single row of a multi-source split.
+// `name` is required when requiresPayerName(source) is true.
+export type PayerSourceSplitRow = {
+  source: PayerSource;
+  name?: string;
+  amount: number;
+};
+
+// Discriminated union returned by PayerSourceSplitInput and consumed by
+// every writer that previously took { payerSource, customPayerName }.
+export type PayerSourceInput =
+  | { mode: "single"; source: PayerSource; name?: string }
+  | { mode: "split"; rows: PayerSourceSplitRow[] };

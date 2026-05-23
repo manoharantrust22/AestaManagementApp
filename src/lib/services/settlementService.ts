@@ -15,10 +15,18 @@ import type {
   PaymentDetails,
   PaymentWeekAllocation,
 } from "@/types/payment.types";
-import type { PayerSource, SettlementRecord } from "@/types/settlement.types";
+import type {
+  PayerSource,
+  PayerSourceInput,
+  SettlementRecord,
+} from "@/types/settlement.types";
 import { requiresPayerName } from "@/types/settlement.types";
 import type { BatchAllocation } from "@/types/wallet.types";
 import { recordSpend } from "./engineerWalletV2";
+import {
+  toRpcArgs,
+  validatePayerSourceInput,
+} from "@/lib/settlement/payerSource";
 
 export interface SettlementResult {
   success: boolean;
@@ -35,8 +43,7 @@ export interface SettlementConfig {
   totalAmount: number;
   paymentMode: PaymentMode;
   paymentChannel: PaymentChannel;
-  payerSource: PayerSource;
-  customPayerName?: string;
+  payer: PayerSourceInput;
   engineerId?: string;
   engineerReference?: string;
   proofUrl?: string;
@@ -280,6 +287,18 @@ export async function processSettlement(
   config: SettlementConfig
 ): Promise<SettlementResult> {
   try {
+    // Validate the payer-source input BEFORE any side-effects (idempotency
+    // marker, RPC call, wallet debit) so a bad payload returns a structured
+    // error result instead of throwing or half-committing.
+    const payerCheck = validatePayerSourceInput(config.payer, config.totalAmount);
+    if (!payerCheck.ok) {
+      return {
+        success: false,
+        error: `Invalid payer source: ${payerCheck.reason}`,
+      };
+    }
+    const payerRpc = toRpcArgs(config.payer);
+
     // Check for recent duplicate submission (prevents accidental double-clicks)
     const idempotencyKey = getSettlementIdempotencyKey(config);
     if (checkRecentSubmission(idempotencyKey)) {
@@ -326,8 +345,9 @@ export async function processSettlement(
         p_laborer_count: laborerCount,
         p_payment_channel: config.paymentChannel,
         p_payment_mode: config.paymentMode,
-        p_payer_source: config.payerSource,
-        p_payer_name: requiresPayerName(config.payerSource) ? config.customPayerName : null,
+        p_payer_source: payerRpc.p_payer_source,
+        p_payer_name: payerRpc.p_payer_name,
+        p_payer_source_split: payerRpc.p_payer_source_split,
         p_proof_url: config.proofUrl || null,
         p_notes: config.notes || null,
         p_subcontract_id: effectiveSubcontractId || null,
@@ -429,8 +449,11 @@ export async function processSettlement(
       engineer_transaction_id: engineerTransactionId,
       payment_proof_url: config.proofUrl || null,
       payment_notes: config.notes || null,
-      payer_source: config.payerSource,
-      payer_name: config.payerSource === "custom" ? config.customPayerName : null,
+      // Mirror what we sent to the settlement_groups RPC. For split payers
+      // payer_source is "split" and payer_name is null; the per-row breakdown
+      // lives on settlement_groups.payer_source_split (source of truth).
+      payer_source: payerRpc.p_payer_source,
+      payer_name: payerRpc.p_payer_name,
       settlement_group_id: settlementGroupId,
     };
 
@@ -517,6 +540,7 @@ export async function processSettlement(
  * Process a weekly settlement for a date range
  * Now creates a settlement_group as the single source of truth.
  */
+// TODO(payer-split-phase-2): migrate to PayerSourceInput
 export async function processWeeklySettlement(
   supabase: SupabaseClient,
   config: {
@@ -802,10 +826,18 @@ function buildExpenseDescription(config: SettlementConfig, laborerCount: number)
 
   parts.push(`Laborer salary (${laborerCount} ${laborerCount === 1 ? "laborer" : "laborers"})`);
 
-  // Add payer info
-  const payerLabel = getPayerLabel(config.payerSource, config.customPayerName);
-  if (payerLabel !== "Own Money") {
-    parts.push(`via ${payerLabel}`);
+  // Add payer info (single-source path only — splits are intentionally
+  // labelled by callers via formatPayerSource against settlement_groups).
+  if (config.payer.mode === "single") {
+    const payerLabel = getPayerLabel(
+      config.payer.source,
+      config.payer.name ?? undefined
+    );
+    if (payerLabel !== "Own Money") {
+      parts.push(`via ${payerLabel}`);
+    }
+  } else {
+    parts.push("via Split");
   }
 
   // Add notes if present
@@ -1015,6 +1047,7 @@ export interface ContractPaymentResult extends SettlementResult {
  * Process a contract laborer payment with auto-allocation for salary payments.
  * Each payment gets its own unique reference code.
  */
+// TODO(payer-split-phase-2): migrate to PayerSourceInput
 export async function processContractPayment(
   supabase: SupabaseClient,
   config: ContractPaymentConfig
@@ -1856,6 +1889,7 @@ export interface WaterfallContractPaymentResult extends SettlementResult {
  * Creates labor_payments records for each laborer in each week that receives payment.
  * All payments share the same settlement_reference.
  */
+// TODO(payer-split-phase-2): migrate to PayerSourceInput
 export async function processWaterfallContractPayment(
   supabase: SupabaseClient,
   config: WaterfallContractPaymentConfig
@@ -2179,6 +2213,7 @@ import type {
  * - Single settlement can span multiple weeks
  * - Week allocations are stored in settlement_groups.week_allocations JSONB
  */
+// TODO(payer-split-phase-2): migrate to PayerSourceInput
 export async function processDateWiseContractSettlement(
   supabase: SupabaseClient,
   config: DateWiseSettlementConfig
@@ -2798,6 +2833,7 @@ export async function getMaestriEarnings(
  * Update the payer_source for a settlement
  * Useful for "System Recovered" payments that need source assignment
  */
+// TODO(payer-split-phase-2): migrate to PayerSourceInput
 export async function updateSettlementPayerSource(
   supabase: SupabaseClient,
   settlementGroupId: string,

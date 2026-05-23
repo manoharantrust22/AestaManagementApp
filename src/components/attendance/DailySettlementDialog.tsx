@@ -250,7 +250,7 @@ export default function DailySettlementDialog({
         totalAmount: totalSelectedAmount,
         paymentMode: servicePaymentMode,
         paymentChannel: "direct" as PaymentChannel,
-        payerSource: payerSource,
+        payer: { mode: "single", source: payerSource },
         proofUrl: proofFile?.url,
         notes: notes || undefined,
         userId: userProfile.id,
