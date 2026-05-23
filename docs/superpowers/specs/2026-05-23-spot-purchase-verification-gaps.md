@@ -86,3 +86,31 @@ As site_engineer via PostgREST:
 3. Run the 7 scenarios above with Playwright MCP.
 
 4. When confident, "move to prod" — apply migrations against the main project per CLAUDE.md.
+
+## Known follow-ups
+
+Items flagged in the post-final code review that are intentionally deferred:
+
+1. **`SettleViaWalletDialog` callers drop the uploaded URLs.** The dialog collects
+   `billUrl` and `paymentScreenshotUrl` via two `ReceiptCapture` slots and includes
+   them in the `onConfirm(payload)` call, but every caller
+   (`payments-content.tsx`, `RentalSettleViaWallet.tsx`,
+   `ContractSettleViaWallet.tsx`, `MestriSettleDialog.tsx`, …) currently ignores
+   those fields. The dialog now surfaces an `Alert severity="info"` warning the
+   user that the receipts are device-local until the receiver fix lands. Follow-up:
+   extend `processContractPayment`, `processSettlementWallet`, `rentalSettleService`,
+   and tea-shop settle flows to accept and persist these URLs into the destination
+   row's `bill_url` / `payment_screenshot_url` columns (where they exist) or
+   `proof_url` on `misc_expenses`.
+
+2. **`MaterialSettlementDialog` advance-payment path drops `bill_url`.** The
+   settle-existing-purchase flow saves `bill_url` correctly, but the new
+   advance-payment branch added during this PR doesn't yet wire the bill upload
+   through. Mirror the existing field on the advance-payment mutation when the
+   receipts feature is generalized.
+
+3. **`SpotPurchaseAllocatorDialog` defensive guard.** The allocator UI should
+   refuse to submit a non-100 split client-side (today's server-side guard added
+   in `record_spot_purchase` catches it, but the UX would be cleaner with an
+   inline error before the round-trip). Lower urgency — the server now rejects
+   the bad payload safely.
