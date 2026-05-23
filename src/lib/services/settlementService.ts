@@ -1875,8 +1875,7 @@ export interface WaterfallContractPaymentConfig {
   actualPaymentDate: string;
   paymentMode: PaymentMode;
   paymentChannel: PaymentChannel;
-  payerSource: PayerSource;
-  customPayerName?: string;
+  payer: PayerSourceInput;
   engineerId?: string;
   proofUrl?: string;
   notes?: string;
@@ -1900,12 +1899,22 @@ export interface WaterfallContractPaymentResult extends SettlementResult {
  * Creates labor_payments records for each laborer in each week that receives payment.
  * All payments share the same settlement_reference.
  */
-// TODO(payer-split-phase-2): migrate to PayerSourceInput
 export async function processWaterfallContractPayment(
   supabase: SupabaseClient,
   config: WaterfallContractPaymentConfig
 ): Promise<WaterfallContractPaymentResult> {
   try {
+    // Validate payer-source input BEFORE any side-effects so a bad payload
+    // returns a structured error result instead of throwing or half-committing.
+    const payerCheck = validatePayerSourceInput(config.payer, config.totalAmount);
+    if (!payerCheck.ok) {
+      return {
+        success: false,
+        error: `Invalid payer source: ${payerCheck.reason}`,
+      };
+    }
+    const payerRpc = toRpcArgs(config.payer);
+
     const paymentDate = dayjs().format("YYYY-MM-DD");
     let engineerTransactionId: string | null = null;
     let settlementGroupId: string | undefined;
@@ -1953,8 +1962,9 @@ export async function processWaterfallContractPayment(
         p_laborer_count: totalLaborers,
         p_payment_channel: config.paymentChannel,
         p_payment_mode: normalizedPaymentMode,
-        p_payer_source: config.payerSource,
-        p_payer_name: requiresPayerName(config.payerSource) ? config.customPayerName : null,
+        p_payer_source: payerRpc.p_payer_source,
+        p_payer_name: payerRpc.p_payer_name,
+        p_payer_source_split: payerRpc.p_payer_source_split,
         p_proof_url: config.proofUrl || null,
         p_notes: notesText,
         p_subcontract_id: config.subcontractId || null,
