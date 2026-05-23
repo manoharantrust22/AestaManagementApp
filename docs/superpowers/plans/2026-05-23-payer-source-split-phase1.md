@@ -52,15 +52,19 @@
 --   payer_source_split IS NULL     -> single source, read payer_source column (unchanged)
 --   payer_source_split IS NOT NULL -> multi-source split, payer_source = 'split' sentinel
 
--- 1. Add column to every domain table
-ALTER TABLE settlement_groups          ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
-ALTER TABLE misc_expenses              ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
-ALTER TABLE tea_shop_settlements       ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
-ALTER TABLE group_tea_shop_settlements ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
-ALTER TABLE material_purchase_batches  ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
-ALTER TABLE rental_settlements         ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
-ALTER TABLE rental_advances            ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
-ALTER TABLE site_engineer_transactions ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
+-- 1. Add column to every domain table.
+-- Note: material_purchase_expenses uses column name `settlement_payer_source`
+-- (not `payer_source`); its sentinel write target is therefore
+-- settlement_payer_source='split'. The new column on that table is still
+-- named `payer_source_split` for cross-table consistency.
+ALTER TABLE settlement_groups            ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
+ALTER TABLE misc_expenses                ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
+ALTER TABLE tea_shop_settlements         ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
+ALTER TABLE tea_shop_group_settlements   ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
+ALTER TABLE material_purchase_expenses   ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
+ALTER TABLE rental_settlements           ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
+ALTER TABLE rental_advances              ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
+ALTER TABLE site_engineer_transactions   ADD COLUMN IF NOT EXISTS payer_source_split jsonb;
 
 -- 2. CHECK constraint: array length 2 or 3 when present
 DO $$
@@ -71,8 +75,8 @@ BEGIN
     'settlement_groups',
     'misc_expenses',
     'tea_shop_settlements',
-    'group_tea_shop_settlements',
-    'material_purchase_batches',
+    'tea_shop_group_settlements',
+    'material_purchase_expenses',
     'rental_settlements',
     'rental_advances',
     'site_engineer_transactions'

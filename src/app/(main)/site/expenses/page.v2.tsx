@@ -604,8 +604,16 @@ export default function ExpensesPageV2() {
     expense: null,
     reason: "",
   });
+  const [orphanCancelDialog, setOrphanCancelDialog] = useState<{ open: boolean; expense: ExpenseRow | null }>({
+    open: false,
+    expense: null,
+  });
 
   const handleDelete = (row: ExpenseRow) => {
+    if (row.source_type === "settlement" && row.expense_type === "Unlinked Salary") {
+      setOrphanCancelDialog({ open: true, expense: row });
+      return;
+    }
     if (row.source_type === "settlement") { setRedirectDialog({ open: true, expense: row }); return; }
     if (row.source_type === "subcontract_payment") {
       alert("Direct subcontract payments cannot be deleted here. Use the Subcontracts page.");
@@ -657,6 +665,31 @@ export default function ExpensesPageV2() {
       setSubcontractsLoadedForSite(null);
     } catch (err: any) {
       alert("Failed to delete: " + err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCancelOrphanSettlement = async () => {
+    const expense = orphanCancelDialog.expense;
+    if (!expense) return;
+    setSubmitting(true);
+    try {
+      const { error } = await supabase
+        .from("settlement_groups")
+        .update({
+          is_cancelled: true,
+          cancelled_at: new Date().toISOString(),
+          cancelled_by: userProfile?.name || "Unknown",
+          cancelled_by_user_id: userProfile?.id || null,
+          cancellation_reason: "Orphaned settlement cancelled from expenses page",
+        })
+        .eq("id", expense.source_id);
+      if (error) throw error;
+      setOrphanCancelDialog({ open: false, expense: null });
+      await refetch();
+    } catch (err: any) {
+      alert(`Failed to cancel settlement: ${err.message || "Unknown error"}`);
     } finally {
       setSubmitting(false);
     }
@@ -1473,6 +1506,35 @@ export default function ExpensesPageV2() {
           transactionId: redirectDialog.expense?.engineer_transaction_id || undefined,
         }}
       />
+
+      {/* Orphan cancel dialog */}
+      <Dialog open={orphanCancelDialog.open} onClose={() => setOrphanCancelDialog({ open: false, expense: null })} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ pb: 1 }}>Cancel Orphaned Settlement</DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            This settlement has no linked attendance records — it was likely created by a network retry. Cancelling it will remove it from the expenses list without affecting any payments.
+          </Alert>
+          {orphanCancelDialog.expense && (
+            <Box sx={{ p: 2, bgcolor: "action.hover", borderRadius: 1 }}>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                <strong>Reference:</strong> {orphanCancelDialog.expense.settlement_reference || "—"}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                <strong>Amount:</strong> ₹{orphanCancelDialog.expense.amount.toLocaleString("en-IN")}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                <strong>Date:</strong> {dayjs(orphanCancelDialog.expense.date).format("DD MMM YYYY")}
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setOrphanCancelDialog({ open: false, expense: null })} disabled={submitting}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleCancelOrphanSettlement} disabled={submitting}>
+            {submitting ? "Cancelling…" : "Cancel Settlement"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Delete confirmation */}
       <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, expense: null, reason: "" })} maxWidth="sm" fullWidth>
