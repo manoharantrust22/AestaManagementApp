@@ -104,9 +104,9 @@ export function typesForGroup(group: ExpenseGroup): readonly string[] {
   return [...LABOR_TYPES, ...BUILDING_TYPES];
 }
 
-const INITIAL_RESULT_LIMIT = 200;
+const INITIAL_RESULT_LIMIT = 50;
 export const MAX_RESULT_LIMIT = 2000;
-export const LOAD_MORE_STEP = 200;
+export const LOAD_MORE_STEP = 50;
 
 interface Args {
   siteId: string | null | undefined;
@@ -123,6 +123,11 @@ interface Args {
   status: ExpenseStatus;
   /** When set, restricts to a single payer (for multi-payer sites). */
   sitePayerId: string | null;
+  /**
+   * Sort direction for the `date` column. Defaults to descending (newest
+   * first), which preserves the previous query behaviour.
+   */
+  sortDir: "desc" | "asc";
 }
 
 export function useExpensesData(args: Args) {
@@ -133,7 +138,7 @@ export function useExpensesData(args: Args) {
   const [loadedLimit, setLoadedLimit] = useState(INITIAL_RESULT_LIMIT);
   const [resultLimitHit, setResultLimitHit] = useState(false);
 
-  const { siteId, dateFrom, dateTo, isAllTime, group, expenseTypes, status, sitePayerId } = args;
+  const { siteId, dateFrom, dateTo, isAllTime, group, expenseTypes, status, sitePayerId, sortDir } = args;
 
   // Stabilise the expenseTypes array reference for the dependency lists below
   // — callers often reconstruct the array each render. Hashing on the joined
@@ -144,7 +149,7 @@ export function useExpensesData(args: Args) {
   // the second effect below.
   useEffect(() => {
     setLoadedLimit(INITIAL_RESULT_LIMIT);
-  }, [siteId, dateFrom, dateTo, isAllTime, group, expenseTypesKey, status, sitePayerId]);
+  }, [siteId, dateFrom, dateTo, isAllTime, group, expenseTypesKey, status, sitePayerId, sortDir]);
 
   const fetch = useCallback(async () => {
     if (!siteId) {
@@ -160,7 +165,7 @@ export function useExpensesData(args: Args) {
         .select("*")
         .eq("site_id", siteId)
         .eq("is_deleted", false)
-        .order("date", { ascending: false });
+        .order("date", { ascending: sortDir === "asc" });
 
       if (!isAllTime && dateFrom && dateTo) {
         query = query.gte("date", dateFrom).lte("date", dateTo);
@@ -250,7 +255,7 @@ export function useExpensesData(args: Args) {
       setIsLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase, siteId, dateFrom, dateTo, isAllTime, group, expenseTypesKey, status, sitePayerId, loadedLimit]);
+  }, [supabase, siteId, dateFrom, dateTo, isAllTime, group, expenseTypesKey, status, sitePayerId, sortDir, loadedLimit]);
 
   useEffect(() => {
     fetch();
