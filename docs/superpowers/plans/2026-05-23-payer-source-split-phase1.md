@@ -154,35 +154,49 @@ Run: `npm run db:reset` (local Supabase only — applies all migrations includin
 Then in `psql`:
 
 ```sql
+-- Pick any seeded site for the registry-scoped lookups below.
+\set site_id `SELECT id FROM sites LIMIT 1`
+
 -- Should succeed
 SELECT validate_payer_source_split(
   '[{"source":"amma_money","amount":3000},{"source":"trust_account","amount":2500}]'::jsonb,
-  5500
+  5500,
+  (SELECT id FROM sites LIMIT 1)
 );
 
 -- Should raise "sum does not equal total"
 SELECT validate_payer_source_split(
   '[{"source":"amma_money","amount":3000},{"source":"trust_account","amount":2000}]'::jsonb,
-  5500
+  5500,
+  (SELECT id FROM sites LIMIT 1)
 );
 
 -- Should raise "must have 2 or 3 rows"
-SELECT validate_payer_source_split('[]'::jsonb, 0);
+SELECT validate_payer_source_split('[]'::jsonb, 0, (SELECT id FROM sites LIMIT 1));
 
--- Should raise "unknown payer source"
+-- Should raise "unknown payer source 'foo'"
 SELECT validate_payer_source_split(
   '[{"source":"foo","amount":3000},{"source":"trust_account","amount":2500}]'::jsonb,
-  5500
+  5500,
+  (SELECT id FROM sites LIMIT 1)
 );
 
 -- Should raise "cannot repeat the same source twice"
 SELECT validate_payer_source_split(
   '[{"source":"amma_money","amount":3000},{"source":"amma_money","amount":2500}]'::jsonb,
-  5500
+  5500,
+  (SELECT id FROM sites LIMIT 1)
+);
+
+-- Should raise "row amounts must be positive"
+SELECT validate_payer_source_split(
+  '[{"source":"amma_money","amount":-100},{"source":"trust_account","amount":5600}]'::jsonb,
+  5500,
+  (SELECT id FROM sites LIMIT 1)
 );
 ```
 
-Expected: query 1 returns NULL (void); queries 2-5 raise the expected exception.
+Expected: query 1 returns NULL (void); queries 2-6 raise the expected exception.
 
 - [ ] **Step 3: Verify the sentinel guard**
 
@@ -261,7 +275,7 @@ BEGIN
   v_date_code := TO_CHAR(p_settlement_date, 'YYMMDD');
 
   IF p_payer_source_split IS NOT NULL THEN
-    PERFORM validate_payer_source_split(p_payer_source_split, p_total_amount);
+    PERFORM validate_payer_source_split(p_payer_source_split, p_total_amount, p_site_id);
     v_effective_payer_source := 'split';
     v_effective_payer_name := NULL;
   ELSE
