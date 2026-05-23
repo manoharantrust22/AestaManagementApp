@@ -132,6 +132,7 @@ export interface Vendor {
   shop_photo_url: string | null;
   serving_locations: string[] | null;
   bill_policy: VendorBillPolicy;
+  is_draft?: boolean;
 }
 
 export type VendorBillPolicy = "always_bills" | "bills_unless_cash" | "no_bills";
@@ -502,6 +503,7 @@ export interface Material {
   created_at: string;
   updated_at: string;
   created_by: string | null;
+  is_draft?: boolean;
 }
 
 export interface MaterialBrand {
@@ -1853,7 +1855,7 @@ export const PRICE_ALERT_TYPE_COLORS: Record<PriceAlertType, "success" | "error"
 // MATERIAL PURCHASE EXPENSE TRACKING (PHASE 7)
 // ============================================
 
-export type MaterialPurchaseType = "own_site" | "group_stock";
+export type MaterialPurchaseType = "own_site" | "group_stock" | "spot";
 
 export type MaterialBatchStatus = "in_stock" | "partial_used" | "completed" | "converted" | "recorded";
 
@@ -2082,6 +2084,7 @@ export interface ConvertToOwnSiteFormData {
 export const MATERIAL_PURCHASE_TYPE_LABELS: Record<MaterialPurchaseType, string> = {
   own_site: "Own Site Purchase",
   group_stock: "Group Stock Purchase",
+  spot: "Spot Purchase",
 };
 
 export const MATERIAL_BATCH_STATUS_LABELS: Record<MaterialBatchStatus, string> = {
@@ -2329,3 +2332,53 @@ export interface TmtWeightHistory {
   recorded_date: string;
   created_at: string;
 }
+
+// ---------- Spot Purchase ----------
+
+export type PurchaseType = "own_site" | "group_stock" | "spot";
+
+export interface SpotPurchaseAllocation {
+  id: string;
+  batch_id: string;
+  site_id: string;
+  percentage: number;
+  is_final: boolean;
+  finalized_at: string | null;
+  finalized_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SpotPurchaseItemInput {
+  material_id?: string;
+  new_material?: { name: string; category_id?: string; unit: string };
+  qty: number;
+  rate: number;
+}
+
+export interface SpotPurchaseVendorInput {
+  id?: string;
+  name?: string;
+}
+
+export interface SpotPurchasePayload {
+  site_id: string;
+  allocation_mode: "own_site" | "group";
+  total_amount: number;
+  payment_mode: "cash" | "upi" | "bank_transfer" | "cheque" | "credit";
+  vendor: SpotPurchaseVendorInput;
+  items: SpotPurchaseItemInput[];
+  bill_url?: string | null;
+  payment_screenshot_url?: string | null;
+  provisional_split?: Array<{ site_id: string; percentage: number }>;
+  notes?: string;
+  purchase_date?: string;
+}
+
+export interface SpotPurchaseResult {
+  batch_id: string;
+  ref_code: string;
+  vendor_id: string;
+  engineer_transaction_id: string;
+}
+
