@@ -457,7 +457,7 @@ export default function ExpensesPageV2() {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  const handleOpenDialog = (row?: ExpenseRow) => {
+  const handleOpenDialog = useCallback((row?: ExpenseRow) => {
     if (row?.source_type === "settlement") {
       alert("Salary settlements must be edited from the Salary Settlement page.");
       return;
@@ -506,7 +506,7 @@ export default function ExpensesPageV2() {
       });
     }
     setDialogOpen(true);
-  };
+  }, [router]);
 
   const handleSubmit = async () => {
     if (!selectedSite || !form.category_id || form.amount <= 0) {
@@ -651,7 +651,7 @@ export default function ExpensesPageV2() {
           return;
       }
     },
-    [pane, router, selectedSite],
+    [pane, router, selectedSite, handleOpenDialog],
   );
 
   // Sub-kind options (derived from summary breakdown) — must be before early return
@@ -1516,7 +1516,9 @@ export default function ExpensesPageV2() {
       <Snackbar
         open={refSnackbar !== null}
         autoHideDuration={4000}
-        onClose={() => setRefSnackbar(null)}
+        onClose={(_, reason) => {
+          if (reason !== "clickaway") setRefSnackbar(null);
+        }}
         message={refSnackbar}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       />
