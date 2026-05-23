@@ -12,6 +12,7 @@ import {
   DialogTitle,
   Divider,
   InputAdornment,
+  Stack,
   TextField,
   Typography,
 } from "@mui/material";
@@ -34,6 +35,10 @@ import type {
 } from "@/types/settle-via-wallet.types";
 import WalletBalanceCard from "./WalletBalanceCard";
 import SubcontractLinkSelector from "./SubcontractLinkSelector";
+import {
+  ReceiptCapture,
+  type ReceiptCaptureValue,
+} from "@/components/common/ReceiptCapture";
 
 /**
  * Canonical wallet-settle dialog. Owns balance fetch, LIFO funded-by
@@ -90,6 +95,8 @@ export default function SettleViaWalletDialog({
   const [customName, setCustomName] = useState("");
   const [showOverride, setShowOverride] = useState(false);
   const [paymentDate, setPaymentDate] = useState<string>(today);
+  const [bill, setBill] = useState<ReceiptCaptureValue | null>(null);
+  const [screenshot, setScreenshot] = useState<ReceiptCaptureValue | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -103,6 +110,8 @@ export default function SettleViaWalletDialog({
     setCustomName("");
     setShowOverride(false);
     setPaymentDate(today);
+    setBill(null);
+    setScreenshot(null);
     setSubmitting(false);
     setError(null);
   }, [open, amount, initialSubcontractId, today]);
@@ -150,6 +159,8 @@ export default function SettleViaWalletDialog({
         payerSource,
         customPayerName: requiresPayerName(payerSource) ? customName.trim() : undefined,
         subcontractId: enableSubcontractLink ? subcontractId : undefined,
+        billUrl: bill?.url ?? null,
+        paymentScreenshotUrl: screenshot?.url ?? null,
         siteId,
         engineerId,
         paymentDate: showPaymentDate ? paymentDate : today,
@@ -300,6 +311,23 @@ export default function SettleViaWalletDialog({
             sx={{ mt: 2 }}
           />
         )}
+
+        <Stack spacing={1.5} sx={{ mt: 2 }}>
+          <ReceiptCapture
+            label="Bill image (optional)"
+            value={bill}
+            onChange={setBill}
+            folder={`bills/${siteId}`}
+            disabled={submitting}
+          />
+          <ReceiptCapture
+            label="Payment screenshot (optional)"
+            value={screenshot}
+            onChange={setScreenshot}
+            folder={`screenshots/${siteId}`}
+            disabled={submitting}
+          />
+        </Stack>
 
         {error && (
           <Alert severity="error" sx={{ mt: 2 }} onClose={() => setError(null)}>

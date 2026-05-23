@@ -8,6 +8,20 @@ export interface SettleViaWalletPayload {
   customPayerName?: string;
   subcontractId?: string | null;
   proofUrl?: string | null;
+  /**
+   * Spot-purchase receipt capture — bill image (e.g. vendor invoice photo)
+   * uploaded via the inline ReceiptCapture inside the wallet-settle dialog.
+   * Optional; callers that target tables with a `bill_url` column may forward
+   * this. Always nullable for backwards compatibility with the dozens of
+   * existing call sites that ignore the field.
+   */
+  billUrl?: string | null;
+  /**
+   * Spot-purchase receipt capture — payment confirmation screenshot
+   * (e.g. UPI success screen) uploaded via the inline ReceiptCapture. Optional
+   * and additive; existing callers that ignore it are unaffected.
+   */
+  paymentScreenshotUrl?: string | null;
   siteId: string;
   engineerId: string;
   /**
