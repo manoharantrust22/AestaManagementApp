@@ -707,6 +707,17 @@ export default function ExpensesPageV2() {
 
   // ─── Expenses table section ───────────────────────────────────────────────
 
+  // Sticky layer stack (relative to the page's outer scroll container):
+  //
+  //   Layer            top   zIndex   Reason
+  //   toolbar row 1     0      3      First; flush with viewport top
+  //   toolbar row 2    56      2      Approx. height of row 1 on desktop
+  //   table head       96      1      Approx. row 1 + row 2 stacked height
+  //
+  // These offsets are desktop estimates calibrated against the toolbar's
+  // `size="small"` MUI controls. On narrow widths the rows may wrap and the
+  // offsets will be off by ~10–20px; this causes a small visual overlap but
+  // the page remains usable (accepted per spec).
   const headerCellSx = {
     fontWeight: 700,
     fontSize: 11,
@@ -717,7 +728,7 @@ export default function ExpensesPageV2() {
     py: dense ? 0.75 : 1,
     whiteSpace: "nowrap" as const,
     position: "sticky" as const,
-    top: 88,
+    top: 96,
     zIndex: 1,
   };
 
@@ -727,7 +738,6 @@ export default function ExpensesPageV2() {
       variant="outlined"
       sx={{
         borderRadius: 2,
-        overflow: "hidden",
         mb: 4,
         display: "flex",
         flexDirection: "column",
