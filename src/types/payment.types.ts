@@ -1,6 +1,6 @@
 // Payment Types for Unified Payment Management System
 
-import type { PayerSource } from "./settlement.types";
+import type { PayerSource, PayerSourceInput } from "./settlement.types";
 
 // ============ COMMON TYPES ============
 
@@ -375,8 +375,7 @@ export interface ContractPaymentConfig {
   paymentForDate: string; // Week reference (week start date)
   paymentMode: PaymentMode;
   paymentChannel: PaymentChannel;
-  payerSource: string;
-  customPayerName?: string;
+  payer: PayerSourceInput;
   engineerId?: string;
   proofUrl?: string;
   notes?: string;
