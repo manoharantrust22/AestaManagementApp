@@ -32,6 +32,9 @@ export interface DailyPeekSite {
   contractCount: number;
   contractCrews: number;
   contractTotal: number;
+  // Task M-4: spot-purchase per-site rollup for today.
+  spotPurchaseCountToday: number;
+  spotPurchaseTotalToday: number;
 }
 
 function toNumber(v: unknown): number {
@@ -116,6 +119,9 @@ export function useCompanyDailyPeek(companyId: string | null | undefined, date: 
             contractCount: toNumber(r.contract_count),
             contractCrews: toNumber(r.contract_crews),
             contractTotal: toNumber(r.contract_total),
+            // Task M-4: keys absent on pre-migration prod return 0 via toNumber.
+            spotPurchaseCountToday: toNumber(r.spot_purchase_count_today),
+            spotPurchaseTotalToday: toNumber(r.spot_purchase_total_today),
           };
         });
       } catch (err) {

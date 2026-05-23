@@ -47,6 +47,17 @@ export default function DailyPeekSection() {
     [sites, selectedSiteId],
   );
 
+  // Task M-4: company-wide spot-purchase rollup across all returned sites.
+  const spotTotals = useMemo(() => {
+    return sites.reduce(
+      (acc, s) => ({
+        count: acc.count + (s.spotPurchaseCountToday || 0),
+        total: acc.total + (s.spotPurchaseTotalToday || 0),
+      }),
+      { count: 0, total: 0 },
+    );
+  }, [sites]);
+
   return (
     <LocalizationProvider dateAdapter={AdapterDayjs}>
       <Paper sx={{ p: 2.5, borderRadius: 3, mb: 3 }}>
@@ -155,21 +166,44 @@ export default function DailyPeekSection() {
             </Typography>
           </Box>
         ) : (
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-              gap: 1.5,
-            }}
-          >
-            {sites.map((site) => (
-              <SitePeekCard
-                key={site.siteId}
-                site={site}
-                onClick={() => setSelectedSiteId(site.siteId)}
-              />
-            ))}
-          </Box>
+          <>
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                gap: 1.5,
+              }}
+            >
+              {sites.map((site) => (
+                <SitePeekCard
+                  key={site.siteId}
+                  site={site}
+                  onClick={() => setSelectedSiteId(site.siteId)}
+                />
+              ))}
+            </Box>
+            {/* Task M-4: company-wide spot purchase rollup row. */}
+            {spotTotals.count > 0 && (
+              <Stack
+                direction="row"
+                justifyContent="space-between"
+                alignItems="center"
+                sx={{
+                  mt: 2,
+                  pt: 1.5,
+                  borderTop: "1px dashed",
+                  borderColor: "divider",
+                }}
+              >
+                <Typography variant="body2" color="text.secondary">
+                  Spot purchases
+                </Typography>
+                <Typography variant="body2" fontWeight={600}>
+                  {spotTotals.count} · ₹{spotTotals.total.toLocaleString("en-IN")}
+                </Typography>
+              </Stack>
+            )}
+          </>
         )}
       </Paper>
 
