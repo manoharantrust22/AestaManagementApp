@@ -501,8 +501,12 @@ export default function SiteRentalsPage() {
                     const rentalSettlements = rental.settlements ?? [];
                     const settlement = rentalSettlements.find((s: any) => s.party_type === "vendor") ?? rentalSettlements[0];
                     const settledPartySet = new Set(rentalSettlements.map((s: any) => s.party_type as string));
-                    const inboundNeedSettlement = (rental.transport_cost_outward ?? 0) > 0 && !settledPartySet.has("transport_inbound") && !settledPartySet.has("transport");
-                    const outboundNeedSettlement = (rental.transport_cost_return ?? 0) > 0 && !settledPartySet.has("transport_outbound") && !settledPartySet.has("transport");
+                    // Vendor-handled transport (outward_by/return_by IN ('vendor', NULL)) is bundled
+                    // into the vendor settlement and does not require its own settle action.
+                    const outwardIsVendor = rental.outward_by == null || rental.outward_by === "vendor";
+                    const returnIsVendor = rental.return_by == null || rental.return_by === "vendor";
+                    const inboundNeedSettlement = (rental.transport_cost_outward ?? 0) > 0 && !outwardIsVendor && !settledPartySet.has("transport_inbound") && !settledPartySet.has("transport");
+                    const outboundNeedSettlement = (rental.transport_cost_return ?? 0) > 0 && !returnIsVendor && !settledPartySet.has("transport_outbound") && !settledPartySet.has("transport");
                     const vendorSettled = settledPartySet.has("vendor");
                     const isFullySettled = vendorSettled && !inboundNeedSettlement && !outboundNeedSettlement;
                     const isSettled = rental.status === "completed" && isFullySettled;
