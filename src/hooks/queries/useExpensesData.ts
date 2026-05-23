@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { supabaseQueryWithTimeout } from "@/lib/utils/supabaseQuery";
@@ -104,12 +104,6 @@ export function typesForGroup(group: ExpenseGroup): readonly string[] {
   return [...LABOR_TYPES, ...BUILDING_TYPES];
 }
 
-/** @deprecated Replaced by PAGE_SIZE; removed in the cursor-pagination refactor. */
-const INITIAL_RESULT_LIMIT = 50;
-export const MAX_RESULT_LIMIT = 2000;
-/** @deprecated Replaced by PAGE_SIZE; removed in the cursor-pagination refactor. */
-export const LOAD_MORE_STEP = 50;
-
 export const PAGE_SIZE = 50;
 
 export interface Cursor {
@@ -176,145 +170,213 @@ export function useExpensesData(args: Args) {
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
   const [summary, setSummary] = useState<ScopeSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [loadedLimit, setLoadedLimit] = useState(INITIAL_RESULT_LIMIT);
-  const [resultLimitHit, setResultLimitHit] = useState(false);
+  const [canLoadMore, setCanLoadMore] = useState(false);
+
+  // Bumped each time the scope (site / filters / date range) changes so the
+  // active fetch can short-circuit if its caller's scope is stale.
+  const scopeIdRef = useRef(0);
+  const cursorRef = useRef<Cursor | null>(null);
 
   const { siteId, dateFrom, dateTo, isAllTime, group, expenseTypes, status, sitePayerId, sortDir } = args;
 
-  // Stabilise the expenseTypes array reference for the dependency lists below
-  // — callers often reconstruct the array each render. Hashing on the joined
-  // string keeps effects from firing when the contents are unchanged.
-  const expenseTypesKey = expenseTypes && expenseTypes.length > 0 ? [...expenseTypes].sort().join("|") : "";
+  // Stabilise the expenseTypes array reference for the dependency lists below.
+  const expenseTypesKey =
+    expenseTypes && expenseTypes.length > 0
+      ? [...expenseTypes].sort().join("|")
+      : "";
 
-  // Reset the load-more window when the scope changes. Re-fetch is triggered by
-  // the second effect below.
-  useEffect(() => {
-    setLoadedLimit(INITIAL_RESULT_LIMIT);
-  }, [siteId, dateFrom, dateTo, isAllTime, group, expenseTypesKey, status, sitePayerId, sortDir]);
+  const scopeKey = `${siteId}|${dateFrom}|${dateTo}|${isAllTime}|${group}|${expenseTypesKey}|${status}|${sitePayerId}|${sortDir}`;
 
-  const fetch = useCallback(async () => {
-    if (!siteId) {
-      setExpenses([]);
-      setSummary(null);
-      setResultLimitHit(false);
-      return;
-    }
-    setIsLoading(true);
-    try {
-      let query = (supabase as any)
-        .from("v_all_expenses")
-        .select("*")
-        .eq("site_id", siteId)
-        .eq("is_deleted", false)
-        .order("date", { ascending: sortDir === "asc" });
-
-      if (!isAllTime && dateFrom && dateTo) {
-        query = query.gte("date", dateFrom).lte("date", dateTo);
-      }
-
-      // Group / type filter via expense_type so Tea & Snacks (module='general')
-      // bands with Labor as designed.
-      if (expenseTypes && expenseTypes.length > 0) {
-        query = query.in("expense_type", expenseTypes);
-      } else if (group !== "all") {
-        query = query.in("expense_type", typesForGroup(group) as unknown as string[]);
-      }
-
-      if (status === "cleared") query = query.eq("is_cleared", true);
-      else if (status === "pending") query = query.eq("is_cleared", false);
-
-      if (sitePayerId) query = query.eq("site_payer_id", sitePayerId);
-
-      query = query.limit(loadedLimit);
-
-      // The summary RPC returns the full breakdown by expense_type for the same
-      // site + date scope. We always call it without expense_type / status filters
-      // so the summary band shows "what's possible" totals; the table is the
-      // filtered view. p_module stays null because grouping happens at the
-      // expense_type layer in our new IA.
-      // Wrap summary RPC in withTimeout — Promise.all below waits for the slowest
-      // side, so without a timeout here a hung get_expense_summary stalls the
-      // whole fetch even if the v_all_expenses query came back quickly.
-      const summaryPromise = withTimeout(
-        Promise.resolve(
-          (supabase as any).rpc("get_expense_summary", {
-            p_site_id: siteId,
-            p_date_from: !isAllTime && dateFrom ? dateFrom : null,
-            p_date_to: !isAllTime && dateTo ? dateTo : null,
-            p_module: null,
-          })
-        ),
-        TIMEOUTS.QUERY,
-        "get_expense_summary timed out",
-      );
-
-      const [{ data, error }, summaryResult] = await Promise.all([
-        supabaseQueryWithTimeout<ExpenseRow[]>(query, 30000),
-        summaryPromise,
-      ]);
-      if (error) throw error;
-
-      const rows = (data || []) as ExpenseRow[];
-      setResultLimitHit(rows.length >= loadedLimit);
-      setExpenses(rows);
-
-      if (summaryResult && !summaryResult.error && summaryResult.data) {
-        const s = summaryResult.data as {
-          total_amount: number | string;
-          total_count: number | string;
-          cleared_amount: number | string;
-          cleared_count: number | string;
-          pending_amount: number | string;
-          pending_count: number | string;
-          by_type: Array<{ type: string; amount: number | string; count: number | string }>;
-        };
-        const breakdown: Record<string, BreakdownEntry> = {};
-        for (const row of s.by_type ?? []) {
-          breakdown[row.type] = {
-            amount: Number(row.amount) || 0,
-            count: Number(row.count) || 0,
-          };
-        }
-        setSummary({
-          total: Number(s.total_amount) || 0,
-          totalCount: Number(s.total_count) || 0,
-          cleared: Number(s.cleared_amount) || 0,
-          clearedCount: Number(s.cleared_count) || 0,
-          pending: Number(s.pending_amount) || 0,
-          pendingCount: Number(s.pending_count) || 0,
-          breakdown,
-        });
-      } else {
+  const fetchPage = useCallback(
+    async (mode: "initial" | "more") => {
+      if (!siteId) {
+        setExpenses([]);
         setSummary(null);
+        setCanLoadMore(false);
+        cursorRef.current = null;
+        return;
       }
-    } catch (err) {
-      console.error("useExpensesData: fetch failed", err);
-      setExpenses([]);
-      setSummary(null);
-      setResultLimitHit(false);
-    } finally {
-      setIsLoading(false);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase, siteId, dateFrom, dateTo, isAllTime, group, expenseTypesKey, status, sitePayerId, sortDir, loadedLimit]);
 
+      // Snapshot the scope this fetch belongs to. If `scopeIdRef.current`
+      // changes before this fetch resolves, we drop the result.
+      const myScopeId = scopeIdRef.current;
+      const myCursor = mode === "more" ? cursorRef.current : null;
+
+      // mode==="initial" always wins over an in-flight more-page; mode==="more"
+      // is a no-op if there's no cursor yet (called too early) or if loading.
+      if (mode === "more" && (!myCursor || isLoading)) return;
+
+      setIsLoading(true);
+      try {
+        let query = (supabase as any)
+          .from("v_all_expenses")
+          .select("*")
+          .eq("site_id", siteId)
+          .eq("is_deleted", false)
+          .order("date", { ascending: sortDir === "asc" })
+          .order("id", { ascending: sortDir === "asc" });
+
+        if (!isAllTime && dateFrom && dateTo) {
+          query = query.gte("date", dateFrom).lte("date", dateTo);
+        }
+
+        if (expenseTypes && expenseTypes.length > 0) {
+          query = query.in("expense_type", expenseTypes);
+        } else if (group !== "all") {
+          query = query.in(
+            "expense_type",
+            typesForGroup(group) as unknown as string[],
+          );
+        }
+
+        if (status === "cleared") query = query.eq("is_cleared", true);
+        else if (status === "pending") query = query.eq("is_cleared", false);
+
+        if (sitePayerId) query = query.eq("site_payer_id", sitePayerId);
+
+        // Cursor predicate — only for follow-up pages. Newest-first ordering
+        // means "older than cursor" is the right comparison even in DESC
+        // mode; for ASC we'd need date.gt — but the page only uses DESC, so
+        // we assert that here.
+        if (sortDir !== "desc") {
+          throw new Error(
+            "useExpensesData cursor pagination only supports sortDir='desc'",
+          );
+        }
+        if (myCursor) {
+          query = query.or(buildCursorPredicate(myCursor));
+        }
+
+        query = query.limit(PAGE_SIZE);
+
+        // Summary RPC only fires on initial — it returns scope-wide totals
+        // independent of pagination.
+        const summaryPromise =
+          mode === "initial"
+            ? withTimeout(
+                Promise.resolve(
+                  (supabase as any).rpc("get_expense_summary", {
+                    p_site_id: siteId,
+                    p_date_from: !isAllTime && dateFrom ? dateFrom : null,
+                    p_date_to: !isAllTime && dateTo ? dateTo : null,
+                    p_module: null,
+                  }),
+                ),
+                TIMEOUTS.QUERY,
+                "get_expense_summary timed out",
+              )
+            : Promise.resolve(null);
+
+        const [{ data, error }, summaryResult] = await Promise.all([
+          supabaseQueryWithTimeout<ExpenseRow[]>(query, 30000),
+          summaryPromise,
+        ]);
+        if (error) throw error;
+
+        // Stale-scope guard: if the user changed filters while we were waiting,
+        // drop this result silently.
+        if (myScopeId !== scopeIdRef.current) return;
+
+        const rows = (data || []) as ExpenseRow[];
+
+        if (mode === "initial") {
+          setExpenses(rows);
+        } else {
+          setExpenses((prev) => appendPageDedupe(prev, rows));
+        }
+
+        // Cursor = last row of the newly returned page if non-empty,
+        // else keep the previous cursor (so a 0-row page doesn't null it out
+        // and prevent a subsequent retry from finding its place).
+        if (rows.length > 0) {
+          cursorRef.current = buildCursorFromLastRow(rows);
+        }
+
+        // A full page means there may be more; a short page means we hit
+        // end-of-data definitively.
+        setCanLoadMore(rows.length === PAGE_SIZE);
+
+        if (mode === "initial") {
+          if (summaryResult && !summaryResult.error && summaryResult.data) {
+            const s = summaryResult.data as {
+              total_amount: number | string;
+              total_count: number | string;
+              cleared_amount: number | string;
+              cleared_count: number | string;
+              pending_amount: number | string;
+              pending_count: number | string;
+              by_type: Array<{
+                type: string;
+                amount: number | string;
+                count: number | string;
+              }>;
+            };
+            const breakdown: Record<string, BreakdownEntry> = {};
+            for (const row of s.by_type ?? []) {
+              breakdown[row.type] = {
+                amount: Number(row.amount) || 0,
+                count: Number(row.count) || 0,
+              };
+            }
+            setSummary({
+              total: Number(s.total_amount) || 0,
+              totalCount: Number(s.total_count) || 0,
+              cleared: Number(s.cleared_amount) || 0,
+              clearedCount: Number(s.cleared_count) || 0,
+              pending: Number(s.pending_amount) || 0,
+              pendingCount: Number(s.pending_count) || 0,
+              breakdown,
+            });
+          } else {
+            setSummary(null);
+          }
+        }
+      } catch (err) {
+        if (myScopeId !== scopeIdRef.current) return;
+        console.error(`useExpensesData: ${mode} fetch failed`, err);
+        if (mode === "initial") {
+          setExpenses([]);
+          setSummary(null);
+        }
+        setCanLoadMore(false);
+      } finally {
+        if (myScopeId === scopeIdRef.current) setIsLoading(false);
+      }
+    // isLoading omitted from deps deliberately — checking it inside the body
+    // is fine; including it would re-create fetchPage on every load and the
+    // observer effect in the consumer would tear down/re-attach unnecessarily.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [supabase, siteId, dateFrom, dateTo, isAllTime, group, expenseTypesKey, status, sitePayerId, sortDir],
+  );
+
+  // When the scope changes: bump scopeId (invalidates in-flight fetches),
+  // reset cursor, and re-fetch from page 1.
   useEffect(() => {
-    fetch();
-  }, [fetch]);
+    scopeIdRef.current += 1;
+    cursorRef.current = null;
+    setCanLoadMore(false);
+    fetchPage("initial");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey]);
 
   const loadMore = useCallback(() => {
-    setLoadedLimit((l) => Math.min(l + LOAD_MORE_STEP, MAX_RESULT_LIMIT));
-  }, []);
+    fetchPage("more");
+  }, [fetchPage]);
+
+  const refetch = useCallback(() => {
+    scopeIdRef.current += 1;
+    cursorRef.current = null;
+    return fetchPage("initial");
+  }, [fetchPage]);
 
   return {
     expenses,
     summary,
     isLoading,
-    loadedLimit,
-    resultLimitHit,
-    canLoadMore: loadedLimit < MAX_RESULT_LIMIT,
+    canLoadMore,
     loadMore,
-    refetch: fetch,
+    refetch,
   };
 }
 

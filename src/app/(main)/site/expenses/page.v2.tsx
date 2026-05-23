@@ -80,8 +80,6 @@ import {
 import {
   BUILDING_TYPES,
   LABOR_TYPES,
-  LOAD_MORE_STEP,
-  MAX_RESULT_LIMIT,
   type ExpenseGroup,
   type ExpenseRow,
   type ExpenseStatus,
@@ -982,14 +980,6 @@ export default function ExpensesPageV2() {
           </IconButton>
         </Tooltip>
       </Box>
-
-      {/* Hard-cap warning — only shown when all 2000 rows are loaded */}
-      {!canLoadMore && expenses.length >= MAX_RESULT_LIMIT && (
-        <Alert severity="warning" variant="outlined" sx={{ mx: 1.5, mt: 1 }}>
-          Loaded the maximum {MAX_RESULT_LIMIT.toLocaleString("en-IN")} rows for
-          this view. Narrow the date range to see older entries.
-        </Alert>
-      )}
 
       {/* Table */}
       <TableContainer sx={{ overflowX: "auto" }}>
