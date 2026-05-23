@@ -35,9 +35,8 @@ import {
   AccountBalanceWallet,
   Link as LinkIcon,
 } from "@mui/icons-material";
-import { getPayerSourceLabel } from "@/components/settlement/PayerSourceSelector";
+import PayerSourceChip from "@/components/settlement/PayerSourceChip";
 import type { MiscExpenseWithDetails } from "@/types/misc-expense.types";
-import type { PayerSource } from "@/types/settlement.types";
 import dayjs from "dayjs";
 
 interface MiscExpenseViewDialogProps {
@@ -245,10 +244,13 @@ export default function MiscExpenseViewDialog({
               <Typography variant="body2" color="text.secondary">
                 Payer Source
               </Typography>
-              <Chip
-                label={getPayerSourceLabel(expense.payer_source as PayerSource, expense.payer_name || undefined)}
+              <PayerSourceChip
+                row={{
+                  payer_source: expense.payer_source,
+                  payer_name: expense.payer_name,
+                  payer_source_split: expense.payer_source_split ?? null,
+                }}
                 size="small"
-                variant="outlined"
               />
             </Box>
 
