@@ -1197,7 +1197,7 @@ export default function ExpensesPageV2() {
           px: 1.5,
           py: 1,
           display: "flex",
-          alignItems: "center",
+          alignItems: "flex-end",
           gap: 2,
         }}
       >
