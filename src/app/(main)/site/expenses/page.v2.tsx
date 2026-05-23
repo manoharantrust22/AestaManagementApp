@@ -716,10 +716,24 @@ export default function ExpensesPageV2() {
     bgcolor: "background.paper",
     py: dense ? 0.75 : 1,
     whiteSpace: "nowrap" as const,
+    position: "sticky" as const,
+    top: 88,
+    zIndex: 1,
   };
 
   const expensesTable = (
-    <Paper ref={tableRef} variant="outlined" sx={{ borderRadius: 2, overflow: "hidden", mb: 4 }}>
+    <Paper
+      ref={tableRef}
+      variant="outlined"
+      sx={{
+        borderRadius: 2,
+        overflow: "hidden",
+        mb: 4,
+        display: "flex",
+        flexDirection: "column",
+        minHeight: "calc(100vh - 220px)",
+      }}
+    >
       {/* Toolbar row 1 */}
       <Box
         sx={{
@@ -730,6 +744,10 @@ export default function ExpensesPageV2() {
           borderBottom: 1,
           borderColor: "divider",
           alignItems: "center",
+          position: "sticky",
+          top: 0,
+          zIndex: 3,
+          bgcolor: "background.paper",
         }}
       >
         <TextField
@@ -829,6 +847,9 @@ export default function ExpensesPageV2() {
           borderBottom: 1,
           borderColor: "divider",
           bgcolor: "action.hover",
+          position: "sticky",
+          top: 56,
+          zIndex: 2,
         }}
       >
         <Typography variant="body2" fontWeight={600} sx={{ fontVariantNumeric: "tabular-nums" }}>
@@ -885,7 +906,7 @@ export default function ExpensesPageV2() {
       )}
 
       {/* Table */}
-      <TableContainer sx={{ maxHeight: "calc(100vh - 420px)", minHeight: 200 }}>
+      <TableContainer sx={{ overflow: "visible" }}>
         <Table stickyHeader size="small">
           <TableHead>
             <TableRow>
