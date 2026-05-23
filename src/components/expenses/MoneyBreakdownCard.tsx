@@ -2,7 +2,9 @@
 
 import React, { useMemo } from "react";
 import { Box, Button, Paper, Typography, useTheme } from "@mui/material";
+import { Description as ContractIcon, ChevronRight } from "@mui/icons-material";
 import type { BreakdownEntry } from "@/hooks/queries/useExpensesData";
+import type { SubcontractTotals } from "@/lib/services/subcontractService";
 
 // Color map for expense types — aligned to MUI theme palette
 const TYPE_COLORS: Record<string, string> = {
@@ -46,6 +48,8 @@ export interface MoneyBreakdownCardProps {
   totalCount: number;
   breakdown: Record<string, BreakdownEntry>;
   onOpenSubcontracts?: () => void;
+  /** Optional — when provided, the mobile-collapsed row shows Paid / Bal totals. */
+  subcontracts?: SubcontractTotals[] | null;
 }
 
 export function MoneyBreakdownCard({
@@ -53,6 +57,7 @@ export function MoneyBreakdownCard({
   totalCount,
   breakdown,
   onOpenSubcontracts,
+  subcontracts,
 }: MoneyBreakdownCardProps) {
   const theme = useTheme();
 
@@ -98,6 +103,18 @@ export function MoneyBreakdownCard({
     return result;
   }, [breakdown, total, theme]);
 
+  const subcontractTotals = useMemo(() => {
+    if (!subcontracts || subcontracts.length === 0) return null;
+    return subcontracts.reduce(
+      (acc, sc) => {
+        acc.totalPaid += sc.totalPaid;
+        acc.totalBalance += sc.balance;
+        return acc;
+      },
+      { totalPaid: 0, totalBalance: 0 }
+    );
+  }, [subcontracts]);
+
   const kinds = useMemo(() => {
     const laborTypes = new Set([
       "Daily Salary", "Contract Salary", "Advance", "Tea & Snacks",
@@ -140,7 +157,13 @@ export function MoneyBreakdownCard({
           </Box>
         </Box>
         {onOpenSubcontracts && (
-          <Button size="small" variant="text" color="inherit" onClick={onOpenSubcontracts} sx={{ color: "text.secondary", minWidth: 0 }}>
+          <Button
+            size="small"
+            variant="text"
+            color="inherit"
+            onClick={onOpenSubcontracts}
+            sx={{ color: "text.secondary", minWidth: 0, display: { xs: "none", md: "inline-flex" } }}
+          >
             Subcontracts
           </Button>
         )}
@@ -176,7 +199,7 @@ export function MoneyBreakdownCard({
       </Box>
 
       {/* Legend */}
-      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, mt: 1.5 }}>
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: { xs: 1, md: 1.5 }, mt: 1.5 }}>
         {items.map((item) => (
           <Box key={item.type} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
             <Box
@@ -191,23 +214,84 @@ export function MoneyBreakdownCard({
             <Typography
               variant="caption"
               color="text.secondary"
-              sx={{ whiteSpace: "nowrap" }}
+              sx={{ whiteSpace: "nowrap", fontSize: { xs: 11, md: 12 } }}
             >
               {item.type}
             </Typography>
             <Typography
               variant="caption"
               fontWeight={600}
-              sx={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}
+              sx={{
+                fontVariantNumeric: "tabular-nums",
+                whiteSpace: "nowrap",
+                fontSize: { xs: 11, md: 12 },
+              }}
             >
               {formatCompact(item.amount)}
             </Typography>
-            <Typography variant="caption" color="text.disabled">
+            <Typography variant="caption" color="text.disabled" sx={{ fontSize: { xs: 11, md: 12 } }}>
               {item.pct}%
             </Typography>
           </Box>
         ))}
       </Box>
+
+      {/* Mobile collapsed Subcontracts row */}
+      {onOpenSubcontracts && (
+        <Box
+          sx={{
+            display: { xs: "flex", md: "none" },
+            alignItems: "center",
+            justifyContent: "space-between",
+            mt: 1.5,
+            mx: -2,
+            mb: -2,
+            py: 1,
+            px: 2,
+            borderTop: 1,
+            borderColor: "divider",
+            cursor: "pointer",
+            "&:hover": { bgcolor: "action.hover" },
+          }}
+          onClick={onOpenSubcontracts}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onOpenSubcontracts();
+            }
+          }}
+        >
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <ContractIcon sx={{ fontSize: 16, color: "primary.main" }} />
+            <Typography
+              variant="caption"
+              fontWeight={700}
+              sx={{ textTransform: "uppercase", letterSpacing: 0.5 }}
+            >
+              Subcontracts
+            </Typography>
+          </Box>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            {subcontractTotals ? (
+              <>
+                <Typography variant="caption" color="success.main" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                  Paid {formatCompact(subcontractTotals.totalPaid)}
+                </Typography>
+                <Typography variant="caption" color="warning.main" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                  Bal {formatCompact(subcontractTotals.totalBalance)}
+                </Typography>
+              </>
+            ) : (
+              <Typography variant="caption" color="text.secondary">
+                View summary
+              </Typography>
+            )}
+            <ChevronRight sx={{ fontSize: 18, color: "text.secondary" }} />
+          </Box>
+        </Box>
+      )}
     </Paper>
   );
 }

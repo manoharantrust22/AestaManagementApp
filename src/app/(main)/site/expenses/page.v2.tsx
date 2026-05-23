@@ -1421,6 +1421,7 @@ export default function ExpensesPageV2() {
                   totalCount={totalCount}
                   breakdown={breakdown}
                   onOpenSubcontracts={handleOpenSubcontracts}
+                  subcontracts={subcontracts}
                 />
                 <TradeMetricCards
                   tradeSummary={tradeSummary}
@@ -1450,6 +1451,7 @@ export default function ExpensesPageV2() {
               totalCount={totalCount}
               breakdown={breakdown}
               onOpenSubcontracts={handleOpenSubcontracts}
+              subcontracts={subcontracts}
             />
             <TradeMetricCards
               tradeSummary={tradeSummary}
