@@ -33,7 +33,10 @@ import {
 } from "@mui/icons-material";
 import { createClient } from "@/lib/supabase/client";
 import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
-import FileUploader, { UploadedFile } from "@/components/common/FileUploader";
+import {
+  ReceiptCapture,
+  type ReceiptCaptureValue,
+} from "@/components/common/ReceiptCapture";
 import { BillPreviewButton } from "@/components/common/BillViewerDialog";
 import BillVerificationDialog from "@/components/materials/BillVerificationDialog";
 import SettlementVerificationPrompt, { useSettlementVerification } from "@/components/materials/SettlementVerificationPrompt";
@@ -124,8 +127,8 @@ export default function MaterialSettlementDialog({
   const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
   const [payerName, setPayerName] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
-  const [billUrl, setBillUrl] = useState("");
-  const [paymentScreenshotUrl, setPaymentScreenshotUrl] = useState("");
+  const [bill, setBill] = useState<ReceiptCaptureValue | null>(null);
+  const [screenshot, setScreenshot] = useState<ReceiptCaptureValue | null>(null);
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [amountPaid, setAmountPaid] = useState<string>(""); // Bargained amount
@@ -164,8 +167,8 @@ export default function MaterialSettlementDialog({
       setPayerSource("own_money");
       setPayerName("");
       setPaymentReference("");
-      setBillUrl("");
-      setPaymentScreenshotUrl("");
+      setBill(null);
+      setScreenshot(null);
       setNotes("");
       setError("");
       setAmountPaid(purchaseAmount.toString());
@@ -216,7 +219,7 @@ export default function MaterialSettlementDialog({
           payment_date: settlementDate,
           payment_mode: paymentMode,
           payment_reference: paymentReference || undefined,
-          payment_screenshot_url: paymentScreenshotUrl || undefined,
+          payment_screenshot_url: screenshot?.url || undefined,
           notes: notes || undefined,
           // Pass wallet fields for group_stock POs settled by site engineer
           ...(isSiteEngineer && isGroupStockAdvancePO && engineerId && effectiveWalletSiteId ? {
@@ -261,8 +264,8 @@ export default function MaterialSettlementDialog({
         payer_source: payerSource,
         payer_name: payerName || undefined,
         payment_reference: paymentReference || undefined,
-        bill_url: billUrl || undefined,
-        payment_screenshot_url: paymentScreenshotUrl || undefined,
+        bill_url: bill?.url || undefined,
+        payment_screenshot_url: screenshot?.url || undefined,
         notes: notes || undefined,
         amount_paid: finalAmountPaid,
         isVendorPaymentOnly,
@@ -757,45 +760,20 @@ export default function MaterialSettlementDialog({
           Attachments (Optional)
         </Typography>
 
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mb: 2 }}>
-          <FileUploader
-            supabase={supabase}
-            bucketName="documents"
-            folderPath={`settlements/${record!.site_id}`}
-            fileNamePrefix="bill"
-            accept="all"
-            label="Vendor Bill"
-            helperText="Upload bill/invoice from vendor"
-            uploadOnSelect
-            value={billUrl ? { name: "bill", size: 0, url: billUrl } : null}
-            onUpload={(file: UploadedFile) => setBillUrl(file.url)}
-            onRemove={() => setBillUrl("")}
-            compact
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, mb: 2 }}>
+          <ReceiptCapture
+            label="Bill image (optional)"
+            value={bill}
+            onChange={setBill}
+            folder={`bills/${record!.site_id}`}
+            disabled={settleMutation.isPending || advancePaymentMutation.isPending}
           />
-
-          <FileUploader
-            supabase={supabase}
-            bucketName="documents"
-            folderPath={`settlements/${record!.site_id}`}
-            fileNamePrefix="payment-proof"
-            accept="image"
-            label={isSiteEngineer ? "Payment Proof" : paymentMode === "upi" ? "UPI Payment Screenshot" : "Payment Proof"}
-            helperText={
-              isSiteEngineer
-                ? "Upload payment receipt or any proof of payment"
-                : paymentMode === "upi"
-                  ? "Upload screenshot after scanning QR code and completing payment"
-                  : "UPI screenshot / Bank statement"
-            }
-            uploadOnSelect
-            value={
-              paymentScreenshotUrl
-                ? { name: "payment-proof", size: 0, url: paymentScreenshotUrl }
-                : null
-            }
-            onUpload={(file: UploadedFile) => setPaymentScreenshotUrl(file.url)}
-            onRemove={() => setPaymentScreenshotUrl("")}
-            compact
+          <ReceiptCapture
+            label="Payment screenshot (optional)"
+            value={screenshot}
+            onChange={setScreenshot}
+            folder={`screenshots/${record!.site_id}`}
+            disabled={settleMutation.isPending || advancePaymentMutation.isPending}
           />
         </Box>
 
