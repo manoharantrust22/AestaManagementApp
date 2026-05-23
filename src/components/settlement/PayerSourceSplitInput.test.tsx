@@ -207,7 +207,7 @@ describe("PayerSourceSplitInput", () => {
       ),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /split across sources/i }),
+      screen.getByRole("button", { name: /use a single source/i }),
     );
     const last = onChange.mock.calls.at(-1)![0] as PayerSourceInput;
     expect(last.mode).toBe("single");

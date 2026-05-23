@@ -83,6 +83,10 @@ DECLARE
   v_sum        numeric;
   v_bad_source text;
 BEGIN
+  IF p_site_id IS NULL THEN
+    RAISE EXCEPTION 'validate_payer_source_split requires a non-NULL p_site_id'
+      USING ERRCODE = '22023';
+  END IF;
   IF jsonb_typeof(p_split) <> 'array' THEN
     RAISE EXCEPTION 'payer_source_split must be a JSON array' USING ERRCODE = '22023';
   END IF;

@@ -205,6 +205,16 @@ export default function PaymentDialog({
 
       // For weekly payments, the service handles everything including engineer transactions
       if (isWeeklyPayment && weeklyPayment) {
+        // Guard: processContractPayment is still on the legacy single-source
+        // shape until Phase 2. A split payload would be silently collapsed to
+        // row 0 (data loss). Block submit with a clear message instead.
+        if (payer.mode === "split") {
+          setError(
+            "Split sources for weekly contract payments will be supported in Phase 2. Please choose a single source for now."
+          );
+          setProcessing(false);
+          return;
+        }
         // Weekly contract laborer payment - uses new service
         await processWeeklyPayment(
           weeklyPayment.laborer,

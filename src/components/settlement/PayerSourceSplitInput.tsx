@@ -108,7 +108,6 @@ export default function PayerSourceSplitInput({
           onClick={turnOff}
           sx={{ textTransform: "none" }}
           disabled={disabled}
-          aria-label="Split across sources"
         >
           Use a single source
         </Button>
