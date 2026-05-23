@@ -33,12 +33,13 @@ import {
   ReceiptCapture,
   type ReceiptCaptureValue,
 } from "@/components/common/ReceiptCapture";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
+import { validatePayerSourceInput } from "@/lib/settlement/payerSource";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
 import { createMiscExpense, updateMiscExpense } from "@/lib/services/miscExpenseService";
 import type { MiscExpense, SubcontractOption, SiteEngineerOption } from "@/types/misc-expense.types";
-import type { PayerSource } from "@/types/settlement.types";
+import type { PayerSource, PayerSourceInput } from "@/types/settlement.types";
 import { useVendors } from "@/hooks/queries/useVendors";
 import { useLaborers } from "@/hooks/queries/useLaborers";
 import type { Database } from "@/types/database.types";
@@ -96,8 +97,10 @@ export default function MiscExpenseDialog({
   const [payerType, setPayerType] = useState<"site_engineer" | "company_direct">("company_direct");
   const [selectedEngineerId, setSelectedEngineerId] = useState("");
   const [createWalletTransaction, setCreateWalletTransaction] = useState(true);
-  const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
-  const [customPayerName, setCustomPayerName] = useState("");
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
   const [subcontractId, setSubcontractId] = useState<string>("");
   const [notes, setNotes] = useState("");
   const [bill, setBill] = useState<ReceiptCaptureValue | null>(null);
@@ -155,8 +158,15 @@ export default function MiscExpenseDialog({
         setPayerType(expense.payer_type || "company_direct");
         setSelectedEngineerId(expense.site_engineer_id || "");
         setCreateWalletTransaction(false); // Don't create new transaction when editing
-        setPayerSource((expense.payer_source as PayerSource) || "own_money");
-        setCustomPayerName(expense.payer_name || "");
+        if (expense.payer_source_split && expense.payer_source_split.length > 0) {
+          setPayer({ mode: "split", rows: expense.payer_source_split });
+        } else {
+          setPayer({
+            mode: "single",
+            source: (expense.payer_source as PayerSource) ?? "own_money",
+            name: expense.payer_name ?? undefined,
+          });
+        }
         setSubcontractId(expense.subcontract_id || "");
         setNotes(expense.notes || "");
         // Reconstruct ReceiptCaptureValue from stored URLs. We don't persist
@@ -183,8 +193,7 @@ export default function MiscExpenseDialog({
         setPayerType("company_direct");
         setSelectedEngineerId("");
         setCreateWalletTransaction(true);
-        setPayerSource("own_money");
-        setCustomPayerName("");
+        setPayer({ mode: "single", source: "own_money" });
         // Preselect contract when opened from a contract-scoped surface
         // (e.g. /site/trades expanded row); user can still change it.
         setSubcontractId(defaultSubcontractId || "");
@@ -298,6 +307,12 @@ export default function MiscExpenseDialog({
       return;
     }
 
+    const payerCheck = validatePayerSourceInput(payer, amount);
+    if (!payerCheck.ok) {
+      setError(payerCheck.reason);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -314,8 +329,7 @@ export default function MiscExpenseDialog({
             description: description || null,
             vendor_name: vendorName || null,
             payment_mode: paymentMode,
-            payer_source: payerSource,
-            custom_payer_name: customPayerName,
+            payer,
             subcontract_id: subcontractId || null,
             notes: notes || null,
             proof_url: screenshot?.url ?? null,
@@ -339,8 +353,7 @@ export default function MiscExpenseDialog({
             description,
             vendor_name: vendorName,
             payment_mode: paymentMode,
-            payer_source: payerSource,
-            custom_payer_name: customPayerName,
+            payer,
             payer_type: payerType,
             site_engineer_id: selectedEngineerId,
             subcontract_id: subcontractId || null,
@@ -591,13 +604,25 @@ export default function MiscExpenseDialog({
             </Paper>
 
             {/* Payment Source */}
-            <PayerSourceSelector
-              value={payerSource}
-              customName={customPayerName}
-              onChange={setPayerSource}
-              onCustomNameChange={setCustomPayerName}
-              compact
+            <PayerSourceSplitInput
+              value={payer}
+              onChange={setPayer}
+              total={amount}
+              siteId={selectedSite?.id}
+              disabled={loading}
             />
+            {(() => {
+              const c = validatePayerSourceInput(payer, amount);
+              return !c.ok && payer.mode === "split" ? (
+                <Typography
+                  variant="caption"
+                  color="error.main"
+                  sx={{ mt: 1, display: "block" }}
+                >
+                  {c.reason}
+                </Typography>
+              ) : null;
+            })()}
           </>
         )}
 
@@ -678,7 +703,11 @@ export default function MiscExpenseDialog({
         <Button
           variant="contained"
           onClick={handleSave}
-          disabled={loading || amount <= 0}
+          disabled={
+            loading ||
+            amount <= 0 ||
+            !validatePayerSourceInput(payer, amount).ok
+          }
         >
           {loading ? <CircularProgress size={24} /> : isEditMode ? "Update Expense" : "Add Expense"}
         </Button>

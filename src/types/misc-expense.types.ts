@@ -1,6 +1,10 @@
 // Miscellaneous Expenses Types
 
-import type { PayerSource, PayerSourceInput } from "./settlement.types";
+import type {
+  PayerSource,
+  PayerSourceInput,
+  PayerSourceSplitRow,
+} from "./settlement.types";
 import type { Database } from "./database.types";
 
 type PaymentMode = Database["public"]["Enums"]["payment_mode"];
@@ -21,6 +25,12 @@ export interface MiscExpense {
   payment_mode: PaymentMode | null;
   payer_source: PayerSource | null;
   payer_name: string | null;
+  /**
+   * Multi-source split rows when `payer_source === "split"`. Added by the
+   * payer-source-split Phase 1 migration. Null/empty means single source
+   * (see `payer_source` / `payer_name`).
+   */
+  payer_source_split?: PayerSourceSplitRow[] | null;
   payer_type: "site_engineer" | "company_direct";
   site_engineer_id: string | null;
   engineer_transaction_id: string | null;
