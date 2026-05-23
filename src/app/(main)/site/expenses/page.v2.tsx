@@ -840,6 +840,22 @@ export default function ExpensesPageV2() {
     zIndex: 1,
   };
 
+  // Task 6: mobile column hiding + sticky Date.
+  // Apply hideOnMobileSx to both header and body cells of low-value columns
+  // so the table fits a phone screen. stickyDateSx pins the Date column to
+  // the left edge so even if some overflow remains, the date stays visible.
+  const hideOnMobileSx = { display: { xs: "none", md: "table-cell" } };
+
+  const stickyDateSx = {
+    position: { xs: "sticky", md: "static" } as const,
+    left: 0,
+    zIndex: 1,
+    bgcolor: "background.paper",
+    // narrow padding on mobile
+    py: { xs: 0.5, md: dense ? 0.75 : 1 },
+    px: { xs: 1, md: 2 },
+  };
+
   const expensesTable = (
     <Paper
       ref={tableRef}
@@ -1010,18 +1026,28 @@ export default function ExpensesPageV2() {
         <Table stickyHeader size="small">
           <TableHead>
             <TableRow>
-              <TableCell sx={headerCellSx}>
+              <TableCell sx={{ ...headerCellSx, ...stickyDateSx, top: 96 }}>
                 {/* Cursor pagination is DESC-only; ASC toggle is disabled.
                     Add a TableSortLabel here only if bi-directional sorting is added. */}
                 Date
               </TableCell>
-              {["Ref", "Vendor / Description", "Trade / Subcontract", "Kind", "Status", "Amount", ""].map((h) => (
+              {(
+                [
+                  { label: "Ref", hideOnMobile: false },
+                  { label: "Vendor / Description", hideOnMobile: true },
+                  { label: "Trade / Subcontract", hideOnMobile: true },
+                  { label: "Kind", hideOnMobile: false },
+                  { label: "Status", hideOnMobile: false },
+                  { label: "Amount", hideOnMobile: false },
+                  { label: "", hideOnMobile: false },
+                ] as const
+              ).map((h) => (
                 <TableCell
-                  key={h}
-                  align={h === "Amount" ? "right" : "left"}
-                  sx={headerCellSx}
+                  key={h.label}
+                  align={h.label === "Amount" ? "right" : "left"}
+                  sx={{ ...headerCellSx, ...(h.hideOnMobile ? hideOnMobileSx : {}) }}
                 >
-                  {h}
+                  {h.label}
                 </TableCell>
               ))}
             </TableRow>
@@ -1077,12 +1103,12 @@ export default function ExpensesPageV2() {
                     }}
                   >
                     {/* Date */}
-                    <TableCell sx={{ py: dense ? 0.5 : 1, color: "text.secondary", fontSize: 12, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                    <TableCell sx={{ ...stickyDateSx, color: "text.secondary", fontSize: 12, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
                       {dayjs(row.date).format("DD MMM")}
                     </TableCell>
 
                     {/* Ref */}
-                    <TableCell sx={{ py: dense ? 0.5 : 1 }}>
+                    <TableCell sx={{ py: { xs: 0.5, md: dense ? 0.5 : 1 }, px: { xs: 1, md: 2 } }}>
                       <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
                         {row.settlement_reference ? (
                           <Box
@@ -1118,7 +1144,7 @@ export default function ExpensesPageV2() {
                     </TableCell>
 
                     {/* Vendor / Description */}
-                    <TableCell sx={{ py: dense ? 0.5 : 1, maxWidth: 260 }}>
+                    <TableCell sx={{ py: dense ? 0.5 : 1, maxWidth: 260, ...hideOnMobileSx }}>
                       <Typography variant="body2" fontWeight={600} noWrap>
                         {row.vendor_name || row.description || "—"}
                       </Typography>
@@ -1130,7 +1156,7 @@ export default function ExpensesPageV2() {
                     </TableCell>
 
                     {/* Trade / Subcontract */}
-                    <TableCell sx={{ py: dense ? 0.5 : 1, maxWidth: 200 }}>
+                    <TableCell sx={{ py: dense ? 0.5 : 1, maxWidth: 200, ...hideOnMobileSx }}>
                       {tradeInfo ? (
                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                           <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: "primary.main", flexShrink: 0 }} />
@@ -1199,7 +1225,7 @@ export default function ExpensesPageV2() {
                     </TableCell>
 
                     {/* Status */}
-                    <TableCell sx={{ py: dense ? 0.5 : 1 }}>
+                    <TableCell sx={{ py: { xs: 0.5, md: dense ? 0.5 : 1 }, px: { xs: 1, md: 2 } }}>
                       <Chip
                         label={displayStatus === "paid" ? "Paid" : displayStatus === "advance" ? "Advance" : "Pending"}
                         size="small"
@@ -1210,12 +1236,12 @@ export default function ExpensesPageV2() {
                     </TableCell>
 
                     {/* Amount */}
-                    <TableCell align="right" sx={{ py: dense ? 0.5 : 1, fontWeight: 700, fontSize: 13, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                    <TableCell align="right" sx={{ py: { xs: 0.5, md: dense ? 0.5 : 1 }, px: { xs: 1, md: 2 }, fontWeight: 700, fontSize: 13, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
                       {formatINR(row.amount)}
                     </TableCell>
 
                     {/* Actions */}
-                    <TableCell sx={{ py: dense ? 0.5 : 1, width: 60 }}>
+                    <TableCell sx={{ py: { xs: 0.5, md: dense ? 0.5 : 1 }, px: { xs: 0.5, md: 2 }, width: { xs: 56, md: 60 } }}>
                       {canEdit && (
                         <Box sx={{ display: "flex", gap: 0 }}>
                           <Tooltip title="Edit">
