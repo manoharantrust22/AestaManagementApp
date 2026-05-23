@@ -1,5 +1,10 @@
 import type { ExpenseRow } from "@/hooks/queries/useExpensesData";
 
+// `RefAction` is the discriminated union returned by resolveRefAction.
+// `navigate` and `weekly-fallback-nav` both result in `router.push(url)` at
+// the call site, but they are kept distinct so future telemetry / UI
+// affordances can react differently to "user opened a detail page" vs
+// "user fell back to a list page because we lacked weekly context".
 export type RefAction =
   | { kind: "navigate"; url: string }
   | { kind: "rental-pane"; orderId: string }
@@ -28,6 +33,11 @@ function weeklyFallbackUrl(ref: string): string {
   return `/site/payments?tab=contract&highlight=${encodeURIComponent(ref)}`;
 }
 
+// Weekly settlement rows expose `contract_laborer_id`, `week_start`, and
+// `week_end` from the `v_all_expenses` view. These columns aren't on the
+// `ExpenseRow` type today (the type is shared with non-weekly rows that
+// don't have them), so we narrow via cast. If these become a regular need,
+// promote them onto `ExpenseRow` as optional fields.
 function resolveWeekly(row: ExpenseRow, ref: string): RefAction {
   const lid = (row as unknown as { contract_laborer_id?: string })
     .contract_laborer_id;
@@ -61,6 +71,8 @@ export function resolveRefAction(row: ExpenseRow): RefAction {
     case "tea_shop_settlement":
       return { kind: "navigate", url: teaShopUrl(ref) };
     case "subcontract_payment":
+      // /site/subcontracts doesn't yet honour ?highlight=, so we land the
+      // user on the page without one. Add it here if/when the page supports it.
       return { kind: "navigate", url: "/site/subcontracts" };
     case "settlement":
       if (ref.startsWith("WS-")) return resolveWeekly(row, ref);

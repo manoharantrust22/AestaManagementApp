@@ -40,7 +40,7 @@ function baseRow(over: Partial<ExpenseRow>): ExpenseRow {
 describe("resolveRefAction", () => {
   it("returns 'unknown' when ref is missing", () => {
     const action = resolveRefAction(baseRow({ settlement_reference: null }));
-    expect(action.kind).toBe("unknown");
+    expect(action).toEqual({ kind: "unknown" });
   });
 
   it("routes material_purchase to the material-settlements highlight URL", () => {
@@ -139,7 +139,26 @@ describe("resolveRefAction", () => {
         date: "2026-03-13",
       }),
     );
-    expect(action.kind).toBe("daily-pane");
+    expect(action).toEqual({
+      kind: "daily-pane",
+      date: "2026-03-13",
+      ref: "SET-260313-005",
+    });
+  });
+
+  it("routes salary settlement SS- to the daily-pane action", () => {
+    const action = resolveRefAction(
+      baseRow({
+        source_type: "settlement",
+        settlement_reference: "SS-260313-005",
+        date: "2026-03-13",
+      }),
+    );
+    expect(action).toEqual({
+      kind: "daily-pane",
+      date: "2026-03-13",
+      ref: "SS-260313-005",
+    });
   });
 
   it("routes WS- with full context to the weekly-pane action", () => {
@@ -184,7 +203,7 @@ describe("resolveRefAction", () => {
     expect(action).toEqual({ kind: "edit-dialog" });
   });
 
-  it("returns 'unknown' for an unrecognized ref+source_type combination", () => {
+  it("falls through to edit-dialog for source_type='expense' with an unrecognized ref prefix", () => {
     const action = resolveRefAction(
       baseRow({
         source_type: "expense",
