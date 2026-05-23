@@ -42,7 +42,7 @@ import MaterialSettlementDialog from "@/components/materials/MaterialSettlementD
 import BillVerificationDialog from "@/components/materials/BillVerificationDialog";
 import { useVerifyBill } from "@/hooks/queries/useBillVerification";
 import EditMaterialPurchaseDialog from "@/components/materials/EditMaterialPurchaseDialog";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 
 import {
@@ -75,6 +75,8 @@ const VIEW_STORAGE_KEY = "aesta.matsettle.view";
 export default function MaterialSettlementsPage() {
   const { selectedSite } = useSite();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const highlightRef = searchParams.get("highlight");
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
@@ -246,6 +248,35 @@ export default function MaterialSettlementsPage() {
     setInspectItem(item);
     setInspectOpen(true);
   };
+
+  // Auto-open the inspect drawer when arriving via ?highlight=<ref>.
+  // Fires once per highlight value after the items list has data; missing refs
+  // (cancelled rows, wrong scope) silently no-op so the page still loads.
+  useEffect(() => {
+    if (!highlightRef) return;
+    if (isLoading) return;
+    if (allItems.length === 0) return;
+    const match = allItems.find((item) => {
+      // SettlementItem is either a material expense or an advance PO. Only
+      // material expenses have settlement_reference today; PO rows don't.
+      return (
+        (item as { settlement_reference?: string | null }).settlement_reference ===
+        highlightRef
+      );
+    });
+    if (match) {
+      setInspectItem(match);
+      setInspectOpen(true);
+    }
+    // Clear the param either way so the back button / a manual close doesn't
+    // re-trigger this on the next render.
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("highlight");
+    const qs = params.toString();
+    router.replace(`/site/material-settlements${qs ? `?${qs}` : ""}`, {
+      scroll: false,
+    });
+  }, [highlightRef, isLoading, allItems, router, searchParams]);
 
   const handleEdit = (purchase: MaterialPurchaseExpenseWithDetails) => {
     setEditingPurchase(purchase);
