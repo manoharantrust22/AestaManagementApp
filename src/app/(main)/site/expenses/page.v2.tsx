@@ -23,6 +23,7 @@ import {
   Paper,
   Select,
   Skeleton,
+  Snackbar,
   Switch,
   Table,
   TableBody,
@@ -95,6 +96,7 @@ import { TradeMetricCards } from "@/components/expenses/TradeMetricCards";
 import RentalExpenseInspectPane from "@/components/expenses/RentalExpenseInspectPane";
 import { UnlinkedLinkPopper } from "@/components/expenses/UnlinkedLinkPopper";
 import { useSiteTrades } from "@/hooks/queries/useTrades";
+import { resolveRefAction } from "./refActions";
 
 import type { Database } from "@/types/database.types";
 type ExpenseModule = Database["public"]["Enums"]["expense_module"];
@@ -204,6 +206,7 @@ export default function ExpensesPageV2() {
   const [mobileTab, setMobileTab] = useState<0 | 1>(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [rentalPaneOrderId, setRentalPaneOrderId] = useState<string | null>(null);
+  const [refSnackbar, setRefSnackbar] = useState<string | null>(null);
 
   const tableRef = useRef<HTMLDivElement>(null);
   const [linkAnchor, setLinkAnchor] = useState<{ el: HTMLElement; row: ExpenseRow } | null>(null);
@@ -608,23 +611,45 @@ export default function ExpensesPageV2() {
 
   const handleRefClick = useCallback(
     (row: ExpenseRow) => {
-      const ref = row.settlement_reference;
-      if (!ref || !selectedSite) return;
-      if (ref.startsWith("MISC-")) { router.push(`/site/expenses/miscellaneous?highlight=${encodeURIComponent(ref)}`); return; }
-      if (ref.startsWith("TSS-")) { router.push(`/site/tea-shop?highlight=${encodeURIComponent(ref)}`); return; }
-      if (ref.startsWith("SCP-") || row.source_type === "subcontract_payment") { router.push("/site/subcontracts"); return; }
-      if (ref.startsWith("WS-")) {
-        const lid = (row as any).contract_laborer_id;
-        const ws = (row as any).week_start;
-        const we = (row as any).week_end;
-        if (lid && ws && we) {
-          pane.open({ kind: "weekly-week", siteId: selectedSite.id, laborerId: lid, weekStart: ws, weekEnd: we, settlementRef: ref });
-        } else {
-          router.push(`/site/payments?tab=contract&highlight=${encodeURIComponent(ref)}`);
-        }
-        return;
+      if (!selectedSite) return;
+      const action = resolveRefAction(row);
+      switch (action.kind) {
+        case "navigate":
+          router.push(action.url);
+          return;
+        case "rental-pane":
+          setRentalPaneOrderId(action.orderId);
+          return;
+        case "daily-pane":
+          pane.open({
+            kind: "daily-date",
+            siteId: selectedSite.id,
+            date: action.date,
+            settlementRef: action.ref,
+          });
+          return;
+        case "weekly-pane":
+          pane.open({
+            kind: "weekly-week",
+            siteId: selectedSite.id,
+            laborerId: action.laborerId,
+            weekStart: action.weekStart,
+            weekEnd: action.weekEnd,
+            settlementRef: action.ref,
+          });
+          return;
+        case "weekly-fallback-nav":
+          router.push(action.url);
+          return;
+        case "edit-dialog":
+          handleOpenDialog(row);
+          return;
+        case "unknown":
+          setRefSnackbar(
+            "No detail view available for this expense type yet.",
+          );
+          return;
       }
-      pane.open({ kind: "daily-date", siteId: selectedSite.id, date: row.date, settlementRef: ref });
     },
     [pane, router, selectedSite],
   );
@@ -1488,6 +1513,13 @@ export default function ExpensesPageV2() {
           }}
         />
       )}
+      <Snackbar
+        open={refSnackbar !== null}
+        autoHideDuration={4000}
+        onClose={() => setRefSnackbar(null)}
+        message={refSnackbar}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      />
     </Box>
   );
 }
