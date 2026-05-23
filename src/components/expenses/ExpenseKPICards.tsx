@@ -140,7 +140,7 @@ function KPICard({
     <Paper
       variant="outlined"
       sx={{
-        p: 2,
+        p: { xs: 1.25, md: 2 },
         borderRadius: 2,
         height: "100%",
         display: "flex",
@@ -153,7 +153,7 @@ function KPICard({
         color="text.secondary"
         textTransform="uppercase"
         letterSpacing={0.5}
-        sx={{ mb: 0.5 }}
+        sx={{ mb: 0.5, fontSize: { xs: 10, md: 11 } }}
       >
         {label}
       </Typography>
@@ -192,11 +192,20 @@ function TotalSpentCard({
       <Typography
         variant="h5"
         fontWeight={700}
-        sx={{ fontVariantNumeric: "tabular-nums", letterSpacing: -0.4, lineHeight: 1.2 }}
+        sx={{
+          fontVariantNumeric: "tabular-nums",
+          letterSpacing: -0.4,
+          lineHeight: 1.2,
+          fontSize: { xs: "1.05rem", md: "1.5rem" },
+        }}
       >
         {formatINR(total)}
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+      <Typography
+        variant="body2"
+        color="text.secondary"
+        sx={{ mt: 0.25, fontSize: { xs: 11, md: 14 } }}
+      >
         across {totalCount} records
       </Typography>
       {trendPct !== 0 && (
@@ -238,7 +247,12 @@ function CashPositionCard({
           variant="h5"
           fontWeight={700}
           color={isPositive ? "success.main" : "error.main"}
-          sx={{ fontVariantNumeric: "tabular-nums", letterSpacing: -0.4, lineHeight: 1.2 }}
+          sx={{
+            fontVariantNumeric: "tabular-nums",
+            letterSpacing: -0.4,
+            lineHeight: 1.2,
+            fontSize: { xs: "1.05rem", md: "1.5rem" },
+          }}
         >
           {isPositive ? "+" : "−"}
           {formatCompact(Math.abs(netInHand))}
@@ -307,7 +321,12 @@ function BudgetProgressCard({
         <Typography
           variant="h5"
           fontWeight={700}
-          sx={{ fontVariantNumeric: "tabular-nums", letterSpacing: -0.4, lineHeight: 1.2 }}
+          sx={{
+            fontVariantNumeric: "tabular-nums",
+            letterSpacing: -0.4,
+            lineHeight: 1.2,
+            fontSize: { xs: "1.05rem", md: "1.5rem" },
+          }}
         >
           {spentPct}%
         </Typography>
@@ -347,7 +366,12 @@ function BurnRateCard({
       <Typography
         variant="h5"
         fontWeight={700}
-        sx={{ fontVariantNumeric: "tabular-nums", letterSpacing: -0.4, lineHeight: 1.2 }}
+        sx={{
+          fontVariantNumeric: "tabular-nums",
+          letterSpacing: -0.4,
+          lineHeight: 1.2,
+          fontSize: { xs: "1.05rem", md: "1.5rem" },
+        }}
       >
         {burnPerWeek > 0 ? formatCompact(burnPerWeek) : "—"}
       </Typography>
