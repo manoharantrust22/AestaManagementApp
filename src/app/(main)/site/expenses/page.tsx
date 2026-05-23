@@ -180,6 +180,12 @@ function ExpensesPageV1() {
     expense: ExpenseWithCategory | null;
   }>({ open: false, expense: null });
 
+  // Orphan cancel dialog for "Unlinked Salary" settlement_groups (no attendance links)
+  const [orphanCancelDialog, setOrphanCancelDialog] = useState<{
+    open: boolean;
+    expense: ExpenseWithCategory | null;
+  }>({ open: false, expense: null });
+
   // Delete confirmation dialog state
   const [deleteDialog, setDeleteDialog] = useState<{
     open: boolean;
@@ -508,6 +514,13 @@ function ExpensesPageV1() {
   };
 
   const handleDelete = async (expense: ExpenseWithCategory) => {
+    // Unlinked Salary: orphaned settlement_group with no attendance records.
+    // Safe to cancel directly here — no attendance links to reset.
+    if (expense.source_type === "settlement" && expense.expense_type === "Unlinked Salary") {
+      setOrphanCancelDialog({ open: true, expense });
+      return;
+    }
+
     // Check if expense is derived from settlement_groups (source_type='settlement')
     // These can't be deleted directly - must be cancelled from salary settlement page
     if (expense.source_type === "settlement") {
@@ -537,6 +550,31 @@ function ExpensesPageV1() {
 
     // Show delete confirmation dialog instead of browser confirm
     setDeleteDialog({ open: true, expense, reason: "" });
+  };
+
+  const handleCancelOrphanSettlement = async () => {
+    const expense = orphanCancelDialog.expense;
+    if (!expense) return;
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from("settlement_groups")
+        .update({
+          is_cancelled: true,
+          cancelled_at: new Date().toISOString(),
+          cancelled_by: userProfile?.name || "Unknown",
+          cancelled_by_user_id: userProfile?.id || null,
+          cancellation_reason: "Orphaned settlement cancelled from expenses page",
+        })
+        .eq("id", expense.source_id || expense.id);
+      if (error) throw error;
+      setOrphanCancelDialog({ open: false, expense: null });
+      await fetchExpenses();
+    } catch (err: any) {
+      alert(`Failed to cancel settlement: ${err.message || "Unknown error"}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleConfirmDelete = async () => {
@@ -1418,6 +1456,55 @@ function ExpensesPageV1() {
           transactionId: redirectDialog.expense?.engineer_transaction_id || undefined,
         }}
       />
+
+      {/* Orphan Settlement Cancel Dialog — for "Unlinked Salary" rows with no attendance */}
+      <Dialog
+        open={orphanCancelDialog.open}
+        onClose={() => setOrphanCancelDialog({ open: false, expense: null })}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ pb: 1 }}>Cancel Orphaned Settlement</DialogTitle>
+        <DialogContent>
+          {orphanCancelDialog.expense && (
+            <Box sx={{ mb: 2 }}>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                This salary settlement has no linked attendance records — it was most likely
+                created by a network retry when the original settlement was already saved.
+                Cancelling it will remove it from the expenses list without affecting any
+                attendance or payment records.
+              </Alert>
+              <Box sx={{ p: 2, bgcolor: "action.hover", borderRadius: 1 }}>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  <strong>Reference:</strong> {orphanCancelDialog.expense.settlement_reference || "-"}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  <strong>Amount:</strong> ₹{orphanCancelDialog.expense.amount.toLocaleString("en-IN")}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  <strong>Date:</strong> {dayjs(orphanCancelDialog.expense.date).format("DD MMM YYYY")}
+                </Typography>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button
+            onClick={() => setOrphanCancelDialog({ open: false, expense: null })}
+            disabled={loading}
+          >
+            Keep
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleCancelOrphanSettlement}
+            disabled={loading}
+          >
+            {loading ? "Cancelling..." : "Cancel Settlement"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <Dialog

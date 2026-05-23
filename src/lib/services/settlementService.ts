@@ -312,7 +312,11 @@ export async function processSettlement(
     // Get the record date (use first record's date)
     const recordDate = config.records.length > 0 ? config.records[0].date : paymentDate;
 
-    // 1. Create settlement_group FIRST using atomic function with retry logic
+    // 1. Create settlement_group FIRST using atomic function with retry logic.
+    // sgIdempotencyKey is generated once and reused across all retry attempts so that
+    // if the RPC commits but the response is lost over the network, the retry returns
+    // the already-committed row instead of creating a second orphaned settlement_group.
+    const sgIdempotencyKey = crypto.randomUUID();
     const { data: groupResult, error: groupError } = await createSettlementWithRetry(
       supabase,
       {
@@ -330,6 +334,7 @@ export async function processSettlement(
         p_engineer_transaction_id: null, // Will be updated after wallet spending
         p_created_by: config.userId,
         p_created_by_name: config.userName,
+        p_idempotency_key: sgIdempotencyKey,
       }
     );
 
@@ -581,7 +586,11 @@ export async function processWeeklySettlement(
       laborerCount += (marketData || []).reduce((sum, r) => sum + (r.count || 1), 0);
     }
 
-    // 2. Create settlement_group using atomic function (guaranteed unique reference)
+    // 2. Create settlement_group using atomic function (guaranteed unique reference).
+    // idempotencyKey is generated once so that if the RPC commits but the network
+    // response is lost, a manual retry returns the original row instead of creating
+    // a second orphaned settlement_group (which would appear as "Unlinked Salary").
+    const weeklyIdempotencyKey = crypto.randomUUID();
     const { data: groupResult, error: groupError } = await supabase.rpc(
       "create_settlement_group",
       {
@@ -599,6 +608,7 @@ export async function processWeeklySettlement(
         p_engineer_transaction_id: null,
         p_created_by: config.userId,
         p_created_by_name: config.userName,
+        p_idempotency_key: weeklyIdempotencyKey,
       }
     );
 

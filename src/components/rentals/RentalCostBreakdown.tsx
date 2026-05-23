@@ -17,7 +17,7 @@ import {
   Warning as WarningIcon,
   CheckCircle as CheckIcon,
 } from "@mui/icons-material";
-import type { RentalCostCalculation, RentalSettlement } from "@/types/rental.types";
+import type { RentalCostCalculation, RentalSettlement, TransportHandler } from "@/types/rental.types";
 import { getPayerSourceLabel } from "@/components/settlement/PayerSourceSelector";
 import dayjs from "dayjs";
 
@@ -27,6 +27,8 @@ interface RentalCostBreakdownProps {
   compact?: boolean;
   settlement?: RentalSettlement | null;
   settledPartyTypes?: Set<string>;
+  outwardBy?: TransportHandler | null;
+  returnBy?: TransportHandler | null;
   onSettleInbound?: () => void;
   onSettleOutbound?: () => void;
 }

@@ -126,8 +126,16 @@ export default function RentalOrderDetailsPage() {
   // Determine which parties actually need settlement
   const settledPartyTypes = new Set(settlements.map((s) => (s as any).party_type as string));
   const vendorSettled = settledPartyTypes.has("vendor");
-  const inboundNeeded = (order?.transport_cost_outward ?? 0) > 0;
-  const outboundNeeded = (order?.transport_cost_return ?? 0) > 0;
+
+  // Determine which parties actually need separate settlement.
+  // Vendor-handled transport (outward_by/return_by IN ('vendor', NULL)) is bundled
+  // into the vendor settlement and does not require its own settle action.
+  const outwardIsVendor = order?.outward_by == null || order?.outward_by === "vendor";
+  const returnIsVendor = order?.return_by == null || order?.return_by === "vendor";
+  const inboundNeeded =
+    (order?.transport_cost_outward ?? 0) > 0 && !outwardIsVendor;
+  const outboundNeeded =
+    (order?.transport_cost_return ?? 0) > 0 && !returnIsVendor;
   const inboundSettled =
     !inboundNeeded ||
     settledPartyTypes.has("transport_inbound") ||
@@ -784,6 +792,8 @@ export default function RentalOrderDetailsPage() {
               showItemDetails
               settlement={settlement as any}
               settledPartyTypes={settledPartyTypes}
+              outwardBy={order?.outward_by ?? null}
+              returnBy={order?.return_by ?? null}
               onSettleInbound={
                 order.status === "completed" && !inboundSettled
                   ? () => setInboundSettleOpen(true)
