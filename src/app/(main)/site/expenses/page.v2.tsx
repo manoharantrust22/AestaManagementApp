@@ -29,7 +29,6 @@ import {
   TableBody,
   TableCell,
   TableContainer,
-  TableFooter,
   TableHead,
   TableSortLabel,
   TableRow,
@@ -364,15 +363,40 @@ export default function ExpensesPageV2() {
   }, [searchedRows, tradeFilter, subKindFilter, contractToTrade]);
 
   // Footer totals
-  const laborTotal = useMemo(
+  // Loaded-slice totals — accurate only over what's currently fetched and
+  // after client filters narrow what we display. Used as the "Filtered" line
+  // when search/trade/sub-kind is active.
+  const filteredLaborTotal = useMemo(
     () => filteredRows.filter((r) => LABOR_SET.has(r.expense_type)).reduce((s, r) => s + r.amount, 0),
     [filteredRows],
   );
-  const buildingTotal = useMemo(
+  const filteredBuildingTotal = useMemo(
     () => filteredRows.filter((r) => BUILDING_SET.has(r.expense_type)).reduce((s, r) => s + r.amount, 0),
     [filteredRows],
   );
-  const filteredTotal = laborTotal + buildingTotal;
+  const filteredTotal = filteredLaborTotal + filteredBuildingTotal;
+
+  // Scope-wide totals derived from the get_expense_summary RPC's per-type
+  // breakdown. These remain correct regardless of how many rows the table
+  // has loaded — used as the primary "Total" line, matching the KPI cards.
+  const scopeLaborTotal = useMemo(() => {
+    const b = summary?.breakdown ?? {};
+    return LABOR_TYPES.reduce((s, t) => s + (b[t]?.amount ?? 0), 0);
+  }, [summary]);
+  const scopeBuildingTotal = useMemo(() => {
+    const b = summary?.breakdown ?? {};
+    return BUILDING_TYPES.reduce((s, t) => s + (b[t]?.amount ?? 0), 0);
+  }, [summary]);
+  const scopeTotal = summary?.total ?? scopeLaborTotal + scopeBuildingTotal;
+
+  // "Client-side filter is active" — these filters DON'T go to the DB, so
+  // the scope summary doesn't reflect them. When active, we show both the
+  // filtered slice total (as a caption) and the scope total (as the
+  // primary). DB-level filters (group, status, sitePayerId, activeTypes)
+  // affect both `expenses` and `filteredRows`, but the RPC doesn't currently
+  // pass those — see spec §4 for why scope-total matches KPI cards.
+  const hasClientFilter =
+    search.trim() !== "" || tradeFilter !== "all" || subKindFilter !== "all";
 
   // Grouped table items
   const tableItems = useMemo<TableItem[]>(() => {
@@ -1155,40 +1179,61 @@ export default function ExpensesPageV2() {
             )}
           </TableBody>
 
-          {/* Sticky footer */}
-          <TableFooter>
-            <TableRow sx={{ bgcolor: "background.paper", borderTop: 2, borderColor: "divider" }}>
-              <TableCell colSpan={5} sx={{ py: 1 }}>
-                <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Labor{" "}
-                    <Box component="span" fontWeight={700} color="text.primary" sx={{ fontVariantNumeric: "tabular-nums" }}>
-                      {formatCompact(laborTotal)}
-                    </Box>
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Building{" "}
-                    <Box component="span" fontWeight={700} color="text.primary" sx={{ fontVariantNumeric: "tabular-nums" }}>
-                      {formatCompact(buildingTotal)}
-                    </Box>
-                  </Typography>
-                </Box>
-              </TableCell>
-              <TableCell colSpan={2} align="right" sx={{ py: 1 }}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary" textTransform="uppercase" letterSpacing={0.5}>
-                    {hasFilter ? "Filtered total" : "Total"}
-                  </Typography>
-                  <Typography variant="subtitle1" fontWeight={700} sx={{ fontVariantNumeric: "tabular-nums", letterSpacing: -0.2 }}>
-                    {formatINR(filteredTotal)}
-                  </Typography>
-                </Box>
-              </TableCell>
-              <TableCell />
-            </TableRow>
-          </TableFooter>
         </Table>
       </TableContainer>
+
+      {/* Sticky totals bar — pinned to viewport bottom inside the Paper card.
+          Stays visible as the user scrolls through rows. Two-line format
+          when a client-side filter is active (search/trade/sub-kind),
+          single-line otherwise. */}
+      <Box
+        sx={{
+          position: "sticky",
+          bottom: 0,
+          zIndex: 4,
+          bgcolor: "background.paper",
+          borderTop: 2,
+          borderColor: "divider",
+          px: 1.5,
+          py: 1,
+          display: "flex",
+          alignItems: "center",
+          gap: 2,
+        }}
+      >
+        <Box sx={{ display: "flex", gap: 2, alignItems: "center", flex: 1 }}>
+          <Typography variant="caption" color="text.secondary">
+            Labor{" "}
+            <Box component="span" fontWeight={700} color="text.primary" sx={{ fontVariantNumeric: "tabular-nums" }}>
+              {formatCompact(scopeLaborTotal)}
+            </Box>
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Building{" "}
+            <Box component="span" fontWeight={700} color="text.primary" sx={{ fontVariantNumeric: "tabular-nums" }}>
+              {formatCompact(scopeBuildingTotal)}
+            </Box>
+          </Typography>
+        </Box>
+
+        <Box sx={{ textAlign: "right" }}>
+          {hasClientFilter && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", lineHeight: 1.2 }}>
+              Filtered (loaded):{" "}
+              <Box component="span" fontWeight={600} color="text.primary" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                {formatINR(filteredTotal)}
+              </Box>{" "}
+              · {filteredRows.length} rows
+            </Typography>
+          )}
+          <Typography variant="caption" color="text.secondary" textTransform="uppercase" letterSpacing={0.5}>
+            Total
+          </Typography>
+          <Typography variant="subtitle1" fontWeight={700} sx={{ fontVariantNumeric: "tabular-nums", letterSpacing: -0.2, lineHeight: 1.2 }}>
+            {formatINR(scopeTotal)}
+          </Typography>
+        </Box>
+      </Box>
     </Paper>
   );
 
