@@ -1,23 +1,38 @@
--- v_all_expenses — surface payer_source_split from settlement_groups.
--- Other domains (misc_expenses, tea_shop_*, materials, rentals, wallet
--- deposits) stay on NULL for now and get extended in Phase 2/3.
+-- v_all_expenses — payer_source_split with settlement_groups precedence
+-- and Phase 4 wallet-allocation aggregation as a fallback.
 --
 -- Base: 20260521110100_v_all_expenses_payer_source_split.sql
 --
--- The only structural diff vs. the base is the settlement_groups
--- subquery's payer_source_split projection. The base computed a
--- {source: amount} object aggregated from engineer_wallet_spend_allocations
--- via engineer_transaction_id; Phase 1 of the multi-source payer split
--- (spec: docs/superpowers/specs/2026-05-23-payer-source-split-design.md)
--- introduces a canonical [{"source": "...", "amount": N}, ...] JSONB array
--- shape stored directly on each domain table. settlement_groups is the
--- first domain wired end-to-end; the other domain branches return NULL
--- here and pick up their own sg-style projection in Phase 2/3.
+-- Phase 1 of the multi-source payer split (spec:
+-- docs/superpowers/specs/2026-05-23-payer-source-split-design.md) wires
+-- settlement_groups.payer_source_split end-to-end: when present, the
+-- user-entered split on the row drives the view's payer_source_split.
+-- All other domains (misc_expenses, tea_shop_*, materials, rentals,
+-- subcontract_payments, expenses) do NOT yet have a per-row split
+-- column — they pick that up in Phase 2/3. Until then, those rows
+-- continue to use the Phase 4 wallet-allocation aggregation as a
+-- fallback, so wallet-funded misc/rental/tea-shop spends keep their
+-- payer breakdown in reports.
 --
--- The final view's column list is unchanged (payer_source_split remains
--- the trailing column). Only the value semantics for settlement_groups
--- rows shift from the wallet-allocation rollup to the canonical
--- sg.payer_source_split column.
+-- Resolution rule for every row:
+--   1. If the row carries an explicit per-row split (currently only
+--      settlement_groups: sg.payer_source_split IS NOT NULL), use it.
+--   2. Else if the row's engineer_transaction_id points at a wallet
+--      spend with allocations, aggregate
+--      engineer_wallet_spend_allocations into the same canonical
+--      array shape.
+--   3. Else NULL.
+--
+-- Shape changes vs. Phase 4 base (20260521110100_*):
+--   - Wallet-allocation fallback now emits the canonical
+--     [{"source": "...", "amount": N}, ...] JSONB array (matches the
+--     new per-row split shape) instead of the legacy
+--     {source: amount} object. Consumers must read the unified array
+--     shape going forward.
+--   - Rows without ANY split (no per-row column, no wallet
+--     allocations) now return NULL instead of '{}'::jsonb. This lets
+--     reports distinguish "no breakdown known" from "breakdown is the
+--     empty set".
 
 CREATE OR REPLACE VIEW v_all_expenses AS
 WITH base AS (
@@ -419,11 +434,22 @@ SELECT
   base.source_id,
   base.created_at,
   base.is_deleted,
-  base.row_payer_source_split AS payer_source_split
+  COALESCE(
+    base.row_payer_source_split,
+    (
+      SELECT jsonb_agg(jsonb_build_object('source', g.payer_source, 'amount', g.total) ORDER BY g.payer_source)
+      FROM (
+        SELECT a.payer_source, SUM(a.amount)::numeric AS total
+        FROM engineer_wallet_spend_allocations a
+        WHERE a.spend_id = base.engineer_transaction_id
+        GROUP BY a.payer_source
+      ) g
+    )
+  ) AS payer_source_split
 FROM base;
 
 COMMENT ON COLUMN v_all_expenses.payer_source_split IS
-  'Canonical JSONB array [{"source":..., "amount":...}, ...] of the row''s payer-source breakdown. Phase 1 of the multi-source payer split surfaces this for settlement_groups rows only (read from settlement_groups.payer_source_split). Other domain rows return NULL until Phase 2/3 wires their tables. Supersedes the wallet-allocation rollup shape from the prior view definition.';
+  'Canonical JSONB array [{"source":..., "amount":...}, ...] of the row''s payer-source breakdown. Resolution: (1) the row''s per-row split column when set (Phase 1 wires this for settlement_groups via sg.payer_source_split; other domains land in Phase 2/3); (2) else, for any row whose engineer_transaction_id points at a wallet spend, the Phase 4 fallback aggregates engineer_wallet_spend_allocations into the same array shape; (3) else NULL. Shape change vs. the prior Phase 4 view: the wallet-allocation rollup now emits the canonical array instead of the legacy {source: amount} object, and rows with no split at all return NULL instead of ''{}''::jsonb.';
 
 GRANT SELECT ON v_all_expenses TO authenticated;
 GRANT SELECT ON v_all_expenses TO service_role;
