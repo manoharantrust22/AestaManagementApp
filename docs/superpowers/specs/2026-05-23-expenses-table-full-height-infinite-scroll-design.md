@@ -1,4 +1,4 @@
-# All Site Expenses — Full-Height Table, Infinite Scroll & Date Sort
+# All Site Expenses — Full-Height Table, Infinite Scroll, Date Sort & Ref-Click Routing Fix
 
 **Date:** 2026-05-23
 **Surface:** `/site/expenses` (V2, behind `NEXT_PUBLIC_FF_EXPENSES_REDESIGN=true`, currently live in prod)
@@ -6,11 +6,12 @@
 
 ## Problem
 
-On the All Site Expenses page, three UX issues compound each other:
+On the All Site Expenses page, four UX issues compound each other:
 
 1. **Wasted vertical space.** The expenses table caps at `maxHeight: calc(100vh - 420px)`, which assumes the KPI cards, money breakdown, and trade cards above it are visible. When the user scrolls past those, the table doesn't grow to fill the freed viewport — leaving a visible gap below the totals footer.
 2. **Front-loaded fetch.** First load pulls **200 rows** from the heavy `v_all_expenses` view in one shot, even though typical users only look at the most recent 10–30 entries. The remaining 1,800+ row ceiling sits behind a manual "Load 200 more" alert button — which is friction on its own and means the *common* path loads more than it needs.
 3. **No header sort.** Date order is hardcoded to descending at the query layer. To see oldest-first the user has to scroll through the whole list. No way to flip the order.
+4. **Ref-click opens the wrong detail pane.** Clicking a material (`SELF-`) or rental (`RSET-`) ref code opens the daily-attendance pane instead of the relevant material/rental settlement details. The handler's catch-all fallthrough routes anything unrecognized to a salary-attendance view that has nothing to do with the row.
 
 There's also a latent **footer-totals bug**: the Labor/Building totals at the bottom of the table are computed client-side from `filteredRows` (the currently-loaded slice), so they understate the true scope-wide totals whenever fewer than all rows are loaded. Today this is masked because the 200-row default usually exceeds the typical site's record count, but reducing the page size to 50 will expose it on any site with >50 records.
 
@@ -20,6 +21,7 @@ There's also a latent **footer-totals bug**: the Labor/Building totals at the bo
 - First load fetches ~50 rows; more rows stream in automatically as the user scrolls toward the bottom.
 - Totals (KPIs, money breakdown, table footer) remain scope-accurate regardless of how many rows are currently loaded.
 - Date column header is clickable to toggle asc/desc; sort applies across the *entire* dataset, not just loaded rows.
+- Clicking a ref code opens the **correct** detail surface for that row's source type (material → material settlement detail; rental → rental pane; salary → daily/weekly pane; etc.). No silent wrong-pane fallthrough.
 - No DB / migration / type changes.
 
 ## Non-goals
@@ -163,6 +165,47 @@ This keeps the footer aligned with the KPIs (both = scope total) and fixes the c
 
 "Scroll to top: No" everywhere is intentional — preserve the user's place when they're filtering through results.
 
+### 5. Ref-code click routing — fix wrong-pane on material / rental / unknown prefixes
+
+Today's `handleRefClick` in [page.v2.tsx:606–627](src/app/(main)/site/expenses/page.v2.tsx#L606-L627) checks ref-prefixes for `MISC-`, `TSS-`, `SCP-`, `WS-` and falls through to a `daily-date` InspectPane for everything else. That fallthrough is the bug — `SELF-` (self-use material), `RSET-` (rental), and any other prefix all open an attendance pane that has nothing to do with the row.
+
+`source_type` is the authoritative signal (the v_all_expenses view sets it deterministically per row); ref prefix is decorative. Re-route by `source_type` first, with prefix as backup for the rare case `source_type` is missing.
+
+**New routing table:**
+
+| `source_type` | Action |
+|---|---|
+| `material_purchase` (incl. `SELF-`) | `router.push(/site/material-settlements?highlight=<ref>)` |
+| `rental_settlement` (`RSET-`) | `setRentalPaneOrderId(row.source_id)` — reuse existing `RentalExpenseInspectPane` |
+| `subcontract_payment` (`SCP-`) | (unchanged) `router.push(/site/subcontracts)` |
+| `tea_shop_settlement` (`TSS-`) | (unchanged) `router.push(/site/tea-shop?highlight=<ref>)` |
+| `misc_expense` (`MISC-`) | (unchanged) `router.push(/site/expenses/miscellaneous?highlight=<ref>)` |
+| `settlement` — `WS-` prefix | (unchanged) Weekly InspectPane (or `/site/payments?tab=contract&highlight=...` fallback) |
+| `settlement` — `DLY-`/`SS-`/`SET-` prefixes | (unchanged) `daily-date` InspectPane — these are date-keyed by design |
+| `expense` (manual entry, regular expense row) | `handleOpenDialog(row)` — opens the row's Edit dialog, which shows all the fields the user entered |
+| **unrecognized** | Snackbar: "No detail view available for this expense type." — avoid silent wrong-pane (defensive default; not expected to fire in practice) |
+
+The fallthrough that opened the daily pane for everything is replaced with the explicit settlement-only branch.
+
+**Companion change in [src/app/(main)/site/material-settlements/page.tsx](src/app/(main)/site/material-settlements/page.tsx):**
+
+That page already has a `SettlementInspectDrawer` for material settlement detail (vendor, amount, batches in/out, audit log) but doesn't honor a URL highlight today. Add minimal `?highlight=<ref>` support:
+
+- Read `searchParams.get("highlight")` on mount.
+- When the page's expense list loads, find the row whose `settlement_reference` matches; if found, open `SettlementInspectDrawer` for it.
+- If not found (e.g. ref belongs to a different scope or has been cancelled), no-op — user lands on the page normally and can find it manually.
+- Clear the param after opening (`router.replace` without `highlight`) so back-button doesn't re-trigger.
+
+**Files touched (this section):**
+
+- [src/app/(main)/site/expenses/page.v2.tsx](src/app/(main)/site/expenses/page.v2.tsx) — rewrite `handleRefClick`, add a Snackbar for the unrecognized case.
+- [src/app/(main)/site/material-settlements/page.tsx](src/app/(main)/site/material-settlements/page.tsx) — read `highlight` query param, auto-open `SettlementInspectDrawer` for the matching row.
+
+**Out of scope (this section):**
+- The V1 expenses page ([src/app/(main)/site/expenses/page.tsx](src/app/(main)/site/expenses/page.tsx)) has the same fallthrough but is behind the off-by-default feature flag in prod; leave it as the rollback path.
+- A purpose-built MaterialExpenseInspectPane component on the expenses page (heavier; navigate-with-highlight is enough for v1).
+- Highlight handling on other pages (`/site/tea-shop`, `/site/expenses/miscellaneous` already support it; `/site/subcontracts` doesn't but isn't reported as a problem).
+
 ## Implementation surface
 
 - **`src/hooks/queries/useExpensesData.ts`**
@@ -182,8 +225,12 @@ This keeps the footer aligned with the KPIs (both = scope total) and fixes the c
   - Replace "Load N more" Alert with inline tail row (Loading / End-of-results); keep MAX_RESULT_LIMIT Alert behind its existing condition
   - Switch footer Labor/Building totals to scope-wide derivation from `summary.breakdown`
   - When client filter is active, render both `Filtered` and `Scope total`
+  - Rewrite `handleRefClick` to source-type-first routing (Section 5); add Snackbar state for the unrecognized-type defensive default
 
-No other files. No migrations. No type regen.
+- **`src/app/(main)/site/material-settlements/page.tsx`**
+  - Read `?highlight=<ref>` from `useSearchParams`, auto-open `SettlementInspectDrawer` for the matching row, clear the param afterwards
+
+No migrations. No type regen.
 
 ## Risk / rollback
 
@@ -204,6 +251,16 @@ No other files. No migrations. No type regen.
 9. Type in search box → footer shows both "Filtered: ₹X" and "Total: ₹10,02,425".
 10. Change date range to "Week" → totals + loaded rows refresh, sort dir preserved.
 11. Console clean.
+
+**Ref-click routing (Section 5):**
+
+12. Click a `SELF-` ref (e.g. `SELF-260311-85A2`) → lands on `/site/material-settlements` with the matching settlement's drawer pre-opened, showing in/out batches, vendor, audit log.
+13. Click an `RSET-` ref → `RentalExpenseInspectPane` opens in-place with the rental settlement details.
+14. Click a `DLY-`/`SS-`/`SET-` ref → daily-date InspectPane opens (unchanged from today).
+15. Click a `WS-` ref → weekly InspectPane opens (unchanged from today).
+16. Click a `MISC-`/`TSS-`/`SCP-` ref → existing nav unchanged.
+17. Click a regular manually-entered expense's ref (source_type = `expense`) → Edit dialog opens for that row.
+18. No silent wrong-pane in any case; no console errors on any ref click.
 
 ## Out of scope follow-ups (not blocking)
 
