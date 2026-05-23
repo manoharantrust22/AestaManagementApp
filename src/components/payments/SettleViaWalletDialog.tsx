@@ -40,6 +40,12 @@ import {
   type ReceiptCaptureValue,
 } from "@/components/common/ReceiptCapture";
 
+// TODO(spot-purchase follow-up): the billUrl/paymentScreenshotUrl fields in onConfirm's
+// payload are currently dropped by every caller. Extend processContractPayment,
+// processSettlementWallet, rentalSettleService, and tea-shop settle flows to
+// accept and persist these URLs into the destination row's bill_url /
+// payment_screenshot_url columns (where they exist) or proof_url.
+
 /**
  * Canonical wallet-settle dialog. Owns balance fetch, LIFO funded-by
  * resolution, override toggle, optional subcontract link, notes.
@@ -313,6 +319,9 @@ export default function SettleViaWalletDialog({
         )}
 
         <Stack spacing={1.5} sx={{ mt: 2 }}>
+          <Alert severity="info">
+            Receipts saved here are visible only on this device for now — they&apos;ll be persisted in a follow-up update.
+          </Alert>
           <ReceiptCapture
             label="Bill image (optional)"
             value={bill}
