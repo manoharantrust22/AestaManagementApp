@@ -1,6 +1,6 @@
 // Miscellaneous Expenses Types
 
-import type { PayerSource } from "./settlement.types";
+import type { PayerSource, PayerSourceInput } from "./settlement.types";
 import type { Database } from "./database.types";
 
 type PaymentMode = Database["public"]["Enums"]["payment_mode"];
@@ -62,8 +62,12 @@ export interface MiscExpenseFormData {
   description: string;
   vendor_name: string;
   payment_mode: PaymentMode;
-  payer_source: PayerSource;
-  custom_payer_name: string;
+  /**
+   * Payer source input — supports either a single source (mode: "single")
+   * or a 2–3 row split (mode: "split"). Replaces the legacy
+   * `payer_source` + `custom_payer_name` pair as of payer-source-split Phase 2.
+   */
+  payer: PayerSourceInput;
   payer_type: "site_engineer" | "company_direct";
   site_engineer_id: string;
   subcontract_id: string | null;
