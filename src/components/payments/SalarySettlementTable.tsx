@@ -62,6 +62,7 @@ import {
   type SiteHoliday,
 } from "@/lib/utils/holidayUtils";
 import { getPayerSourceLabel, getPayerSourceColor } from "@/components/settlement/PayerSourceSelector";
+import PayerSourceChip from "@/components/settlement/PayerSourceChip";
 import type { PayerSource } from "@/types/settlement.types";
 
 interface HolidayInfo {
@@ -350,11 +351,18 @@ export default function SalarySettlementTable({
           const paidOrSettled = allRecs.filter(r => r.isPaid || r.paidVia === "engineer_wallet");
           const sourceMap = new Map<string, { source: string; sourceName: string | null }>();
           paidOrSettled.forEach(r => {
-            const key = r.moneySource
-              ? (r.moneySource === "other_site_money" || r.moneySource === "custom")
-                ? `${r.moneySource}:${r.moneySourceName || ""}`
-                : r.moneySource
-              : "unspecified";
+            // Split rows must NOT collapse together — each split has its own
+            // payer_source_split JSONB and represents a distinct settlement.
+            // Use settlementGroupId (or record id as fallback) so every split
+            // row gets its own bucket. Legacy single-source rows continue to
+            // bucket by source+name as before.
+            const key = (r.moneySource as string) === "split"
+              ? `split:${r.settlementGroupId ?? r.id}`
+              : r.moneySource
+                ? (r.moneySource === "other_site_money" || r.moneySource === "custom")
+                  ? `${r.moneySource}:${r.moneySourceName || ""}`
+                  : r.moneySource
+                : "unspecified";
             if (!sourceMap.has(key)) {
               sourceMap.set(key, {
                 source: r.moneySource || "unspecified",
@@ -968,12 +976,13 @@ export default function SalarySettlementTable({
                   </TableCell>
                   <TableCell>
                     {record.moneySource ? (
-                      <Chip
-                        label={getPayerSourceLabel(record.moneySource as PayerSource, record.moneySourceName || undefined)}
+                      <PayerSourceChip
+                        row={{
+                          payer_source: record.moneySource,
+                          payer_name: record.moneySourceName,
+                          payer_source_split: record.payerSourceSplit ?? null,
+                        }}
                         size="small"
-                        variant="outlined"
-                        color={getPayerSourceColor(record.moneySource as PayerSource)}
-                        sx={{ height: 20, fontSize: "0.65rem" }}
                       />
                     ) : (
                       <Typography variant="body2" color="text.disabled">—</Typography>
@@ -1053,12 +1062,13 @@ export default function SalarySettlementTable({
                         )}
                         {/* Money Source Chip */}
                         {record.moneySource && (
-                          <Chip
+                          <PayerSourceChip
+                            row={{
+                              payer_source: record.moneySource,
+                              payer_name: record.moneySourceName,
+                              payer_source_split: record.payerSourceSplit ?? null,
+                            }}
                             size="small"
-                            label={getPayerSourceLabel(record.moneySource as PayerSource, record.moneySourceName || undefined)}
-                            color={getPayerSourceColor(record.moneySource as PayerSource)}
-                            variant="outlined"
-                            sx={{ height: 18, fontSize: "0.6rem" }}
                           />
                         )}
                         {/* Company Proof Icon */}
@@ -1146,12 +1156,13 @@ export default function SalarySettlementTable({
                   </TableCell>
                   <TableCell>
                     {record.moneySource ? (
-                      <Chip
-                        label={getPayerSourceLabel(record.moneySource as PayerSource, record.moneySourceName || undefined)}
+                      <PayerSourceChip
+                        row={{
+                          payer_source: record.moneySource,
+                          payer_name: record.moneySourceName,
+                          payer_source_split: record.payerSourceSplit ?? null,
+                        }}
                         size="small"
-                        variant="outlined"
-                        color={getPayerSourceColor(record.moneySource as PayerSource)}
-                        sx={{ height: 20, fontSize: "0.65rem" }}
                       />
                     ) : (
                       <Typography variant="body2" color="text.disabled">—</Typography>
@@ -1231,12 +1242,13 @@ export default function SalarySettlementTable({
                         )}
                         {/* Money Source Chip */}
                         {record.moneySource && (
-                          <Chip
+                          <PayerSourceChip
+                            row={{
+                              payer_source: record.moneySource,
+                              payer_name: record.moneySourceName,
+                              payer_source_split: record.payerSourceSplit ?? null,
+                            }}
                             size="small"
-                            label={getPayerSourceLabel(record.moneySource as PayerSource, record.moneySourceName || undefined)}
-                            color={getPayerSourceColor(record.moneySource as PayerSource)}
-                            variant="outlined"
-                            sx={{ height: 18, fontSize: "0.6rem" }}
                           />
                         )}
                         {/* Company Proof Icon */}
