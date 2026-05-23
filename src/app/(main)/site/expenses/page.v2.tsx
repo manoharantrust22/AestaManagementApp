@@ -50,6 +50,7 @@ import {
   DensityLarge,
   DensitySmall,
   Edit,
+  FilterList as FilterListIcon,
   Fullscreen as FullscreenIcon,
   FullscreenExit as FullscreenExitIcon,
   OpenInNew,
@@ -203,6 +204,17 @@ export default function ExpensesPageV2() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [rentalPaneOrderId, setRentalPaneOrderId] = useState<string | null>(null);
   const [refSnackbar, setRefSnackbar] = useState<string | null>(null);
+  const [mobileFilterSheetOpen, setMobileFilterSheetOpen] = useState(false);
+
+  // Count of non-default secondary filters (trade / sub-kind / status) — used
+  // for the mobile "Filters" button badge.
+  const activeMobileFilterCount = useMemo(() => {
+    let n = 0;
+    if (tradeFilter !== "all") n++;
+    if (subKindFilter !== "all") n++;
+    if (status !== "all") n++;
+    return n;
+  }, [tradeFilter, subKindFilter, status]);
 
   const tableRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLTableRowElement | null>(null);
@@ -920,54 +932,81 @@ export default function ExpensesPageV2() {
           <ToggleButton value="building" sx={{ px: 1.5, textTransform: "none", fontSize: 12 }}>Building</ToggleButton>
         </ToggleButtonGroup>
 
-        {/* Trade select */}
-        <FormControl size="small" sx={{ minWidth: 120 }}>
-          <Select
-            value={tradeFilter}
-            onChange={(e) => setTradeFilter(e.target.value)}
-            displayEmpty
-            sx={{ borderRadius: 99, fontSize: 13 }}
+        {/* Mobile-only: collapse secondary filters into bottom sheet */}
+        <Box sx={{ display: { xs: "inline-flex", md: "none" } }}>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<FilterListIcon />}
+            onClick={() => setMobileFilterSheetOpen(true)}
+            sx={{ borderRadius: 99, fontSize: 12, textTransform: "none" }}
+            endIcon={
+              activeMobileFilterCount > 0 ? (
+                <Chip
+                  label={activeMobileFilterCount}
+                  size="small"
+                  color="primary"
+                  sx={{ height: 18, fontSize: 11, "& .MuiChip-label": { px: 0.75 } }}
+                />
+              ) : null
+            }
           >
-            <MenuItem value="all">All trades</MenuItem>
-            <MenuItem value="__unlinked__">Unlinked</MenuItem>
-            {siteTrades?.map((t) => (
-              <MenuItem key={t.category.id} value={t.category.id}>{t.category.name}</MenuItem>
-            ))}
-            <MenuItem value="__site_wide__">Site-wide</MenuItem>
-          </Select>
-        </FormControl>
+            Filters
+          </Button>
+        </Box>
 
-        {/* Sub-kind select */}
-        <FormControl size="small" sx={{ minWidth: 130 }}>
-          <Select
-            value={subKindFilter}
-            onChange={(e) => setSubKindFilter(e.target.value)}
-            displayEmpty
-            sx={{ borderRadius: 99, fontSize: 13 }}
-          >
-            <MenuItem value="all">All sub-kinds</MenuItem>
-            {subKindOptions.map((k) => <MenuItem key={k} value={k}>{k}</MenuItem>)}
-          </Select>
-        </FormControl>
+        {/* Desktop-only: secondary filters + Export. `display: contents` lets
+            the parent flex container see the grandchildren as direct items. */}
+        <Box sx={{ display: { xs: "none", md: "contents" } }}>
+          {/* Trade select */}
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <Select
+              value={tradeFilter}
+              onChange={(e) => setTradeFilter(e.target.value)}
+              displayEmpty
+              sx={{ borderRadius: 99, fontSize: 13 }}
+            >
+              <MenuItem value="all">All trades</MenuItem>
+              <MenuItem value="__unlinked__">Unlinked</MenuItem>
+              {siteTrades?.map((t) => (
+                <MenuItem key={t.category.id} value={t.category.id}>{t.category.name}</MenuItem>
+              ))}
+              <MenuItem value="__site_wide__">Site-wide</MenuItem>
+            </Select>
+          </FormControl>
 
-        {/* Status select */}
-        <FormControl size="small" sx={{ minWidth: 110 }}>
-          <Select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as ExpenseStatus)}
-            displayEmpty
-            sx={{ borderRadius: 99, fontSize: 13 }}
-          >
-            <MenuItem value="all">All status</MenuItem>
-            <MenuItem value="cleared">Paid</MenuItem>
-            <MenuItem value="pending">Pending</MenuItem>
-          </Select>
-        </FormControl>
+          {/* Sub-kind select */}
+          <FormControl size="small" sx={{ minWidth: 130 }}>
+            <Select
+              value={subKindFilter}
+              onChange={(e) => setSubKindFilter(e.target.value)}
+              displayEmpty
+              sx={{ borderRadius: 99, fontSize: 13 }}
+            >
+              <MenuItem value="all">All sub-kinds</MenuItem>
+              {subKindOptions.map((k) => <MenuItem key={k} value={k}>{k}</MenuItem>)}
+            </Select>
+          </FormControl>
 
-        <Box sx={{ flex: 1 }} />
-        <Button size="small" variant="outlined" color="inherit" sx={{ color: "text.secondary", fontSize: 12 }}>
-          Export
-        </Button>
+          {/* Status select */}
+          <FormControl size="small" sx={{ minWidth: 110 }}>
+            <Select
+              value={status}
+              onChange={(e) => setStatus(e.target.value as ExpenseStatus)}
+              displayEmpty
+              sx={{ borderRadius: 99, fontSize: 13 }}
+            >
+              <MenuItem value="all">All status</MenuItem>
+              <MenuItem value="cleared">Paid</MenuItem>
+              <MenuItem value="pending">Pending</MenuItem>
+            </Select>
+          </FormControl>
+
+          <Box sx={{ flex: 1 }} />
+          <Button size="small" variant="outlined" color="inherit" sx={{ color: "text.secondary", fontSize: 12 }}>
+            Export
+          </Button>
+        </Box>
       </Box>
 
       {/* Toolbar row 2 */}
@@ -1654,6 +1693,92 @@ export default function ExpensesPageV2() {
           ) : (
             <Typography color="text.secondary">No subcontracts found for this site.</Typography>
           )}
+        </Box>
+      </Drawer>
+
+      {/* Mobile filters bottom sheet — collapses trade / sub-kind / status
+          into a single sheet so the toolbar stays on one row on phones. */}
+      <Drawer
+        anchor="bottom"
+        open={mobileFilterSheetOpen}
+        onClose={() => setMobileFilterSheetOpen(false)}
+        PaperProps={{
+          sx: {
+            borderTopLeftRadius: 16,
+            borderTopRightRadius: 16,
+            maxHeight: "80vh",
+          },
+        }}
+      >
+        <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <Typography variant="h6">Filters</Typography>
+            <IconButton onClick={() => setMobileFilterSheetOpen(false)} size="small">
+              <Close />
+            </IconButton>
+          </Box>
+
+          {/* Trade select */}
+          <FormControl fullWidth size="small">
+            <InputLabel id="mobile-filter-trade-label">Trade</InputLabel>
+            <Select
+              labelId="mobile-filter-trade-label"
+              label="Trade"
+              value={tradeFilter}
+              onChange={(e) => setTradeFilter(e.target.value)}
+            >
+              <MenuItem value="all">All trades</MenuItem>
+              <MenuItem value="__unlinked__">Unlinked</MenuItem>
+              {siteTrades?.map((t) => (
+                <MenuItem key={t.category.id} value={t.category.id}>{t.category.name}</MenuItem>
+              ))}
+              <MenuItem value="__site_wide__">Site-wide</MenuItem>
+            </Select>
+          </FormControl>
+
+          {/* Sub-kind select */}
+          <FormControl fullWidth size="small">
+            <InputLabel id="mobile-filter-subkind-label">Sub-kind</InputLabel>
+            <Select
+              labelId="mobile-filter-subkind-label"
+              label="Sub-kind"
+              value={subKindFilter}
+              onChange={(e) => setSubKindFilter(e.target.value)}
+            >
+              <MenuItem value="all">All sub-kinds</MenuItem>
+              {subKindOptions.map((k) => <MenuItem key={k} value={k}>{k}</MenuItem>)}
+            </Select>
+          </FormControl>
+
+          {/* Status select */}
+          <FormControl fullWidth size="small">
+            <InputLabel id="mobile-filter-status-label">Status</InputLabel>
+            <Select
+              labelId="mobile-filter-status-label"
+              label="Status"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as ExpenseStatus)}
+            >
+              <MenuItem value="all">All status</MenuItem>
+              <MenuItem value="cleared">Paid</MenuItem>
+              <MenuItem value="pending">Pending</MenuItem>
+            </Select>
+          </FormControl>
+
+          <Button
+            variant="outlined"
+            onClick={() => {
+              setTradeFilter("all");
+              setSubKindFilter("all");
+              setStatus("all");
+            }}
+            disabled={activeMobileFilterCount === 0}
+          >
+            Reset filters
+          </Button>
+          <Button variant="contained" onClick={() => setMobileFilterSheetOpen(false)}>
+            Done
+          </Button>
         </Box>
       </Drawer>
 
