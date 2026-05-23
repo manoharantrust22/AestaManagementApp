@@ -1284,6 +1284,9 @@ export interface VendorFormData {
   upi_id?: string;
   qr_code_url?: string;
   shop_photo_url?: string;
+  // Spot-purchase flow: site engineers can quick-add draft vendors.
+  // Office un-drafts via /company/vendors drafts filter (Task M-3).
+  is_draft?: boolean;
 }
 
 export interface MaterialFormData {
@@ -1307,6 +1310,9 @@ export interface MaterialFormData {
   min_order_qty?: number;
   reorder_level?: number;
   image_url?: string;
+  // Spot-purchase flow: site engineers can quick-add draft materials.
+  // Office un-drafts via /company/materials drafts filter (Task M-2).
+  is_draft?: boolean;
 }
 
 // Variant creation form data for inline variant table

@@ -7,10 +7,12 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   Fab,
   Pagination,
   Skeleton,
   Snackbar,
+  Stack,
   Tab,
   Tabs,
   Typography,
@@ -34,6 +36,7 @@ import {
   usePaginatedMaterials,
   useMaterialCategories,
   useDeleteMaterial,
+  useUpdateMaterial,
   type MaterialSortOption,
 } from "@/hooks/queries/useMaterials";
 import { useMaterialVendorCounts } from "@/hooks/queries/useVendorInventory";
@@ -97,6 +100,8 @@ export default function MaterialsPage() {
     }
   }, []);
   const [activeFilters, setActiveFilters] = useState<Set<FilterKey>>(new Set());
+  // Task M-2: drafts filter for office review of supervisor-quick-added materials.
+  const [showDraftsOnly, setShowDraftsOnly] = useState(false);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
@@ -164,12 +169,21 @@ export default function MaterialsPage() {
   const { data: orderStats } = useMaterialOrderStats();
   const { data: bestPrices } = useMaterialBestPrices();
   const deleteMaterial = useDeleteMaterial();
+  const updateMaterial = useUpdateMaterial();
+
+  // Task M-2: count drafts in the current page (cheap, no extra query).
+  const draftCount = useMemo(
+    () => materials.filter((m) => m.is_draft).length,
+    [materials],
+  );
 
   const visibleMaterials = useMemo(() => {
+    // Task M-2: drafts-only filter takes precedence over other sort/filter chips.
+    const source = showDraftsOnly ? materials.filter((m) => m.is_draft) : materials;
     const sorted =
       sortBy === "alphabetical" || sortBy === "recently_added"
-        ? materials
-        : [...materials].sort((a, b) => {
+        ? source
+        : [...source].sort((a, b) => {
             switch (sortBy) {
               case "frequently_used": {
                 const aOrders = orderStats?.get(a.id)?.order_count || 0;
@@ -208,7 +222,7 @@ export default function MaterialsPage() {
       if (activeFilters.has("missing_price") && hasPrice) return false;
       return true;
     });
-  }, [materials, sortBy, orderStats, vendorCounts, bestPrices, activeFilters]);
+  }, [materials, sortBy, orderStats, vendorCounts, bestPrices, activeFilters, showDraftsOnly]);
 
   const filterChips: FilterChipDef[] = useMemo(
     () => [
@@ -296,6 +310,27 @@ export default function MaterialsPage() {
     setQuoteCtx({ lockedMaterial: material, lockedVendor: null });
   }, []);
 
+  // Task M-2: flip a draft material to approved (is_draft -> false).
+  const handleApproveDraft = useCallback(
+    async (material: MaterialWithDetails) => {
+      try {
+        await updateMaterial.mutateAsync({ id: material.id, data: { is_draft: false } });
+        setSnackbar({
+          open: true,
+          message: `"${material.name}" approved`,
+          severity: "success",
+        });
+      } catch (err) {
+        setSnackbar({
+          open: true,
+          message: `Failed to approve: ${err instanceof Error ? err.message : "Unknown error"}`,
+          severity: "error",
+        });
+      }
+    },
+    [updateMaterial],
+  );
+
   const handleAddMaterialToVendor = useCallback((vendor: VendorWithCategories) => {
     setQuoteCtx({ lockedMaterial: null, lockedVendor: vendor });
   }, []);
@@ -380,7 +415,12 @@ export default function MaterialsPage() {
         }
       />
 
-      <Box sx={{ px: { xs: 1, sm: 1.5 }, mb: 0.75 }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        alignItems="center"
+        sx={{ px: { xs: 1, sm: 1.5 }, mb: 0.75, flexWrap: "wrap" }}
+      >
         <Typography
           sx={{
             fontSize: 10.5,
@@ -392,7 +432,16 @@ export default function MaterialsPage() {
           {totalCount} material{totalCount !== 1 ? "s" : ""}
           {activeFilters.size > 0 ? ` · ${visibleMaterials.length} match filters` : ""}
         </Typography>
-      </Box>
+        {/* Task M-2: drafts filter chip — toggles is_draft-only view for office review. */}
+        <Chip
+          label={`Drafts (${draftCount})`}
+          size="small"
+          color={showDraftsOnly ? "primary" : "default"}
+          variant={showDraftsOnly ? "filled" : "outlined"}
+          onClick={() => setShowDraftsOnly((v) => !v)}
+          clickable
+        />
+      </Stack>
 
       <Box sx={{ px: { xs: 1, sm: 1.5 }, pb: 12 }}>
         {isLoading ? (
@@ -410,7 +459,7 @@ export default function MaterialsPage() {
               const bp = bestPrices?.get(m.id);
               const variantCount = m.variant_count || 0;
               const brandCount = (m.brands || []).filter((b) => b.is_active).length;
-              return (
+              const row = (
                 <MaterialListRow
                   key={m.id}
                   material={m}
@@ -429,6 +478,38 @@ export default function MaterialsPage() {
                   onAddVendorQuote={() => handleAddVendorQuote(m)}
                 />
               );
+              // Task M-2: in drafts mode, append an inline Approve button.
+              if (showDraftsOnly && m.is_draft && canEdit) {
+                return (
+                  <Box key={m.id} sx={{ position: "relative" }}>
+                    {row}
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "flex-end",
+                        gap: 1,
+                        mt: -0.5,
+                        mb: 0.5,
+                        px: 1,
+                      }}
+                    >
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="primary"
+                        disabled={updateMaterial.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleApproveDraft(m);
+                        }}
+                      >
+                        Approve
+                      </Button>
+                    </Box>
+                  </Box>
+                );
+              }
+              return row;
             })}
           </Box>
         ) : (
