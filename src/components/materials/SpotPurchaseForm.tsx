@@ -70,8 +70,10 @@ export default function SpotPurchaseForm() {
   const siteGroupId = selectedSite?.site_group_id ?? null;
   const engineerId = userProfile?.id ?? null;
 
-  const { data: materials = [] } = useMaterials();
-  const { data: vendors = [] } = useVendors();
+  // Supervisors should see their own quick-added drafts in the picker so
+  // they can pick the same material/vendor for repeat spot purchases.
+  const { data: materials = [] } = useMaterials({ includeDrafts: true });
+  const { data: vendors = [] } = useVendors({ includeDrafts: true });
   const { data: categories = [] } = useMaterialCategories();
   const { data: groupSites = [] } = useSiteGroupSites(siteGroupId ?? undefined);
 

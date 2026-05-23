@@ -44,21 +44,49 @@ export async function fetchVendorCatalog(): Promise<VendorWithCategories[]> {
 }
 
 /**
- * Fetch all vendors with optional category filter
+ * Options for useVendors.
+ * Use `includeDrafts: true` on office/admin surfaces that need to see
+ * draft (`is_draft=true`) vendors (e.g. /company/vendors, the spot
+ * purchase form which lets supervisors re-pick their own quick-adds).
+ * All other pickers keep the default `false` so drafts stay hidden.
  */
-export function useVendors(categoryId?: string | null) {
+export interface UseVendorsOptions {
+  categoryId?: string | null;
+  includeDrafts?: boolean;
+}
+
+/**
+ * Fetch all vendors with optional category filter.
+ *
+ * Accepts either a legacy `categoryId` string for back-compat, or an
+ * options object `{ categoryId?, includeDrafts? }`.
+ */
+export function useVendors(
+  options?: string | null | UseVendorsOptions,
+) {
+  const normalized: UseVendorsOptions =
+    typeof options === "string" || options === null || options === undefined
+      ? { categoryId: options ?? null }
+      : options;
+  const { categoryId = null, includeDrafts = false } = normalized;
+
   return useQuery({
-    queryKey: categoryId
-      ? [...queryKeys.vendors.list(), categoryId]
-      : queryKeys.vendors.list(),
+    queryKey: [
+      ...queryKeys.vendors.list(),
+      ...(categoryId ? [categoryId] : []),
+      includeDrafts ? "withDrafts" : "noDrafts",
+    ],
     queryFn: wrapQueryFn(async () => {
       const vendors = await fetchVendorCatalog();
+      const afterDrafts = includeDrafts
+        ? vendors
+        : vendors.filter((v) => v.is_draft !== true);
       if (categoryId) {
-        return vendors.filter((v) =>
+        return afterDrafts.filter((v) =>
           v.categories?.some((c) => c?.id === categoryId)
         );
       }
-      return vendors;
+      return afterDrafts;
     }, { operationName: "useVendors" }),
   });
 }

@@ -259,20 +259,49 @@ export async function fetchMaterialCatalog(): Promise<MaterialWithDetails[]> {
 }
 
 /**
+ * Options for useMaterials.
+ * Use `includeDrafts: true` on office/admin surfaces that need to see
+ * draft (`is_draft=true`) materials (e.g. /company/materials, the spot
+ * purchase form which lets supervisors re-pick their own quick-adds).
+ * All other pickers (PO, requests, RecordPrice, etc.) keep the default
+ * `false` so drafts don't pollute supervisor flows.
+ */
+export interface UseMaterialsOptions {
+  categoryId?: string | null;
+  includeDrafts?: boolean;
+}
+
+/**
  * Fetch all materials with optional category filter
  * Includes parent material info for variants
+ *
+ * Accepts either a legacy `categoryId` string for back-compat, or an
+ * options object `{ categoryId?, includeDrafts? }`.
  */
-export function useMaterials(categoryId?: string | null) {
+export function useMaterials(
+  options?: string | null | UseMaterialsOptions,
+) {
+  const normalized: UseMaterialsOptions =
+    typeof options === "string" || options === null || options === undefined
+      ? { categoryId: options ?? null }
+      : options;
+  const { categoryId = null, includeDrafts = false } = normalized;
+
   return useQuery({
-    queryKey: categoryId
-      ? [...queryKeys.materials.list(), categoryId]
-      : queryKeys.materials.list(),
+    queryKey: [
+      ...queryKeys.materials.list(),
+      ...(categoryId ? [categoryId] : []),
+      includeDrafts ? "withDrafts" : "noDrafts",
+    ],
     queryFn: wrapQueryFn(async () => {
       const materials = await fetchMaterialCatalog();
+      const afterDrafts = includeDrafts
+        ? materials
+        : materials.filter((m) => m.is_draft !== true);
       if (categoryId) {
-        return materials.filter(m => m.category_id === categoryId);
+        return afterDrafts.filter((m) => m.category_id === categoryId);
       }
-      return materials;
+      return afterDrafts;
     }, { operationName: "useMaterials" }),
   });
 }
