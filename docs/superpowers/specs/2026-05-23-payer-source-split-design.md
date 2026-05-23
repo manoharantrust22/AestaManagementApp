@@ -24,8 +24,8 @@ Add `payer_source_split jsonb` (nullable, default NULL) to:
 - `settlement_groups`
 - `misc_expenses`
 - `tea_shop_settlements`
-- `group_tea_shop_settlements`
-- `material_purchase_batches`
+- `tea_shop_group_settlements`
+- `material_purchase_expenses` (uses existing column `settlement_payer_source`, not `payer_source`; the sentinel write target on this table is `settlement_payer_source='split'`)
 - `rental_settlements`
 - `rental_advances`
 - `site_engineer_transactions` (covers wallet deposits via `AddFundsDialog` / `EditDepositDialog`)
