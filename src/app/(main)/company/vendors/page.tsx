@@ -6,10 +6,12 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   Fab,
   Pagination,
   Skeleton,
   Snackbar,
+  Stack,
   Tab,
   Tabs,
   Typography,
@@ -26,7 +28,7 @@ import PageHeader from "@/components/layout/PageHeader";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { hasEditPermission } from "@/lib/permissions";
-import { usePaginatedVendors, useDeleteVendor } from "@/hooks/queries/useVendors";
+import { usePaginatedVendors, useDeleteVendor, useUpdateVendor } from "@/hooks/queries/useVendors";
 import { useMaterialCategories } from "@/hooks/queries/useMaterials";
 import { useVendorMaterialCounts } from "@/hooks/queries/useVendorInventory";
 import VendorDialog from "@/components/materials/VendorDialog";
@@ -130,6 +132,8 @@ export default function VendorsPage() {
     }
   }, []);
   const [activeFilters, setActiveFilters] = useState<Set<FilterKey>>(new Set());
+  // Task M-3: drafts filter for office review of supervisor-quick-added vendors.
+  const [showDraftsOnly, setShowDraftsOnly] = useState(false);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingVendor, setEditingVendor] = useState<VendorWithCategories | null>(null);
@@ -179,12 +183,21 @@ export default function VendorsPage() {
   const { data: categories = [] } = useMaterialCategories();
   const { data: materialCounts = {} } = useVendorMaterialCounts();
   const deleteVendor = useDeleteVendor();
+  const updateVendor = useUpdateVendor();
+
+  // Task M-3: count drafts in the current page.
+  const draftCount = useMemo(
+    () => allVendors.filter((v) => v.is_draft).length,
+    [allVendors],
+  );
 
   const visibleVendors = useMemo(() => {
+    // Task M-3: drafts-only filter takes precedence over other sort/filter chips.
+    const source = showDraftsOnly ? allVendors.filter((v) => v.is_draft) : allVendors;
     const sorted =
       sortBy === "alphabetical" || sortBy === "recently_added"
-        ? allVendors
-        : [...allVendors].sort((a, b) => {
+        ? source
+        : [...source].sort((a, b) => {
             switch (sortBy) {
               case "rating": {
                 const ar = a.rating ?? 0;
@@ -212,7 +225,7 @@ export default function VendorsPage() {
       if (activeFilters.has("has_photo") && !v.shop_photo_url) return false;
       return true;
     });
-  }, [allVendors, sortBy, materialCounts, activeFilters]);
+  }, [allVendors, sortBy, materialCounts, activeFilters, showDraftsOnly]);
 
   const filterChips: FilterChipDef[] = useMemo(
     () => [
@@ -299,6 +312,27 @@ export default function VendorsPage() {
     setQuoteCtx({ lockedMaterial: material, lockedVendor: null });
   }, []);
 
+  // Task M-3: flip a draft vendor to approved (is_draft -> false).
+  const handleApproveDraft = useCallback(
+    async (vendor: VendorWithCategories) => {
+      try {
+        await updateVendor.mutateAsync({ id: vendor.id, data: { is_draft: false } });
+        setSnackbar({
+          open: true,
+          message: `"${vendor.name}" approved`,
+          severity: "success",
+        });
+      } catch (err) {
+        setSnackbar({
+          open: true,
+          message: `Failed to approve: ${err instanceof Error ? err.message : "Unknown error"}`,
+          severity: "error",
+        });
+      }
+    },
+    [updateVendor],
+  );
+
   const handleOpenInPage = useCallback(
     (vendor: VendorWithCategories) => router.push(`/company/vendors/${vendor.id}`),
     [router]
@@ -371,7 +405,12 @@ export default function VendorsPage() {
         }
       />
 
-      <Box sx={{ px: { xs: 1, sm: 1.5 }, mb: 0.75 }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        alignItems="center"
+        sx={{ px: { xs: 1, sm: 1.5 }, mb: 0.75, flexWrap: "wrap" }}
+      >
         <Typography
           sx={{
             fontSize: 10.5,
@@ -383,7 +422,16 @@ export default function VendorsPage() {
           {totalCount} vendor{totalCount !== 1 ? "s" : ""}
           {activeFilters.size > 0 ? ` · ${visibleVendors.length} match filters` : ""}
         </Typography>
-      </Box>
+        {/* Task M-3: drafts filter chip — toggles is_draft-only view for office review. */}
+        <Chip
+          label={`Drafts (${draftCount})`}
+          size="small"
+          color={showDraftsOnly ? "primary" : "default"}
+          variant={showDraftsOnly ? "filled" : "outlined"}
+          onClick={() => setShowDraftsOnly((v) => !v)}
+          clickable
+        />
+      </Stack>
 
       <Box sx={{ px: { xs: 1, sm: 1.5 }, pb: 12 }}>
         {isLoading ? (
@@ -396,20 +444,54 @@ export default function VendorsPage() {
           </Box>
         ) : viewMode === "list" ? (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-            {visibleVendors.map((v) => (
-              <VendorListRow
-                key={v.id}
-                vendor={v}
-                materialCount={materialCounts[v.id] || 0}
-                selected={top?.kind === "vendor" && top.id === v.id}
-                canEdit={canEdit}
-                onClick={() => handleRowClick(v)}
-                onView={() => handleOpenInPage(v)}
-                onEdit={() => handleOpenEdit(v)}
-                onDelete={() => handleDeleteClick(v)}
-                onAddMaterial={() => handleAddMaterial(v)}
-              />
-            ))}
+            {visibleVendors.map((v) => {
+              const row = (
+                <VendorListRow
+                  key={v.id}
+                  vendor={v}
+                  materialCount={materialCounts[v.id] || 0}
+                  selected={top?.kind === "vendor" && top.id === v.id}
+                  canEdit={canEdit}
+                  onClick={() => handleRowClick(v)}
+                  onView={() => handleOpenInPage(v)}
+                  onEdit={() => handleOpenEdit(v)}
+                  onDelete={() => handleDeleteClick(v)}
+                  onAddMaterial={() => handleAddMaterial(v)}
+                />
+              );
+              // Task M-3: in drafts mode, append an inline Approve button.
+              if (showDraftsOnly && v.is_draft && canEdit) {
+                return (
+                  <Box key={v.id} sx={{ position: "relative" }}>
+                    {row}
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "flex-end",
+                        gap: 1,
+                        mt: -0.5,
+                        mb: 0.5,
+                        px: 1,
+                      }}
+                    >
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="primary"
+                        disabled={updateVendor.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleApproveDraft(v);
+                        }}
+                      >
+                        Approve
+                      </Button>
+                    </Box>
+                  </Box>
+                );
+              }
+              return row;
+            })}
           </Box>
         ) : (
           <Box
