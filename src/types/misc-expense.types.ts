@@ -25,6 +25,11 @@ export interface MiscExpense {
   site_engineer_id: string | null;
   engineer_transaction_id: string | null;
   proof_url: string | null;
+  /**
+   * Spot-purchase: optional vendor bill image (separate from payment proof).
+   * Column added by 20260524100000_spot_purchase_schema.sql.
+   */
+  bill_url?: string | null;
   subcontract_id: string | null;
   notes: string | null;
   is_cleared: boolean;
@@ -72,6 +77,12 @@ export interface CreateMiscExpenseConfig {
   siteId: string;
   formData: MiscExpenseFormData;
   proofUrl?: string;
+  /**
+   * Optional bill image URL captured via ReceiptCapture. Maps to the
+   * `misc_expenses.bill_url` column (added by the spot-purchase migration).
+   * Distinct from `proofUrl` which maps to `proof_url` (payment screenshot).
+   */
+  billUrl?: string;
   userId: string;
   userName: string;
   batchAllocations?: BatchAllocation[];

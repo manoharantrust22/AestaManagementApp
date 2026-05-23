@@ -25,10 +25,14 @@ import {
   Checkbox,
   Chip,
   Autocomplete,
+  Stack,
 } from "@mui/material";
 import { Close as CloseIcon } from "@mui/icons-material";
 import { createClient } from "@/lib/supabase/client";
-import FileUploader, { UploadedFile } from "@/components/common/FileUploader";
+import {
+  ReceiptCapture,
+  type ReceiptCaptureValue,
+} from "@/components/common/ReceiptCapture";
 import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
@@ -96,7 +100,8 @@ export default function MiscExpenseDialog({
   const [customPayerName, setCustomPayerName] = useState("");
   const [subcontractId, setSubcontractId] = useState<string>("");
   const [notes, setNotes] = useState("");
-  const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const [bill, setBill] = useState<ReceiptCaptureValue | null>(null);
+  const [screenshot, setScreenshot] = useState<ReceiptCaptureValue | null>(null);
 
   // Data lists
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
@@ -154,7 +159,19 @@ export default function MiscExpenseDialog({
         setCustomPayerName(expense.payer_name || "");
         setSubcontractId(expense.subcontract_id || "");
         setNotes(expense.notes || "");
-        setProofUrl(expense.proof_url || null);
+        // Reconstruct ReceiptCaptureValue from stored URLs. We don't persist
+        // the storage_path separately on misc_expenses, so derive it from the
+        // URL's pathname — used only for the file-name preview label.
+        setScreenshot(
+          expense.proof_url
+            ? { url: expense.proof_url, storage_path: expense.proof_url.split("/").slice(-2).join("/") }
+            : null
+        );
+        setBill(
+          expense.bill_url
+            ? { url: expense.bill_url, storage_path: expense.bill_url.split("/").slice(-2).join("/") }
+            : null
+        );
       } else {
         // New expense - reset form
         setDate(dayjs().format("YYYY-MM-DD"));
@@ -172,7 +189,8 @@ export default function MiscExpenseDialog({
         // (e.g. /site/trades expanded row); user can still change it.
         setSubcontractId(defaultSubcontractId || "");
         setNotes("");
-        setProofUrl(null);
+        setBill(null);
+        setScreenshot(null);
       }
       setError(null);
     }
@@ -300,7 +318,8 @@ export default function MiscExpenseDialog({
             custom_payer_name: customPayerName,
             subcontract_id: subcontractId || null,
             notes: notes || null,
-            proof_url: proofUrl,
+            proof_url: screenshot?.url ?? null,
+            bill_url: bill?.url ?? null,
           },
           userProfile?.id || "",
           userProfile?.name || "System"
@@ -327,7 +346,8 @@ export default function MiscExpenseDialog({
             subcontract_id: subcontractId || null,
             notes,
           },
-          proofUrl: proofUrl || undefined,
+          proofUrl: screenshot?.url ?? undefined,
+          billUrl: bill?.url ?? undefined,
           userId: userProfile?.id || "",
           userName: userProfile?.name || "System",
           // Misc expense engineer-wallet payments now use the v2 wallet
@@ -596,24 +616,27 @@ export default function MiscExpenseDialog({
           </Select>
         </FormControl>
 
-        {/* Proof Upload - especially for UPI */}
-        {paymentMode === "upi" && (
-          <Box sx={{ mb: 3 }}>
-            <FileUploader
-              supabase={supabase}
-              bucketName="settlement-proofs"
-              folderPath={`misc-expenses/${selectedSite?.id}`}
-              fileNamePrefix="misc-expense"
-              accept="image"
-              label="Payment Screenshot"
-              helperText="Upload screenshot of UPI payment confirmation"
-              compact
-              uploadOnSelect
-              value={proofUrl ? { name: "Payment Proof", size: 0, url: proofUrl } : null}
-              onUpload={(file: UploadedFile) => setProofUrl(file.url)}
-              onRemove={() => setProofUrl(null)}
+        {/* Bill image + payment screenshot — captured via ReceiptCapture
+            (file / paste / camera). Both optional; either slot can be left
+            empty. The bill maps to `misc_expenses.bill_url`, the screenshot
+            to the existing `proof_url` column. */}
+        {selectedSite && (
+          <Stack spacing={1.5} sx={{ mb: 3 }}>
+            <ReceiptCapture
+              label="Bill image (optional)"
+              value={bill}
+              onChange={setBill}
+              folder={`bills/${selectedSite.id}`}
+              disabled={loading}
             />
-          </Box>
+            <ReceiptCapture
+              label="Payment screenshot (optional)"
+              value={screenshot}
+              onChange={setScreenshot}
+              folder={`screenshots/${selectedSite.id}`}
+              disabled={loading}
+            />
+          </Stack>
         )}
 
         {/* Link to Subcontract (Optional) */}

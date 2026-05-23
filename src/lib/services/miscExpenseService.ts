@@ -25,6 +25,7 @@ export async function createMiscExpense(
       siteId,
       formData,
       proofUrl,
+      billUrl,
       userId,
       userName,
       batchAllocations,
@@ -124,6 +125,7 @@ export async function createMiscExpense(
       site_engineer_id: formData.payer_type === "site_engineer" ? formData.site_engineer_id : null,
       engineer_transaction_id: engineerTransactionId,
       proof_url: proofUrl || null,
+      bill_url: billUrl || null,
       subcontract_id: formData.subcontract_id || null,
       notes: formData.notes || null,
       // Cleared = the company's money has actually left.
@@ -193,6 +195,11 @@ export async function updateMiscExpense(
     subcontract_id?: string | null;
     notes?: string | null;
     proof_url?: string | null;
+    /**
+     * Optional vendor bill image URL. New misc_expenses.bill_url column.
+     * Pass `null` to clear an existing value; omit to leave unchanged.
+     */
+    bill_url?: string | null;
   },
   userId: string,
   userName: string
