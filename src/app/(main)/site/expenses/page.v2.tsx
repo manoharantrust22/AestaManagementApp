@@ -1403,7 +1403,7 @@ export default function ExpensesPageV2() {
           <>
             <Tabs value={mobileTab} onChange={(_, v) => setMobileTab(v)} sx={{ mb: 2 }}>
               <Tab label="Overview" />
-              <Tab label={`Expenses (${totalCount})`} />
+              <Tab label="Expenses" />
             </Tabs>
 
             {mobileTab === 0 ? (
@@ -1416,19 +1416,19 @@ export default function ExpensesPageV2() {
                   burnRate={burnRate}
                   onContractsClick={() => router.push("/site/payments")}
                 />
-                <MoneyBreakdownCard
-                  total={totalAmount}
-                  totalCount={totalCount}
-                  breakdown={breakdown}
-                  onOpenSubcontracts={handleOpenSubcontracts}
-                  subcontracts={subcontracts}
-                />
                 <TradeMetricCards
                   tradeSummary={tradeSummary}
                   siteTrades={siteTrades}
                   onCardClick={(id) => { handleTradeCardClick(id); setMobileTab(1); }}
                   onEmptyCardClick={() => handleOpenDialog()}
                   isLoading={tradeSummaryLoading}
+                />
+                <MoneyBreakdownCard
+                  total={totalAmount}
+                  totalCount={totalCount}
+                  breakdown={breakdown}
+                  onOpenSubcontracts={handleOpenSubcontracts}
+                  subcontracts={subcontracts}
                 />
               </>
             ) : (
