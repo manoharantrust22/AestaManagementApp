@@ -258,119 +258,19 @@ git commit -m "feat(db): payer_source_split JSONB column + validator on 8 domain
 
 - [ ] **Step 1: Write the migration**
 
-```sql
--- Extend create_settlement_group with p_payer_source_split.
--- When NULL: existing single-source behaviour (writes p_payer_source as-is).
--- When NOT NULL: validates against the shared helper, writes
---   payer_source='split', payer_source_split=<input>.
+This migration **builds on `20260523100000_settlement_idempotency_key.sql`** (which is already on `main` as of commit `adedf1e`). That migration replaced the v3.0 `create_settlement_group` with a 20-arg idempotency-aware version ending in `p_idempotency_key uuid`. Our migration MUST:
 
-CREATE OR REPLACE FUNCTION create_settlement_group(
-  p_site_id uuid,
-  p_settlement_date date,
-  p_total_amount numeric(12,2),
-  p_laborer_count integer,
-  p_payment_channel text,
-  p_payment_mode text DEFAULT NULL,
-  p_payer_source text DEFAULT NULL,
-  p_payer_name text DEFAULT NULL,
-  p_proof_url text DEFAULT NULL,
-  p_notes text DEFAULT NULL,
-  p_subcontract_id uuid DEFAULT NULL,
-  p_engineer_transaction_id uuid DEFAULT NULL,
-  p_created_by uuid DEFAULT NULL,
-  p_created_by_name text DEFAULT NULL,
-  p_payment_type text DEFAULT 'salary',
-  p_actual_payment_date date DEFAULT NULL,
-  p_settlement_type text DEFAULT 'date_wise',
-  p_week_allocations jsonb DEFAULT NULL,
-  p_proof_urls text[] DEFAULT NULL,
-  p_payer_source_split jsonb DEFAULT NULL
-)
-RETURNS TABLE (
-  id uuid,
-  settlement_reference text
-)
-LANGUAGE plpgsql
-AS $$
-DECLARE
-  v_date_code TEXT;
-  v_next_seq INT;
-  v_reference TEXT;
-  v_lock_key BIGINT;
-  v_new_id UUID;
-  v_max_retries INT := 3;
-  v_retry_count INT := 0;
-  v_effective_payer_source TEXT;
-  v_effective_payer_name TEXT;
-BEGIN
-  v_lock_key := ('x' || substr(md5(p_settlement_date::text), 1, 8))::bit(32)::int;
-  PERFORM pg_advisory_xact_lock(v_lock_key);
-  v_date_code := TO_CHAR(p_settlement_date, 'YYMMDD');
+1. **Drop the 20-arg idempotency overload** explicitly (`DROP FUNCTION IF EXISTS create_settlement_group(uuid, date, numeric, integer, text, text, text, text, text, text, uuid, uuid, uuid, text, text, date, text, jsonb, text[], uuid)`). Without this, PG would install our new 21-arg version as a SECOND overload and leave the idempotency-only one alive — clients passing `p_idempotency_key` lose split support, clients passing `p_payer_source_split` lose idempotency support, and PostgREST resolves by named-parameter set.
+2. **Append `p_payer_source_split jsonb DEFAULT NULL` AFTER `p_idempotency_key`**, so the new function has 21 params.
+3. **Add `SET search_path = public, pg_temp`** (codebase convention; the idempotency version is missing this).
+4. **Combine the idempotency early-return AND the split-validation branch** (validation runs BEFORE the advisory lock — failing payloads must not acquire it).
+5. **Preserve the idempotency version's per-(site+date) lock**, audit-logging block on `unique_violation`, `RAISE EXCEPTION ... USING HINT = format(...)` retry-exhaustion, trailing `RAISE WARNING`, and `pg_sleep(0.01 * v_retry_count)` backoff — byte-identical.
+6. **Extend the INSERT** to write both `idempotency_key` and `payer_source_split` (columns 22 and 23). The `payer_source` and `payer_name` columns must bind to `v_effective_payer_source` / `v_effective_payer_name` (so the split path forces sentinel + NULL).
+7. **Update `COMMENT ON FUNCTION`** to describe both idempotency and split semantics, and cite the build-on lineage (`20260523100000` + `20260113130000`).
 
-  IF p_payer_source_split IS NOT NULL THEN
-    PERFORM validate_payer_source_split(p_payer_source_split, p_total_amount, p_site_id);
-    v_effective_payer_source := 'split';
-    v_effective_payer_name := NULL;
-  ELSE
-    v_effective_payer_source := p_payer_source;
-    v_effective_payer_name := p_payer_name;
-  END IF;
+The full migration is at `supabase/migrations/20260523140100_create_settlement_group_split.sql` (committed). It is ~259 lines because it copies the idempotency body verbatim and only adds the split branch + columns + the new param. See the file for the literal SQL; the head comment explains the merger rationale.
 
-  WHILE v_retry_count < v_max_retries LOOP
-    BEGIN
-      SELECT COALESCE(MAX(
-        CAST(SUBSTRING(sg.settlement_reference FROM 'SET-' || v_date_code || '-(\d+)') AS INT)
-      ), 0) + 1
-      INTO v_next_seq
-      FROM settlement_groups sg
-      WHERE sg.settlement_reference LIKE 'SET-' || v_date_code || '-%'
-        AND sg.settlement_reference ~ ('^SET-' || v_date_code || '-\d+$');
-
-      IF v_next_seq < 1000 THEN
-        v_reference := 'SET-' || v_date_code || '-' || LPAD(v_next_seq::TEXT, 3, '0');
-      ELSE
-        v_reference := 'SET-' || v_date_code || '-' || v_next_seq::TEXT;
-      END IF;
-
-      v_new_id := gen_random_uuid();
-
-      INSERT INTO settlement_groups (
-        id, settlement_reference, site_id, settlement_date, total_amount,
-        laborer_count, payment_channel, payment_mode, payer_source, payer_name,
-        proof_url, notes, subcontract_id, engineer_transaction_id,
-        created_by, created_by_name, payment_type, actual_payment_date,
-        settlement_type, week_allocations, proof_urls, payer_source_split
-      ) VALUES (
-        v_new_id, v_reference, p_site_id, p_settlement_date, p_total_amount,
-        p_laborer_count, p_payment_channel, p_payment_mode,
-        v_effective_payer_source, v_effective_payer_name,
-        p_proof_url, p_notes, p_subcontract_id, p_engineer_transaction_id,
-        p_created_by, p_created_by_name, p_payment_type,
-        COALESCE(p_actual_payment_date, p_settlement_date),
-        p_settlement_type, p_week_allocations, p_proof_urls,
-        p_payer_source_split
-      );
-
-      id := v_new_id;
-      settlement_reference := v_reference;
-      RETURN NEXT;
-      RETURN;
-    EXCEPTION
-      WHEN unique_violation THEN
-        v_retry_count := v_retry_count + 1;
-        IF v_retry_count >= v_max_retries THEN RAISE; END IF;
-        PERFORM pg_sleep(0.05 * v_retry_count);
-    END;
-  END LOOP;
-  RAISE EXCEPTION 'create_settlement_group: retries exhausted';
-END $$;
-
-GRANT EXECUTE ON FUNCTION create_settlement_group TO authenticated;
-GRANT EXECUTE ON FUNCTION create_settlement_group TO service_role;
-
-COMMENT ON FUNCTION create_settlement_group IS
-  'Atomically creates a settlement_group with unique SET-YYMMDD-NNN reference. Accepts an optional p_payer_source_split JSONB; when provided, validates via validate_payer_source_split and stores payer_source=''split''.';
-```
+**If you are reimplementing this from scratch:** read `supabase/migrations/20260523100000_settlement_idempotency_key.sql` (the base) and `supabase/migrations/20260523140000_payer_source_split_foundation.sql:73-77` (validator signature) first, then write your migration to satisfy the seven constraints above.
 
 - [ ] **Step 2: Apply and smoke-test**
 
