@@ -209,6 +209,7 @@ export default function ExpensesPageV2() {
 
   const tableRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLTableRowElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [linkAnchor, setLinkAnchor] = useState<{ el: HTMLElement; row: ExpenseRow } | null>(null);
 
   // URL sync
@@ -288,7 +289,7 @@ export default function ExpensesPageV2() {
   }, [fetchSubcontracts, selectedSite?.id, subcontractsLoadedForSite, subcontractsLoading]);
 
   // Data hooks
-  const { expenses, summary, isLoading, loadedLimit, resultLimitHit, canLoadMore, loadMore, refetch } =
+  const { expenses, summary, isLoading, canLoadMore, loadMore, refetch } =
     useExpensesData({
       siteId: selectedSite?.id ?? null,
       dateFrom: dateFrom ?? null,
@@ -316,7 +317,13 @@ export default function ExpensesPageV2() {
           loadMore();
         }
       },
-      { rootMargin: "200px" }, // start fetching a little before user reaches the bottom
+      {
+        // Observe relative to the page's inner scroll container, not the
+        // browser viewport. In fullscreen mode the outer Box is the only
+        // scrolling element and viewport-relative observation would never fire.
+        root: scrollContainerRef.current,
+        rootMargin: "200px",
+      }, // start fetching a little before user reaches the bottom
     );
     observer.observe(target);
     return () => observer.disconnect();
@@ -1286,7 +1293,7 @@ export default function ExpensesPageV2() {
     >
       {pageHeader}
 
-      <Box sx={{ flex: 1, overflowY: "auto", p: { xs: 1.5, md: 2 } }}>
+      <Box ref={scrollContainerRef} sx={{ flex: 1, overflowY: "auto", p: { xs: 1.5, md: 2 } }}>
         {isMobile ? (
           /* Mobile layout: two-tab */
           <>
