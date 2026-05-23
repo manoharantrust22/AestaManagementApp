@@ -159,10 +159,11 @@ interface Args {
   /** When set, restricts to a single payer (for multi-payer sites). */
   sitePayerId: string | null;
   /**
-   * Sort direction for the `date` column. Defaults to descending (newest
-   * first), which preserves the previous query behaviour.
+   * Sort direction for the `date` column. Cursor pagination only supports
+   * "desc" (newest-first). The type is intentionally narrow so that the
+   * TypeScript compiler rejects any call site that tries to pass "asc".
    */
-  sortDir: "desc" | "asc";
+  sortDir: "desc";
 }
 
 export function useExpensesData(args: Args) {
@@ -176,6 +177,10 @@ export function useExpensesData(args: Args) {
   // active fetch can short-circuit if its caller's scope is stale.
   const scopeIdRef = useRef(0);
   const cursorRef = useRef<Cursor | null>(null);
+  // Ref mirror of isLoading so fetchPage's "more" guard can read the current
+  // value without capturing a stale closure (adding isLoading to fetchPage's
+  // deps would cause unnecessary observer teardown/reattach).
+  const isLoadingRef = useRef(false);
 
   const { siteId, dateFrom, dateTo, isAllTime, group, expenseTypes, status, sitePayerId, sortDir } = args;
 
@@ -202,10 +207,16 @@ export function useExpensesData(args: Args) {
       const myScopeId = scopeIdRef.current;
       const myCursor = mode === "more" ? cursorRef.current : null;
 
-      // mode==="initial" always wins over an in-flight more-page; mode==="more"
-      // is a no-op if there's no cursor yet (called too early) or if loading.
-      if (mode === "more" && (!myCursor || isLoading)) return;
+      // Cursor predicate only works for DESC; fail silently rather than
+      // blanking the table. The type is now narrowed to "desc" so this guard
+      // should never fire in practice — it is a belt-and-suspenders safety net.
+      if (sortDir !== "desc") return;
 
+      // If initial page hasn't landed yet, cursorRef is null — no-op;
+      // the observer will fire again once canLoadMore becomes true.
+      if (mode === "more" && (!myCursor || isLoadingRef.current)) return;
+
+      isLoadingRef.current = true;
       setIsLoading(true);
       try {
         let query = (supabase as any)
@@ -213,8 +224,8 @@ export function useExpensesData(args: Args) {
           .select("*")
           .eq("site_id", siteId)
           .eq("is_deleted", false)
-          .order("date", { ascending: sortDir === "asc" })
-          .order("id", { ascending: sortDir === "asc" });
+          .order("date", { ascending: false })
+          .order("id", { ascending: false });
 
         if (!isAllTime && dateFrom && dateTo) {
           query = query.gte("date", dateFrom).lte("date", dateTo);
@@ -234,15 +245,6 @@ export function useExpensesData(args: Args) {
 
         if (sitePayerId) query = query.eq("site_payer_id", sitePayerId);
 
-        // Cursor predicate — only for follow-up pages. Newest-first ordering
-        // means "older than cursor" is the right comparison even in DESC
-        // mode; for ASC we'd need date.gt — but the page only uses DESC, so
-        // we assert that here.
-        if (sortDir !== "desc") {
-          throw new Error(
-            "useExpensesData cursor pagination only supports sortDir='desc'",
-          );
-        }
         if (myCursor) {
           query = query.or(buildCursorPredicate(myCursor));
         }
@@ -340,23 +342,33 @@ export function useExpensesData(args: Args) {
         }
         setCanLoadMore(false);
       } finally {
-        if (myScopeId === scopeIdRef.current) setIsLoading(false);
+        if (myScopeId === scopeIdRef.current) {
+          isLoadingRef.current = false;
+          setIsLoading(false);
+        }
       }
     // isLoading omitted from deps deliberately — checking it inside the body
     // is fine; including it would re-create fetchPage on every load and the
     // observer effect in the consumer would tear down/re-attach unnecessarily.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-    [supabase, siteId, dateFrom, dateTo, isAllTime, group, expenseTypesKey, status, sitePayerId, sortDir],
+    [supabase, siteId, dateFrom, dateTo, isAllTime, group, expenseTypesKey, status, sitePayerId],
   );
+
+  // Shared reset helper: invalidates in-flight fetches, resets cursor, and
+  // loads the first page. Used by both the scope-change effect and `refetch`
+  // so they stay in sync (e.g. both reset canLoadMore).
+  const resetAndFetchInitial = useCallback(() => {
+    scopeIdRef.current += 1;
+    cursorRef.current = null;
+    setCanLoadMore(false);
+    return fetchPage("initial");
+  }, [fetchPage]);
 
   // When the scope changes: bump scopeId (invalidates in-flight fetches),
   // reset cursor, and re-fetch from page 1.
   useEffect(() => {
-    scopeIdRef.current += 1;
-    cursorRef.current = null;
-    setCanLoadMore(false);
-    fetchPage("initial");
+    resetAndFetchInitial();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeKey]);
 
@@ -365,10 +377,8 @@ export function useExpensesData(args: Args) {
   }, [fetchPage]);
 
   const refetch = useCallback(() => {
-    scopeIdRef.current += 1;
-    cursorRef.current = null;
-    return fetchPage("initial");
-  }, [fetchPage]);
+    return resetAndFetchInitial();
+  }, [resetAndFetchInitial]);
 
   return {
     expenses,

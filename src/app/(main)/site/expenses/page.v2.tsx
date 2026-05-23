@@ -30,7 +30,6 @@ import {
   TableCell,
   TableContainer,
   TableHead,
-  TableSortLabel,
   TableRow,
   Tab,
   Tabs,
@@ -197,7 +196,7 @@ export default function ExpensesPageV2() {
     () => searchParams.get("trade") ?? "all",
   );
   const [subKindFilter, setSubKindFilter] = useState<string>("all");
-  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+
   const [groupBy, setGroupBy] = useState<GroupByOption>("none");
   const [dense, setDense] = useState(false);
   const [mobileTab, setMobileTab] = useState<0 | 1>(0);
@@ -297,7 +296,7 @@ export default function ExpensesPageV2() {
       expenseTypes: activeTypes.length > 0 ? activeTypes : null,
       status,
       sitePayerId,
-      sortDir,
+      sortDir: "desc",
     });
 
   // Auto-load more rows when the sentinel near the bottom of the table comes
@@ -986,18 +985,10 @@ export default function ExpensesPageV2() {
         <Table stickyHeader size="small">
           <TableHead>
             <TableRow>
-              <TableCell sortDirection={sortDir} sx={headerCellSx}>
-                {/* Date is the only sortable column today, so `active` is always true.
-                    When a second sortable column is added, switch to active={sortKey === "date"}. */}
-                <TableSortLabel
-                  active
-                  direction={sortDir}
-                  onClick={() =>
-                    setSortDir((d) => (d === "desc" ? "asc" : "desc"))
-                  }
-                >
-                  Date
-                </TableSortLabel>
+              <TableCell sx={headerCellSx}>
+                {/* Cursor pagination is DESC-only; ASC toggle is disabled.
+                    Add a TableSortLabel here only if bi-directional sorting is added. */}
+                Date
               </TableCell>
               {["Ref", "Vendor / Description", "Trade / Subcontract", "Kind", "Status", "Amount", ""].map((h) => (
                 <TableCell
