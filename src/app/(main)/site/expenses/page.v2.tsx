@@ -208,6 +208,7 @@ export default function ExpensesPageV2() {
   const [refSnackbar, setRefSnackbar] = useState<string | null>(null);
 
   const tableRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLTableRowElement | null>(null);
   const [linkAnchor, setLinkAnchor] = useState<{ el: HTMLElement; row: ExpenseRow } | null>(null);
 
   // URL sync
@@ -299,6 +300,27 @@ export default function ExpensesPageV2() {
       sitePayerId,
       sortDir,
     });
+
+  // Auto-load more rows when the sentinel near the bottom of the table comes
+  // into view. The `!isLoading` guard ensures only one fetch is in flight at
+  // a time; the limit-reset effect inside the data hook resets when scope
+  // /sort changes, so this fires fresh on each new context.
+  useEffect(() => {
+    const target = sentinelRef.current;
+    if (!target) return;
+    if (!canLoadMore) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting && canLoadMore && !isLoading) {
+          loadMore();
+        }
+      },
+      { rootMargin: "200px" }, // start fetching a little before user reaches the bottom
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [canLoadMore, isLoading, loadMore, expenses.length]);
 
   const { data: financial, isLoading: financialLoading } = useExpensePageKPIs(selectedSite?.id);
   const { data: siteTrades } = useSiteTrades(selectedSite?.id);
@@ -921,21 +943,11 @@ export default function ExpensesPageV2() {
         </Tooltip>
       </Box>
 
-      {/* Load more alert */}
-      {resultLimitHit && (
-        <Alert
-          severity="info"
-          variant="outlined"
-          sx={{ mx: 1.5, mt: 1, py: 0.25, "& .MuiAlert-message": { py: 0.5 } }}
-          action={
-            canLoadMore ? (
-              <Button color="inherit" size="small" disabled={isLoading} onClick={loadMore} sx={{ textTransform: "none" }}>
-                {isLoading ? "Loading…" : `Load ${LOAD_MORE_STEP} more`}
-              </Button>
-            ) : null
-          }
-        >
-          Showing latest {loadedLimit.toLocaleString("en-IN")} of {totalCount.toLocaleString("en-IN")} records.
+      {/* Hard-cap warning — only shown when all 2000 rows are loaded */}
+      {!canLoadMore && expenses.length >= MAX_RESULT_LIMIT && (
+        <Alert severity="warning" variant="outlined" sx={{ mx: 1.5, mt: 1 }}>
+          Loaded the maximum {MAX_RESULT_LIMIT.toLocaleString("en-IN")} rows for
+          this view. Narrow the date range to see older entries.
         </Alert>
       )}
 
@@ -1176,6 +1188,24 @@ export default function ExpensesPageV2() {
                   </TableRow>
                 );
               })
+            )}
+
+            {/* Sentinel: when this row scrolls into view, auto-load the next page */}
+            {canLoadMore && !isLoading && expenses.length > 0 && (
+              <TableRow ref={sentinelRef} sx={{ height: 1 }}>
+                <TableCell colSpan={8} sx={{ p: 0, border: 0 }} />
+              </TableRow>
+            )}
+
+            {/* Tail status row: loading spinner / end-of-results */}
+            {expenses.length > 0 && (isLoading || !canLoadMore) && (
+              <TableRow>
+                <TableCell colSpan={8} align="center" sx={{ py: 1.5, color: "text.disabled", fontSize: 12 }}>
+                  {isLoading
+                    ? "Loading more…"
+                    : `End of results · ${expenses.length} of ${summary?.totalCount ?? expenses.length} loaded`}
+                </TableCell>
+              </TableRow>
             )}
           </TableBody>
 
