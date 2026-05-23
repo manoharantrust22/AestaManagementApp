@@ -250,26 +250,23 @@ export default function MaterialSettlementsPage() {
   };
 
   // Auto-open the inspect drawer when arriving via ?highlight=<ref>.
-  // Fires once per highlight value after the items list has data; missing refs
-  // (cancelled rows, wrong scope) silently no-op so the page still loads.
+  // Once items have loaded, we look up the matching row and (if found) open
+  // the drawer, then clear the `highlight` param so the action doesn't repeat
+  // on a manual close or back navigation. Cleanup runs even when no item
+  // matches (cancelled rows, wrong scope, or an empty site) — otherwise the
+  // stale param would persist forever.
   useEffect(() => {
     if (!highlightRef) return;
     if (isLoading) return;
-    if (allItems.length === 0) return;
-    const match = allItems.find((item) => {
-      // SettlementItem is either a material expense or an advance PO. Only
-      // material expenses have settlement_reference today; PO rows don't.
-      return (
-        (item as { settlement_reference?: string | null }).settlement_reference ===
-        highlightRef
-      );
-    });
+    // itemType === "expense" narrows to MaterialPurchaseExpenseWithDetails,
+    // which has settlement_reference. PO rows don't have the field.
+    const match = allItems.find(
+      (item) => item.itemType === "expense" && item.settlement_reference === highlightRef,
+    );
     if (match) {
       setInspectItem(match);
       setInspectOpen(true);
     }
-    // Clear the param either way so the back button / a manual close doesn't
-    // re-trigger this on the next render.
     const params = new URLSearchParams(searchParams.toString());
     params.delete("highlight");
     const qs = params.toString();
