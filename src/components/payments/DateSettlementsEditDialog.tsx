@@ -36,6 +36,8 @@ import { useSite } from "@/contexts/SiteContext";
 import dayjs from "dayjs";
 import type { DailyPaymentRecord } from "@/types/payment.types";
 import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
+import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import { requiresPayerName } from "@/types/settlement.types";
 import PayerSourceChip from "@/components/settlement/PayerSourceChip";
 import {
   validatePayerSourceInput,
@@ -648,31 +650,38 @@ export default function DateSettlementsEditDialog({
 
                   {updatePayerSource && (
                     <Box sx={{ mt: 2 }}>
-                      <PayerSourceSplitInput
-                        value={payer}
-                        onChange={setPayer}
-                        total={totalAllRecords}
-                        siteId={selectedSite?.id}
+                      {/* Single-source-only picker in bulk mode. A split written
+                          here would be applied to every settlement_group with
+                          per-source amounts that sum to the COMBINED total,
+                          not each row's individual amount — breaking row-level
+                          integrity. To author splits, edit each settlement
+                          individually via the per-row Edit action. */}
+                      <PayerSourceSelector
+                        value={payer.mode === "single" ? payer.source : "own_money"}
+                        customName={payer.mode === "single" ? (payer.name ?? "") : ""}
+                        onChange={(source) =>
+                          setPayer((prev) => ({
+                            mode: "single",
+                            source,
+                            name: prev.mode === "single" ? prev.name : undefined,
+                          }))
+                        }
+                        onCustomNameChange={(name) =>
+                          setPayer((prev) => ({
+                            mode: "single",
+                            source: prev.mode === "single" ? prev.source : "own_money",
+                            name,
+                          }))
+                        }
                         disabled={processing || isSubmitting}
+                        siteId={selectedSite?.id}
                       />
-                      {(() => {
-                        const c = validatePayerSourceInput(payer, totalAllRecords);
-                        return !c.ok && payer.mode === "split" ? (
-                          <Typography
-                            variant="caption"
-                            color="error.main"
-                            sx={{ mt: 1, display: "block" }}
-                          >
-                            {c.reason}
-                          </Typography>
-                        ) : null;
-                      })()}
                     </Box>
                   )}
 
                   {updatePayerSource && (
                     <Alert severity="info" sx={{ mt: 2 }}>
-                      All {records.length} record(s) will be updated to the selected payer source{payer.mode === "split" ? " split" : ""}.
+                      All {records.length} record(s) will be updated to the selected payer source.
                     </Alert>
                   )}
                 </Box>
