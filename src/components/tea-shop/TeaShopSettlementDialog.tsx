@@ -40,7 +40,7 @@ import {
 } from "@mui/icons-material";
 import { createClient } from "@/lib/supabase/client";
 import FileUploader, { UploadedFile } from "@/components/common/FileUploader";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
 import { isSiteEngineerPayingFromWallet } from "@/components/expenses/walletPayerLock";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
@@ -54,7 +54,15 @@ type TeaShopEntry = Database["public"]["Tables"]["tea_shop_entries"]["Row"];
 type TeaShopSettlement = Database["public"]["Tables"]["tea_shop_settlements"]["Row"];
 type PaymentMode = Database["public"]["Enums"]["payment_mode"];
 type Subcontract = Database["public"]["Tables"]["subcontracts"]["Row"];
-import type { PayerSource } from "@/types/settlement.types";
+import type {
+  PayerSource,
+  PayerSourceInput,
+  PayerSourceSplitRow,
+} from "@/types/settlement.types";
+import {
+  validatePayerSourceInput,
+  toRpcArgs,
+} from "@/lib/settlement/payerSource";
 import dayjs from "dayjs";
 
 interface TeaShopSettlementDialogProps {
@@ -137,8 +145,21 @@ export default function TeaShopSettlementDialog({
   const [notes, setNotes] = useState("");
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
-  const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
-  const [customPayerName, setCustomPayerName] = useState("");
+  // Unified payer-source-split input. Hydrated from settlement.payer_source_split
+  // (split mode) or payer_source/payer_name (single mode) on edit; single
+  // "own_money" default on create. Replaces the legacy payerSource +
+  // customPayerName pair.
+  const [payer, setPayer] = useState<PayerSourceInput>(() => {
+    const sg = (settlement as any)?.payer_source_split;
+    if (Array.isArray(sg) && sg.length > 0) {
+      return { mode: "split", rows: sg as PayerSourceSplitRow[] };
+    }
+    return {
+      mode: "single",
+      source: (((settlement as any)?.payer_source) as PayerSource) ?? "own_money",
+      name: (settlement as any)?.payer_name ?? undefined,
+    };
+  });
 
   // Wallet balance for site engineers — disabled for other roles.
   const balanceQuery = useEngineerWalletBalance(
@@ -203,8 +224,17 @@ export default function TeaShopSettlementDialog({
         setSelectedSubcontractId(settlement.subcontract_id || "");
         setProofUrl((settlement as any).proof_url || null);
         setReceiptUrl((settlement as any).receipt_url || null);
-        setPayerSource((settlement as any).payer_source || "own_money");
-        setCustomPayerName((settlement as any).payer_name || "");
+        // Rehydrate payer-source-split state from the row on edit.
+        const sg = (settlement as any).payer_source_split;
+        if (Array.isArray(sg) && sg.length > 0) {
+          setPayer({ mode: "split", rows: sg as PayerSourceSplitRow[] });
+        } else {
+          setPayer({
+            mode: "single",
+            source: ((settlement as any).payer_source as PayerSource) ?? "own_money",
+            name: (settlement as any).payer_name ?? undefined,
+          });
+        }
       } else {
         setAmountPaying(Math.round(initialAmount ?? pendingBalance));
         setPaymentDate(dayjs().format("YYYY-MM-DD"));
@@ -216,8 +246,7 @@ export default function TeaShopSettlementDialog({
         setSelectedSubcontractId("");
         setProofUrl(null);
         setReceiptUrl(null);
-        setPayerSource("own_money");
-        setCustomPayerName("");
+        setPayer({ mode: "single", source: "own_money" });
         setSettlementMode("waterfall");
       }
       setError(null);
@@ -495,6 +524,22 @@ export default function TeaShopSettlementDialog({
       return;
     }
 
+    // Validate payer-source-split shape before any DB writes. Skipped when the
+    // selector is hidden (site engineer paying from wallet — source derives
+    // from wallet deposit attribution in Phase 2).
+    const payerSelectorVisible = !isSiteEngineerPayingFromWallet({
+      userRole: userProfile?.role,
+      payerType,
+      createWalletTransaction,
+    });
+    if (payerSelectorVisible) {
+      const payerCheck = validatePayerSourceInput(payer, amountPaying);
+      if (!payerCheck.ok) {
+        setError(payerCheck.reason);
+        return;
+      }
+    }
+
     // Soft confirm before saving a brand-new settlement with no subcontract
     // link. Skipped on edit (user is consciously editing the row) and bypassed
     // when the user has already clicked "Save anyway" in the confirm dialog.
@@ -549,6 +594,14 @@ export default function TeaShopSettlementDialog({
         ? filterBySiteId
         : selectedSite?.id || null;
 
+      // Build payer-source columns from the unified PayerSourceInput. When the
+      // selector is hidden (site engineer paying from wallet), fall back to a
+      // single own_money source so the row still satisfies the
+      // payer_source-NOT-NULL contract on this table.
+      const payerRpc = payerSelectorVisible
+        ? toRpcArgs(payer)
+        : { p_payer_source: "own_money", p_payer_name: null, p_payer_source_split: null };
+
       const settlementData = {
         tea_shop_id: shop.id,
         site_id: effectiveSiteId, // NEW: For per-site FIFO waterfall
@@ -575,10 +628,9 @@ export default function TeaShopSettlementDialog({
         subcontract_id: selectedSubcontractId || null,
         proof_url: proofUrl,
         receipt_url: receiptUrl,
-        payer_source: payerSource,
-        payer_name: (payerSource === "custom" || payerSource === "other_site_money")
-          ? customPayerName
-          : null,
+        payer_source: payerRpc.p_payer_source,
+        payer_name: payerRpc.p_payer_name,
+        payer_source_split: payerRpc.p_payer_source_split,
         is_standalone: isStandalone,
       };
 
@@ -1056,13 +1108,23 @@ export default function TeaShopSettlementDialog({
           payerType,
           createWalletTransaction,
         }) && (
-          <PayerSourceSelector
-            value={payerSource}
-            customName={customPayerName}
-            onChange={setPayerSource}
-            onCustomNameChange={setCustomPayerName}
-            compact
-          />
+          <Box sx={{ mb: 3 }}>
+            <PayerSourceSplitInput
+              value={payer}
+              onChange={setPayer}
+              total={amountPaying}
+              siteId={selectedSite?.id}
+              disabled={loading}
+            />
+            {(() => {
+              const c = validatePayerSourceInput(payer, amountPaying);
+              return !c.ok && payer.mode === "split" ? (
+                <Typography variant="caption" color="error.main">
+                  {c.reason}
+                </Typography>
+              ) : null;
+            })()}
+          </Box>
         )}
 
         {/* Link to Subcontract (Optional) */}
@@ -1151,7 +1213,15 @@ export default function TeaShopSettlementDialog({
         <Button
           variant="contained"
           onClick={() => handleSave()}
-          disabled={loading || amountPaying <= 0}
+          disabled={
+            loading ||
+            amountPaying <= 0 ||
+            (!isSiteEngineerPayingFromWallet({
+              userRole: userProfile?.role,
+              payerType,
+              createWalletTransaction,
+            }) && !validatePayerSourceInput(payer, amountPaying).ok)
+          }
         >
           {loading ? <CircularProgress size={24} /> : isEditMode ? "Update Settlement" : "Record Payment"}
         </Button>
