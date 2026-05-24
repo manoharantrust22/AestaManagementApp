@@ -31,6 +31,8 @@ import { createClient } from "@/lib/supabase/client";
 import { recordSpend } from "@/lib/services/engineerWalletV2";
 import { useSiteSubcontracts } from "@/hooks/queries/useSubcontracts";
 import FileUploader, { type UploadedFile } from "@/components/common/FileUploader";
+import type { PayerSource, PayerSourceInput } from "@/types/settlement.types";
+import { toRpcArgs } from "@/lib/settlement/payerSource";
 
 interface MultiPartySettlementDialogProps {
   open: boolean;
@@ -41,7 +43,7 @@ interface MultiPartySettlementDialogProps {
 
 interface PartyState {
   skipped: boolean;
-  payer_source: string;
+  payer: PayerSourceInput;
   payment_mode: string;
   party_name: string;
   amount: number;
@@ -117,7 +119,10 @@ export function MultiPartySettlementDialog({ open, onClose, order, focusedPartyT
 
   const makeParty = (amount: number, skipped: boolean): PartyState => ({
     skipped,
-    payer_source: defaultPayer,
+    // NOTE: defaultPayer is a UI label ("Engineer Wallet" / "Company Account"),
+    // not a canonical PayerSource. We preserve the pre-existing string verbatim
+    // (see PAYER_SOURCES const) — Phase 3 only reshapes the carrier, not the values.
+    payer: { mode: "single", source: defaultPayer as PayerSource },
     payment_mode: isSiteEngineer ? "Cash" : "Cash",
     party_name: "",
     amount,
@@ -149,7 +154,11 @@ export function MultiPartySettlementDialog({ open, onClose, order, focusedPartyT
 
     try {
       let engineerTransactionId: string | null = null;
-      const isEngineerWallet = isSiteEngineer || p.payer_source === "Engineer Wallet";
+      // NOTE: "Engineer Wallet" is a UI label here, NOT a canonical PayerSource —
+      // pre-existing convention in this dialog. Phase 3 preserves the check as-is.
+      const isEngineerWallet =
+        isSiteEngineer ||
+        (p.payer.mode === "single" && (p.payer.source as string) === "Engineer Wallet");
 
       if (isEngineerWallet && userProfile?.id && order.site_id) {
         const walletMode = WALLET_PAYMENT_MODE_MAP[p.payment_mode] ?? "cash";
@@ -173,6 +182,14 @@ export function MultiPartySettlementDialog({ open, onClose, order, focusedPartyT
 
       const isTransport = partyType === "transport_inbound" || partyType === "transport_outbound";
 
+      // Engineer-wallet flows always attribute to own_money; otherwise preserve the
+      // per-party single-source selection. Multi-source split is not exposed here
+      // (the dense row layout doesn't accommodate it — see Task 8 note).
+      const partyPayer: PayerSourceInput = isEngineerWallet
+        ? { mode: "single", source: "own_money" }
+        : p.payer;
+      const partyRpc = toRpcArgs(partyPayer);
+
       await settleParty.mutateAsync({
         rental_order_id: order.id,
         party_type: partyType,
@@ -186,8 +203,9 @@ export function MultiPartySettlementDialog({ open, onClose, order, focusedPartyT
         balance_amount: p.amount,
         payment_mode: p.payment_mode,
         payment_channel: isEngineerWallet ? "engineer_wallet" : "direct",
-        payer_source: isEngineerWallet ? "own_money" : p.payer_source,
-        payer_name: p.party_name,
+        payer_source: partyRpc.p_payer_source,
+        payer_name: partyRpc.p_payer_name ?? undefined,
+        payer_source_split: partyRpc.p_payer_source_split,
         engineer_transaction_id: engineerTransactionId,
         settlement_reference: settlementRef,
         subcontract_id: p.subcontract_id ?? undefined,
@@ -359,8 +377,12 @@ export function MultiPartySettlementDialog({ open, onClose, order, focusedPartyT
                     {!isSiteEngineer ? (
                       <Select
                         size="small"
-                        value={p.payer_source}
-                        onChange={(e) => updateParty(partyType, { payer_source: e.target.value })}
+                        value={p.payer.mode === "single" ? (p.payer.source as string) : "own_money"}
+                        onChange={(e) =>
+                          updateParty(partyType, {
+                            payer: { mode: "single", source: e.target.value as PayerSource },
+                          })
+                        }
                         sx={{ flex: 1 }}
                       >
                         {PAYER_SOURCES.map((s) => (
