@@ -23,7 +23,7 @@ import type {
   RentalSettlement,
   TransportHandler,
 } from "@/types/rental.types";
-import { getPayerSourceLabel } from "@/components/settlement/PayerSourceSelector";
+import { formatPayerSource } from "@/lib/settlement/payerSource";
 import dayjs from "dayjs";
 
 interface RentalCostBreakdownProps {
@@ -373,7 +373,14 @@ export default function RentalCostBreakdown({
             </Box>
             <Typography variant="caption" color="text.secondary">
               {dayjs(settlement.settlement_date).format("DD MMM YYYY")} · {settlement.payment_mode}
-              {settlement.payer_source && ` · ${getPayerSourceLabel(settlement.payer_source as any, settlement.payer_name ?? undefined)}`}
+              {settlement.payer_source && (() => {
+                const out = formatPayerSource({
+                  payer_source: settlement.payer_source,
+                  payer_name: settlement.payer_name ?? null,
+                  payer_source_split: settlement.payer_source_split ?? null,
+                });
+                return ` · ${out.kind === "single" ? out.label : out.summary}`;
+              })()}
             </Typography>
           </Box>
         ) : (
