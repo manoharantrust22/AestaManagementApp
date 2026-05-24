@@ -10,6 +10,8 @@ import {
 } from "@/hooks/queries/useRentals";
 import { recordSpend } from "@/lib/services/engineerWalletV2";
 import SettleViaWalletDialog from "@/components/payments/SettleViaWalletDialog";
+import { toRpcArgs } from "@/lib/settlement/payerSource";
+import type { PayerSourceInput } from "@/types/settlement.types";
 import type { RentalOrderWithDetails } from "@/types/rental.types";
 
 interface RentalSettleViaWalletProps {
@@ -159,6 +161,13 @@ export default function RentalSettleViaWallet({
             ? payload.amount + totalAdvancePaid
             : undefined;
 
+        const payer: PayerSourceInput = {
+          mode: "single",
+          source: payload.payerSource,
+          name: payload.customPayerName || undefined,
+        };
+        const payerRpc = toRpcArgs(payer);
+
         await settleRental.mutateAsync({
           rental_order_id: order.id,
           party_type: "vendor",
@@ -171,8 +180,9 @@ export default function RentalSettleViaWallet({
           balance_amount: payload.amount,
           payment_mode: "cash",
           payment_channel: "engineer_wallet",
-          payer_source: payload.payerSource,
-          payer_name: payload.customPayerName,
+          payer_source: payerRpc.p_payer_source,
+          payer_name: payerRpc.p_payer_name ?? undefined,
+          payer_source_split: payerRpc.p_payer_source_split,
           subcontract_id: payload.subcontractId || undefined,
           notes: payload.notes,
         });
