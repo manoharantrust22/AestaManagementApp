@@ -204,7 +204,15 @@ export function MultiPartySettlementDialog({ open, onClose, order, focusedPartyT
         payment_mode: p.payment_mode,
         payment_channel: isEngineerWallet ? "engineer_wallet" : "direct",
         payer_source: partyRpc.p_payer_source,
-        payer_name: partyRpc.p_payer_name ?? undefined,
+        // Preserve legacy behaviour: this dialog writes the party's person name
+        // (vendor/driver/laborer) into payer_name even though the source is a
+        // magic-string label like "Company Account" rather than a canonical
+        // PayerSource. Downstream displays (RentalExpenseInspectPane, the
+        // v_all_expenses CASE fallback, SettlementDetailDialog) read this
+        // value as the person identifier. Migrating away from this requires
+        // first migrating the magic-string PAYER_SOURCES list to canonical
+        // keys — out of scope for Phase 3.
+        payer_name: p.party_name || undefined,
         payer_source_split: partyRpc.p_payer_source_split,
         engineer_transaction_id: engineerTransactionId,
         settlement_reference: settlementRef,
