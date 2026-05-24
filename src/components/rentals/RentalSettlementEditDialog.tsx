@@ -24,6 +24,12 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useSiteSubcontracts } from "@/hooks/queries/useSubcontracts";
 import FileUploader, { type UploadedFile } from "@/components/common/FileUploader";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
+import {
+  validatePayerSourceInput,
+  toRpcArgs,
+} from "@/lib/settlement/payerSource";
+import type { PayerSource, PayerSourceInput } from "@/types/settlement.types";
 
 interface Props {
   open: boolean;
@@ -33,7 +39,6 @@ interface Props {
   orderId: string;
 }
 
-const PAYER_SOURCES = ["Company Account", "Site Cash", "Engineer Wallet", "Own Money"];
 const PAYMENT_MODES = ["Cash", "Bank Transfer", "UPI", "Cheque"];
 
 const today = new Date().toISOString().split("T")[0];
@@ -54,7 +59,16 @@ export function RentalSettlementEditDialog({ open, onClose, settlement, siteId, 
     settlement.negotiated_final_amount ?? settlement.balance_amount ?? 0
   );
   const [paymentMode, setPaymentMode] = useState(settlement.payment_mode ?? "Cash");
-  const [payerSource, setPayerSource] = useState(settlement.payer_source ?? "Company Account");
+  const [payer, setPayer] = useState<PayerSourceInput>(() => {
+    if (settlement.payer_source_split && settlement.payer_source_split.length > 0) {
+      return { mode: "split", rows: settlement.payer_source_split };
+    }
+    return {
+      mode: "single",
+      source: (settlement.payer_source as PayerSource) ?? "own_money",
+      name: settlement.payer_name ?? undefined,
+    };
+  });
   const [partyName, setPartyName] = useState(settlement.party_name ?? "");
   const [subcontractId, setSubcontractId] = useState<string | null>(settlement.subcontract_id);
   const [notes, setNotes] = useState(settlement.notes ?? "");
@@ -77,6 +91,13 @@ export function RentalSettlementEditDialog({ open, onClose, settlement, siteId, 
 
   const handleSave = async () => {
     setError("");
+    const payerCheck = validatePayerSourceInput(payer, amount);
+    if (!payerCheck.ok) {
+      setError(payerCheck.reason);
+      return;
+    }
+    const payerRpc = toRpcArgs(payer);
+
     try {
       await update.mutateAsync({
         id: settlement.id,
@@ -85,7 +106,9 @@ export function RentalSettlementEditDialog({ open, onClose, settlement, siteId, 
         negotiated_final_amount: amount,
         balance_amount: amount,
         payment_mode: paymentMode,
-        payer_source: payerSource,
+        payer_source: payerRpc.p_payer_source,
+        payer_name: payerRpc.p_payer_name ?? null,
+        payer_source_split: payerRpc.p_payer_source_split,
         party_name: partyName || null,
         subcontract_id: subcontractId,
         notes: notes || null,
@@ -153,17 +176,27 @@ export function RentalSettlementEditDialog({ open, onClose, settlement, siteId, 
           />
 
           {/* Payer source */}
-          <Select
-            size="small"
-            fullWidth
-            value={payerSource}
-            onChange={(e) => setPayerSource(e.target.value)}
-            displayEmpty
-          >
-            {PAYER_SOURCES.map((s) => (
-              <MenuItem key={s} value={s}>{s}</MenuItem>
-            ))}
-          </Select>
+          <Box>
+            <PayerSourceSplitInput
+              value={payer}
+              onChange={setPayer}
+              total={amount}
+              siteId={siteId}
+              disabled={update.isPending}
+            />
+            {(() => {
+              const c = validatePayerSourceInput(payer, amount);
+              return !c.ok && payer.mode === "split" ? (
+                <Typography
+                  variant="caption"
+                  color="error.main"
+                  sx={{ mt: 1, display: "block" }}
+                >
+                  {c.reason}
+                </Typography>
+              ) : null;
+            })()}
+          </Box>
 
           {/* Payment mode */}
           <Select
@@ -271,7 +304,9 @@ export function RentalSettlementEditDialog({ open, onClose, settlement, siteId, 
           variant="contained"
           color="success"
           onClick={handleSave}
-          disabled={update.isPending}
+          disabled={
+            update.isPending || !validatePayerSourceInput(payer, amount).ok
+          }
         >
           {update.isPending ? "Saving…" : "Save Changes"}
         </Button>

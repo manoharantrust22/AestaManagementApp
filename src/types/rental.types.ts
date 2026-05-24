@@ -321,6 +321,7 @@ export interface RentalSettlement {
   payment_channel: string | null;
   payer_source: string | null;
   payer_name: string | null;
+  payer_source_split: PayerSourceSplitRow[] | null;
   final_receipt_url: string | null;
   vendor_bill_url: string | null;
   upi_screenshot_url: string | null;
