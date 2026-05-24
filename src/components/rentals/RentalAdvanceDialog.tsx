@@ -26,15 +26,19 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useRecordRentalAdvance } from "@/hooks/queries/useRentals";
 import { useSiteSubcontracts } from "@/hooks/queries/useSubcontracts";
 import FileUploader, { UploadedFile } from "@/components/common/FileUploader";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
+import {
+  validatePayerSourceInput,
+  toRpcArgs,
+} from "@/lib/settlement/payerSource";
 import type {
   RentalOrderWithDetails,
   RentalAdvanceFormData,
 } from "@/types/rental.types";
-import type { PayerSource } from "@/types/settlement.types";
+import type { PayerSourceInput } from "@/types/settlement.types";
 import dayjs from "dayjs";
 
 type PaymentMode = "cash" | "upi" | "bank_transfer" | "cheque";
@@ -83,8 +87,10 @@ export default function RentalAdvanceDialog({
     proof_url: undefined,
     notes: undefined,
   });
-  const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
-  const [customPayerName, setCustomPayerName] = useState("");
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
 
   // Calculate current totals
   const totalAdvancesPaid = order.total_advance_paid || 0;
@@ -114,8 +120,7 @@ export default function RentalAdvanceDialog({
         proof_url: undefined,
         notes: undefined,
       });
-      setPayerSource("own_money");
-      setCustomPayerName("");
+      setPayer({ mode: "single", source: "own_money" });
       setSubcontractId(null);
       setError("");
     }
@@ -126,25 +131,36 @@ export default function RentalAdvanceDialog({
     setError("");
   };
 
+  // Site engineers always pay via their wallet from own_money; the picker is
+  // hidden for them, so we force a single-source own_money input regardless of
+  // any stale state in `payer`.
+  const effectivePayer: PayerSourceInput = isSiteEngineer
+    ? { mode: "single", source: "own_money" }
+    : payer;
+
   const handleSubmit = async () => {
     if (formData.amount <= 0) {
       setError("Amount must be greater than 0");
       return;
     }
 
+    const payerCheck = validatePayerSourceInput(effectivePayer, formData.amount);
+    if (!payerCheck.ok) {
+      setError(payerCheck.reason);
+      return;
+    }
+    const payerRpc = toRpcArgs(effectivePayer);
+
     try {
-      const effectivePayerSource: PayerSource = isSiteEngineer ? "own_money" : payerSource;
       await recordAdvance.mutateAsync({
         rental_order_id: order.id,
         advance_date: formData.advance_date,
         amount: formData.amount,
         payment_mode: formData.payment_mode,
         payment_channel: isSiteEngineer ? "engineer_wallet" : formData.payment_channel,
-        payer_source: effectivePayerSource,
-        payer_name:
-          !isSiteEngineer && (payerSource === "custom" || payerSource === "other_site_money")
-            ? customPayerName
-            : undefined,
+        payer_source: payerRpc.p_payer_source,
+        payer_name: payerRpc.p_payer_name ?? undefined,
+        payer_source_split: payerRpc.p_payer_source_split,
         proof_url: formData.proof_url || undefined,
         notes: formData.notes || undefined,
         subcontract_id: subcontractId || undefined,
@@ -328,13 +344,23 @@ export default function RentalAdvanceDialog({
                 </Typography>
               </Box>
             ) : (
-              <PayerSourceSelector
-                value={payerSource}
-                customName={customPayerName}
-                onChange={setPayerSource}
-                onCustomNameChange={setCustomPayerName}
-                compact
-              />
+              <>
+                <PayerSourceSplitInput
+                  value={payer}
+                  onChange={setPayer}
+                  total={formData.amount}
+                  siteId={order.site_id}
+                  disabled={isLoading}
+                />
+                {(() => {
+                  const c = validatePayerSourceInput(payer, formData.amount);
+                  return !c.ok && payer.mode === "split" ? (
+                    <Typography variant="caption" color="error.main">
+                      {c.reason}
+                    </Typography>
+                  ) : null;
+                })()}
+              </>
             )}
           </Grid>
 
@@ -436,7 +462,11 @@ export default function RentalAdvanceDialog({
         <Button
           variant="contained"
           onClick={handleSubmit}
-          disabled={isLoading || formData.amount <= 0}
+          disabled={
+            isLoading ||
+            formData.amount <= 0 ||
+            !validatePayerSourceInput(effectivePayer, formData.amount).ok
+          }
         >
           {isLoading ? "Recording..." : "Record Advance"}
         </Button>

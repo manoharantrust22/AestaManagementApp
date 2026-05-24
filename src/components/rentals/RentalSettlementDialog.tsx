@@ -32,15 +32,19 @@ import {
 } from "@/hooks/queries/useRentals";
 import { useSiteSubcontracts } from "@/hooks/queries/useSubcontracts";
 import FileUploader, { UploadedFile } from "@/components/common/FileUploader";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
 import { useAuth } from "@/contexts/AuthContext";
 import { isSiteEngineerPayingFromWallet } from "@/components/expenses/walletPayerLock";
 import { createClient } from "@/lib/supabase/client";
+import {
+  validatePayerSourceInput,
+  toRpcArgs,
+} from "@/lib/settlement/payerSource";
 import type {
   RentalOrderWithDetails,
   RentalSettlementFormData,
 } from "@/types/rental.types";
-import type { PayerSource } from "@/types/settlement.types";
+import type { PayerSourceInput } from "@/types/settlement.types";
 import dayjs from "dayjs";
 
 type PaymentMode = "cash" | "upi" | "bank_transfer" | "cheque";
@@ -89,8 +93,10 @@ export default function RentalSettlementDialog({
   const [error, setError] = useState("");
   const [useNegotiatedAmount, setUseNegotiatedAmount] = useState(false);
   const [negotiatedAmount, setNegotiatedAmount] = useState(0);
-  const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
-  const [customPayerName, setCustomPayerName] = useState("");
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
   const [formData, setFormData] = useState({
     settlement_date: dayjs().format("YYYY-MM-DD"),
     payment_mode: "upi" as PaymentMode,
@@ -132,8 +138,7 @@ export default function RentalSettlementDialog({
         notes: "",
       });
       setUseNegotiatedAmount(false);
-      setPayerSource("own_money");
-      setCustomPayerName("");
+      setPayer({ mode: "single", source: "own_money" });
       setError("");
     }
   }, [open, costCalc]);
@@ -154,6 +159,13 @@ export default function RentalSettlementDialog({
       return;
     }
 
+    const payerCheck = validatePayerSourceInput(payer, balanceAmount);
+    if (!payerCheck.ok) {
+      setError(payerCheck.reason);
+      return;
+    }
+    const payerRpc = toRpcArgs(payer);
+
     try {
       const settlementData: RentalSettlementFormData = {
         rental_order_id: order.id,
@@ -167,11 +179,9 @@ export default function RentalSettlementDialog({
         balance_amount: balanceAmount,
         payment_mode: formData.payment_mode,
         payment_channel: "direct",
-        payer_source: payerSource,
-        payer_name:
-          payerSource === "custom" || payerSource === "other_site_money"
-            ? customPayerName
-            : undefined,
+        payer_source: payerRpc.p_payer_source,
+        payer_name: payerRpc.p_payer_name ?? undefined,
+        payer_source_split: payerRpc.p_payer_source_split,
         final_receipt_url: formData.final_receipt_url || undefined,
         vendor_bill_url: formData.vendor_bill_url || undefined,
         upi_screenshot_url: formData.upi_screenshot_url || undefined,
@@ -469,13 +479,21 @@ export default function RentalSettlementDialog({
               wallet deposit attribution in Phase 2). */}
           {!walletOnly && (
             <Grid size={12}>
-              <PayerSourceSelector
-                value={payerSource}
-                customName={customPayerName}
-                onChange={setPayerSource}
-                onCustomNameChange={setCustomPayerName}
-                compact
+              <PayerSourceSplitInput
+                value={payer}
+                onChange={setPayer}
+                total={balanceAmount}
+                siteId={order.site_id}
+                disabled={isLoading}
               />
+              {(() => {
+                const c = validatePayerSourceInput(payer, balanceAmount);
+                return !c.ok && payer.mode === "split" ? (
+                  <Typography variant="caption" color="error.main">
+                    {c.reason}
+                  </Typography>
+                ) : null;
+              })()}
             </Grid>
           )}
 
@@ -588,7 +606,11 @@ export default function RentalSettlementDialog({
           variant="contained"
           color="primary"
           onClick={handleSubmit}
-          disabled={isLoading || outstandingItemsCount > 0}
+          disabled={
+            isLoading ||
+            outstandingItemsCount > 0 ||
+            (!walletOnly && !validatePayerSourceInput(payer, balanceAmount).ok)
+          }
         >
           {isLoading ? "Settling..." : "Complete Settlement"}
         </Button>
