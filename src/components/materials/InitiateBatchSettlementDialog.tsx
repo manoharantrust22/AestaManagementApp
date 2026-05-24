@@ -37,9 +37,12 @@ import {
   BATCH_USAGE_SETTLEMENT_STATUS_LABELS,
   BATCH_USAGE_SETTLEMENT_STATUS_COLORS,
 } from "@/types/material.types";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
-import type { PayerSource } from "@/types/settlement.types";
-import { requiresPayerName } from "@/types/settlement.types";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
+import {
+  toRpcArgs,
+  validatePayerSourceInput,
+} from "@/lib/settlement/payerSource";
+import type { PayerSourceInput } from "@/types/settlement.types";
 import { isSiteEngineerPayingFromWallet } from "@/components/expenses/walletPayerLock";
 
 interface InitiateBatchSettlementDialogProps {
@@ -82,8 +85,12 @@ export default function InitiateBatchSettlementDialog({
     new Date().toISOString().split("T")[0]
   );
   const [paymentReference, setPaymentReference] = useState<string>("");
-  const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
-  const [payerName, setPayerName] = useState<string>("");
+  // Phase 4: PayerSourceInput supports both single-source and 2-3-row split
+  // mode. Replaces the legacy { payerSource, payerName } pair.
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
   const [error, setError] = useState<string>("");
   const [success, setSuccess] = useState<boolean>(false);
   const [settlementCode, setSettlementCode] = useState<string>("");
@@ -132,8 +139,7 @@ export default function InitiateBatchSettlementDialog({
       setPaymentMode("upi");
       setPaymentDate(new Date().toISOString().split("T")[0]);
       setPaymentReference("");
-      setPayerSource("own_money");
-      setPayerName("");
+      setPayer({ mode: "single", source: "own_money" });
       setError("");
       setSuccess(false);
       setSettlementCode("");
@@ -161,10 +167,16 @@ export default function InitiateBatchSettlementDialog({
       setError("Please select a payment date");
       return;
     }
-    if (requiresPayerName(payerSource) && !payerName.trim()) {
-      setError("Please enter the payer name");
+
+    // Phase 4: unified validation — single-source custom-name AND split
+    // sum/keys/length. Validate against the FINAL (bargained) amount because
+    // that's the value the RPC will validate server-side too.
+    const payerCheck = validatePayerSourceInput(payer, finalSettlementAmount);
+    if (!payerCheck.ok) {
+      setError(payerCheck.reason);
       return;
     }
+    const payerRpc = toRpcArgs(payer);
 
     try {
       const result = await processSettlement.mutateAsync({
@@ -178,8 +190,11 @@ export default function InitiateBatchSettlementDialog({
           ? finalSettlementAmount
           : undefined,
         created_by: user?.id,
-        settlement_payer_source: payerSource,
-        settlement_payer_name: payerName.trim() || undefined,
+        // p_payer_source is the literal "split" sentinel in split mode;
+        // settlement_payer_source/_name columns get set accordingly.
+        settlement_payer_source: payerRpc.p_payer_source,
+        settlement_payer_name: payerRpc.p_payer_name || undefined,
+        payer_source_split: payerRpc.p_payer_source_split,
       });
 
       setSuccess(true);
@@ -474,17 +489,26 @@ export default function InitiateBatchSettlementDialog({
           </Grid>
 
           {/* Payer Source — captured on the debtor BEXP-* row so /site/expenses
-              can show which money pool funded this settlement. */}
+              can show which money pool funded this settlement. Phase 4: admins
+              can split across up to 3 sources (engineers stay on single-source
+              wallet attribution and never reach this branch). */}
           {!walletOnly && (
             <Grid size={12}>
-              <PayerSourceSelector
-                value={payerSource}
-                customName={payerName}
-                onChange={setPayerSource}
-                onCustomNameChange={setPayerName}
+              <PayerSourceSplitInput
+                value={payer}
+                onChange={setPayer}
+                total={finalSettlementAmount}
                 siteId={debtorSiteId}
-                compact
+                disabled={processSettlement.isPending}
               />
+              {(() => {
+                const c = validatePayerSourceInput(payer, finalSettlementAmount);
+                return !c.ok && payer.mode === "split" ? (
+                  <Typography variant="caption" color="error.main" sx={{ display: "block", mt: 0.5 }}>
+                    {c.reason}
+                  </Typography>
+                ) : null;
+              })()}
             </Grid>
           )}
 
@@ -511,7 +535,16 @@ export default function InitiateBatchSettlementDialog({
           variant="contained"
           color="success"
           onClick={handleSubmit}
-          disabled={processSettlement.isPending || pendingUsageRecords.length === 0}
+          disabled={
+            processSettlement.isPending ||
+            pendingUsageRecords.length === 0 ||
+            // Block submit while split is invalid (sum mismatch / missing
+            // custom-name / duplicate sources). Single-source failures
+            // still surface as inline alerts on submit.
+            (!walletOnly &&
+              payer.mode === "split" &&
+              !validatePayerSourceInput(payer, finalSettlementAmount).ok)
+          }
           startIcon={<SettlementIcon />}
         >
           {processSettlement.isPending ? "Processing..." : "Confirm Settlement"}
