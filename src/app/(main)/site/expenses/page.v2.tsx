@@ -217,7 +217,6 @@ export default function ExpensesPageV2() {
   }, [tradeFilter, subKindFilter, status]);
 
   const tableRef = useRef<HTMLDivElement>(null);
-  const sentinelRef = useRef<HTMLTableRowElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [linkAnchor, setLinkAnchor] = useState<{ el: HTMLElement; row: ExpenseRow } | null>(null);
 
@@ -311,32 +310,44 @@ export default function ExpensesPageV2() {
       sortDir: "desc",
     });
 
-  // Auto-load more rows when the sentinel near the bottom of the table comes
-  // into view. The `!isLoading` guard ensures only one fetch is in flight at
-  // a time; the limit-reset effect inside the data hook resets when scope
-  // /sort changes, so this fires fresh on each new context.
-  useEffect(() => {
-    const target = sentinelRef.current;
-    if (!target) return;
-    if (!canLoadMore) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (entry?.isIntersecting && canLoadMore && !isLoading) {
-          loadMore();
-        }
-      },
-      {
-        // Observe relative to the page's inner scroll container, not the
-        // browser viewport. In fullscreen mode the outer Box is the only
-        // scrolling element and viewport-relative observation would never fire.
-        root: scrollContainerRef.current,
-        rootMargin: "200px",
-      }, // start fetching a little before user reaches the bottom
-    );
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, [canLoadMore, isLoading, loadMore, expenses.length]);
+  // Callback ref for the infinite-scroll sentinel. Using a callback ref
+  // (instead of useRef + useEffect) guarantees the IntersectionObserver
+  // attaches the moment the sentinel TR mounts, even when the table is
+  // conditionally rendered (mobile tab switch). The previous useEffect-based
+  // approach missed re-attachment when mobileTab changed because no dep in
+  // the effect's array reflected the tab change.
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
+  const sentinelRef = useCallback(
+    (node: HTMLTableRowElement | null) => {
+      // Tear down any previous observer (e.g., when the sentinel unmounts).
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+        observerRef.current = null;
+      }
+
+      if (!node) return;
+      if (!canLoadMore) return;
+
+      observerRef.current = new IntersectionObserver(
+        (entries) => {
+          const entry = entries[0];
+          if (entry?.isIntersecting && canLoadMore && !isLoading) {
+            loadMore();
+          }
+        },
+        {
+          // Observe relative to the page's inner scroll container, not the
+          // browser viewport. In fullscreen mode the outer Box is the only
+          // scrolling element and viewport-relative observation would never fire.
+          root: scrollContainerRef.current,
+          rootMargin: "200px",
+        },
+      );
+      observerRef.current.observe(node);
+    },
+    [canLoadMore, isLoading, loadMore],
+  );
 
   const { data: financial, isLoading: financialLoading } = useExpensePageKPIs(selectedSite?.id);
   const { data: siteTrades } = useSiteTrades(selectedSite?.id);
