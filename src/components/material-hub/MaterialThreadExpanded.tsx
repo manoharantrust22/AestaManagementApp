@@ -24,7 +24,12 @@ import CheckIcon from "@mui/icons-material/Check";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { inr } from "@/lib/material-hub/formatters";
 import { fmtDateShort } from "@/lib/material-hub/formatters";
+import { M_STAGES, stageIndex } from "@/lib/material-hub/stageHelpers";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
+
+const DELIVERED_IDX = M_STAGES.indexOf("delivered");
+const SETTLED_IDX = M_STAGES.indexOf("settled");
+const IN_USE_IDX = M_STAGES.indexOf("in-use");
 
 interface BlockHeaderProps {
   title: string;
@@ -127,12 +132,36 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
   const isOwn = t.kind === "own";
   const isSpot = t.purchase_type === "spot";
 
-  // Block completion flags
+  // Block completion flags. Detailed records (t.delivery / t.settlement /
+  // t.inventory) aren't always joined into the thread, so we fall back to
+  // thread.stage AND PO progress to mark a block "done" when the lifecycle
+  // has clearly advanced past it.
+  const sIdx = stageIndex(t.stage);
+  const deliveredOrBeyond = sIdx >= DELIVERED_IDX;
+  const settledOrBeyond = sIdx >= SETTLED_IDX;
+  const inUseOrBeyond = sIdx >= IN_USE_IDX;
+
+  // Partial delivery state from PO data.
+  const orderedQty = t.po?.qty ?? 0;
+  const receivedQty = t.po?.received_qty ?? 0;
+  const isPartialDelivered = receivedQty > 0 && receivedQty < orderedQty;
+  const isFullyDelivered = receivedQty > 0 && receivedQty >= orderedQty;
+
+  // Advance-paid implicit settlement: advance POs settle the vendor at PO time.
+  const isAdvancePaid =
+    !!t.po && t.po.payment_timing === "advance" && t.po.advance_paid > 0;
+
   const hasRequest = true;
   const hasPO = !!t.po || isSpot;
-  const hasDelivery = !!t.delivery || isSpot;
-  const hasSettlement = t.settlement?.status === "settled" || isSpot;
-  const hasInventory = !!t.inventory;
+  const hasDelivery =
+    !!t.delivery ||
+    isSpot ||
+    deliveredOrBeyond ||
+    isPartialDelivered ||
+    isFullyDelivered;
+  const hasSettlement =
+    t.settlement?.status === "settled" || isSpot || settledOrBeyond || isAdvancePaid;
+  const hasInventory = !!t.inventory || inUseOrBeyond || receivedQty > 0;
   const hasUsage =
     (t.inter_site_usage && t.inter_site_usage.length > 0) ||
     (isOwn && hasSettlement);
@@ -275,6 +304,163 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               />
               {t.delivery.notes && <DetailRow label="Notes" value={t.delivery.notes} />}
             </>
+          ) : isPartialDelivered || isFullyDelivered || deliveredOrBeyond ? (
+            <>
+              <DetailRow
+                label="Status"
+                value={isFullyDelivered ? "DELIVERED" : "PARTIAL"}
+                tone={isFullyDelivered ? "success" : "warn"}
+              />
+              {receivedQty > 0 && (
+                <>
+                  <DetailRow
+                    label="Received"
+                    value={`${Math.round(receivedQty)} of ${Math.round(orderedQty)} ${t.material_unit}`}
+                    emphasis
+                  />
+                  <DetailRow
+                    label="Pending"
+                    value={`${Math.max(0, Math.round(orderedQty - receivedQty))} ${t.material_unit}`}
+                    tone={orderedQty - receivedQty > 0 ? "warn" : "muted"}
+                  />
+                  {/* Progress bar */}
+                  <Box
+                    sx={{
+                      marginTop: "8px",
+                      height: 6,
+                      borderRadius: "3px",
+                      background: hubTokens.hairline,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        width: `${Math.min((receivedQty / Math.max(orderedQty, 1)) * 100, 100)}%`,
+                        height: "100%",
+                        background: isFullyDelivered ? hubTokens.success : hubTokens.warn,
+                      }}
+                    />
+                  </Box>
+                </>
+              )}
+              {t.po?.expected && (
+                <Box sx={{ marginTop: "6px" }}>
+                  <DetailRow label="Expected" value={fmtDateShort(t.po.expected)} />
+                </Box>
+              )}
+
+              {/* Per-batch GRN log — one row per `deliveries` record */}
+              {t.po && t.po.delivery_batches.length > 0 && (
+                <Box
+                  sx={{
+                    marginTop: "10px",
+                    paddingTop: "10px",
+                    borderTop: `1px dashed ${hubTokens.border}`,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: "0.4px",
+                      color: hubTokens.muted,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Batches ({t.po.delivery_batches.length})
+                  </Typography>
+                  {t.po.delivery_batches.map((b) => (
+                    <Box
+                      key={b.id}
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        padding: "4px 6px",
+                        background: hubTokens.hairline,
+                        borderRadius: "6px",
+                        fontSize: 11,
+                      }}
+                    >
+                      <Box
+                        component="span"
+                        sx={{
+                          fontFamily: hubTokens.mono,
+                          color: hubTokens.muted,
+                          minWidth: 64,
+                        }}
+                      >
+                        {fmtDateShort(b.delivery_date)}
+                      </Box>
+                      <Box
+                        component="span"
+                        sx={{
+                          fontFamily: hubTokens.mono,
+                          color: hubTokens.text,
+                          fontWeight: 700,
+                          minWidth: 70,
+                        }}
+                      >
+                        {Math.round(b.accepted_qty || b.received_qty)} {t.material_unit}
+                      </Box>
+                      <Box
+                        component="span"
+                        sx={{ color: hubTokens.subtle, flex: 1, fontSize: 10.5 }}
+                      >
+                        {b.grn_number}
+                      </Box>
+                      {b.verified ? (
+                        <Box
+                          component="span"
+                          sx={{
+                            padding: "1px 5px",
+                            borderRadius: "3px",
+                            background: hubTokens.successSoft,
+                            color: hubTokens.success,
+                            fontSize: 9,
+                            fontWeight: 800,
+                            letterSpacing: "0.3px",
+                          }}
+                        >
+                          ✓ VERIFIED
+                        </Box>
+                      ) : (
+                        <Box
+                          component="span"
+                          sx={{
+                            padding: "1px 5px",
+                            borderRadius: "3px",
+                            background: hubTokens.warnSoft,
+                            color: hubTokens.warn,
+                            fontSize: 9,
+                            fontWeight: 800,
+                            letterSpacing: "0.3px",
+                          }}
+                        >
+                          PENDING
+                        </Box>
+                      )}
+                    </Box>
+                  ))}
+                </Box>
+              )}
+
+              {t.po && t.po.delivery_batches.length === 0 && receivedQty > 0 && (
+                <Typography
+                  sx={{
+                    fontSize: 10.5,
+                    color: hubTokens.subtle,
+                    fontStyle: "italic",
+                    marginTop: "6px",
+                  }}
+                >
+                  Batch-by-batch GRN log on /site/delivery-verification.
+                </Typography>
+              )}
+            </>
           ) : (
             <Typography sx={{ fontSize: 12, color: hubTokens.subtle, fontStyle: "italic" }}>
               Pending delivery.
@@ -315,6 +501,47 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                 <DetailRow label="On" value={fmtDateShort(t.settlement.settled_at)} />
               )}
             </>
+          ) : isAdvancePaid ? (
+            <>
+              <DetailRow label="Status" value="ADVANCE PAID" tone="success" />
+              <DetailRow
+                label="Paid upfront"
+                value={inr(t.po!.advance_paid)}
+                emphasis
+              />
+              {t.po && t.po.amount !== t.po.advance_paid && (
+                <DetailRow
+                  label="PO total"
+                  value={inr(t.po.amount)}
+                  tone="muted"
+                />
+              )}
+              <Typography
+                sx={{
+                  fontSize: 10.5,
+                  color: hubTokens.subtle,
+                  fontStyle: "italic",
+                  marginTop: "6px",
+                }}
+              >
+                Vendor was settled at PO creation — no post-delivery payment due.
+              </Typography>
+            </>
+          ) : settledOrBeyond ? (
+            <>
+              <DetailRow label="Status" value="SETTLED" tone="success" />
+              {t.po && <DetailRow label="Amount" value={inr(t.po.amount)} emphasis />}
+              <Typography
+                sx={{
+                  fontSize: 10.5,
+                  color: hubTokens.subtle,
+                  fontStyle: "italic",
+                  marginTop: "6px",
+                }}
+              >
+                Vendor bill on /site/material-settlements.
+              </Typography>
+            </>
           ) : (
             <Typography sx={{ fontSize: 12, color: hubTokens.subtle, fontStyle: "italic" }}>
               Not settled yet.
@@ -336,7 +563,37 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
         >
           {t.inventory ? (
             <>
-              <DetailRow label="Batch" value={t.inventory.batch} />
+              {t.inventory.batch === "—" ? (
+                <Typography
+                  sx={{
+                    fontSize: 11,
+                    color: hubTokens.subtle,
+                    fontStyle: "italic",
+                    marginBottom: "6px",
+                  }}
+                >
+                  Merged into the site&apos;s {t.material_name} stock pool (own-site
+                  POs don&apos;t separate batches).
+                </Typography>
+              ) : (
+                <DetailRow
+                  label="Batch"
+                  value={
+                    <Box
+                      component="a"
+                      href="/site/materials/inventory"
+                      sx={{
+                        fontFamily: hubTokens.mono,
+                        color: hubTokens.primary,
+                        textDecoration: "none",
+                        "&:hover": { textDecoration: "underline" },
+                      }}
+                    >
+                      {t.inventory.batch}
+                    </Box>
+                  }
+                />
+              )}
               <DetailRow label="Received" value={`${t.inventory.received} ${t.material_unit}`} />
               <DetailRow label="Used" value={`${t.inventory.used} ${t.material_unit}`} />
               <DetailRow
@@ -358,7 +615,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                   sx={{
                     width: `${
                       t.inventory.received > 0
-                        ? (t.inventory.used / t.inventory.received) * 100
+                        ? Math.min(100, (t.inventory.used / t.inventory.received) * 100)
                         : 0
                     }%`,
                     height: "100%",
@@ -366,6 +623,31 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                   }}
                 />
               </Box>
+            </>
+          ) : receivedQty > 0 ? (
+            <>
+              <DetailRow
+                label="Added to stock"
+                value={`${Math.round(receivedQty)} ${t.material_unit}`}
+                emphasis
+              />
+              {orderedQty > receivedQty && (
+                <DetailRow
+                  label="Awaiting"
+                  value={`${Math.round(orderedQty - receivedQty)} ${t.material_unit}`}
+                  tone="warn"
+                />
+              )}
+              <Typography
+                sx={{
+                  fontSize: 10.5,
+                  color: hubTokens.subtle,
+                  fontStyle: "italic",
+                  marginTop: "6px",
+                }}
+              >
+                Live stock + usage history on /site/materials/inventory.
+              </Typography>
             </>
           ) : (
             <Typography sx={{ fontSize: 12, color: hubTokens.subtle, fontStyle: "italic" }}>
@@ -388,9 +670,53 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
         >
           {isOwn ? (
             hasSettlement ? (
-              <Typography sx={{ fontSize: 12, color: hubTokens.success, fontWeight: 600 }}>
-                Posted to {t.site_id} material expenses · {inr(t.settlement?.amount ?? t.spot?.amount ?? 0)}
-              </Typography>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <Typography sx={{ fontSize: 12, color: hubTokens.success, fontWeight: 600 }}>
+                  Posted to site expenses · {inr(t.settlement?.amount ?? t.spot?.amount ?? 0)}
+                </Typography>
+                {t.settlement?.expense_ref && (
+                  <>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        fontSize: 11,
+                        color: hubTokens.muted,
+                      }}
+                    >
+                      <Box component="span">Ref:</Box>
+                      <Box
+                        component="a"
+                        href={`/site/expenses?q=${encodeURIComponent(
+                          t.settlement.expense_ref
+                        )}&fromHub=${encodeURIComponent(t.id)}`}
+                        sx={{
+                          fontFamily: hubTokens.mono,
+                          color: hubTokens.primary,
+                          textDecoration: "none",
+                          "&:hover": { textDecoration: "underline" },
+                        }}
+                      >
+                        {t.settlement.expense_ref}
+                      </Box>
+                    </Box>
+                    {t.settlement.settled_at && (
+                      <Typography
+                        sx={{
+                          fontSize: 10.5,
+                          color: hubTokens.subtle,
+                          fontStyle: "italic",
+                        }}
+                      >
+                        Note: /site/expenses sorts by settlement date (
+                        {fmtDateShort(t.settlement.settled_at)}), not the
+                        delivery date.
+                      </Typography>
+                    )}
+                  </>
+                )}
+              </Box>
             ) : (
               <Typography sx={{ fontSize: 12, color: hubTokens.subtle, fontStyle: "italic" }}>
                 Will post after settlement.

@@ -31,13 +31,35 @@ export function nextAction(t: MaterialThread): NextAction | null {
   if (t.stage === "rejected") return null;
   if (t.stage === "requested") return { who: "admin", label: "Approve →", verb: "Approve" };
   if (t.stage === "approved") return { who: "admin", label: "Create PO →", verb: "Create PO" };
-  if (t.stage === "ordered") return { who: "engineer", label: "Record delivery →", verb: "Record delivery" };
 
-  if (
-    t.stage === "delivered" &&
-    (!t.settlement || t.settlement.status === "pending")
-  ) {
+  // 'ordered' covers both no-delivery-yet AND partial-delivered. The next
+  // action is always to record the next batch.
+  if (t.stage === "ordered") {
+    const partial = t.po && t.po.received_qty > 0 && t.po.received_qty < t.po.qty;
+    return {
+      who: "engineer",
+      label: partial ? "Record next batch →" : "Record delivery →",
+      verb: partial ? "Record batch" : "Record delivery",
+    };
+  }
+
+  if (t.stage === "delivered") {
+    // Advance POs: vendor was settled at PO creation. Once fully delivered,
+    // there's no settlement step — jump straight to usage.
+    const isAdvancePaid =
+      !!t.po && t.po.payment_timing === "advance" && t.po.advance_paid > 0;
+    if (isAdvancePaid || t.settlement?.status === "settled") {
+      return { who: "engineer", label: "Log usage →", verb: "Log usage" };
+    }
     return { who: "office", label: "Settle vendor →", verb: "Settle" };
+  }
+
+  if (t.stage === "settled") {
+    // Settled but no usage logged yet. Engineer's next step is to start
+    // consuming from stock; not strictly required but surfaced as a hint.
+    const hasStock = !!t.inventory && t.inventory.remaining > 0;
+    if (hasStock) return { who: "engineer", label: "Log usage →", verb: "Log usage" };
+    return null;
   }
 
   if (t.stage === "in-use") return { who: "engineer", label: "Log usage →", verb: "Log usage" };

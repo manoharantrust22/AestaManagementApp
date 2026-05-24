@@ -13,7 +13,122 @@ import type {
   MaterialThread,
   ThreadStage,
   ThreadKind,
+  ThreadDeliveryBatch,
+  ThreadInventory,
 } from "@/lib/material-hub/threadTypes";
+
+// ----------------------------------------------------------------------------
+// Deliveries per site (joined with delivery_items so we can group by PO + material)
+// ----------------------------------------------------------------------------
+
+export interface DeliveryRow {
+  id: string;
+  grn_number: string;
+  po_id: string;
+  site_id: string;
+  delivery_date: string;
+  delivery_status: string;
+  verified: boolean | null;
+  vehicle_number: string | null;
+  notes: string | null;
+  items: Array<{
+    material_id: string;
+    received_qty: number | string;
+    accepted_qty: number | string;
+  }>;
+}
+
+function useSiteDeliveries(
+  siteId: string | undefined,
+  siteGroupId: string | null | undefined
+) {
+  const supabase = createClient();
+  return useQuery({
+    queryKey: ["deliveries", "for-site", siteId ?? null, siteGroupId ?? null],
+    enabled: !!siteId,
+    queryFn: async () => {
+      let query = (supabase as any)
+        .from("deliveries")
+        .select(
+          `
+          id, grn_number, po_id, site_id, delivery_date, delivery_status,
+          verified, vehicle_number, notes,
+          items:delivery_items(material_id, received_qty, accepted_qty)
+          `
+        );
+
+      // Sites can see their own deliveries + (if in group) cluster-mate deliveries.
+      // deliveries doesn't store site_group_id, so we go through site_id only.
+      query = query.eq("site_id", siteId);
+      query = query.order("delivery_date", { ascending: false });
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data ?? []) as DeliveryRow[];
+    },
+    staleTime: 60000,
+  });
+}
+
+// ----------------------------------------------------------------------------
+// Stock inventory + usage totals per (site, material)
+// ----------------------------------------------------------------------------
+
+export interface StockRow {
+  id: string;
+  site_id: string;
+  material_id: string;
+  current_qty: number | string;
+  available_qty: number | string;
+  batch_code: string | null;
+  last_received_date: string | null;
+}
+
+export interface UsageTotalRow {
+  inventory_id: string;
+  total_used: number;
+}
+
+function useSiteStockInventory(siteId: string | undefined) {
+  const supabase = createClient();
+  return useQuery({
+    queryKey: ["stock-inventory", "for-hub-site", siteId ?? null],
+    enabled: !!siteId,
+    queryFn: async () => {
+      const { data: stock, error: stockErr } = await (supabase as any)
+        .from("stock_inventory")
+        .select(
+          "id, site_id, material_id, current_qty, available_qty, batch_code, last_received_date"
+        )
+        .eq("site_id", siteId);
+      if (stockErr) throw stockErr;
+      const stockRows = (stock ?? []) as StockRow[];
+
+      // Sum usage transactions per inventory_id (for the "used so far" figure).
+      const invIds = stockRows.map((s) => s.id);
+      let usageMap = new Map<string, number>();
+      if (invIds.length > 0) {
+        const { data: txs, error: txErr } = await (supabase as any)
+          .from("stock_transactions")
+          .select("inventory_id, quantity")
+          .eq("transaction_type", "usage")
+          .in("inventory_id", invIds);
+        if (txErr) throw txErr;
+        for (const row of (txs ?? []) as Array<{
+          inventory_id: string;
+          quantity: number | string;
+        }>) {
+          usageMap.set(
+            row.inventory_id,
+            (usageMap.get(row.inventory_id) ?? 0) + Number(row.quantity)
+          );
+        }
+      }
+      return { stockRows, usageMap };
+    },
+    staleTime: 60000,
+  });
+}
 
 // ----------------------------------------------------------------------------
 // Spot purchases for site (own + group)
@@ -98,12 +213,61 @@ function useSiteSpotPurchases(
 }
 
 // ----------------------------------------------------------------------------
+// Settlement (material_purchase_expenses) lookup per PO
+// ----------------------------------------------------------------------------
+
+export interface SettlementSnapshot {
+  id: string;
+  ref_code: string | null;
+  purchase_order_id: string;
+  site_id: string;
+  is_paid: boolean;
+  paid_date: string | null;
+  status: string | null;
+  payment_channel: string | null;
+  total_amount: number | string;
+}
+
+function useSiteSettlements(
+  siteId: string | undefined,
+  siteGroupId: string | null | undefined
+) {
+  const supabase = createClient();
+  return useQuery({
+    queryKey: ["material-settlements", "for-hub-site", siteId ?? null, siteGroupId ?? null],
+    enabled: !!siteId,
+    queryFn: async () => {
+      let query = (supabase as any)
+        .from("material_purchase_expenses")
+        .select(
+          "id, ref_code, purchase_order_id, site_id, is_paid, paid_date, status, payment_channel, total_amount"
+        )
+        .not("purchase_order_id", "is", null);
+
+      if (siteGroupId) {
+        query = query.or(`site_id.eq.${siteId},site_group_id.eq.${siteGroupId}`);
+      } else {
+        query = query.eq("site_id", siteId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data ?? []) as SettlementSnapshot[];
+    },
+    staleTime: 60000,
+  });
+}
+
+// ----------------------------------------------------------------------------
 // Stage derivation
 // ----------------------------------------------------------------------------
 
 function deriveStandardStage(
   mr: MaterialRequestWithDetails,
-  po: PurchaseOrderWithDetails | undefined
+  po: PurchaseOrderWithDetails | undefined,
+  settlement: SettlementSnapshot | undefined,
+  inventoryUsed: number,
+  inventoryRemaining: number
 ): ThreadStage {
   if (mr.status === "rejected") return "rejected";
   if (mr.status === "cancelled") return "rejected";
@@ -114,24 +278,49 @@ function deriveStandardStage(
     return "requested";
   }
 
-  // PO exists — go by its status.
+  // PO exists — go by its status, then layer on settlement + usage state.
+  let base: ThreadStage;
   switch (po.status) {
     case "delivered":
+      base = "delivered";
+      break;
     case "partial_delivered":
-      // No settlement table joined yet — treat as delivered. Step 4+ will
-      // enrich with settlement state.
-      return "delivered";
+      // Partial delivery: still in 'ordered' stage from the lifecycle POV.
+      // The pipeline + row UI render the partial progress separately so the
+      // engineer knows to record the next batch (not chase settlement).
+      base = "ordered";
+      break;
     case "ordered":
     case "approved":
     case "pending_approval":
-      return "ordered";
+      base = "ordered";
+      break;
     case "cancelled":
       return "rejected";
     case "draft":
-      return "approved";
+      base = "approved";
+      break;
     default:
-      return "ordered";
+      base = "ordered";
   }
+
+  // If a settlement row exists and is paid AND the PO is fully delivered,
+  // advance to "settled". Partial deliveries (advance-paid bulk) stay in
+  // "ordered" so the engineer's next action remains "Record next batch" —
+  // the pipeline still marks SETTLE as done via the advance-paid override.
+  const isSettled = !!settlement && settlement.is_paid === true;
+  if (isSettled && base === "delivered") {
+    base = "settled";
+  }
+
+  // Once settled AND the stock is exhausted (nothing remaining + some used),
+  // mark as "exhausted". Otherwise if anything has been consumed, mark "in-use".
+  if (base === "settled") {
+    if (inventoryUsed > 0 && inventoryRemaining <= 0) return "exhausted";
+    if (inventoryUsed > 0) return "in-use";
+  }
+
+  return base;
 }
 
 function deriveKind(mr: MaterialRequestWithDetails): ThreadKind {
@@ -142,9 +331,23 @@ function deriveKind(mr: MaterialRequestWithDetails): ThreadKind {
 // Mapping: MaterialRequest → MaterialThread
 // ----------------------------------------------------------------------------
 
+interface StandardThreadDeps {
+  deliveriesByPo: Map<string, DeliveryRow[]>;
+  /** All inventory rows for a (site, material) pair — multiple rows when the
+   *  material has per-batch separation (group stock). The mapper picks the row
+   *  matching the thread's expense ref_code; falls back to the unnamed bucket. */
+  stockBySiteMaterial: Map<string, Array<{ stock: StockRow; used: number }>>;
+  settlementByPo: Map<string, SettlementSnapshot>;
+}
+
+function makeStockKey(siteId: string, materialId: string) {
+  return `${siteId}::${materialId}`;
+}
+
 function mapStandardThread(
   mr: MaterialRequestWithDetails,
-  poByRequestId: Map<string, PurchaseOrderWithDetails>
+  poByRequestId: Map<string, PurchaseOrderWithDetails>,
+  deps: StandardThreadDeps
 ): MaterialThread {
   const po = poByRequestId.get(mr.id);
   const primaryItem = mr.items?.[0];
@@ -154,17 +357,77 @@ function mapStandardThread(
     0
   );
 
-  const stage = deriveStandardStage(mr, po);
+  // Look up settlement first, then pick the inventory row matching this
+  // thread's batch (settlement.ref_code → stock_inventory.batch_code).
+  const settlement = po ? deps.settlementByPo.get(po.id) : undefined;
+  const batchCode = settlement?.ref_code ?? null;
+
+  let invMatch: { stock: StockRow; used: number } | undefined;
+  if (primaryItem?.material_id) {
+    const candidates =
+      deps.stockBySiteMaterial.get(
+        makeStockKey(mr.site_id, primaryItem.material_id)
+      ) ?? [];
+    if (batchCode) {
+      invMatch = candidates.find((c) => c.stock.batch_code === batchCode);
+    }
+    // Fall back to a row with no batch_code (the site's shared bucket) for
+    // own POs where deliveries merge into a single inventory row.
+    if (!invMatch) {
+      invMatch = candidates.find(
+        (c) => !c.stock.batch_code || c.stock.batch_code === ""
+      );
+    }
+  }
+  const invUsed = invMatch ? Math.max(0, invMatch.used) : 0;
+  const invRemaining = invMatch ? Math.max(0, Number(invMatch.stock.current_qty)) : 0;
+
+  const stage = deriveStandardStage(mr, po, settlement, invUsed, invRemaining);
 
   let threadPO: MaterialThread["po"] | undefined;
   if (po) {
+    const orderedQty = (po.items ?? []).reduce(
+      (sum, it) => sum + Number(it.quantity ?? 0),
+      0
+    );
+    const receivedQty = (po.items ?? []).reduce(
+      (sum, it) => sum + Number((it as any).received_qty ?? 0),
+      0
+    );
+
+    // Build the per-batch delivery log (for the primary material in this PO).
+    const primaryMaterialId = primaryItem?.material_id;
+    const poDeliveries = deps.deliveriesByPo.get(po.id) ?? [];
+    const deliveryBatches: ThreadDeliveryBatch[] = poDeliveries.map((d) => {
+      const matchingItem = primaryMaterialId
+        ? d.items.find((it) => it.material_id === primaryMaterialId)
+        : undefined;
+      const received = matchingItem
+        ? Number(matchingItem.received_qty)
+        : d.items.reduce((s, it) => s + Number(it.received_qty), 0);
+      const accepted = matchingItem
+        ? Number(matchingItem.accepted_qty)
+        : d.items.reduce((s, it) => s + Number(it.accepted_qty), 0);
+      return {
+        id: d.id,
+        grn_number: d.grn_number,
+        delivery_date: d.delivery_date,
+        received_qty: received,
+        accepted_qty: accepted,
+        verified: !!d.verified,
+        vehicle_number: d.vehicle_number,
+        notes: d.notes,
+      };
+    });
+
     threadPO = {
       id: po.id,
       po_number: po.po_number,
       vendor_id: po.vendor_id,
       vendor_name: (po as any).vendor?.name ?? undefined,
       amount: Number(po.total_amount ?? 0),
-      qty: (po.items ?? []).reduce((sum, it) => sum + Number(it.quantity ?? 0), 0),
+      qty: orderedQty,
+      received_qty: receivedQty,
       expected: po.expected_delivery_date,
       status:
         po.status === "partial_delivered"
@@ -173,6 +436,35 @@ function mapStandardThread(
             ? "delivered"
             : "ordered",
       payer_site_id: (po as any).site_id ?? mr.site_id,
+      payment_timing: ((po as any).payment_timing ?? "on_delivery") as
+        | "advance"
+        | "on_delivery",
+      advance_paid: Number((po as any).advance_paid ?? 0),
+      delivery_batches: deliveryBatches,
+    };
+  }
+
+  // Inventory snapshot — uses the same invMatch already resolved above.
+  let threadInventory: ThreadInventory | undefined;
+  if (invMatch) {
+    const remaining = Math.max(0, Number(invMatch.stock.current_qty));
+    const used = Math.max(0, invMatch.used);
+    // For batch-scoped rows: received = remaining + used.
+    // For the shared site bucket (no batch_code): the math is bucket-wide
+    // and doesn't represent THIS purchase alone — flag via a "—" batch label
+    // so the expanded view can render it without misleading the engineer.
+    const isSharedBucket = !invMatch.stock.batch_code;
+    threadInventory = {
+      batch: invMatch.stock.batch_code ?? "—",
+      received: isSharedBucket
+        ? // For bucket: prefer received_qty on the PO as the per-thread "received"
+          Number(po?.items?.reduce(
+            (s: number, it: any) => s + Number(it.received_qty ?? 0),
+            0
+          ) ?? 0)
+        : remaining + used,
+      used,
+      remaining,
     };
   }
 
@@ -202,7 +494,23 @@ function mapStandardThread(
     approved_at: mr.approved_at ?? null,
     rejected_reason: mr.rejection_reason ?? null,
     po: threadPO,
-    // delivery / settlement / inventory / inter_site_usage are populated later
+    inventory: threadInventory,
+    settlement: settlement
+      ? {
+          status: settlement.is_paid ? "settled" : "pending",
+          amount: Number(settlement.total_amount ?? 0),
+          paid_by:
+            settlement.payment_channel === "engineer_wallet"
+              ? "wallet"
+              : settlement.payment_channel === "direct"
+                ? "office"
+                : settlement.payment_channel ?? null,
+          settled_at: settlement.paid_date,
+          expense_ref: settlement.ref_code,
+          expense_id: settlement.id,
+        }
+      : undefined,
+    // delivery / inter_site_usage populated later
   };
 }
 
@@ -341,13 +649,16 @@ export function useMaterialThreads(
     siteGroupId: siteGroupId ?? undefined,
   });
   const sp = useSiteSpotPurchases(siteId, siteGroupId);
+  const deliveries = useSiteDeliveries(siteId, siteGroupId);
+  const stock = useSiteStockInventory(siteId);
+  const settlements = useSiteSettlements(siteId, siteGroupId);
 
   const { threads, materialRequestById, purchaseOrderById, spotBatchById } = useMemo(() => {
     const mrMap = new Map<string, MaterialRequestWithDetails>();
     const poMap = new Map<string, PurchaseOrderWithDetails>();
     const spMap = new Map<string, SpotPurchaseExpense>();
 
-    if (!mr.data || !po.data || !sp.data) {
+    if (!mr.data || !po.data || !sp.data || !settlements.data) {
       return {
         threads: [] as MaterialThread[],
         materialRequestById: mrMap,
@@ -366,7 +677,42 @@ export function useMaterialThreads(
     for (const m of mr.data) mrMap.set(m.id, m);
     for (const s of sp.data) spMap.set(s.id, s);
 
-    const standardThreads = mr.data.map((m) => mapStandardThread(m, poByRequest));
+    // Group deliveries by po_id and stock by (site, material).
+    const deliveriesByPo = new Map<string, DeliveryRow[]>();
+    for (const d of deliveries.data ?? []) {
+      const list = deliveriesByPo.get(d.po_id) ?? [];
+      list.push(d);
+      deliveriesByPo.set(d.po_id, list);
+    }
+    const stockBySiteMaterial = new Map<
+      string,
+      Array<{ stock: StockRow; used: number }>
+    >();
+    for (const s of stock.data?.stockRows ?? []) {
+      const key = makeStockKey(s.site_id, s.material_id);
+      const list = stockBySiteMaterial.get(key) ?? [];
+      list.push({ stock: s, used: stock.data?.usageMap.get(s.id) ?? 0 });
+      stockBySiteMaterial.set(key, list);
+    }
+    // Index settlements by purchase_order_id (one row per PO in normal flow).
+    const settlementByPo = new Map<string, SettlementSnapshot>();
+    for (const s of settlements.data ?? []) {
+      if (!s.purchase_order_id) continue;
+      const existing = settlementByPo.get(s.purchase_order_id);
+      // Prefer the "is_paid=true" row if multiple exist; else first wins.
+      if (!existing || (s.is_paid && !existing.is_paid)) {
+        settlementByPo.set(s.purchase_order_id, s);
+      }
+    }
+    const deps: StandardThreadDeps = {
+      deliveriesByPo,
+      stockBySiteMaterial,
+      settlementByPo,
+    };
+
+    const standardThreads = mr.data.map((m) =>
+      mapStandardThread(m, poByRequest, deps)
+    );
     const spotThreads = sp.data.map(mapSpotThread);
 
     const sortedThreads = [...standardThreads, ...spotThreads].sort(
@@ -380,13 +726,31 @@ export function useMaterialThreads(
       purchaseOrderById: poMap,
       spotBatchById: spMap,
     };
-  }, [mr.data, po.data, sp.data]);
+  }, [mr.data, po.data, sp.data, deliveries.data, stock.data, settlements.data]);
 
   return {
     threads,
-    isLoading: mr.isLoading || po.isLoading || sp.isLoading,
-    isError: mr.isError || po.isError || sp.isError,
-    error: mr.error || po.error || sp.error,
+    isLoading:
+      mr.isLoading ||
+      po.isLoading ||
+      sp.isLoading ||
+      deliveries.isLoading ||
+      stock.isLoading ||
+      settlements.isLoading,
+    isError:
+      mr.isError ||
+      po.isError ||
+      sp.isError ||
+      deliveries.isError ||
+      stock.isError ||
+      settlements.isError,
+    error:
+      mr.error ||
+      po.error ||
+      sp.error ||
+      deliveries.error ||
+      stock.error ||
+      settlements.error,
     materialRequestById,
     purchaseOrderById,
     spotBatchById,

@@ -19,13 +19,22 @@ export const M_STAGES: ThreadStage[] = [
 /**
  * Stages shown in the per-row pipeline. `exhausted` and `rejected` are
  * terminal and collapse into the prior visible stage.
+ *
+ * NOTE: the synthetic "inventory" key does NOT exist as a real `ThreadStage`
+ * value — it's a pure UI indicator that mirrors `thread.inventory` (populated
+ * the moment any delivery batch lands at site). It sits between SETTLE and
+ * IN USE so the engineer can see "yes, the received stock is in the
+ * inventory tracker."
  */
-export const VISIBLE_STAGES: { key: ThreadStage; label: string }[] = [
+export type VisibleStageKey = ThreadStage | "inventory";
+
+export const VISIBLE_STAGES: { key: VisibleStageKey; label: string }[] = [
   { key: "requested", label: "REQ" },
   { key: "approved", label: "APPROVE" },
   { key: "ordered", label: "PO" },
   { key: "delivered", label: "DELIVER" },
   { key: "settled", label: "SETTLE" },
+  { key: "inventory", label: "STOCK" },
   { key: "in-use", label: "IN USE" },
 ];
 

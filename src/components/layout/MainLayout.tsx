@@ -255,6 +255,22 @@ const siteNavCategories: NavCategory[] = [
     ],
   },
   {
+    label: "Material-v2",
+    emoji: "✨",
+    items: [
+      {
+        text: "Hub",
+        icon: <DashboardIcon />,
+        path: "/site/materials/hub",
+      },
+      {
+        text: "Inventory",
+        icon: <InventoryIcon />,
+        path: "/site/materials/inventory",
+      },
+    ],
+  },
+  {
     label: "Contracts",
     emoji: "🤝",
     items: [

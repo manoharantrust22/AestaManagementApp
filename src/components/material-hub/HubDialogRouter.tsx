@@ -98,8 +98,15 @@ export const HubDialogRouter = forwardRef<
         if (po) setDialog({ kind: "settle", po });
         return;
       }
-      if (thread.stage === "in-use") {
-        setDialog({ kind: "log-usage", batchRefCode: thread.inventory?.batch });
+      // Settled + in-use both route to usage logging. For OWN POs the
+      // inventory pool isn't per-batch — we still pass the expense ref so the
+      // dialog can pre-fill where possible; the dialog falls back to the
+      // shared (site, material, brand) bucket if no batch_code matches.
+      if (thread.stage === "settled" || thread.stage === "in-use") {
+        const batchRef = thread.inventory?.batch && thread.inventory.batch !== "—"
+          ? thread.inventory.batch
+          : thread.settlement?.expense_ref ?? undefined;
+        setDialog({ kind: "log-usage", batchRefCode: batchRef });
       }
     },
   }));

@@ -29,6 +29,7 @@ import { useSelectedSite } from "@/contexts/SiteContext";
 import PageHeader from "@/components/layout/PageHeader";
 import {
   useSiteStock,
+  useSiteStockAll,
   useGroupStockInventory,
   type ExtendedStockInventory,
   type GroupStockItem,
@@ -38,8 +39,50 @@ import InventoryCard, {
   type InventoryItemView,
 } from "@/components/inventory/InventoryCard";
 import { hubTokens } from "@/lib/material-hub/tokens";
+import {
+  usePurchasedBatches,
+  type PurchasedBatchView,
+} from "@/hooks/queries/usePurchasedBatches";
+import RecordBatchUsageDialog from "@/components/materials/RecordBatchUsageDialog";
+import UsageEntryDrawer from "@/components/inventory/UsageEntryDrawer";
+import UsageHistoryDialog, {
+  type UsageHistoryItem,
+} from "@/components/inventory/UsageHistoryDialog";
 
 type Tab = "all" | "own" | "group";
+type ViewMode = "batch" | "material";
+
+function mapBatchView(b: PurchasedBatchView): InventoryItemView {
+  const received = b.received_qty;
+  // For per-batch cards, "remaining" is best-effort: exact for group POs,
+  // shared-pool for own POs. When we have no match at all (legacy data),
+  // show 0 remaining with a hint.
+  const remaining = b.remaining_qty != null ? b.remaining_qty : 0;
+  const used = Math.max(received - remaining, 0);
+  return {
+    id: b.id,
+    kind: b.kind,
+    material_id: b.material_id,
+    brand_id: b.brand_id,
+    material_name: b.material_name,
+    material_spec: null,
+    material_unit: b.material_unit,
+    material_category: null,
+    material_image_url: b.material_image_url,
+    batch_code: b.expense_ref,
+    vendor_name: b.vendor_name,
+    payer_site_name: b.payer_site_name,
+    received_qty: received,
+    remaining_qty: remaining,
+    used_qty: used,
+    total_value: b.total_value,
+    brand_name: b.brand_name,
+    brand_variant: b.brand_variant,
+    brand_image_url: b.brand_image_url,
+    remaining_is_pooled: b.remaining_is_pooled && b.remaining_qty != null,
+    purchased_at: b.purchase_date,
+  };
+}
 
 function mapOwnStock(row: ExtendedStockInventory): InventoryItemView {
   const received = Number((row as any).total_received_qty ?? row.current_qty ?? 0);
@@ -50,6 +93,8 @@ function mapOwnStock(row: ExtendedStockInventory): InventoryItemView {
   return {
     id: row.id,
     kind: row.is_shared ? "group" : "own",
+    material_id: (row as any).material?.id ?? row.material_id,
+    brand_id: row.brand_id ?? null,
     material_name: (row as any).material?.name ?? "—",
     material_spec: null,
     material_unit: (row as any).material?.unit ?? "nos",
@@ -72,6 +117,8 @@ function mapGroupStock(row: GroupStockItem): InventoryItemView {
   return {
     id: row.id,
     kind: "group",
+    material_id: row.material?.id ?? (row as any).material_id,
+    brand_id: (row as any).brand_id ?? null,
     material_name: row.material?.name ?? "—",
     material_spec: null,
     material_unit: row.material?.unit ?? "nos",
@@ -96,15 +143,39 @@ export default function InventoryPage() {
   const [tab, setTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
   const [layout, setLayout] = useState<"cards" | "table">("cards");
+  // Per-batch is the new default — surfaces every purchase as its own card so
+  // engineers can find specific brand variants (TNPL Cement, ARM Cement) that
+  // currently get merged into the site's shared bucket.
+  const [viewMode, setViewMode] = useState<ViewMode>("batch");
+  // Two usage dialogs depending on the card's source:
+  //   - Group / batch-exact rows → RecordBatchUsageDialog (writes to
+  //     batch_usage_records, drives group settlement).
+  //   - Own / pooled rows → UsageEntryDrawer (writes to daily_material_usage,
+  //     trigger decrements stock_inventory.current_qty).
+  const [usageBatchRefCode, setUsageBatchRefCode] = useState<string | undefined>(
+    undefined
+  );
+  const [usageDialogOpen, setUsageDialogOpen] = useState(false);
+  const [ownUsageStockRow, setOwnUsageStockRow] =
+    useState<ExtendedStockInventory | null>(null);
+  const [ownUsageOpen, setOwnUsageOpen] = useState(false);
+  const [historyItem, setHistoryItem] = useState<UsageHistoryItem | null>(null);
 
   const { data: ownStock = [], isLoading: ownLoading } = useSiteStock(siteId, {
     siteGroupId: siteGroupId ?? undefined,
   });
+  // Unfiltered stock view for usage-drawer preselection. useSiteStock filters
+  // out current_qty<=0, so depleted pools (e.g., your TNPL bag that's already
+  // been consumed) would otherwise drop out of the lookup and the drawer would
+  // open empty. ownStockAll keeps every row, including 0/negative.
+  const { data: ownStockAll = [] } = useSiteStockAll(siteId);
   const { data: groupStock = [], isLoading: groupLoading } = useGroupStockInventory(
     siteGroupId
   );
+  const { data: purchasedBatches = [], isLoading: batchesLoading } =
+    usePurchasedBatches(siteId, siteGroupId);
 
-  const items = useMemo<InventoryItemView[]>(() => {
+  const materialView = useMemo<InventoryItemView[]>(() => {
     const own = ownStock.map(mapOwnStock);
     const group = groupStock.map(mapGroupStock);
     // Dedupe by batch_code where the same batch shows up in both sources.
@@ -119,6 +190,13 @@ export default function InventoryPage() {
     return merged;
   }, [ownStock, groupStock]);
 
+  const batchView = useMemo<InventoryItemView[]>(
+    () => purchasedBatches.map(mapBatchView),
+    [purchasedBatches]
+  );
+
+  const items = viewMode === "batch" ? batchView : materialView;
+
   const filteredItems = useMemo(() => {
     let out = items;
     if (tab === "own") out = out.filter((i) => i.kind === "own");
@@ -129,7 +207,9 @@ export default function InventoryPage() {
         (i) =>
           i.material_name.toLowerCase().includes(q) ||
           (i.batch_code ?? "").toLowerCase().includes(q) ||
-          (i.vendor_name ?? "").toLowerCase().includes(q)
+          (i.vendor_name ?? "").toLowerCase().includes(q) ||
+          (i.brand_name ?? "").toLowerCase().includes(q) ||
+          (i.brand_variant ?? "").toLowerCase().includes(q)
       );
     }
     return out;
@@ -251,23 +331,46 @@ export default function InventoryPage() {
           </ToggleButton>
         </ToggleButtonGroup>
 
-        <TextField
-          size="small"
-          placeholder="Search material / batch / vendor"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          sx={{ minWidth: 240 }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon sx={{ fontSize: 16 }} />
-              </InputAdornment>
-            ),
-          }}
-        />
+        <Box sx={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          <ToggleButtonGroup
+            value={viewMode}
+            exclusive
+            onChange={(_, next) => next && setViewMode(next as ViewMode)}
+            size="small"
+            sx={{
+              "& .MuiToggleButton-root": {
+                textTransform: "none",
+                fontSize: 12,
+                padding: "5px 12px",
+                color: hubTokens.muted,
+                "&.Mui-selected": {
+                  background: hubTokens.primarySoft,
+                  color: hubTokens.primary,
+                },
+              },
+            }}
+          >
+            <ToggleButton value="batch">Per batch</ToggleButton>
+            <ToggleButton value="material">By material</ToggleButton>
+          </ToggleButtonGroup>
+          <TextField
+            size="small"
+            placeholder="Search material / batch / vendor"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            sx={{ minWidth: 240 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 16 }} />
+                </InputAdornment>
+              ),
+            }}
+          />
+        </Box>
       </Box>
 
-      {ownLoading || groupLoading ? (
+      {ownLoading || groupLoading || batchesLoading ? (
         <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
           <CircularProgress size={28} />
         </Box>
@@ -311,9 +414,80 @@ export default function InventoryPage() {
           }}
         >
           {filteredItems.map((item) => (
-            <InventoryCard key={item.id} item={item} />
+            <InventoryCard
+              key={item.id}
+              item={item}
+              onLogUsage={(it) => {
+                // Own / pooled rows: use UsageEntryDrawer which writes to
+                // daily_material_usage. We need to find the matching
+                // ExtendedStockInventory row by (material_id, brand_id).
+                if (it.kind === "own" || it.remaining_is_pooled) {
+                  // Lookup pool: ownStockAll (includes depleted rows). The
+                  // drawer's stock list still uses ownStock (qty>0 only) so
+                  // the engineer can't accidentally choose a wrong empty row.
+                  // Order of preference: exact (material+brand) → material-only
+                  // → first row for material in the live ownStock list.
+                  const exact = ownStockAll.find(
+                    (s: any) =>
+                      s.material_id === it.material_id &&
+                      (s.brand_id ?? null) === (it.brand_id ?? null)
+                  );
+                  const byMaterial =
+                    exact ||
+                    ownStockAll.find((s: any) => s.material_id === it.material_id);
+                  const liveByMaterial =
+                    byMaterial ||
+                    ownStock.find((s) => s.material_id === it.material_id);
+                  setOwnUsageStockRow(
+                    (liveByMaterial as ExtendedStockInventory) ?? null
+                  );
+                  setOwnUsageOpen(true);
+                  return;
+                }
+                // Group / batch-exact rows: existing batch usage flow.
+                setUsageBatchRefCode(it.batch_code ?? undefined);
+                setUsageDialogOpen(true);
+              }}
+              onViewHistory={(it) => {
+                setHistoryItem({
+                  material_id: it.material_id,
+                  brand_id: it.brand_id ?? null,
+                  material_name: it.material_name,
+                  material_unit: it.material_unit,
+                  batch_code: it.batch_code,
+                  kind: it.kind,
+                });
+              }}
+            />
           ))}
         </Box>
+      )}
+
+      {siteId && (
+        <>
+          <RecordBatchUsageDialog
+            open={usageDialogOpen}
+            onClose={() => setUsageDialogOpen(false)}
+            siteId={siteId}
+            preselectedBatchRefCode={usageBatchRefCode}
+          />
+          <UsageEntryDrawer
+            open={ownUsageOpen}
+            onClose={() => {
+              setOwnUsageOpen(false);
+              setOwnUsageStockRow(null);
+            }}
+            siteId={siteId}
+            stock={ownStock}
+            preSelectedStock={ownUsageStockRow}
+          />
+          <UsageHistoryDialog
+            open={!!historyItem}
+            onClose={() => setHistoryItem(null)}
+            siteId={siteId}
+            item={historyItem}
+          />
+        </>
       )}
     </Box>
   );

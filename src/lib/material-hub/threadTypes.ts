@@ -36,14 +36,37 @@ export interface ThreadPO {
   vendor_name?: string;
   amount: number;
   qty: number;
+  /** Total received across all delivery batches (sum of PO items' received_qty). */
+  received_qty: number;
   expected: string | null;
   status: "ordered" | "partial" | "delivered" | string;
   payer_site_id: string;
+  /** "advance" = vendor paid upfront at PO creation; "on_delivery" = paid post-delivery. */
+  payment_timing: "advance" | "on_delivery";
+  /** Amount already paid against this PO (advance settlement). 0 if not yet paid. */
+  advance_paid: number;
+  /**
+   * Per-batch delivery log against this PO. One row per `deliveries` record
+   * (filtered to the primary material). Empty array = no deliveries recorded
+   * yet. Used by the expanded view to render the batch-by-batch GRN list.
+   */
+  delivery_batches: ThreadDeliveryBatch[];
   advance?: {
     total_paid: number;
     batches: { date: string; qty: number }[];
     next_batch?: string | null;
   };
+}
+
+export interface ThreadDeliveryBatch {
+  id: string;
+  grn_number: string;
+  delivery_date: string;
+  received_qty: number;
+  accepted_qty: number;
+  verified: boolean;
+  vehicle_number?: string | null;
+  notes?: string | null;
 }
 
 export interface ThreadDelivery {
@@ -59,6 +82,11 @@ export interface ThreadSettlement {
   amount: number;
   paid_by: "office" | "wallet" | "site" | string | null;
   settled_at?: string | null;
+  /** Human-readable ref_code on the material_purchase_expenses row (e.g. "MAT-260214-6805").
+   *  Surfaced in the Expenses block so the user can find the row on /site/expenses. */
+  expense_ref?: string | null;
+  /** UUID of the material_purchase_expenses row (for future deep-link navigation). */
+  expense_id?: string | null;
 }
 
 export interface ThreadInventory {

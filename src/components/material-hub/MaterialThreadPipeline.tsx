@@ -12,7 +12,7 @@ import { Box } from "@mui/material";
 import CheckIcon from "@mui/icons-material/Check";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { M_STAGES, VISIBLE_STAGES, stageIndex } from "@/lib/material-hub/stageHelpers";
-import type { MaterialThread } from "@/lib/material-hub/threadTypes";
+import type { MaterialThread, ThreadStage } from "@/lib/material-hub/threadTypes";
 
 const PULSE_KEYFRAMES = `
 @keyframes matPulse {
@@ -24,27 +24,51 @@ const PULSE_KEYFRAMES = `
 interface StageDotProps {
   done: boolean;
   current: boolean;
+  /** 0–1. When between 0 and 1, renders as a partial-progress arc. */
+  progress?: number;
   accent: string;
   softAccent: string;
 }
 
-function StageDot({ done, current, accent, softAccent }: StageDotProps) {
+function StageDot({ done, current, progress, accent, softAccent }: StageDotProps) {
+  const isPartial =
+    !done && progress != null && progress > 0 && progress < 1;
   return (
     <Box
       sx={{
         width: 14,
         height: 14,
         borderRadius: "50%",
-        background: done ? (current ? accent : hubTokens.text) : "#fff",
-        border: done ? "none" : `2px solid ${hubTokens.border}`,
+        // done → filled black; partial → conic gradient fill; next-pending → accent fill; future → outlined
+        background: done
+          ? hubTokens.text
+          : isPartial
+            ? `conic-gradient(${accent} ${Math.round((progress ?? 0) * 360)}deg, ${hubTokens.hairline} 0deg)`
+            : current
+              ? accent
+              : "#fff",
+        border: done || isPartial || current ? "none" : `2px solid ${hubTokens.border}`,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        boxShadow: current ? `0 0 0 4px ${softAccent}` : "none",
+        boxShadow: current || isPartial ? `0 0 0 4px ${softAccent}` : "none",
         flexShrink: 0,
+        position: "relative",
       }}
     >
-      {done && current ? (
+      {done ? (
+        <CheckIcon sx={{ fontSize: 9, color: "#fff", strokeWidth: 3 }} />
+      ) : isPartial ? (
+        // Inner white circle on top of the conic gradient creates a ring
+        <Box
+          sx={{
+            position: "absolute",
+            inset: 3,
+            borderRadius: "50%",
+            background: "#fff",
+          }}
+        />
+      ) : current ? (
         <Box
           sx={{
             width: 5,
@@ -54,8 +78,6 @@ function StageDot({ done, current, accent, softAccent }: StageDotProps) {
             animation: "matPulse 1.6s ease-in-out infinite",
           }}
         />
-      ) : done ? (
-        <CheckIcon sx={{ fontSize: 9, color: "#fff", strokeWidth: 3 }} />
       ) : null}
     </Box>
   );
@@ -157,15 +179,137 @@ export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelin
   }
 
   // Standard flow: 6-stage pipeline
+  // `done` = stage already completed (filled black with check)
+  // `current` = the NEXT pending stage (pulsing accent, "do this next")
+  // `progress` = 0..1 partial progress (DELIVER step when partial_delivered)
+  // Terminal states (rejected/in-use/exhausted) have no "next" pulse.
   const idx = stageIndex(thread.stage);
+  const isTerminal =
+    thread.stage === "rejected" ||
+    thread.stage === "in-use" ||
+    thread.stage === "exhausted";
+  const nextKey =
+    !isTerminal && idx + 1 < M_STAGES.length ? M_STAGES[idx + 1] : null;
+
+  // Per-stage overrides for the standard pipeline based on PO state.
+  const po = thread.po;
+  const orderedQty = po?.qty ?? 0;
+  const receivedQty = po?.received_qty ?? 0;
+  const isAdvancePaid =
+    !!po && po.payment_timing === "advance" && po.advance_paid > 0;
+  const deliverFraction =
+    po && orderedQty > 0 ? Math.min(receivedQty / orderedQty, 1) : 0;
+  const deliverFullyDone = deliverFraction >= 1;
+
+  // Override: SETTLE shows as DONE for advance POs from the moment advance was paid.
+  // Override: DELIVER label shows fraction (e.g. "DELIVER 80/200").
+  // Override: when DELIVER is partial and stage is still "ordered", DELIVER is the
+  //           current-pending (with progress shown); pulse stays on the DELIVER dot.
+  const settleDoneByAdvance =
+    isAdvancePaid && (!thread.settlement || thread.settlement.status !== "settled");
+
+  // Inventory step state (synthetic, not a real ThreadStage). The DB trigger
+  // adds delivered material to stock_inventory automatically — so STOCK is
+  // "done" whenever we have evidence of delivery, even if the inventory row
+  // hasn't been picked up by this query yet (older POs sometimes have
+  // PO.status='delivered' but per-item received_qty=0 due to legacy verify
+  // flows; the material still made it into the bucket).
+  const inv = thread.inventory;
+  const hasReceivedQty = !!po && receivedQty > 0;
+  const hasBatches =
+    !!po && Array.isArray(po.delivery_batches) && po.delivery_batches.length > 0;
+  const inventoryDone =
+    (!!inv && inv.received > 0) || hasReceivedQty || hasBatches;
+
   return (
     <Box sx={{ display: "flex", alignItems: "center", height: 30 }}>
       <style>{PULSE_KEYFRAMES}</style>
       {VISIBLE_STAGES.map((s, i) => {
-        const done = M_STAGES.indexOf(s.key) <= idx;
-        const current = s.key === thread.stage;
+        // Synthetic "inventory" step: not in M_STAGES; derive done from thread.inventory.
+        if (s.key === "inventory") {
+          const isLast = i === VISIBLE_STAGES.length - 1;
+          const nextStageKey = VISIBLE_STAGES[i + 1]?.key;
+          const nextDone =
+            nextStageKey && nextStageKey !== "inventory"
+              ? M_STAGES.indexOf(nextStageKey as ThreadStage) <= idx
+              : false;
+          return (
+            <Box key={s.key} sx={{ display: "contents" }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: "3px",
+                  flexShrink: 0,
+                }}
+              >
+                <StageDot
+                  done={inventoryDone}
+                  current={false}
+                  accent={hubTokens.primary}
+                  softAccent={hubTokens.primarySoft}
+                />
+                <StageLabel
+                  // Only show batch-specific numbers when the match is
+                  // batch-exact (inv.batch !== "—"). Shared-pool fallbacks
+                  // describe the entire site bucket, not this thread — so
+                  // showing "0/20" there misrepresents the per-thread state.
+                  text={
+                    inv && inv.received > 0 && inv.batch !== "—"
+                      ? `STOCK ${Math.round(inv.remaining)}/${Math.round(inv.received)}`
+                      : "STOCK"
+                  }
+                  done={inventoryDone}
+                  current={false}
+                  accent={hubTokens.primary}
+                />
+              </Box>
+              {!isLast && (
+                <Box
+                  sx={{
+                    flex: 1,
+                    height: 2,
+                    marginBottom: "14px",
+                    minWidth: 14,
+                    background: nextDone ? hubTokens.text : hubTokens.hairline,
+                  }}
+                />
+              )}
+            </Box>
+          );
+        }
+
+        const stageKey = s.key as ThreadStage;
+        let done = M_STAGES.indexOf(stageKey) <= idx;
+        let current = stageKey === nextKey;
+        let progress: number | undefined;
+        let labelText: string = s.label;
+
+        // DELIVER: show partial-progress arc + fraction label
+        if (stageKey === "delivered" && po && receivedQty > 0 && !deliverFullyDone) {
+          progress = deliverFraction;
+          labelText = `${s.label} ${Math.round(receivedQty)}/${Math.round(orderedQty)}`;
+          // Keep the pulse on DELIVER while partial (the engineer's next action
+          // is to record the next batch, not to advance to SETTLE).
+          current = true;
+        }
+        // SETTLE: mark done for advance-paid POs even before delivery completes.
+        if (stageKey === "settled" && settleDoneByAdvance) {
+          done = true;
+          labelText = "SETTLE · advance";
+          // If we marked SETTLE done by advance, the pulse should NOT sit on SETTLE.
+          if (stageKey === nextKey) current = false;
+        }
+
         const isLast = i === VISIBLE_STAGES.length - 1;
-        const nextDone = !isLast && M_STAGES.indexOf(VISIBLE_STAGES[i + 1].key) <= idx;
+        const nextVisibleKey = VISIBLE_STAGES[i + 1]?.key;
+        const nextDone =
+          !isLast && nextVisibleKey !== "inventory"
+            ? M_STAGES.indexOf(nextVisibleKey as ThreadStage) <= idx
+            : !isLast && nextVisibleKey === "inventory"
+              ? inventoryDone
+              : false;
         return (
           <Box key={s.key} sx={{ display: "contents" }}>
             <Box
@@ -180,11 +324,12 @@ export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelin
               <StageDot
                 done={done}
                 current={current}
+                progress={progress}
                 accent={hubTokens.primary}
                 softAccent={hubTokens.primarySoft}
               />
               <StageLabel
-                text={s.label}
+                text={labelText}
                 done={done}
                 current={current}
                 accent={hubTokens.primary}

@@ -53,13 +53,18 @@ export default function MaterialThreadRow({
   // Money block contents
   const moneyAmount = isSpot ? thread.spot?.amount ?? 0 : thread.po?.amount ?? 0;
   const vendorName = isSpot ? thread.spot?.vendor_name : thread.po?.vendor_name;
-  const showAdvanceBar =
+  // Show a delivery-progress bar for ANY non-spot PO that has partial delivery,
+  // not just legacy "advance batches" arrays. This drives the visible "80/200"
+  // hint in the money block.
+  const orderedQty = thread.po?.qty ?? 0;
+  const receivedQty = thread.po?.received_qty ?? 0;
+  const showDeliveryBar =
+    !isSpot && thread.po != null && receivedQty > 0 && receivedQty < orderedQty;
+  const advancePct = orderedQty > 0 ? (receivedQty / orderedQty) * 100 : 0;
+  const isAdvancePaid =
     !isSpot &&
-    isAdvance &&
-    thread.po?.advance &&
-    thread.po.advance.batches.length > 0;
-  const advanceReceived = thread.po?.advance?.batches.reduce((sum, b) => sum + b.qty, 0) ?? 0;
-  const advancePct = thread.qty > 0 ? (advanceReceived / thread.qty) * 100 : 0;
+    thread.po?.payment_timing === "advance" &&
+    (thread.po?.advance_paid ?? 0) > 0;
 
   return (
     <Box
@@ -246,7 +251,18 @@ export default function MaterialThreadRow({
                     {vendorName || "—"}
                   </Box>
                 </Box>
-                {showAdvanceBar && (
+                {isAdvancePaid && (
+                  <Typography
+                    sx={{
+                      fontSize: 10.5,
+                      color: hubTokens.success,
+                      fontWeight: 700,
+                    }}
+                  >
+                    ✓ Advance paid · vendor settled
+                  </Typography>
+                )}
+                {showDeliveryBar && (
                   <Box
                     sx={{
                       display: "flex",
@@ -280,7 +296,7 @@ export default function MaterialThreadRow({
                         fontFamily: hubTokens.mono,
                       }}
                     >
-                      {advanceReceived}/{thread.qty}
+                      {Math.round(receivedQty)}/{Math.round(orderedQty)} {thread.material_unit}
                     </Typography>
                   </Box>
                 )}
@@ -302,7 +318,10 @@ export default function MaterialThreadRow({
           <>
             <Box sx={{ display: "flex", gap: "3px", marginTop: "4px" }}>
               {VISIBLE_STAGES.map((s) => {
-                const done = M_STAGES.indexOf(s.key) <= idx;
+                const done =
+                  s.key === "inventory"
+                    ? !!thread.inventory && thread.inventory.received > 0
+                    : M_STAGES.indexOf(s.key) <= idx;
                 return (
                   <Box
                     key={s.key}

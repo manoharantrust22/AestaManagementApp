@@ -206,6 +206,12 @@ export default function ExpensesPageV2() {
   const [refSnackbar, setRefSnackbar] = useState<string | null>(null);
   const [mobileFilterSheetOpen, setMobileFilterSheetOpen] = useState(false);
 
+  // "Came from Material Hub" banner — captured once at mount because the
+  // URL-sync effect below replaces the URL without preserving ?fromHub.
+  const [fromHubThreadId, setFromHubThreadId] = useState<string | null>(() =>
+    searchParams.get("fromHub")
+  );
+
   // Count of non-default secondary filters (trade / sub-kind / status) — used
   // for the mobile "Filters" button badge.
   const activeMobileFilterCount = useMemo(() => {
@@ -1409,6 +1415,41 @@ export default function ExpensesPageV2() {
       {pageHeader}
 
       <Box ref={scrollContainerRef} sx={{ flex: 1, overflowY: "auto", p: { xs: 1.5, md: 2 } }}>
+        {fromHubThreadId && (
+          <Alert
+            severity="info"
+            icon={<OpenInNew fontSize="small" />}
+            sx={{ mb: 2, alignItems: "center" }}
+            action={
+              <Box sx={{ display: "flex", gap: 0.5 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    router.push("/site/materials/hub");
+                  }}
+                >
+                  ← Back to Hub
+                </Button>
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    setFromHubThreadId(null);
+                    setSearch("");
+                  }}
+                  aria-label="Dismiss"
+                >
+                  <Close fontSize="small" />
+                </IconButton>
+              </Box>
+            }
+          >
+            Filtered from <b>Material Hub</b> · thread{" "}
+            <Box component="span" sx={{ fontFamily: "monospace" }}>
+              {fromHubThreadId}
+            </Box>
+          </Alert>
+        )}
         {isMobile ? (
           /* Mobile layout: two-tab */
           <>
