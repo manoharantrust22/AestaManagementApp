@@ -530,8 +530,18 @@ export async function updateDeposit(
   if (!input.amount || input.amount <= 0) {
     throw new WalletValidationError("INVALID_AMOUNT", "Amount must be positive");
   }
-  if (!input.payer_source) {
-    throw new WalletValidationError("MISSING_PAYER_SOURCE", "Money source is required");
+  if (!input.payer) {
+    throw new WalletValidationError(
+      "MISSING_PAYER_SOURCE",
+      "Money source is required"
+    );
+  }
+  const payerCheck = validatePayerSourceInput(input.payer, input.amount);
+  if (!payerCheck.ok) {
+    throw new WalletValidationError(
+      "INVALID_PAYER_SOURCE",
+      `Invalid payer source: ${payerCheck.reason}`
+    );
   }
   if (!input.edit_reason || input.edit_reason.trim() === "") {
     throw new WalletValidationError(
@@ -540,6 +550,8 @@ export async function updateDeposit(
     );
   }
   validateProofForUpi(input.payment_mode, input.proof_url, "deposit");
+
+  const payerRpc = toRpcArgs(input.payer);
 
   // Re-fetch the current row to enforce invariants and compute the post-edit balance.
   const { data: row, error: fetchErr } = await supabase
@@ -584,8 +596,9 @@ export async function updateDeposit(
     .update({
       amount: input.amount,
       payment_mode: input.payment_mode,
-      payer_source: input.payer_source,
-      payer_name: input.payer_name,
+      payer_source: payerRpc.p_payer_source,
+      payer_name: payerRpc.p_payer_name,
+      payer_source_split: payerRpc.p_payer_source_split,
       proof_url: input.proof_url,
       transaction_date: input.transaction_date,
       notes: input.notes,
