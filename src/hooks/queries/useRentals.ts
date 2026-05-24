@@ -2249,6 +2249,8 @@ export function useCreateHistoricalRental() {
             payment_mode: sett.payment_mode,
             payment_channel: "direct",
             payer_source: sett.payer_source,
+            payer_name: sett.payer_name ?? null,
+            payer_source_split: sett.payer_source_split ?? null,
           });
 
         if (settErr) throw new Error(`Failed to create settlement: ${settErr.message}`);
@@ -2286,6 +2288,8 @@ export function useCreateHistoricalRental() {
               payment_mode: driverSett.payment_mode,
               payment_channel: "direct",
               payer_source: driverSett.payer_source,
+              payer_name: driverSett.payer_name ?? null,
+              payer_source_split: driverSett.payer_source_split ?? null,
             });
           if (dErr) throw new Error(`Failed to create driver settlement: ${dErr.message}`);
         }
@@ -2403,6 +2407,8 @@ export function useUpdateHistoricalRental() {
             payment_mode: sett.payment_mode,
             payment_channel: "direct",
             payer_source: sett.payer_source,
+            payer_name: sett.payer_name ?? null,
+            payer_source_split: sett.payer_source_split ?? null,
           });
         if (settErr) throw new Error(`Failed to create settlement: ${settErr.message}`);
 
@@ -2437,6 +2443,8 @@ export function useUpdateHistoricalRental() {
               payment_mode: driverSett.payment_mode,
               payment_channel: "direct",
               payer_source: driverSett.payer_source,
+              payer_name: driverSett.payer_name ?? null,
+              payer_source_split: driverSett.payer_source_split ?? null,
             });
           if (dErr) throw new Error(`Failed to create driver settlement: ${dErr.message}`);
         }

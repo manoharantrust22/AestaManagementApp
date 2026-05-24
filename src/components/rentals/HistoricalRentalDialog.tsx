@@ -56,11 +56,15 @@ import {
 } from "@/hooks/queries/useRentals";
 import { useAuth } from "@/contexts/AuthContext";
 import VendorAutocomplete from "@/components/common/VendorAutocomplete";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
 import { resolveVariantRate } from "@/lib/utils/rentalCatalogUtils";
 import { formatCurrency } from "@/lib/formatters";
 import { hardenedUpload } from "@/lib/storage/uploadHelpers";
 import { createClient } from "@/lib/supabase/client";
+import {
+  validatePayerSourceInput,
+  toRpcArgs,
+} from "@/lib/settlement/payerSource";
 import type {
   HistoricalRentalItemFormData,
   HistoricalTransportFormData,
@@ -68,7 +72,7 @@ import type {
   HistoricalSettlementFormData,
   RentalItemWithDetails,
 } from "@/types/rental.types";
-import type { PayerSource } from "@/types/settlement.types";
+import type { PayerSourceInput } from "@/types/settlement.types";
 import dayjs from "dayjs";
 
 interface HistoricalRentalDialogProps {
@@ -108,29 +112,25 @@ function PartyPaymentFields({
   amount,
   date,
   mode,
-  payerSource,
-  customName,
+  payer,
   onDateChange,
   onModeChange,
   onPayerChange,
-  onCustomNameChange,
   siteId,
   isSiteEngineer,
-  readOnlyAmount,
+  disabled,
 }: {
   label: string;
   amount: number;
   date: string;
   mode: PaymentMode;
-  payerSource: PayerSource;
-  customName: string;
+  payer: PayerSourceInput;
   onDateChange: (v: string) => void;
   onModeChange: (v: PaymentMode) => void;
-  onPayerChange: (v: PayerSource) => void;
-  onCustomNameChange: (v: string) => void;
+  onPayerChange: (v: PayerSourceInput) => void;
   siteId: string;
   isSiteEngineer: boolean;
-  readOnlyAmount?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <Box sx={{ mb: 1 }}>
@@ -167,13 +167,23 @@ function PartyPaymentFields({
               </Typography>
             </Box>
           ) : (
-            <PayerSourceSelector
-              value={payerSource}
-              customName={customName}
-              onChange={onPayerChange}
-              onCustomNameChange={onCustomNameChange}
-              siteId={siteId}
-            />
+            <>
+              <PayerSourceSplitInput
+                value={payer}
+                onChange={onPayerChange}
+                total={amount}
+                siteId={siteId}
+                disabled={disabled}
+              />
+              {(() => {
+                const c = validatePayerSourceInput(payer, amount);
+                return !c.ok && payer.mode === "split" ? (
+                  <Typography variant="caption" color="error.main">
+                    {c.reason}
+                  </Typography>
+                ) : null;
+              })()}
+            </>
           )}
         </Grid>
       </Grid>
@@ -233,20 +243,26 @@ export default function HistoricalRentalDialog({
   // Vendor settlement
   const [vendorSettleDate, setVendorSettleDate] = useState(today);
   const [vendorSettleMode, setVendorSettleMode] = useState<PaymentMode>("cash");
-  const [vendorSettlePayerSource, setVendorSettlePayerSource] = useState<PayerSource>("own_money");
-  const [vendorSettleCustomName, setVendorSettleCustomName] = useState("");
+  const [vendorPayer, setVendorPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
 
   // Inbound driver settlement
   const [inDriverSettleDate, setInDriverSettleDate] = useState(today);
   const [inDriverSettleMode, setInDriverSettleMode] = useState<PaymentMode>("cash");
-  const [inDriverSettlePayerSource, setInDriverSettlePayerSource] = useState<PayerSource>("own_money");
-  const [inDriverSettleCustomName, setInDriverSettleCustomName] = useState("");
+  const [inPayer, setInPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
 
   // Outbound driver settlement
   const [outDriverSettleDate, setOutDriverSettleDate] = useState(today);
   const [outDriverSettleMode, setOutDriverSettleMode] = useState<PaymentMode>("cash");
-  const [outDriverSettlePayerSource, setOutDriverSettlePayerSource] = useState<PayerSource>("own_money");
-  const [outDriverSettleCustomName, setOutDriverSettleCustomName] = useState("");
+  const [outPayer, setOutPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
 
   const [error, setError] = useState<string | null>(null);
 
@@ -374,16 +390,13 @@ export default function HistoricalRentalDialog({
     setAdvances([]);
     setVendorSettleDate(today);
     setVendorSettleMode("cash");
-    setVendorSettlePayerSource("own_money");
-    setVendorSettleCustomName("");
+    setVendorPayer({ mode: "single", source: "own_money" });
     setInDriverSettleDate(today);
     setInDriverSettleMode("cash");
-    setInDriverSettlePayerSource("own_money");
-    setInDriverSettleCustomName("");
+    setInPayer({ mode: "single", source: "own_money" });
     setOutDriverSettleDate(today);
     setOutDriverSettleMode("cash");
-    setOutDriverSettlePayerSource("own_money");
-    setOutDriverSettleCustomName("");
+    setOutPayer({ mode: "single", source: "own_money" });
     setError(null);
   }
 
@@ -477,9 +490,47 @@ export default function HistoricalRentalDialog({
 
     const formData = buildFormData();
     const status: "draft" | "completed" = asDraft ? "draft" : "completed";
-    const payerSource = isSiteEngineer ? "own_money" : vendorSettlePayerSource;
-    const inPayerSource = isSiteEngineer ? "own_money" : inDriverSettlePayerSource;
-    const outPayerSource = isSiteEngineer ? "own_money" : outDriverSettlePayerSource;
+
+    // Site engineers always pay via their wallet from own_money; force a
+    // single-source own_money input regardless of any stale picker state.
+    const effectiveVendorPayer: PayerSourceInput = isSiteEngineer
+      ? { mode: "single", source: "own_money" }
+      : vendorPayer;
+    const effectiveInPayer: PayerSourceInput = isSiteEngineer
+      ? { mode: "single", source: "own_money" }
+      : inPayer;
+    const effectiveOutPayer: PayerSourceInput = isSiteEngineer
+      ? { mode: "single", source: "own_money" }
+      : outPayer;
+
+    const shouldSettleVendor = withSettlement && !asDraft;
+    const shouldSettleIn =
+      withSettlement && !asDraft && inboundEnabled && inbound.paid_to === "driver";
+    const shouldSettleOut =
+      withSettlement && !asDraft && outboundEnabled && outbound.paid_to === "driver";
+
+    const checks: Array<{
+      name: string;
+      payer: PayerSourceInput;
+      amount: number;
+      skip: boolean;
+    }> = [
+      { name: "vendor", payer: effectiveVendorPayer, amount: vendorBalance, skip: !shouldSettleVendor },
+      { name: "transport-in", payer: effectiveInPayer, amount: inDriverAmount, skip: !shouldSettleIn },
+      { name: "transport-out", payer: effectiveOutPayer, amount: outDriverAmount, skip: !shouldSettleOut },
+    ];
+    for (const c of checks) {
+      if (c.skip || c.amount <= 0) continue;
+      const v = validatePayerSourceInput(c.payer, c.amount);
+      if (!v.ok) {
+        setError(`${c.name}: ${v.reason}`);
+        return;
+      }
+    }
+
+    const vendorRpc = toRpcArgs(effectiveVendorPayer);
+    const inRpc = toRpcArgs(effectiveInPayer);
+    const outRpc = toRpcArgs(effectiveOutPayer);
 
     try {
       if (isEditMode && orderId) {
@@ -488,14 +539,35 @@ export default function HistoricalRentalDialog({
           data: {
             ...formData,
             status,
-            settlement: withSettlement && !asDraft
-              ? { final_amount: vendorBalance, settlement_date: vendorSettleDate, payer_source: payerSource, payment_mode: vendorSettleMode }
+            settlement: shouldSettleVendor
+              ? {
+                  final_amount: vendorBalance,
+                  settlement_date: vendorSettleDate,
+                  payer_source: vendorRpc.p_payer_source,
+                  payer_name: vendorRpc.p_payer_name,
+                  payer_source_split: vendorRpc.p_payer_source_split,
+                  payment_mode: vendorSettleMode,
+                }
               : undefined,
-            inbound_driver_settlement: withSettlement && !asDraft && inboundEnabled && inbound.paid_to === "driver"
-              ? { final_amount: inDriverAmount, settlement_date: inDriverSettleDate, payer_source: inPayerSource, payment_mode: inDriverSettleMode }
+            inbound_driver_settlement: shouldSettleIn
+              ? {
+                  final_amount: inDriverAmount,
+                  settlement_date: inDriverSettleDate,
+                  payer_source: inRpc.p_payer_source,
+                  payer_name: inRpc.p_payer_name,
+                  payer_source_split: inRpc.p_payer_source_split,
+                  payment_mode: inDriverSettleMode,
+                }
               : undefined,
-            outbound_driver_settlement: withSettlement && !asDraft && outboundEnabled && outbound.paid_to === "driver"
-              ? { final_amount: outDriverAmount, settlement_date: outDriverSettleDate, payer_source: outPayerSource, payment_mode: outDriverSettleMode }
+            outbound_driver_settlement: shouldSettleOut
+              ? {
+                  final_amount: outDriverAmount,
+                  settlement_date: outDriverSettleDate,
+                  payer_source: outRpc.p_payer_source,
+                  payer_name: outRpc.p_payer_name,
+                  payer_source_split: outRpc.p_payer_source_split,
+                  payment_mode: outDriverSettleMode,
+                }
               : undefined,
           },
         });
@@ -503,14 +575,35 @@ export default function HistoricalRentalDialog({
         await createHistorical.mutateAsync({
           ...formData,
           status,
-          settlement: withSettlement && !asDraft
-            ? { final_amount: vendorBalance, settlement_date: vendorSettleDate, payer_source: payerSource, payment_mode: vendorSettleMode }
+          settlement: shouldSettleVendor
+            ? {
+                final_amount: vendorBalance,
+                settlement_date: vendorSettleDate,
+                payer_source: vendorRpc.p_payer_source,
+                payer_name: vendorRpc.p_payer_name,
+                payer_source_split: vendorRpc.p_payer_source_split,
+                payment_mode: vendorSettleMode,
+              }
             : undefined,
-          inbound_driver_settlement: withSettlement && !asDraft && inboundEnabled && inbound.paid_to === "driver"
-            ? { final_amount: inDriverAmount, settlement_date: inDriverSettleDate, payer_source: inPayerSource, payment_mode: inDriverSettleMode }
+          inbound_driver_settlement: shouldSettleIn
+            ? {
+                final_amount: inDriverAmount,
+                settlement_date: inDriverSettleDate,
+                payer_source: inRpc.p_payer_source,
+                payer_name: inRpc.p_payer_name,
+                payer_source_split: inRpc.p_payer_source_split,
+                payment_mode: inDriverSettleMode,
+              }
             : undefined,
-          outbound_driver_settlement: withSettlement && !asDraft && outboundEnabled && outbound.paid_to === "driver"
-            ? { final_amount: outDriverAmount, settlement_date: outDriverSettleDate, payer_source: outPayerSource, payment_mode: outDriverSettleMode }
+          outbound_driver_settlement: shouldSettleOut
+            ? {
+                final_amount: outDriverAmount,
+                settlement_date: outDriverSettleDate,
+                payer_source: outRpc.p_payer_source,
+                payer_name: outRpc.p_payer_name,
+                payer_source_split: outRpc.p_payer_source_split,
+                payment_mode: outDriverSettleMode,
+              }
             : undefined,
         });
       }
@@ -521,6 +614,19 @@ export default function HistoricalRentalDialog({
   }
 
   const hasDrivers = (inboundEnabled && inbound.paid_to === "driver") || (outboundEnabled && outbound.paid_to === "driver");
+
+  // Settle-Now path validity: all active parties (with positive amounts) must
+  // have a valid payer-source input. Site engineers are always own_money so
+  // they're trivially valid.
+  const allPayersValidForSettle =
+    isSiteEngineer ||
+    ([
+      { payer: vendorPayer, amount: vendorBalance, active: true },
+      { payer: inPayer, amount: inDriverAmount, active: inboundEnabled && inbound.paid_to === "driver" },
+      { payer: outPayer, amount: outDriverAmount, active: outboundEnabled && outbound.paid_to === "driver" },
+    ].every(
+      (c) => !c.active || c.amount <= 0 || validatePayerSourceInput(c.payer, c.amount).ok,
+    ));
 
   return (
     <Dialog
@@ -1067,14 +1173,13 @@ export default function HistoricalRentalDialog({
                         amount={vendorBalance}
                         date={vendorSettleDate}
                         mode={vendorSettleMode}
-                        payerSource={vendorSettlePayerSource}
-                        customName={vendorSettleCustomName}
+                        payer={vendorPayer}
                         onDateChange={setVendorSettleDate}
                         onModeChange={setVendorSettleMode}
-                        onPayerChange={setVendorSettlePayerSource}
-                        onCustomNameChange={setVendorSettleCustomName}
+                        onPayerChange={setVendorPayer}
                         siteId={siteId}
                         isSiteEngineer={isSiteEngineer}
+                        disabled={isBusy}
                       />
                     </Grid>
 
@@ -1088,14 +1193,13 @@ export default function HistoricalRentalDialog({
                             amount={inDriverAmount}
                             date={inDriverSettleDate}
                             mode={inDriverSettleMode}
-                            payerSource={inDriverSettlePayerSource}
-                            customName={inDriverSettleCustomName}
+                            payer={inPayer}
                             onDateChange={setInDriverSettleDate}
                             onModeChange={setInDriverSettleMode}
-                            onPayerChange={setInDriverSettlePayerSource}
-                            onCustomNameChange={setInDriverSettleCustomName}
+                            onPayerChange={setInPayer}
                             siteId={siteId}
                             isSiteEngineer={isSiteEngineer}
+                            disabled={isBusy}
                           />
                         </Grid>
                       </>
@@ -1111,14 +1215,13 @@ export default function HistoricalRentalDialog({
                             amount={outDriverAmount}
                             date={outDriverSettleDate}
                             mode={outDriverSettleMode}
-                            payerSource={outDriverSettlePayerSource}
-                            customName={outDriverSettleCustomName}
+                            payer={outPayer}
                             onDateChange={setOutDriverSettleDate}
                             onModeChange={setOutDriverSettleMode}
-                            onPayerChange={setOutDriverSettlePayerSource}
-                            onCustomNameChange={setOutDriverSettleCustomName}
+                            onPayerChange={setOutPayer}
                             siteId={siteId}
                             isSiteEngineer={isSiteEngineer}
+                            disabled={isBusy}
                           />
                         </Grid>
                       </>
@@ -1167,7 +1270,7 @@ export default function HistoricalRentalDialog({
             <Button
               variant="contained"
               onClick={() => handleSave(true)}
-              disabled={isBusy || !settleNow}
+              disabled={isBusy || !settleNow || !allPayersValidForSettle}
             >
               {isDraftOrder ? "Complete & Mark Settled" : "Save & Mark Settled"}
             </Button>

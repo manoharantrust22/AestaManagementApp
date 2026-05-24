@@ -680,6 +680,8 @@ export interface HistoricalSettlementFormData {
   final_amount: number;
   settlement_date: string;
   payer_source: string;
+  payer_name?: string | null;
+  payer_source_split?: PayerSourceSplitRow[] | null;
   payment_mode: string;
 }
 
