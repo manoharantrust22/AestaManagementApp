@@ -33,6 +33,7 @@ import {
   WalletValidationError,
   WalletInsufficientBalanceError,
 } from "@/types/engineer-wallet-v2.types";
+import { validatePayerSourceInput, toRpcArgs } from "@/lib/settlement/payerSource";
 
 const DEFAULT_LEDGER_PAGE = 30;
 
@@ -355,10 +356,22 @@ export async function recordDeposit(
   if (!input.amount || input.amount <= 0) {
     throw new WalletValidationError("INVALID_AMOUNT", "Amount must be positive");
   }
-  if (!input.payer_source) {
-    throw new WalletValidationError("MISSING_PAYER_SOURCE", "Money source is required for deposits");
+  if (!input.payer) {
+    throw new WalletValidationError(
+      "MISSING_PAYER_SOURCE",
+      "Money source is required for deposits"
+    );
+  }
+  const payerCheck = validatePayerSourceInput(input.payer, input.amount);
+  if (!payerCheck.ok) {
+    throw new WalletValidationError(
+      "INVALID_PAYER_SOURCE",
+      `Invalid payer source: ${payerCheck.reason}`
+    );
   }
   validateProofForUpi(input.payment_mode, input.proof_url, "deposit");
+
+  const payerRpc = toRpcArgs(input.payer);
 
   const { data, error } = await supabase
     .from("site_engineer_transactions")
@@ -371,8 +384,9 @@ export async function recordDeposit(
       description: input.description ?? null,
       payment_mode: input.payment_mode,
       proof_url: input.proof_url ?? null,
-      payer_source: input.payer_source,
-      payer_name: input.payer_name ?? null,
+      payer_source: payerRpc.p_payer_source,
+      payer_name: payerRpc.p_payer_name,
+      payer_source_split: payerRpc.p_payer_source_split,
       notes: input.notes ?? null,
       recorded_by: input.recorded_by,
       recorded_by_user_id: input.recorded_by_user_id,

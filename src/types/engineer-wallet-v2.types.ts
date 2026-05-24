@@ -9,6 +9,8 @@
  * and migrate these to the canonical Row/Insert/Update types.
  */
 
+import type { PayerSourceInput } from "@/types/settlement.types";
+
 export type WalletTransactionType = "deposit" | "spend" | "return";
 export type WalletPaymentMode = "cash" | "upi" | "bank_transfer";
 export type WalletPaymentChannel = "direct" | "engineer_wallet";
@@ -91,14 +93,19 @@ export interface WalletEnabledEngineer {
 }
 
 /** Inputs to recordDeposit. UPI mode requires proof_url. site_id is required —
- *  every deposit is tagged to a specific site pool. */
+ *  every deposit is tagged to a specific site pool.
+ *
+ *  Phase 4 (payer-source-split): legacy `payer_source` / `payer_name` fields are
+ *  replaced by a single `payer: PayerSourceInput` that captures either a single
+ *  source (the historical shape) or a 2–3 way split. The service validates the
+ *  shape and writes `payer_source` / `payer_name` / `payer_source_split` (JSONB)
+ *  in one go via `toRpcArgs`. */
 export interface RecordDepositInput {
   engineer_id: string;
   site_id: string;
   amount: number;
   payment_mode: WalletPaymentMode;
-  payer_source: WalletPayerSourceKey;
-  payer_name: string | null;
+  payer: PayerSourceInput;
   proof_url: string | null;
   transaction_date?: string;
   description?: string | null;

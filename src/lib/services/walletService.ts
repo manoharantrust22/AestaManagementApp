@@ -224,6 +224,13 @@ export function validateBatchSelection(
 
 /**
  * Record a deposit (Add Money to Wallet)
+ *
+ * TODO(payer-split-followup): migrate to PayerSourceInput. This is the legacy
+ * v1 batch-tracking deposit (writes batch_code / remaining_balance / etc.) and
+ * has no live callers in the app today — all live wallet deposits go through
+ * `engineerWalletV2.recordDeposit`. Leaving here unchanged so its legacy
+ * `config.payerSource` / `config.payerName` shape keeps compiling until the
+ * function itself is either removed or rewritten.
  */
 export async function recordDeposit(
   supabase: SupabaseClient,
