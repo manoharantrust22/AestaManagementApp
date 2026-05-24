@@ -42,7 +42,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useSite } from "@/contexts/SiteContext";
 import dayjs from "dayjs";
 import { getDateWiseSettlements } from "@/lib/services/settlementService";
-import { getPayerSourceLabel, getPayerSourceColor } from "@/components/settlement/PayerSourceSelector";
+import PayerSourceChip from "@/components/settlement/PayerSourceChip";
 import type { DateWiseSettlement, PaymentMode, PaymentStatus } from "@/types/payment.types";
 import type { PayerSource } from "@/types/settlement.types";
 import ScreenshotViewer from "@/components/common/ScreenshotViewer";
@@ -162,6 +162,7 @@ export default function WeekSettlementsDialogV3({
         paymentChannel: s.paymentChannel as "direct" | "engineer_wallet",
         payerSource: s.payerSource as PayerSource | null,
         payerName: s.payerName,
+        payerSourceSplit: s.payerSourceSplit,
         proofUrls: s.proofUrls,
         notes: s.notes,
         subcontractId: null,
@@ -421,13 +422,13 @@ export default function WeekSettlementsDialogV3({
                 </Typography>
               </TableCell>
               <TableCell>
-                {settlement.payerSource ? (
-                  <Chip
-                    label={getPayerSourceLabel(settlement.payerSource as PayerSource)}
-                    size="small"
-                    color={getPayerSourceColor(settlement.payerSource as PayerSource)}
-                    variant="filled"
-                    sx={{ fontSize: "0.65rem" }}
+                {settlement.payerSource || settlement.payerSourceSplit ? (
+                  <PayerSourceChip
+                    row={{
+                      payer_source: settlement.payerSource,
+                      payer_name: settlement.payerName,
+                      payer_source_split: settlement.payerSourceSplit ?? null,
+                    }}
                   />
                 ) : (
                   <Typography variant="body2" color="text.disabled">-</Typography>

@@ -2230,10 +2230,15 @@ export interface InitiateBatchSettlementFormData {
   payment_reference?: string;
   /** Debtor money source for the settlement (own_money, amma_money, client_money,
    *  trust_account, other_site_money, custom). Persisted on the BEXP-* row so
-   *  /site/expenses can show who actually paid the inter-site settlement. */
+   *  /site/expenses can show who actually paid the inter-site settlement.
+   *  Phase 4: the literal "split" sentinel signals payer_source_split is used. */
   settlement_payer_source?: string;
   /** Free-text label for `custom` / `other_site_money` payer sources. */
   settlement_payer_name?: string;
+  /** Phase 4: multi-source breakdown (2-3 rows). When present, the RPC
+   *  validates server-side and forces settlement_payer_source='split' /
+   *  settlement_payer_name=NULL on the BEXP-* row. */
+  payer_source_split?: Array<{ source: string; name?: string; amount: number }> | null;
 }
 
 // Response from process_batch_settlement function

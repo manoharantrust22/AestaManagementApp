@@ -18,6 +18,7 @@ import type {
 import type {
   PayerSource,
   PayerSourceInput,
+  PayerSourceSplitRow,
   SettlementRecord,
 } from "@/types/settlement.types";
 import { requiresPayerName } from "@/types/settlement.types";
@@ -2599,6 +2600,7 @@ export async function getDateWiseSettlements(
     paymentChannel: string;
     payerSource: string | null;
     payerName: string | null;
+    payerSourceSplit: PayerSourceSplitRow[] | null;
     proofUrls: string[];
     notes: string | null;
     createdBy: string | null;
@@ -2648,6 +2650,7 @@ export async function getDateWiseSettlements(
         payment_channel,
         payer_source,
         payer_name,
+        payer_source_split,
         proof_url,
         proof_urls,
         notes,
@@ -2701,6 +2704,7 @@ export async function getDateWiseSettlements(
         paymentChannel: sg.payment_channel,
         payerSource: sg.payer_source,
         payerName: sg.payer_name,
+        payerSourceSplit: (sg.payer_source_split as PayerSourceSplitRow[] | null) ?? null,
         proofUrls: sg.proof_urls || (sg.proof_url ? [sg.proof_url] : []),
         notes: sg.notes,
         createdBy: sg.created_by_name,

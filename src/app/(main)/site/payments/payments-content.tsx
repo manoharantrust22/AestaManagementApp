@@ -132,6 +132,7 @@ function settlementDetailsToDateWise(
       (d.paymentChannel as DateWiseSettlement["paymentChannel"]) ?? "direct",
     payerSource: d.payerSource,
     payerName: d.payerName,
+    payerSourceSplit: d.payerSourceSplit,
     proofUrls: d.proofUrls,
     notes: d.notes,
     subcontractId: d.subcontractId,

@@ -48,8 +48,12 @@ import dayjs from "dayjs";
 import { createClient } from "@/lib/supabase/client";
 import { useSite } from "@/contexts/SiteContext";
 import type { DateWiseSettlement, PaymentMode } from "@/types/payment.types";
-import type { PayerSource } from "@/types/settlement.types";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import type { PayerSource, PayerSourceInput } from "@/types/settlement.types";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
+import {
+  validatePayerSourceInput,
+  toRpcArgs,
+} from "@/lib/settlement/payerSource";
 import FileUploader from "@/components/common/FileUploader";
 import SubcontractLinkSelector from "@/components/payments/SubcontractLinkSelector";
 import ScreenshotViewer from "@/components/common/ScreenshotViewer";
@@ -100,8 +104,10 @@ export default function ContractSettlementEditDialog({
   const [amountInput, setAmountInput] = useState<string>("");
   const [paymentDate, setPaymentDate] = useState<dayjs.Dayjs | null>(null);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("upi");
-  const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
-  const [customPayerName, setCustomPayerName] = useState("");
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
   const [notes, setNotes] = useState("");
   const [proofUrls, setProofUrls] = useState<string[]>([]);
   const [subcontractId, setSubcontractId] = useState<string | null>(null);
@@ -126,8 +132,15 @@ export default function ContractSettlementEditDialog({
       setOriginalAmount(settlement.totalAmount);
       setPaymentDate(settlement.settlementDate ? dayjs(settlement.settlementDate) : null);
       setPaymentMode((settlement.paymentMode as PaymentMode) || "upi");
-      setPayerSource((settlement.payerSource as PayerSource) || "own_money");
-      setCustomPayerName(settlement.payerName || "");
+      if (settlement.payerSourceSplit && settlement.payerSourceSplit.length > 0) {
+        setPayer({ mode: "split", rows: settlement.payerSourceSplit });
+      } else {
+        setPayer({
+          mode: "single",
+          source: (settlement.payerSource as PayerSource) ?? "own_money",
+          name: settlement.payerName ?? undefined,
+        });
+      }
       setNotes(settlement.notes || "");
       setProofUrls(settlement.proofUrls || []);
       setSubcontractId(settlement.subcontractId);
@@ -184,21 +197,28 @@ export default function ContractSettlementEditDialog({
       return;
     }
 
+    const payerCheck = validatePayerSourceInput(payer, totalAmount);
+    if (!payerCheck.ok) {
+      setError(payerCheck.reason);
+      return;
+    }
+    const payerRpc = toRpcArgs(payer);
+
     setLoading(true);
     setError(null);
 
     try {
-      // Update settlement_groups record
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: updateError } = await (supabase as any)
-        .from("settlement_groups")
+      // Update settlement_groups record (source of truth — has payer_source_split column).
+      const { error: updateError } = await (supabase
+        .from("settlement_groups") as any)
         .update({
           total_amount: totalAmount,
           settlement_date: paymentDate?.format("YYYY-MM-DD"),
           actual_payment_date: paymentDate?.format("YYYY-MM-DD"),
           payment_mode: paymentMode,
-          payer_source: payerSource,
-          payer_name: payerSource === "custom" || payerSource === "other_site_money" ? customPayerName : null,
+          payer_source: payerRpc.p_payer_source,
+          payer_name: payerRpc.p_payer_name,
+          payer_source_split: payerRpc.p_payer_source_split,
           notes,
           proof_url: proofUrls[0] || null,
           proof_urls: proofUrls.length > 0 ? proofUrls : null,
@@ -490,12 +510,25 @@ export default function ContractSettlementEditDialog({
 
           {/* Payer Source */}
           <Box sx={{ mb: 2 }}>
-            <PayerSourceSelector
-              value={payerSource}
-              onChange={setPayerSource}
-              customName={customPayerName}
-              onCustomNameChange={setCustomPayerName}
+            <PayerSourceSplitInput
+              value={payer}
+              onChange={setPayer}
+              total={totalAmount}
+              siteId={selectedSite?.id}
+              disabled={loading}
             />
+            {(() => {
+              const c = validatePayerSourceInput(payer, totalAmount);
+              return !c.ok && payer.mode === "split" ? (
+                <Typography
+                  variant="caption"
+                  color="error.main"
+                  sx={{ mt: 1, display: "block" }}
+                >
+                  {c.reason}
+                </Typography>
+              ) : null;
+            })()}
           </Box>
 
           {/* Subcontract Link */}
@@ -643,7 +676,10 @@ export default function ContractSettlementEditDialog({
             <Button
               variant="contained"
               onClick={handleSave}
-              disabled={loading}
+              disabled={
+                loading ||
+                !validatePayerSourceInput(payer, totalAmount).ok
+              }
               startIcon={loading ? <CircularProgress size={16} /> : <SaveIcon />}
             >
               Save Changes

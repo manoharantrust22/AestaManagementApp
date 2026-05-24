@@ -306,9 +306,12 @@ export function useProcessBatchSettlement() {
         p_payment_reference: data.payment_reference || null,
         p_settlement_amount: data.settlement_amount || null, // bargaining amount
         p_created_by: data.created_by || null,
-        // NEW: debtor's payer source for this settlement — captured on the BEXP-* row.
+        // Debtor's payer source for this settlement — captured on the BEXP-* row.
         p_settlement_payer_source: data.settlement_payer_source || null,
         p_settlement_payer_name: data.settlement_payer_name || null,
+        // Phase 4: per-source breakdown (2-3 rows). When non-null, the RPC
+        // validates and overrides settlement_payer_source/_name above.
+        p_payer_source_split: data.payer_source_split ?? null,
       });
 
       if (error) {

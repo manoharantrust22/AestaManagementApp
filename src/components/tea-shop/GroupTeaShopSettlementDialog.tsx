@@ -38,7 +38,7 @@ import {
 } from "@mui/icons-material";
 import { createClient } from "@/lib/supabase/client";
 import FileUploader, { UploadedFile } from "@/components/common/FileUploader";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
 import { isSiteEngineerPayingFromWallet } from "@/components/expenses/walletPayerLock";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Database } from "@/types/database.types";
@@ -52,7 +52,11 @@ interface TeaShopGroupEntryWithAllocations extends TeaShopGroupEntry {
   allocations?: any[];
 }
 import type { SiteGroupWithSites } from "@/types/material.types";
-import type { PayerSource } from "@/types/settlement.types";
+import type { PayerSourceInput } from "@/types/settlement.types";
+import {
+  validatePayerSourceInput,
+  toRpcArgs,
+} from "@/lib/settlement/payerSource";
 import {
   useGroupTeaShopUnsettledEntries,
   useGroupTeaShopPendingBalance,
@@ -111,8 +115,12 @@ export default function GroupTeaShopSettlementDialog({
   const [createWalletTransaction, setCreateWalletTransaction] = useState(true);
   const [notes, setNotes] = useState("");
   const [proofUrl, setProofUrl] = useState<string | null>(null);
-  const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
-  const [customPayerName, setCustomPayerName] = useState("");
+  // Unified payer-source-split input. The group dialog is create-only (no edit
+  // mode) so the initial state is always the single own_money default.
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
   const [selectedSubcontractId, setSelectedSubcontractId] = useState<string>("");
 
   // Site engineers list
@@ -176,8 +184,7 @@ export default function GroupTeaShopSettlementDialog({
       setCreateWalletTransaction(true);
       setNotes("");
       setProofUrl(null);
-      setPayerSource("own_money");
-      setCustomPayerName("");
+      setPayer({ mode: "single", source: "own_money" });
       setSelectedSubcontractId("");
       setError(null);
     }
@@ -248,6 +255,27 @@ export default function GroupTeaShopSettlementDialog({
       return;
     }
 
+    // Validate payer-source-split before submitting. Skipped when the selector
+    // is hidden (site engineer paying from wallet — only meaningful inside the
+    // "site_engineer" payer branch, but we read the same guard there).
+    const payerSelectorVisible =
+      payerType === "site_engineer" &&
+      !isSiteEngineerPayingFromWallet({
+        userRole: userProfile?.role,
+        payerType,
+        createWalletTransaction,
+      });
+    if (payerSelectorVisible) {
+      const payerCheck = validatePayerSourceInput(payer, amountPaying);
+      if (!payerCheck.ok) {
+        setError(payerCheck.reason);
+        return;
+      }
+    }
+    const payerRpc = payerSelectorVisible
+      ? toRpcArgs(payer)
+      : { p_payer_source: "own_money", p_payer_name: null, p_payer_source_split: null };
+
     setError(null);
 
     // Calculate period dates
@@ -278,8 +306,9 @@ export default function GroupTeaShopSettlementDialog({
           payerType === "site_engineer" ? selectedEngineerId : undefined,
         createWalletTransaction:
           payerType === "site_engineer" ? createWalletTransaction : false,
-        payerSource,
-        payerName: payerSource === "custom" ? customPayerName : undefined,
+        payerSource: payerRpc.p_payer_source,
+        payerName: payerRpc.p_payer_name,
+        payerSourceSplit: payerRpc.p_payer_source_split,
         proofUrl: proofUrl || undefined,
         subcontractId: selectedSubcontractId || undefined,
         notes: notes || undefined,
@@ -505,12 +534,23 @@ export default function GroupTeaShopSettlementDialog({
                 payerType,
                 createWalletTransaction,
               }) && (
-                <PayerSourceSelector
-                  value={payerSource}
-                  onChange={setPayerSource}
-                  customName={customPayerName}
-                  onCustomNameChange={setCustomPayerName}
-                />
+                <Box>
+                  <PayerSourceSplitInput
+                    value={payer}
+                    onChange={setPayer}
+                    total={amountPaying}
+                    siteId={siteGroup.sites?.[0]?.id}
+                    disabled={isLoading}
+                  />
+                  {(() => {
+                    const c = validatePayerSourceInput(payer, amountPaying);
+                    return !c.ok && payer.mode === "split" ? (
+                      <Typography variant="caption" color="error.main">
+                        {c.reason}
+                      </Typography>
+                    ) : null;
+                  })()}
+                </Box>
               )}
             </>
           )}
@@ -611,7 +651,18 @@ export default function GroupTeaShopSettlementDialog({
         <Button
           variant="contained"
           onClick={handleSave}
-          disabled={isLoading || amountPaying <= 0 || loadingEntries}
+          disabled={
+            isLoading ||
+            amountPaying <= 0 ||
+            loadingEntries ||
+            (payerType === "site_engineer" &&
+              !isSiteEngineerPayingFromWallet({
+                userRole: userProfile?.role,
+                payerType,
+                createWalletTransaction,
+              }) &&
+              !validatePayerSourceInput(payer, amountPaying).ok)
+          }
         >
           {isLoading ? (
             <CircularProgress size={20} color="inherit" />

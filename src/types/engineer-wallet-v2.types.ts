@@ -9,6 +9,11 @@
  * and migrate these to the canonical Row/Insert/Update types.
  */
 
+import type {
+  PayerSourceInput,
+  PayerSourceSplitRow,
+} from "@/types/settlement.types";
+
 export type WalletTransactionType = "deposit" | "spend" | "return";
 export type WalletPaymentMode = "cash" | "upi" | "bank_transfer";
 export type WalletPaymentChannel = "direct" | "engineer_wallet";
@@ -33,6 +38,9 @@ export interface WalletLedgerEntry {
   notes: string | null;
   payer_source: WalletPayerSourceKey | null;
   payer_name: string | null;
+  /** Phase 4 payer-source split (multi-source deposits). When non-null and
+   *  non-empty, `payer_source` is "split" and `payer_name` is null. */
+  payer_source_split: PayerSourceSplitRow[] | null;
   recorded_by: string;
   recorded_by_user_id: string | null;
   created_at: string;
@@ -91,14 +99,19 @@ export interface WalletEnabledEngineer {
 }
 
 /** Inputs to recordDeposit. UPI mode requires proof_url. site_id is required —
- *  every deposit is tagged to a specific site pool. */
+ *  every deposit is tagged to a specific site pool.
+ *
+ *  Phase 4 (payer-source-split): legacy `payer_source` / `payer_name` fields are
+ *  replaced by a single `payer: PayerSourceInput` that captures either a single
+ *  source (the historical shape) or a 2–3 way split. The service validates the
+ *  shape and writes `payer_source` / `payer_name` / `payer_source_split` (JSONB)
+ *  in one go via `toRpcArgs`. */
 export interface RecordDepositInput {
   engineer_id: string;
   site_id: string;
   amount: number;
   payment_mode: WalletPaymentMode;
-  payer_source: WalletPayerSourceKey;
-  payer_name: string | null;
+  payer: PayerSourceInput;
   proof_url: string | null;
   transaction_date?: string;
   description?: string | null;
@@ -109,13 +122,18 @@ export interface RecordDepositInput {
 
 /** Inputs to updateDeposit. Edits an existing deposit row in place; site_id and
  *  engineer_id are NOT editable (changing either would orphan downstream spends).
- *  The service enforces that the resulting pool balance stays >= 0. */
+ *  The service enforces that the resulting pool balance stays >= 0.
+ *
+ *  Phase 4 (payer-source-split): legacy `payer_source` / `payer_name` fields are
+ *  replaced by a single `payer: PayerSourceInput` that captures either a single
+ *  source (the historical shape) or a 2–3 way split. The service validates the
+ *  shape and writes `payer_source` / `payer_name` / `payer_source_split` (JSONB)
+ *  in one go via `toRpcArgs`. */
 export interface UpdateDepositInput {
   id: string;
   amount: number;
   payment_mode: WalletPaymentMode;
-  payer_source: WalletPayerSourceKey;
-  payer_name: string | null;
+  payer: PayerSourceInput;
   proof_url: string | null;
   transaction_date: string;
   notes: string | null;

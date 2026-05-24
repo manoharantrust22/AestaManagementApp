@@ -22,7 +22,8 @@ import {
 } from "@mui/material";
 import { Close, CloudUpload, Delete, LocationOn } from "@mui/icons-material";
 import dayjs from "dayjs";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
+import { validatePayerSourceInput } from "@/lib/settlement/payerSource";
 import { useImageUpload } from "@/hooks/useImageUpload";
 import { createClient } from "@/lib/supabase/client";
 import { useSitesData } from "@/contexts/SiteContext";
@@ -38,9 +39,11 @@ import {
 import type {
   WalletLedgerEntry,
   WalletPaymentMode,
-  WalletPayerSourceKey,
 } from "@/types/engineer-wallet-v2.types";
-import type { PayerSource } from "@/types/settlement.types";
+import type {
+  PayerSource,
+  PayerSourceInput,
+} from "@/types/settlement.types";
 
 interface EditDepositDialogProps {
   open: boolean;
@@ -70,8 +73,10 @@ export default function EditDepositDialog({
 
   const [amount, setAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState<WalletPaymentMode>("upi");
-  const [payerSource, setPayerSource] = useState<PayerSource>("trust_account");
-  const [payerName, setPayerName] = useState("");
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "trust_account",
+  });
   const [transactionDate, setTransactionDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [notes, setNotes] = useState("");
   const [proofUrl, setProofUrl] = useState<string | null>(null);
@@ -91,8 +96,18 @@ export default function EditDepositDialog({
     if (!open || !deposit) return;
     setAmount(String(deposit.amount ?? ""));
     setPaymentMode((deposit.payment_mode ?? "upi") as WalletPaymentMode);
-    setPayerSource((deposit.payer_source ?? "trust_account") as PayerSource);
-    setPayerName(deposit.payer_name ?? "");
+    // Hydrate payer-source state from either the new split JSONB column or the
+    // legacy single-source pair. Old rows (created before Phase 4 shipped) only
+    // populate payer_source / payer_name.
+    if (deposit.payer_source_split && deposit.payer_source_split.length > 0) {
+      setPayer({ mode: "split", rows: deposit.payer_source_split });
+    } else {
+      setPayer({
+        mode: "single",
+        source: (deposit.payer_source ?? "trust_account") as PayerSource,
+        name: deposit.payer_name ?? undefined,
+      });
+    }
     setTransactionDate(deposit.transaction_date ?? dayjs().format("YYYY-MM-DD"));
     setNotes(deposit.notes ?? "");
     setProofUrl(deposit.proof_url ?? null);
@@ -143,29 +158,32 @@ export default function EditDepositDialog({
   const amountInvalid = !amount || isNaN(Number(amount)) || Number(amount) <= 0;
   const wouldGoNegative = delta < 0 && previewAfter < 0;
   const upiProofMissing = paymentMode === "upi" && !proofUrl;
-  const customNameMissing =
-    (payerSource === "custom" || payerSource === "other_site_money") &&
-    payerName.trim() === "";
+  const payerCheck = validatePayerSourceInput(payer, numericAmount);
+  const payerInvalid = !payerCheck.ok;
   const reasonMissing = editReason.trim() === "";
 
   const canSubmit =
     !amountInvalid &&
     !upiProofMissing &&
-    !customNameMissing &&
+    !payerInvalid &&
     !reasonMissing &&
     !wouldGoNegative;
 
   const handleSubmit = async () => {
     if (!deposit) return;
     setSubmitError(null);
+    const check = validatePayerSourceInput(payer, Number(amount));
+    if (!check.ok) {
+      setSubmitError(check.reason);
+      return;
+    }
     try {
       await updateMutation.mutateAsync({
         id: deposit.id,
         engineer_id: deposit.user_id,
         amount: Number(amount),
         payment_mode: paymentMode,
-        payer_source: payerSource as WalletPayerSourceKey,
-        payer_name: payerName.trim() || null,
+        payer,
         proof_url: proofUrl,
         transaction_date: transactionDate,
         notes: notes.trim() || null,
@@ -333,14 +351,24 @@ export default function EditDepositDialog({
             </ToggleButtonGroup>
           </Box>
 
-          <PayerSourceSelector
-            value={payerSource}
-            customName={payerName}
-            onChange={setPayerSource}
-            onCustomNameChange={setPayerName}
-            siteId={deposit.site_id ?? undefined}
-            compact
-          />
+          <Box>
+            <PayerSourceSplitInput
+              value={payer}
+              onChange={setPayer}
+              total={numericAmount}
+              siteId={deposit.site_id ?? undefined}
+              disabled={isSubmitting}
+            />
+            {payerInvalid && payer.mode === "split" && (
+              <Typography
+                variant="caption"
+                color="error.main"
+                sx={{ mt: 0.5, display: "block" }}
+              >
+                {!payerCheck.ok ? payerCheck.reason : null}
+              </Typography>
+            )}
+          </Box>
 
           <TextField
             label="Date"

@@ -35,8 +35,15 @@ import { createClient } from "@/lib/supabase/client";
 import { useSite } from "@/contexts/SiteContext";
 import dayjs from "dayjs";
 import type { DailyPaymentRecord } from "@/types/payment.types";
-import PayerSourceSelector, { getPayerSourceLabel, getPayerSourceColor } from "@/components/settlement/PayerSourceSelector";
-import type { PayerSource } from "@/types/settlement.types";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
+import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import { requiresPayerName } from "@/types/settlement.types";
+import PayerSourceChip from "@/components/settlement/PayerSourceChip";
+import {
+  validatePayerSourceInput,
+  toRpcArgs,
+} from "@/lib/settlement/payerSource";
+import type { PayerSource, PayerSourceInput } from "@/types/settlement.types";
 import SubcontractLinkSelector from "./SubcontractLinkSelector";
 
 interface DateSettlementsEditDialogProps {
@@ -64,8 +71,10 @@ export default function DateSettlementsEditDialog({
 
   // Form state for bulk editing - Payer Source
   const [updatePayerSource, setUpdatePayerSource] = useState(false);
-  const [selectedPayerSource, setSelectedPayerSource] = useState<PayerSource>("own_money");
-  const [payerSourceName, setPayerSourceName] = useState("");
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
 
   // UI state
   const [processing, setProcessing] = useState(false);
@@ -94,6 +103,13 @@ export default function DateSettlementsEditDialog({
   // Calculate total amount that will be linked
   const totalAmountToLink = recordsToUpdate.reduce((sum, r) => sum + r.amount, 0);
 
+  // Total across all records — used as the split-total when bulk-updating Paid By.
+  // (Payer source update applies to ALL records, not just the unlinked subset.)
+  const totalAllRecords = useMemo(
+    () => records.reduce((sum, r) => sum + r.amount, 0),
+    [records]
+  );
+
   // Determine current subcontract status from records
   const currentSubcontract = useMemo(() => {
     const linkedRecords = records.filter((r) => r.subcontractId);
@@ -119,8 +135,7 @@ export default function DateSettlementsEditDialog({
       setOnlyUpdateUnlinked(true);
       setEditingSubcontract(false);
       setUpdatePayerSource(false);
-      setSelectedPayerSource("own_money");
-      setPayerSourceName("");
+      setPayer({ mode: "single", source: "own_money" });
       setError(null);
     }
   }, [open]);
@@ -154,6 +169,17 @@ export default function DateSettlementsEditDialog({
       return;
     }
 
+    // Validate payer source if updating it. In split mode the user-entered
+    // amounts must sum to the combined total across all records (this dialog
+    // applies the same payer config to every record bulk-style).
+    if (hasPayerSourceUpdate) {
+      const payerCheck = validatePayerSourceInput(payer, totalAllRecords);
+      if (!payerCheck.ok) {
+        setError(payerCheck.reason);
+        return;
+      }
+    }
+
     // Mark as submitting to prevent double-clicks
     const submissionId = `${Date.now()}-${Math.random()}`;
     submissionIdRef.current = submissionId;
@@ -172,11 +198,19 @@ export default function DateSettlementsEditDialog({
 
       // Build update payloads
       const subcontractPayload = hasSubcontractUpdate ? { subcontract_id: selectedSubcontractId } : {};
-      const payerSourcePayload = hasPayerSourceUpdate ? {
-        payer_source: selectedPayerSource,
-        payer_name: selectedPayerSource === "custom" || selectedPayerSource === "other_site_money"
-          ? payerSourceName
-          : null,
+      // toRpcArgs gives us the canonical three-column payload.
+      // daily_attendance / market_laborer_attendance only have payer_source+payer_name
+      // (no payer_source_split column — Phase 1 foundation migration scope). The split
+      // JSONB only lives on settlement_groups + site_engineer_transactions.
+      const payerRpc = hasPayerSourceUpdate ? toRpcArgs(payer) : null;
+      const payerSourcePayloadAttendance = hasPayerSourceUpdate && payerRpc ? {
+        payer_source: payerRpc.p_payer_source,
+        payer_name: payerRpc.p_payer_name,
+      } : {};
+      const payerSourcePayloadSG = hasPayerSourceUpdate && payerRpc ? {
+        payer_source: payerRpc.p_payer_source,
+        payer_name: payerRpc.p_payer_name,
+        payer_source_split: payerRpc.p_payer_source_split,
       } : {};
 
       // Update daily_attendance records
@@ -195,7 +229,7 @@ export default function DateSettlementsEditDialog({
         const allDailyIds = allDailyRecords.map((r) => r.sourceId);
         const { error: dailyPayerError } = await supabase
           .from("daily_attendance")
-          .update(payerSourcePayload)
+          .update(payerSourcePayloadAttendance)
           .in("id", allDailyIds);
 
         if (dailyPayerError) throw dailyPayerError;
@@ -217,7 +251,7 @@ export default function DateSettlementsEditDialog({
         const allMarketIds = allMarketRecords.map((r) => r.sourceId);
         const { error: marketPayerError } = await supabase
           .from("market_laborer_attendance")
-          .update(payerSourcePayload as any)
+          .update(payerSourcePayloadAttendance as any)
           .in("id", allMarketIds);
 
         if (marketPayerError) throw marketPayerError;
@@ -271,20 +305,22 @@ export default function DateSettlementsEditDialog({
       }
 
       // Update engineer transactions for payer source
-      if (hasPayerSourceUpdate) {
+      if (hasPayerSourceUpdate && payerRpc) {
         const allEngineerTxIds = records
           .filter((r) => r.engineerTransactionId)
           .map((r) => r.engineerTransactionId)
           .filter((id): id is string => !!id);
 
         if (allEngineerTxIds.length > 0) {
-          const { error: txPayerError } = await supabase
-            .from("site_engineer_transactions")
+          // site_engineer_transactions has both legacy money_source/money_source_name
+          // columns (still in use upstream) and the new payer_source_split JSONB
+          // (added in Phase 1 foundation migration).
+          const { error: txPayerError } = await (supabase
+            .from("site_engineer_transactions") as any)
             .update({
-              money_source: selectedPayerSource,
-              money_source_name: selectedPayerSource === "custom" || selectedPayerSource === "other_site_money"
-                ? payerSourceName
-                : null,
+              money_source: payerRpc.p_payer_source,
+              money_source_name: payerRpc.p_payer_name,
+              payer_source_split: payerRpc.p_payer_source_split,
             })
             .in("id", allEngineerTxIds);
 
@@ -294,7 +330,10 @@ export default function DateSettlementsEditDialog({
         }
 
         // Also update settlement_groups for all affected settlement group IDs
-        // This ensures the payer_name shows correctly in the v_all_expenses view (Daily Expenses page)
+        // This ensures the payer_name shows correctly in the v_all_expenses view (Daily Expenses page).
+        // Note: in split mode the same JSONB is written to every settlement_group — semantically
+        // the user is declaring "these settlements (combined) were funded by this split", which
+        // matches how the bulk Paid By workflow has always worked (single payer applied to all).
         const settlementGroupIds = records
           .filter((r) => r.settlementGroupId)
           .map((r) => r.settlementGroupId)
@@ -304,12 +343,7 @@ export default function DateSettlementsEditDialog({
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const { error: sgError } = await (supabase as any)
             .from("settlement_groups")
-            .update({
-              payer_source: selectedPayerSource,
-              payer_name: selectedPayerSource === "custom" || selectedPayerSource === "other_site_money"
-                ? payerSourceName
-                : null,
-            })
+            .update(payerSourcePayloadSG)
             .in("id", settlementGroupIds);
 
           if (sgError) {
@@ -406,12 +440,12 @@ export default function DateSettlementsEditDialog({
                       </TableCell>
                       <TableCell>
                         {record.moneySource ? (
-                          <Chip
-                            label={getPayerSourceLabel(record.moneySource as PayerSource, record.moneySourceName || undefined)}
-                            size="small"
-                            variant="outlined"
-                            color={getPayerSourceColor(record.moneySource as PayerSource)}
-                            sx={{ height: 20, fontSize: "0.65rem" }}
+                          <PayerSourceChip
+                            row={{
+                              payer_source: record.moneySource,
+                              payer_name: record.moneySourceName,
+                              payer_source_split: record.payerSourceSplit ?? null,
+                            }}
                           />
                         ) : (
                           <Typography variant="body2" color="text.disabled">—</Typography>
@@ -476,12 +510,12 @@ export default function DateSettlementsEditDialog({
                       </TableCell>
                       <TableCell>
                         {record.moneySource ? (
-                          <Chip
-                            label={getPayerSourceLabel(record.moneySource as PayerSource, record.moneySourceName || undefined)}
-                            size="small"
-                            variant="outlined"
-                            color={getPayerSourceColor(record.moneySource as PayerSource)}
-                            sx={{ height: 20, fontSize: "0.65rem" }}
+                          <PayerSourceChip
+                            row={{
+                              payer_source: record.moneySource,
+                              payer_name: record.moneySourceName,
+                              payer_source_split: record.payerSourceSplit ?? null,
+                            }}
                           />
                         ) : (
                           <Typography variant="body2" color="text.disabled">—</Typography>
@@ -616,19 +650,38 @@ export default function DateSettlementsEditDialog({
 
                   {updatePayerSource && (
                     <Box sx={{ mt: 2 }}>
+                      {/* Single-source-only picker in bulk mode. A split written
+                          here would be applied to every settlement_group with
+                          per-source amounts that sum to the COMBINED total,
+                          not each row's individual amount — breaking row-level
+                          integrity. To author splits, edit each settlement
+                          individually via the per-row Edit action. */}
                       <PayerSourceSelector
-                        value={selectedPayerSource}
-                        customName={payerSourceName}
-                        onChange={setSelectedPayerSource}
-                        onCustomNameChange={setPayerSourceName}
-                        compact
+                        value={payer.mode === "single" ? payer.source : "own_money"}
+                        customName={payer.mode === "single" ? (payer.name ?? "") : ""}
+                        onChange={(source) =>
+                          setPayer((prev) => ({
+                            mode: "single",
+                            source,
+                            name: prev.mode === "single" ? prev.name : undefined,
+                          }))
+                        }
+                        onCustomNameChange={(name) =>
+                          setPayer((prev) => ({
+                            mode: "single",
+                            source: prev.mode === "single" ? prev.source : "own_money",
+                            name,
+                          }))
+                        }
+                        disabled={processing || isSubmitting}
+                        siteId={selectedSite?.id}
                       />
                     </Box>
                   )}
 
                   {updatePayerSource && (
                     <Alert severity="info" sx={{ mt: 2 }}>
-                      All {records.length} record(s) will be updated to &quot;{getPayerSourceLabel(selectedPayerSource, payerSourceName)}&quot;
+                      All {records.length} record(s) will be updated to the selected payer source.
                     </Alert>
                   )}
                 </Box>
@@ -649,7 +702,8 @@ export default function DateSettlementsEditDialog({
             processing ||
             isSubmitting ||
             (!(editingSubcontract && selectedSubcontractId) && !updatePayerSource) ||
-            !!(editingSubcontract && selectedSubcontractId && recordsToUpdate.length === 0)
+            !!(editingSubcontract && selectedSubcontractId && recordsToUpdate.length === 0) ||
+            (updatePayerSource && !validatePayerSourceInput(payer, totalAllRecords).ok)
           }
           startIcon={(processing || isSubmitting) ? <CircularProgress size={16} /> : <SaveIcon />}
         >

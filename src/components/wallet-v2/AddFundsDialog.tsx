@@ -22,7 +22,7 @@ import {
 } from "@mui/material";
 import { Close, CloudUpload, Image as ImageIcon, LocationOn } from "@mui/icons-material";
 import dayjs from "dayjs";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
 import { useImageUpload } from "@/hooks/useImageUpload";
 import { createClient } from "@/lib/supabase/client";
 import { useSitesData } from "@/contexts/SiteContext";
@@ -32,11 +32,9 @@ import {
 } from "@/hooks/mutations/useEngineerWalletMutations";
 import { useEngineerWalletBalance } from "@/hooks/queries/useEngineerWalletV2";
 import { WalletValidationError } from "@/types/engineer-wallet-v2.types";
-import type {
-  WalletPaymentMode,
-  WalletPayerSourceKey,
-} from "@/types/engineer-wallet-v2.types";
-import type { PayerSource } from "@/types/settlement.types";
+import type { WalletPaymentMode } from "@/types/engineer-wallet-v2.types";
+import type { PayerSourceInput } from "@/types/settlement.types";
+import { validatePayerSourceInput } from "@/lib/settlement/payerSource";
 
 interface AddFundsDialogProps {
   open: boolean;
@@ -76,8 +74,10 @@ export default function AddFundsDialog({
   const [siteId, setSiteId] = useState<string>(lockedSiteId ?? "");
   const [amount, setAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState<WalletPaymentMode>("upi");
-  const [payerSource, setPayerSource] = useState<PayerSource>("trust_account");
-  const [payerName, setPayerName] = useState("");
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "trust_account",
+  });
   const [transactionDate, setTransactionDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [notes, setNotes] = useState("");
   const [proofUrl, setProofUrl] = useState<string | null>(null);
@@ -110,8 +110,7 @@ export default function AddFundsDialog({
     setSiteId(lockedSiteId ?? "");
     setAmount("");
     setPaymentMode("upi");
-    setPayerSource("trust_account");
-    setPayerName("");
+    setPayer({ mode: "single", source: "trust_account" });
     setTransactionDate(dayjs().format("YYYY-MM-DD"));
     setNotes("");
     setProofUrl(null);
@@ -141,17 +140,15 @@ export default function AddFundsDialog({
 
   const siteMissing = !siteId;
   const upiProofMissing = paymentMode === "upi" && !proofUrl;
-  const customNameMissing =
-    (payerSource === "custom" || payerSource === "other_site_money") &&
-    payerName.trim() === "" &&
-    !isReturn;
   const amountInvalid = !amount || isNaN(Number(amount)) || Number(amount) <= 0;
   const returnExceedsBalance = isReturn && numericAmount > currentBalance;
+  const payerCheck = validatePayerSourceInput(payer, numericAmount);
+  const payerInvalid = !isReturn && !payerCheck.ok;
   const canSubmit =
     !amountInvalid &&
     !siteMissing &&
     !upiProofMissing &&
-    !customNameMissing &&
+    !payerInvalid &&
     !returnExceedsBalance;
 
   const handleSubmit = async () => {
@@ -171,10 +168,14 @@ export default function AddFundsDialog({
       if (isReturn) {
         await returnMutation.mutateAsync(baseInput);
       } else {
+        const check = validatePayerSourceInput(payer, Number(amount));
+        if (!check.ok) {
+          setSubmitError(check.reason);
+          return;
+        }
         await deposit.mutateAsync({
           ...baseInput,
-          payer_source: payerSource as WalletPayerSourceKey,
-          payer_name: payerName.trim() || null,
+          payer,
         });
       }
       reset();
@@ -307,14 +308,27 @@ export default function AddFundsDialog({
           </Box>
 
           {!isReturn && (
-            <PayerSourceSelector
-              value={payerSource}
-              customName={payerName}
-              onChange={setPayerSource}
-              onCustomNameChange={setPayerName}
-              siteId={siteId || undefined}
-              compact
-            />
+            <Box>
+              <PayerSourceSplitInput
+                value={payer}
+                onChange={setPayer}
+                total={numericAmount}
+                siteId={siteId || undefined}
+                disabled={isSubmitting}
+              />
+              {(() => {
+                const c = validatePayerSourceInput(payer, numericAmount);
+                return !c.ok && payer.mode === "split" ? (
+                  <Typography
+                    variant="caption"
+                    color="error.main"
+                    sx={{ mt: 0.5, display: "block" }}
+                  >
+                    {c.reason}
+                  </Typography>
+                ) : null;
+              })()}
+            </Box>
           )}
 
           <TextField

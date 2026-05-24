@@ -32,7 +32,11 @@ import {
   AccountBalanceWallet as WalletIcon,
 } from "@mui/icons-material";
 import { createClient } from "@/lib/supabase/client";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
+import {
+  toRpcArgs,
+  validatePayerSourceInput,
+} from "@/lib/settlement/payerSource";
 import {
   ReceiptCapture,
   type ReceiptCaptureValue,
@@ -49,7 +53,7 @@ import { usePayerSources } from "@/hooks/queries/usePayerSources";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
 import type { MaterialPurchaseExpenseWithDetails, MaterialPaymentMode, PurchaseOrderWithDetails } from "@/types/material.types";
-import type { PayerSource } from "@/types/settlement.types";
+import type { PayerSource, PayerSourceInput } from "@/types/settlement.types";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 
 interface MaterialSettlementDialogProps {
@@ -124,8 +128,12 @@ export default function MaterialSettlementDialog({
     new Date().toISOString().split("T")[0]
   );
   const [paymentMode, setPaymentMode] = useState<MaterialPaymentMode>("upi");
-  const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
-  const [payerName, setPayerName] = useState("");
+  // Phase 4: PayerSourceInput supports both single-source and 2-3-row split mode.
+  // Replaces the legacy { payerSource, payerName } pair.
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
   const [paymentReference, setPaymentReference] = useState("");
   const [bill, setBill] = useState<ReceiptCaptureValue | null>(null);
   const [screenshot, setScreenshot] = useState<ReceiptCaptureValue | null>(null);
@@ -164,8 +172,7 @@ export default function MaterialSettlementDialog({
 
       setSettlementDate(new Date().toISOString().split("T")[0]);
       setPaymentMode(isSiteEngineer ? "cash" : "upi");
-      setPayerSource("own_money");
-      setPayerName("");
+      setPayer({ mode: "single", source: "own_money" });
       setPaymentReference("");
       setBill(null);
       setScreenshot(null);
@@ -178,10 +185,15 @@ export default function MaterialSettlementDialog({
   }, [open, purchase, purchaseOrder, resetVerification]);
 
   // Auto-apply LIFO payer source for engineer whenever wallet data (re-)loads,
-  // including when the paying site selector changes.
+  // including when the paying site selector changes. Always resets to
+  // single-source mode (engineers never see the split UI — wallet attribution
+  // is derived from deposit pools in Phase 2/3).
   useEffect(() => {
     if (isSiteEngineer && depositSourceQuery.data?.payer_source) {
-      setPayerSource(depositSourceQuery.data.payer_source as PayerSource);
+      setPayer({
+        mode: "single",
+        source: depositSourceQuery.data.payer_source as PayerSource,
+      });
     }
   }, [isSiteEngineer, depositSourceQuery.data?.payer_source]);
 
@@ -247,11 +259,16 @@ export default function MaterialSettlementDialog({
     // Check if this is a group stock parent (vendor payment only)
     const isVendorPaymentOnly = purchase.purchase_type === "group_stock" && !purchase.original_batch_code;
 
-    // Only validate payer source for non-vendor-only payments
-    if (["custom", "other_site_money"].includes(payerSource) && !payerName.trim()) {
-      setError("Please enter the payer name");
+    // Phase 4: unified validation (covers single-source custom-name AND
+    // split sum/keys/length). Splits aren't surfaced to engineers — the
+    // PayerSourceSplitInput is hidden when isSiteEngineer is true, so this
+    // branch only sees split mode for admin/office users.
+    const payerCheck = validatePayerSourceInput(payer, finalAmountPaid);
+    if (!payerCheck.ok) {
+      setError(payerCheck.reason);
       return;
     }
+    const payerRpc = toRpcArgs(payer);
 
     const useWallet = isSiteEngineer && engineerId && effectiveWalletSiteId;
 
@@ -261,8 +278,14 @@ export default function MaterialSettlementDialog({
         id: purchase.id,
         settlement_date: settlementDate,
         payment_mode: paymentMode,
-        payer_source: payerSource,
-        payer_name: payerName || undefined,
+        // For this domain the legacy single-source column is
+        // `settlement_payer_source` on material_purchase_expenses (not
+        // `payer_source`). The mutation hook maps `payer_source` -> that
+        // column internally, so we keep the field name here. When `payer`
+        // is in split mode `p_payer_source` is the literal "split" sentinel.
+        payer_source: payerRpc.p_payer_source as PayerSource | "split",
+        payer_name: payerRpc.p_payer_name || undefined,
+        payer_source_split: payerRpc.p_payer_source_split,
         payment_reference: paymentReference || undefined,
         bill_url: bill?.url || undefined,
         payment_screenshot_url: screenshot?.url || undefined,
@@ -731,15 +754,29 @@ export default function MaterialSettlementDialog({
           </FormControl>
         )}
 
-        {/* Payer Source — only for admins/office on regular expense settlements */}
+        {/* Payer Source — only for admins/office on regular expense settlements.
+            Engineers are auto-attributed via wallet LIFO and never see this UI. */}
         {!isPOAdvancePayment && !isSiteEngineer && (
-          <PayerSourceSelector
-            value={payerSource}
-            customName={payerName}
-            onChange={setPayerSource}
-            onCustomNameChange={setPayerName}
-            compact
-          />
+          <Box sx={{ mb: 2 }}>
+            <PayerSourceSplitInput
+              value={payer}
+              onChange={setPayer}
+              total={Number(amountPaid) || purchaseAmount}
+              siteId={purchase?.site_id ?? selectedSite?.id}
+              disabled={settleMutation.isPending}
+            />
+            {(() => {
+              const c = validatePayerSourceInput(
+                payer,
+                Number(amountPaid) || purchaseAmount,
+              );
+              return !c.ok && payer.mode === "split" ? (
+                <Typography variant="caption" color="error.main" sx={{ display: "block", mt: 0.5 }}>
+                  {c.reason}
+                </Typography>
+              ) : null;
+            })()}
+          </Box>
         )}
 
         {/* Payment Reference */}
@@ -801,7 +838,17 @@ export default function MaterialSettlementDialog({
           disabled={
             settleMutation.isPending ||
             advancePaymentMutation.isPending ||
-            (isSiteEngineer && (balanceQuery.isLoading || !depositSourceQuery.data?.payer_source))
+            (isSiteEngineer && (balanceQuery.isLoading || !depositSourceQuery.data?.payer_source)) ||
+            // Block submit when split mode is currently invalid (sum mismatch,
+            // missing custom-name, duplicate sources, etc.). Single-source
+            // failures still surface as inline alerts on submit.
+            (!isPOAdvancePayment &&
+              !isSiteEngineer &&
+              payer.mode === "split" &&
+              !validatePayerSourceInput(
+                payer,
+                Number(amountPaid) || purchaseAmount,
+              ).ok)
           }
           startIcon={
             (settleMutation.isPending || advancePaymentMutation.isPending) ? (
