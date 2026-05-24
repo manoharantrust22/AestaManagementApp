@@ -3,6 +3,8 @@
  * Type definitions for the Rental Management System
  */
 
+import type { PayerSourceSplitRow } from "./settlement.types";
+
 // ============================================
 // ENUMS AND CONSTANTS
 // ============================================
@@ -506,6 +508,7 @@ export interface RentalSettlementFormData {
   payment_channel: string;
   payer_source?: string;
   payer_name?: string;
+  payer_source_split?: PayerSourceSplitRow[] | null;
   final_receipt_url?: string;
   vendor_bill_url?: string;
   upi_screenshot_url?: string;
