@@ -56,7 +56,23 @@ export async function createMiscExpense(
       referenceNumber = refData as string;
     }
 
-    // 2. If via engineer wallet, record spending transaction
+    // 2. Validate payer-source input + serialise for the insert.
+    // Must run BEFORE the wallet spend below — otherwise a malformed split
+    // would debit the engineer's wallet with no misc_expense row to settle
+    // against, leaving a phantom spend in the ledger.
+    const payerCheck = validatePayerSourceInput(
+      formData.payer,
+      formData.amount,
+    );
+    if (!payerCheck.ok) {
+      return {
+        success: false,
+        error: `Invalid payer source: ${payerCheck.reason}`,
+      };
+    }
+    const payerRpc = toRpcArgs(formData.payer);
+
+    // 3. If via engineer wallet, record spending transaction
     if (formData.payer_type === "site_engineer" && formData.site_engineer_id) {
       if (useV2Wallet) {
         // v2 path: single LIFO pool, no batches. Atomic via RPC with WLT01 on
@@ -113,22 +129,6 @@ export async function createMiscExpense(
         engineerTransactionId = spendingResult.transactionId || null;
       }
     }
-
-    // 3. Validate payer-source input + serialise for the insert.
-    // The misc_expenses table has a CHECK constraint on payer_source_split
-    // (array length 2–3 + per-element shape) — TS validation here catches
-    // missing names + duplicate sources + sum-mismatch before the DB does.
-    const payerCheck = validatePayerSourceInput(
-      formData.payer,
-      formData.amount,
-    );
-    if (!payerCheck.ok) {
-      return {
-        success: false,
-        error: `Invalid payer source: ${payerCheck.reason}`,
-      };
-    }
-    const payerRpc = toRpcArgs(formData.payer);
 
     // 4. Create misc_expenses record
     const expenseData = {

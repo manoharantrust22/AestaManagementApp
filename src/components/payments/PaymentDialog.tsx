@@ -204,17 +204,8 @@ export default function PaymentDialog({
 
       // For weekly payments, the service handles everything including engineer transactions
       if (isWeeklyPayment && weeklyPayment) {
-        // Guard: processContractPayment is still on the legacy single-source
-        // shape until Phase 2. A split payload would be silently collapsed to
-        // row 0 (data loss). Block submit with a clear message instead.
-        if (payer.mode === "split") {
-          setError(
-            "Split sources for weekly contract payments will be supported in Phase 2. Please choose a single source for now."
-          );
-          setProcessing(false);
-          return;
-        }
-        // Weekly contract laborer payment - uses new service
+        // Weekly contract laborer payment - uses processContractPayment, which
+        // accepts PayerSourceInput (single or split) as of Phase 2.
         await processWeeklyPayment(
           weeklyPayment.laborer,
           weeklyPayment.weekStart
@@ -279,12 +270,8 @@ export default function PaymentDialog({
     laborer: WeeklyContractLaborer,
     weekStart: string
   ) => {
-    // processContractPayment now takes PayerSourceInput (union of single/split).
-    // The Phase 1 guard at the top of the weekly branch blocks split submissions
-    // before we get here, so in practice `payer.mode === "single"`. We pass the
-    // union through directly — the validator inside processContractPayment will
-    // reject any unexpected split that slips past the guard.
-    // Use the new processContractPayment service for contract weekly payments
+    // processContractPayment accepts PayerSourceInput (single or split) as of
+    // Phase 2. The service runs validatePayerSourceInput before the RPC call.
     const result = await processContractPayment(supabase, {
       siteId: selectedSite!.id,
       laborerId: laborer.laborerId,

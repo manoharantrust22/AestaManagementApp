@@ -760,19 +760,35 @@ export default function SalarySettlementTable({
           }
           return (
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
-              {sources.map((s, idx) => (
-                <Chip
-                  key={`${s.source}-${idx}`}
-                  label={s.source === "unspecified"
-                    ? "Unspecified"
-                    : getPayerSourceLabel(s.source as PayerSource, s.sourceName || undefined)
-                  }
-                  size="small"
-                  color={s.source === "unspecified" ? "default" : getPayerSourceColor(s.source as PayerSource)}
-                  variant="outlined"
-                  sx={{ height: 20, fontSize: "0.65rem" }}
-                />
-              ))}
+              {sources.map((s, idx) => {
+                // Aggregated grouping doesn't carry the split-row JSONB up to
+                // this column (per-row chips elsewhere render via
+                // PayerSourceChip with full split breakdown). For the summary,
+                // a split row shows as a generic "Split" chip — see
+                // SalarySettlementTable's per-row column for the detail.
+                const isSplit = s.source === "split";
+                const isUnspecified = s.source === "unspecified";
+                return (
+                  <Chip
+                    key={`${s.source}-${idx}`}
+                    label={
+                      isSplit
+                        ? "Split"
+                        : isUnspecified
+                        ? "Unspecified"
+                        : getPayerSourceLabel(s.source as PayerSource, s.sourceName || undefined)
+                    }
+                    size="small"
+                    color={
+                      isSplit || isUnspecified
+                        ? "default"
+                        : getPayerSourceColor(s.source as PayerSource)
+                    }
+                    variant="outlined"
+                    sx={{ height: 20, fontSize: "0.65rem" }}
+                  />
+                );
+              })}
             </Box>
           );
         },
