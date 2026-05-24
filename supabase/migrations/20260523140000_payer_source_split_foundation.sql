@@ -43,16 +43,16 @@ BEGIN
       'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
       tbl, tbl || '_payer_source_split_len_chk'
     );
+    -- Per-element shape validation (amount=number, source=string) is enforced
+    -- at insert time by the validate_payer_source_split() function defined
+    -- below — Postgres disallows subqueries in CHECK, so the array-of-objects
+    -- shape check cannot live here. Length + array-type stay in CHECK as the
+    -- minimum belt-and-suspenders guarantee at the storage layer.
     EXECUTE format(
       $CHK$ALTER TABLE %I ADD CONSTRAINT %I CHECK (
         payer_source_split IS NULL OR (
           jsonb_typeof(payer_source_split) = 'array'
           AND jsonb_array_length(payer_source_split) BETWEEN 2 AND 3
-          AND NOT EXISTS (
-            SELECT 1 FROM jsonb_array_elements(payer_source_split) e
-             WHERE jsonb_typeof(e->'amount') <> 'number'
-                OR jsonb_typeof(e->'source') <> 'string'
-          )
         )
       )$CHK$,
       tbl, tbl || '_payer_source_split_len_chk'
