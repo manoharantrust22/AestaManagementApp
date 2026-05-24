@@ -20,7 +20,7 @@ import type {
   ConvertToOwnSiteFormData,
   MaterialPaymentMode,
 } from "@/types/material.types";
-import type { PayerSource } from "@/types/settlement.types";
+import type { PayerSource, PayerSourceSplitRow } from "@/types/settlement.types";
 
 // ============================================
 // HELPER FUNCTIONS
@@ -860,8 +860,19 @@ export interface SettleMaterialPurchaseData {
   id: string;
   settlement_date: string;
   payment_mode: MaterialPaymentMode;
-  payer_source: PayerSource;
+  /**
+   * Legacy single-source key. Pass "split" as a sentinel when sending a
+   * multi-source split payload via `payer_source_split` (Phase 4). Maps to
+   * the `settlement_payer_source` column on material_purchase_expenses.
+   */
+  payer_source: PayerSource | "split";
   payer_name?: string;
+  /**
+   * Multi-source payer split (2-3 rows summing to amount_paid). When set,
+   * `payer_source` must be the "split" sentinel and `payer_name` should be
+   * NULL. Validated server-side by the foundation CHECK constraint.
+   */
+  payer_source_split?: PayerSourceSplitRow[] | null;
   payment_reference?: string;
   bill_url?: string;
   payment_screenshot_url?: string;
@@ -945,9 +956,13 @@ export function useSettleMaterialPurchase() {
         updateData.settlement_reference = settlementRef;
         updateData.settlement_date = data.settlement_date;
       }
-      // Always store payer source and payer name
+      // Always store payer source and payer name. Phase 4: when the dialog
+      // sends a split payload, `payer_source` arrives as the "split" sentinel
+      // and `payer_name` is null; the per-source breakdown lives in
+      // `payer_source_split` JSONB.
       updateData.settlement_payer_source = data.payer_source;
       updateData.settlement_payer_name = data.payer_name || null;
+      updateData.payer_source_split = data.payer_source_split ?? null;
 
       // Allow overriding the paying site for group stock purchases
       if (data.paying_site_id) {
@@ -1004,6 +1019,7 @@ export function useSettleMaterialPurchase() {
                 amount_paid: null,
                 settlement_payer_source: null,
                 settlement_payer_name: null,
+                payer_source_split: null,
               })
               .eq("id", data.id);
           } catch (rollbackErr) {
