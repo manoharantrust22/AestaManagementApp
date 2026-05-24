@@ -488,6 +488,7 @@ export interface RentalAdvanceFormData {
   payment_channel: string;
   payer_source?: string;
   payer_name?: string;
+  payer_source_split?: PayerSourceSplitRow[] | null;
   proof_url?: string;
   notes?: string;
   subcontract_id?: string;
