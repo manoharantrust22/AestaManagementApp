@@ -435,6 +435,9 @@ export interface DateWiseSettlement {
   paymentChannel: PaymentChannel;
   payerSource: string | null;
   payerName: string | null;
+  /** Multi-source split (from settlement_groups.payer_source_split). When non-null,
+   *  payerSource is the literal 'split' sentinel and per-row breakdown lives here. */
+  payerSourceSplit?: PayerSourceSplitRow[] | null;
   proofUrls: string[];
   notes: string | null;
   subcontractId: string | null;

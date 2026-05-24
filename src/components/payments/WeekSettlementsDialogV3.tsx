@@ -162,6 +162,7 @@ export default function WeekSettlementsDialogV3({
         paymentChannel: s.paymentChannel as "direct" | "engineer_wallet",
         payerSource: s.payerSource as PayerSource | null,
         payerName: s.payerName,
+        payerSourceSplit: s.payerSourceSplit,
         proofUrls: s.proofUrls,
         notes: s.notes,
         subcontractId: null,
