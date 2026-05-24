@@ -5,7 +5,14 @@
 
 import { SupabaseClient } from "@supabase/supabase-js";
 import dayjs from "dayjs";
-import type { PayerSource } from "@/types/settlement.types";
+import type {
+  PayerSourceInput,
+  PayerSourceSplitRow,
+} from "@/types/settlement.types";
+import {
+  validatePayerSourceInput,
+  toRpcArgs,
+} from "@/lib/settlement/payerSource";
 import type { BatchAllocation } from "@/types/wallet.types";
 import type {
   RentalCostCalculation,
@@ -25,8 +32,12 @@ export interface RentalAdvanceConfig {
   advanceDate: string;
   paymentMode: string;
   paymentChannel: "direct" | "engineer_wallet";
-  payerSource?: PayerSource;
-  customPayerName?: string;
+  /**
+   * Payer-source input — `{ mode: "single", source, name? }` or
+   * `{ mode: "split", rows: [...] }`. Replaces the legacy
+   * `payerSource` + `customPayerName` pair.
+   */
+  payer: PayerSourceInput;
   engineerId?: string;
   proofUrl?: string;
   notes?: string;
@@ -54,8 +65,14 @@ export interface RentalSettlementConfig {
   balanceAmount: number;
   paymentMode: string;
   paymentChannel: "direct" | "engineer_wallet";
-  payerSource?: PayerSource;
-  customPayerName?: string;
+  /**
+   * Payer-source input — `{ mode: "single", source, name? }` or
+   * `{ mode: "split", rows: [...] }`. Replaces the legacy
+   * `payerSource` + `customPayerName` pair. Sum-to-total is validated
+   * against `balanceAmount` (the actual outgoing payment), not the
+   * gross totals.
+   */
+  payer: PayerSourceInput;
   engineerId?: string;
   proofUrl?: string;
   vendorBillUrl?: string;
@@ -88,6 +105,18 @@ export async function processRentalAdvance(
   config: RentalAdvanceConfig
 ): Promise<RentalAdvanceResult> {
   try {
+    // Validate payer-source input BEFORE any side-effects so a bad payload
+    // returns a structured error result instead of throwing or half-committing.
+    // Sum-to-total is checked against `amount` (the outgoing payment).
+    const payerCheck = validatePayerSourceInput(config.payer, config.amount);
+    if (!payerCheck.ok) {
+      return {
+        success: false,
+        error: `Invalid payer source: ${payerCheck.reason}`,
+      };
+    }
+    const payerRpc = toRpcArgs(config.payer);
+
     let engineerTransactionId: string | null = null;
     let settlementGroupId: string | null = null;
 
@@ -137,8 +166,12 @@ export async function processRentalAdvance(
           laborer_count: 0,
           payment_channel: config.paymentChannel,
           payment_mode: config.paymentMode,
-          payer_source: config.payerSource || null,
-          payer_name: config.payerSource === "custom" ? config.customPayerName : null,
+          payer_source: payerRpc.p_payer_source,
+          payer_name: payerRpc.p_payer_name,
+          // `payer_source_split` is `PayerSourceSplitRow[] | null`; the
+          // Supabase JS client serialises it to JSONB on insert.
+          payer_source_split:
+            payerRpc.p_payer_source_split as PayerSourceSplitRow[] | null,
           proof_url: config.proofUrl || null,
           notes: `Rental advance: ${config.notes || ""}`,
           engineer_transaction_id: engineerTransactionId,
@@ -163,8 +196,12 @@ export async function processRentalAdvance(
         amount: config.amount,
         payment_mode: config.paymentMode,
         payment_channel: config.paymentChannel,
-        payer_source: config.payerSource || null,
-        payer_name: config.payerSource === "custom" ? config.customPayerName : null,
+        payer_source: payerRpc.p_payer_source,
+        payer_name: payerRpc.p_payer_name,
+        // `payer_source_split` JSONB on rental_advances (Phase 1 column,
+        // wired into v_all_expenses by 20260524120000).
+        payer_source_split:
+          payerRpc.p_payer_source_split as PayerSourceSplitRow[] | null,
         proof_url: config.proofUrl,
         engineer_transaction_id: engineerTransactionId,
         settlement_group_id: settlementGroupId,
@@ -204,6 +241,22 @@ export async function processRentalSettlement(
   config: RentalSettlementConfig
 ): Promise<RentalSettlementResult> {
   try {
+    // Validate payer-source input BEFORE any side-effects. Sum-to-total is
+    // checked against `balanceAmount` (the actual outgoing payment); the
+    // payer columns describe HOW the balance is paid, not the gross total
+    // (advances already covered their own share via processRentalAdvance).
+    const payerCheck = validatePayerSourceInput(
+      config.payer,
+      config.balanceAmount,
+    );
+    if (!payerCheck.ok) {
+      return {
+        success: false,
+        error: `Invalid payer source: ${payerCheck.reason}`,
+      };
+    }
+    const payerRpc = toRpcArgs(config.payer);
+
     let engineerTransactionId: string | null = null;
     let settlementGroupId: string | null = null;
     let settlementReference: string | null = null;
@@ -259,8 +312,10 @@ export async function processRentalSettlement(
           laborer_count: 0,
           payment_channel: config.paymentChannel,
           payment_mode: config.paymentMode,
-          payer_source: config.payerSource || null,
-          payer_name: config.payerSource === "custom" ? config.customPayerName : null,
+          payer_source: payerRpc.p_payer_source,
+          payer_name: payerRpc.p_payer_name,
+          payer_source_split:
+            payerRpc.p_payer_source_split as PayerSourceSplitRow[] | null,
           proof_url: config.proofUrl || null,
           notes: `Rental settlement: ${config.notes || ""}`,
           engineer_transaction_id: engineerTransactionId,
@@ -291,8 +346,12 @@ export async function processRentalSettlement(
         balance_amount: config.balanceAmount,
         payment_mode: config.paymentMode,
         payment_channel: config.paymentChannel,
-        payer_source: config.payerSource || null,
-        payer_name: config.payerSource === "custom" ? config.customPayerName : null,
+        payer_source: payerRpc.p_payer_source,
+        payer_name: payerRpc.p_payer_name,
+        // `payer_source_split` JSONB on rental_settlements (Phase 1 column,
+        // wired into v_all_expenses by 20260524120000).
+        payer_source_split:
+          payerRpc.p_payer_source_split as PayerSourceSplitRow[] | null,
         final_receipt_url: config.proofUrl,
         vendor_bill_url: config.vendorBillUrl || null,
         upi_screenshot_url: config.upiScreenshotUrl || null,
