@@ -41,8 +41,12 @@ import { useSite } from "@/contexts/SiteContext";
 import { useAuth } from "@/contexts/AuthContext";
 import type { SettlementDetails } from "./SettlementRefDetailDialog";
 import type { PaymentMode } from "@/types/payment.types";
-import type { PayerSource } from "@/types/settlement.types";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import type { PayerSource, PayerSourceInput } from "@/types/settlement.types";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
+import {
+  validatePayerSourceInput,
+  toRpcArgs,
+} from "@/lib/settlement/payerSource";
 import FileUploader from "@/components/common/FileUploader";
 import SubcontractLinkSelector from "@/components/payments/SubcontractLinkSelector";
 import ScreenshotViewer from "@/components/common/ScreenshotViewer";
@@ -78,8 +82,10 @@ export default function DailySettlementEditDialog({
   const [paymentDate, setPaymentDate] = useState<dayjs.Dayjs | null>(null);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("upi");
   const [paymentChannel, setPaymentChannel] = useState<string>("direct");
-  const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
-  const [customPayerName, setCustomPayerName] = useState("");
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
   const [notes, setNotes] = useState("");
   const [proofUrls, setProofUrls] = useState<string[]>([]);
   const [subcontractId, setSubcontractId] = useState<string | null>(null);
@@ -90,8 +96,15 @@ export default function DailySettlementEditDialog({
       setPaymentDate(settlement.settlementDate ? dayjs(settlement.settlementDate) : null);
       setPaymentMode((settlement.paymentMode as PaymentMode) || "upi");
       setPaymentChannel(settlement.paymentChannel || "direct");
-      setPayerSource((settlement.payerSource as PayerSource) || "own_money");
-      setCustomPayerName(settlement.payerName || "");
+      if (settlement.payerSourceSplit && settlement.payerSourceSplit.length > 0) {
+        setPayer({ mode: "split", rows: settlement.payerSourceSplit });
+      } else {
+        setPayer({
+          mode: "single",
+          source: (settlement.payerSource as PayerSource) ?? "own_money",
+          name: settlement.payerName ?? undefined,
+        });
+      }
       setNotes(settlement.notes || "");
       setProofUrls(settlement.proofUrls || []);
       setSubcontractId(settlement.subcontractId);
@@ -101,13 +114,20 @@ export default function DailySettlementEditDialog({
   const handleSave = async () => {
     if (!settlement || !selectedSite?.id) return;
 
+    const payerCheck = validatePayerSourceInput(payer, settlement.totalAmount);
+    if (!payerCheck.ok) {
+      setError(payerCheck.reason);
+      return;
+    }
+    const payerRpc = toRpcArgs(payer);
+
     setLoading(true);
     setError(null);
 
     try {
       const userName = userProfile?.name || userProfile?.email || "Unknown";
 
-      // Update settlement_groups record
+      // Update settlement_groups record (source of truth — has payer_source_split column).
       const { error: updateError } = await (supabase as any)
         .from("settlement_groups")
         .update({
@@ -115,8 +135,9 @@ export default function DailySettlementEditDialog({
           actual_payment_date: paymentDate?.format("YYYY-MM-DD"),
           payment_mode: paymentMode,
           payment_channel: paymentChannel,
-          payer_source: payerSource,
-          payer_name: payerSource === "custom" || payerSource === "other_site_money" ? customPayerName : null,
+          payer_source: payerRpc.p_payer_source,
+          payer_name: payerRpc.p_payer_name,
+          payer_source_split: payerRpc.p_payer_source_split,
           notes,
           proof_url: proofUrls[0] || null,
           proof_urls: proofUrls.length > 0 ? proofUrls : null,
@@ -130,13 +151,15 @@ export default function DailySettlementEditDialog({
         throw updateError;
       }
 
-      // Update related daily_attendance records (if any)
+      // Update related daily_attendance records (if any).
+      // daily_attendance has no payer_source_split column — only sync the
+      // single-source view (with 'split' sentinel + null name when in split mode).
       const { error: dailyError } = await supabase
         .from("daily_attendance")
         .update({
           payment_mode: paymentMode,
-          payer_source: payerSource,
-          payer_name: payerSource === "custom" || payerSource === "other_site_money" ? customPayerName : null,
+          payer_source: payerRpc.p_payer_source,
+          payer_name: payerRpc.p_payer_name,
           payment_proof_url: proofUrls[0] || null,
           payment_notes: notes,
           subcontract_id: subcontractId,
@@ -147,13 +170,14 @@ export default function DailySettlementEditDialog({
         console.warn("Error updating daily_attendance:", dailyError);
       }
 
-      // Update related market_laborer_attendance records (if any)
+      // Update related market_laborer_attendance records (if any).
+      // Same constraint as daily_attendance — no payer_source_split column.
       const { error: marketError } = await supabase
         .from("market_laborer_attendance")
         .update({
           payment_mode: paymentMode,
-          payer_source: payerSource,
-          payer_name: payerSource === "custom" || payerSource === "other_site_money" ? customPayerName : null,
+          payer_source: payerRpc.p_payer_source,
+          payer_name: payerRpc.p_payer_name,
           payment_proof_url: proofUrls[0] || null,
           payment_notes: notes,
           subcontract_id: subcontractId,
@@ -313,12 +337,25 @@ export default function DailySettlementEditDialog({
 
           {/* Payer Source */}
           <Box sx={{ mb: 2 }}>
-            <PayerSourceSelector
-              value={payerSource}
-              onChange={setPayerSource}
-              customName={customPayerName}
-              onCustomNameChange={setCustomPayerName}
+            <PayerSourceSplitInput
+              value={payer}
+              onChange={setPayer}
+              total={settlement.totalAmount}
+              siteId={selectedSite?.id}
+              disabled={loading}
             />
+            {(() => {
+              const c = validatePayerSourceInput(payer, settlement.totalAmount);
+              return !c.ok && payer.mode === "split" ? (
+                <Typography
+                  variant="caption"
+                  color="error.main"
+                  sx={{ mt: 1, display: "block" }}
+                >
+                  {c.reason}
+                </Typography>
+              ) : null;
+            })()}
           </Box>
 
           {/* Subcontract Link */}
@@ -467,7 +504,10 @@ export default function DailySettlementEditDialog({
             <Button
               variant="contained"
               onClick={handleSave}
-              disabled={loading}
+              disabled={
+                loading ||
+                !validatePayerSourceInput(payer, settlement.totalAmount).ok
+              }
               startIcon={loading ? <CircularProgress size={16} /> : <SaveIcon />}
             >
               Save Changes

@@ -43,6 +43,7 @@ import { createClient } from "@/lib/supabase/client";
 import dayjs from "dayjs";
 import { sanitizeStorageUrl } from "@/lib/utils/storageUrl";
 import PhotoFullscreenDialog from "@/components/attendance/work-updates/PhotoFullscreenDialog";
+import type { PayerSourceSplitRow } from "@/types/settlement.types";
 
 interface LaborerPayment {
   laborerId: string;
@@ -72,6 +73,9 @@ export interface SettlementDetails {
   paymentMode: string | null;
   payerSource: string | null;
   payerName: string | null;
+  /** Multi-source split (from settlement_groups.payer_source_split). When non-null,
+   *  payerSource is the literal 'split' sentinel and per-row breakdown lives here. */
+  payerSourceSplit: PayerSourceSplitRow[] | null;
   proofUrls: string[];
   notes: string | null;
   subcontractId: string | null;
@@ -176,6 +180,7 @@ async function getSettlementDetailsByReference(
         payment_mode,
         payer_source,
         payer_name,
+        payer_source_split,
         proof_url,
         proof_urls,
         notes,
@@ -302,6 +307,7 @@ async function getSettlementDetailsByReference(
       paymentMode: sg.payment_mode,
       payerSource: sg.payer_source,
       payerName: sg.payer_name,
+      payerSourceSplit: (sg as any).payer_source_split ?? null,
       proofUrls,
       notes: sg.notes,
       subcontractId: sg.subcontract_id,
