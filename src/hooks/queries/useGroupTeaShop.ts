@@ -5,6 +5,7 @@ import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
 import { wrapQueryFn } from "@/lib/utils/timeout";
 import type { Database } from "@/types/database.types";
+import type { PayerSourceSplitRow } from "@/types/settlement.types";
 
 type TeaShopAccount = Database["public"]["Tables"]["tea_shop_accounts"]["Row"];
 type TeaShopGroupEntry = Database["public"]["Tables"]["tea_shop_group_entries"]["Row"];
@@ -819,8 +820,13 @@ interface CreateGroupSettlementData {
   payerType: string;
   siteEngineerId?: string;
   createWalletTransaction?: boolean;
+  // Single-source mode: payer_source = the chosen key + payer_name when needed.
+  // Split mode: payer_source = 'split' sentinel, payer_name = null, and
+  // payerSourceSplit holds the 2-or-3-row array. Mirrors the toRpcArgs() shape
+  // used by every other PayerSourceSplitInput callsite.
   payerSource?: string;
-  payerName?: string;
+  payerName?: string | null;
+  payerSourceSplit?: PayerSourceSplitRow[] | null;
   proofUrl?: string;
   subcontractId?: string;
   notes?: string;
@@ -866,6 +872,7 @@ export function useCreateGroupTeaShopSettlement() {
           site_engineer_id: data.siteEngineerId || null,
           payer_source: data.payerSource || null,
           payer_name: data.payerName || null,
+          payer_source_split: data.payerSourceSplit ?? null,
           proof_url: data.proofUrl || null,
           subcontract_id: data.subcontractId || null,
           notes: data.notes || null,
