@@ -58,9 +58,9 @@ export async function getPaymentPageData(
       subcontracts(title),
       site_engineer_transactions(
         id, proof_url, settlement_proof_url, settlement_status,
-        transaction_date, confirmed_at
+        transaction_date, confirmed_at, payer_source_split
       ),
-      settlement_groups(id, settlement_reference, is_cancelled)
+      settlement_groups(id, settlement_reference, is_cancelled, payer_source_split)
     `
     )
     .eq("site_id", siteId)
@@ -77,10 +77,10 @@ export async function getPaymentPageData(
       labor_roles(name),
       site_engineer_transactions(
         id, proof_url, settlement_proof_url, settlement_status,
-        transaction_date, confirmed_at
+        transaction_date, confirmed_at, payer_source_split
       ),
       subcontracts(id, title),
-      settlement_groups(id, settlement_reference, is_cancelled),
+      settlement_groups(id, settlement_reference, is_cancelled, payer_source_split),
       expenses(contract_id, subcontracts(id, title))
     `
     )
@@ -284,6 +284,8 @@ export function transformToDailyPaymentRecords(
       expenseId: r.expense_id || null,
       moneySource: tx?.money_source || r.payer_source || null,
       moneySourceName: tx?.money_source_name || r.payer_name || null,
+      payerSourceSplit:
+        r.settlement_groups?.payer_source_split ?? tx?.payer_source_split ?? null,
       settlementGroupId: r.settlement_group_id || null,
       settlementReference: r.settlement_groups?.settlement_reference || null,
     });
@@ -324,6 +326,8 @@ export function transformToDailyPaymentRecords(
       expenseId: r.expense_id || null,
       moneySource: tx?.money_source || r.payer_source || null,
       moneySourceName: tx?.money_source_name || r.payer_name || null,
+      payerSourceSplit:
+        r.settlement_groups?.payer_source_split ?? tx?.payer_source_split ?? null,
       settlementGroupId: r.settlement_group_id || null,
       settlementReference: r.settlement_groups?.settlement_reference || null,
     });

@@ -13,19 +13,13 @@ import {
   Radio,
   FormControlLabel,
   FormControl,
-  InputLabel,
   Select,
   MenuItem,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
   Alert,
   CircularProgress,
-  Collapse,
   Chip,
-  LinearProgress,
   Avatar,
-  Divider,
   Table,
   TableBody,
   TableCell,
@@ -39,7 +33,6 @@ import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import {
   Payment as PaymentIcon,
-  AccountBalanceWallet as WalletIcon,
   Info as InfoIcon,
   CalendarMonth as CalendarIcon,
 } from "@mui/icons-material";
@@ -48,11 +41,11 @@ import { ensureFreshSession } from "@/lib/auth/sessionManager";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
 import { processWaterfallContractPayment } from "@/lib/services/settlementService";
-import { getLatestDepositPayerSource } from "@/lib/services/engineerWalletV2";
 import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 import FileUploader, { UploadedFile } from "@/components/common/FileUploader";
 import SubcontractLinkSelector from "./SubcontractLinkSelector";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
+import { validatePayerSourceInput } from "@/lib/settlement/payerSource";
 import { isSiteEngineerPayingFromWallet } from "@/components/expenses/walletPayerLock";
 import { useToast } from "@/contexts/ToastContext";
 import dayjs from "dayjs";
@@ -61,15 +54,7 @@ import type {
   PaymentChannel,
   ContractPaymentType,
 } from "@/types/payment.types";
-import type { PayerSource } from "@/types/settlement.types";
-
-interface Engineer {
-  id: string;
-  name: string;
-  email: string;
-  avatar_url: string | null;
-  wallet_balance?: number;
-}
+import type { PayerSourceInput } from "@/types/settlement.types";
 
 // Week laborer data for display in dialog
 interface WeekLaborerData {
@@ -136,22 +121,23 @@ export default function ContractPaymentRecordDialog({
   const [amount, setAmount] = useState<number>(0);
   const [amountInput, setAmountInput] = useState<string>(""); // String state for input to prevent browser number issues
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("upi");
-  const [paymentChannel, setPaymentChannel] = useState<PaymentChannel>("direct");
-  const [selectedEngineerId, setSelectedEngineerId] = useState<string>("");
+  // Phase-2 cleanup: Via-Engineer channel removed; admin payments are always
+  // "direct". Kept as a const so downstream readers continue to compile.
+  const paymentChannel: PaymentChannel = "direct";
   const [paymentType, setPaymentType] = useState<ContractPaymentType>("salary");
   const [actualPaymentDate, setActualPaymentDate] = useState<dayjs.Dayjs>(dayjs());
-  const [moneySource, setMoneySource] = useState<PayerSource>("own_money");
-  const [moneySourceName, setMoneySourceName] = useState<string>("");
-  const [depositPayerSource, setDepositPayerSource] = useState<string | null>(null);
 
-  const isSiteEngineer = userProfile?.role === "site_engineer";
+  // Payer source (split-aware) — replaces single PayerSource + customPayerName.
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
+
   const [subcontractId, setSubcontractId] = useState<string | null>(null);
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [notes, setNotes] = useState<string>("");
 
   // Data state
-  const [engineers, setEngineers] = useState<Engineer[]>([]);
-  const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -206,12 +192,9 @@ export default function ContractPaymentRecordDialog({
       setAmount(0);
       setAmountInput("");
       setPaymentMode("upi");
-      setPaymentChannel("direct");
-      setSelectedEngineerId("");
       setPaymentType("salary");
       setActualPaymentDate(dayjs());
-      setMoneySource("own_money");
-      setMoneySourceName("");
+      setPayer({ mode: "single", source: "own_money" });
       setSubcontractId(null);
       setProofUrl(null);
       setNotes("");
@@ -219,77 +202,16 @@ export default function ContractPaymentRecordDialog({
     }
   }, [open]);
 
-  // Fetch site engineers
-  useEffect(() => {
-    const fetchEngineers = async () => {
-      if (!selectedSite?.id || !open) return;
-
-      setLoading(true);
-      try {
-        const { data: usersData } = await supabase
-          .from("users")
-          .select("id, name, email, avatar_url")
-          .eq("role", "site_engineer")
-          .eq("status", "active");
-
-        const engineerList: Engineer[] = (usersData || []).map((u: any) => ({
-          id: u.id,
-          name: u.name,
-          email: u.email,
-          avatar_url: u.avatar_url,
-        }));
-
-        // Get wallet balances from v2 view
-        const { data: balanceRows } = await (supabase as any)
-          .from("v_engineer_wallet_balance")
-          .select("user_id, balance")
-          .in("user_id", engineerList.map((e) => e.id))
-          .eq("site_id", selectedSite.id);
-        const balanceMap = Object.fromEntries(
-          (balanceRows ?? []).map((r: any) => [r.user_id, r.balance as number])
-        );
-        for (const eng of engineerList) {
-          eng.wallet_balance = balanceMap[eng.id] ?? 0;
-        }
-
-        setEngineers(engineerList);
-      } catch (err) {
-        console.error("Error fetching engineers:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchEngineers();
-  }, [selectedSite?.id, open, supabase]);
-
-  // Auto-select wallet channel for site engineers
-  useEffect(() => {
-    if (isSiteEngineer) setPaymentChannel("engineer_wallet");
-  }, [isSiteEngineer]);
-
-  // Fetch deposit payer source when engineer selected in wallet mode
-  useEffect(() => {
-    const fetchDepositSource = async () => {
-      if (paymentChannel !== "engineer_wallet" || !selectedEngineerId || !selectedSite?.id) {
-        setDepositPayerSource(null);
-        return;
-      }
-      const { payer_source } = await getLatestDepositPayerSource(supabase, selectedEngineerId, selectedSite.id);
-      setDepositPayerSource(payer_source);
-      if (payer_source) setMoneySource(payer_source as PayerSource);
-    };
-    fetchDepositSource();
-  }, [selectedEngineerId, paymentChannel, selectedSite?.id]);
-
   const handleSubmit = async () => {
     if (!selectedSite || !userProfile || amount <= 0) {
       setError("Please enter a valid payment amount");
       return;
     }
 
-    if (paymentChannel === "engineer_wallet" && !selectedEngineerId) {
-      setError("Please select a site engineer");
+    // Validate payer-source input (single OR split) before any side-effects.
+    const payerCheck = validatePayerSourceInput(payer, amount);
+    if (!payerCheck.ok) {
+      setError(payerCheck.reason);
       return;
     }
 
@@ -342,12 +264,7 @@ export default function ContractPaymentRecordDialog({
           actualPaymentDate: actualPaymentDate.format("YYYY-MM-DD"),
           paymentMode: paymentMode,
           paymentChannel: paymentChannel,
-          payerSource: moneySource,
-          customPayerName:
-            moneySource === "other_site_money" || moneySource === "custom"
-              ? moneySourceName
-              : undefined,
-          engineerId: paymentChannel === "engineer_wallet" ? selectedEngineerId : undefined,
+          payer,
           proofUrl: proofUrl || undefined,
           notes: notes || undefined,
           subcontractId: subcontractId || undefined,
@@ -384,7 +301,7 @@ export default function ContractPaymentRecordDialog({
   }, []);
 
   const canSubmit =
-    amount > 0 && (paymentChannel !== "engineer_wallet" || selectedEngineerId);
+    amount > 0 && validatePayerSourceInput(payer, amount).ok;
 
   // Format currency
   const formatCurrency = (amt: number) => {
@@ -623,88 +540,37 @@ export default function ContractPaymentRecordDialog({
           </RadioGroup>
         </Box>
 
-        {/* Payment Channel — hidden for site engineers (always wallet) */}
-        {!isSiteEngineer && (
-          <Box sx={{ mb: 3 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Payment Channel
-            </Typography>
-            <ToggleButtonGroup
-              exclusive
-              value={paymentChannel}
-              onChange={(_, v) => v && setPaymentChannel(v)}
-              fullWidth
-              size="small"
-            >
-              <ToggleButton value="direct">
-                <PaymentIcon sx={{ mr: 1 }} fontSize="small" />
-                Direct Payment
-              </ToggleButton>
-              <ToggleButton value="engineer_wallet">
-                <WalletIcon sx={{ mr: 1 }} fontSize="small" />
-                Via Site Engineer
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-        )}
-
         {/* Money Source — hidden for site engineers paying from wallet
-            (source is derived from deposits). Admin sees it disabled when wallet. */}
+            (source is derived from deposits). Phase-2 cleanup: Via-Engineer
+            channel removed; admin payments are always direct, so the
+            createWalletTransaction signal is hardcoded false. */}
         {!isSiteEngineerPayingFromWallet({
           userRole: userProfile?.role,
           payerType: "site_engineer",
-          createWalletTransaction: paymentChannel === "engineer_wallet",
+          createWalletTransaction: false,
         }) && (
-          <PayerSourceSelector
-            value={moneySource}
-            customName={moneySourceName}
-            onChange={setMoneySource}
-            onCustomNameChange={setMoneySourceName}
-            disabled={processing || paymentChannel === "engineer_wallet"}
-          />
-        )}
-
-        {/* Engineer Selection */}
-        <Collapse in={paymentChannel === "engineer_wallet"}>
           <Box sx={{ mb: 3 }}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Select Site Engineer</InputLabel>
-              <Select
-                value={selectedEngineerId}
-                onChange={(e) => setSelectedEngineerId(e.target.value)}
-                label="Select Site Engineer"
-                disabled={loading}
-              >
-                {loading ? (
-                  <MenuItem disabled>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      <CircularProgress size={18} />
-                      <Typography variant="body2">Loading...</Typography>
-                    </Box>
-                  </MenuItem>
-                ) : engineers.length === 0 ? (
-                  <MenuItem disabled>No site engineers found</MenuItem>
-                ) : (
-                  engineers.map((eng) => (
-                    <MenuItem key={eng.id} value={eng.id}>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                        <Avatar src={eng.avatar_url || undefined} sx={{ width: 28, height: 28 }}>
-                          {eng.name?.[0]}
-                        </Avatar>
-                        <Box>
-                          <Typography variant="body2">{eng.name}</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Balance: Rs.{(eng.wallet_balance || 0).toLocaleString()}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </MenuItem>
-                  ))
-                )}
-              </Select>
-            </FormControl>
+            <PayerSourceSplitInput
+              value={payer}
+              onChange={setPayer}
+              total={amount}
+              siteId={selectedSite?.id}
+              disabled={processing}
+            />
+            {payer.mode === "split" && (() => {
+              const check = validatePayerSourceInput(payer, amount);
+              return check.ok ? null : (
+                <Typography
+                  variant="caption"
+                  color="error.main"
+                  sx={{ display: "block", mt: 0.5 }}
+                >
+                  {check.reason}
+                </Typography>
+              );
+            })()}
           </Box>
-        </Collapse>
+        )}
 
         {/* Subcontract Link */}
         <Box sx={{ mb: 3 }}>

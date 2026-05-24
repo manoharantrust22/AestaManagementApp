@@ -1,6 +1,6 @@
 // Payment Types for Unified Payment Management System
 
-import type { PayerSource } from "./settlement.types";
+import type { PayerSource, PayerSourceInput, PayerSourceSplitRow } from "./settlement.types";
 
 // ============ COMMON TYPES ============
 
@@ -60,6 +60,9 @@ export interface DailyPaymentRecord {
   // Money source tracking
   moneySource: PayerSource | null; // Whose money was used
   moneySourceName: string | null; // Custom name for other_site_money or custom
+  // Multi-source split (from settlement_groups.payer_source_split). When non-null,
+  // moneySource is the literal 'split' sentinel and per-row breakdown lives here.
+  payerSourceSplit?: PayerSourceSplitRow[] | null;
 
   // Subcontract linking (optional)
   subcontractId: string | null;
@@ -375,8 +378,7 @@ export interface ContractPaymentConfig {
   paymentForDate: string; // Week reference (week start date)
   paymentMode: PaymentMode;
   paymentChannel: PaymentChannel;
-  payerSource: string;
-  customPayerName?: string;
+  payer: PayerSourceInput;
   engineerId?: string;
   proofUrl?: string;
   notes?: string;

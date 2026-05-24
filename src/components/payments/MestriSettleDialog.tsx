@@ -32,8 +32,9 @@ import type {
   ContractPaymentType,
   PaymentMode,
 } from "@/types/payment.types";
-import type { PayerSource } from "@/types/settlement.types";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import type { PayerSourceInput } from "@/types/settlement.types";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
+import { validatePayerSourceInput } from "@/lib/settlement/payerSource";
 import { isSiteEngineerPayingFromWallet } from "@/components/expenses/walletPayerLock";
 
 interface MestriSettleDialogProps {
@@ -122,8 +123,10 @@ export function MestriSettleDialog({
   );
   const [paymentType, setPaymentType] = useState<ContractPaymentType>("salary");
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("cash");
-  const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
-  const [customPayerName, setCustomPayerName] = useState<string>("");
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
   const [notes, setNotes] = useState<string>("");
   const [proofFile, setProofFile] = useState<UploadedFile | null>(null);
 
@@ -138,8 +141,7 @@ export function MestriSettleDialog({
       setPaymentDate(dayjs().format("YYYY-MM-DD"));
       setPaymentType("salary");
       setPaymentMode("cash");
-      setPayerSource("own_money");
-      setCustomPayerName("");
+      setPayer({ mode: "single", source: "own_money" });
       setNotes("");
       setProofFile(null);
       setError(null);
@@ -239,6 +241,13 @@ export function MestriSettleDialog({
     setError(null);
     setSubmitting(true);
 
+    const payerCheck = validatePayerSourceInput(payer, amountNum);
+    if (!payerCheck.ok) {
+      setError(payerCheck.reason);
+      setSubmitting(false);
+      return;
+    }
+
     // The mestri's laborer_id lives on subcontracts but useSiteSubcontracts
     // flattens to laborer_name only — fetch the laborer_id via a raw query.
     try {
@@ -298,11 +307,7 @@ export function MestriSettleDialog({
           paymentForDate: isDateOnly ? paymentDate : (weekStart as string),
           paymentMode,
           paymentChannel: "direct",
-          payerSource,
-          customPayerName:
-            payerSource === "custom" || payerSource === "other_site_money"
-              ? customPayerName
-              : undefined,
+          payer,
           subcontractId: selectedSubcontract.id,
           proofUrl: proofFile?.url || undefined,
           notes: notes || undefined,
@@ -526,15 +531,23 @@ export function MestriSettleDialog({
             payerType: "site_engineer",
             createWalletTransaction: true,
           }) && (
-            <PayerSourceSelector
+            <PayerSourceSplitInput
+              value={payer}
+              onChange={setPayer}
+              total={amountNum}
               siteId={siteId}
-              value={payerSource}
-              customName={customPayerName}
-              onChange={setPayerSource}
-              onCustomNameChange={setCustomPayerName}
-              compact
+              disabled={submitting}
             />
           )}
+
+          {(() => {
+            const c = validatePayerSourceInput(payer, amountNum);
+            return !c.ok && payer.mode === "split" ? (
+              <Typography variant="caption" color="error.main">
+                {c.reason}
+              </Typography>
+            ) : null;
+          })()}
 
           {/* Notes */}
           <TextField
@@ -570,7 +583,11 @@ export function MestriSettleDialog({
         <Button
           variant="contained"
           color="success"
-          disabled={!canSubmit || submitting}
+          disabled={
+            !canSubmit ||
+            submitting ||
+            !validatePayerSourceInput(payer, amountNum).ok
+          }
           onClick={handleSubmit}
         >
           {submitting ? "Recording…" : "Record settlement"}

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -12,19 +12,11 @@ import {
   RadioGroup,
   Radio,
   FormControlLabel,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
   Alert,
   CircularProgress,
   Divider,
-  Avatar,
   Chip,
-  Collapse,
   Paper,
   alpha,
   useTheme,
@@ -46,7 +38,6 @@ import {
 import { TransitionProps } from "@mui/material/transitions";
 import {
   Payment as PaymentIcon,
-  AccountBalanceWallet as WalletIcon,
   Close as CloseIcon,
   CalendarMonth,
   CalendarToday,
@@ -58,24 +49,22 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
 import FileUploader, { UploadedFile } from "@/components/common/FileUploader";
 import SubcontractLinkSelector from "@/components/payments/SubcontractLinkSelector";
-import PayerSourceSelector from "./PayerSourceSelector";
+import PayerSourceSplitInput from "./PayerSourceSplitInput";
 import { isSiteEngineerPayingFromWallet } from "@/components/expenses/walletPayerLock";
-import BatchSelector from "@/components/wallet/BatchSelector";
+import { validatePayerSourceInput } from "@/lib/settlement/payerSource";
 import dayjs from "dayjs";
 import type {
   UnifiedSettlementConfig,
   SettlementRecord,
-  PayerSource,
+  PayerSourceInput,
   SettlementTypeSelection,
 } from "@/types/settlement.types";
 import type { PaymentMode, PaymentChannel } from "@/types/payment.types";
-import type { BatchAllocation } from "@/types/wallet.types";
 import {
   processSettlement,
   type SettlementConfig,
   type SettlementResult,
 } from "@/lib/services/settlementService";
-import { getLatestDepositPayerSource } from "@/lib/services/engineerWalletV2";
 import { useOptimisticMutation } from "@/hooks/mutations/useOptimisticMutation";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -86,14 +75,6 @@ const SlideTransition = React.forwardRef(function Transition(
 ) {
   return <Slide direction="up" ref={ref} {...props} />;
 });
-
-interface Engineer {
-  id: string;
-  name: string;
-  email: string;
-  avatar_url: string | null;
-  wallet_balance?: number;
-}
 
 interface UnifiedSettlementDialogProps {
   open: boolean;
@@ -122,28 +103,22 @@ export default function UnifiedSettlementDialog({
 
   // Payment details
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("cash");
-  const [paymentChannel, setPaymentChannel] = useState<PaymentChannel>("direct");
-  const [selectedEngineerId, setSelectedEngineerId] = useState<string>("");
-  const [engineerReference, setEngineerReference] = useState<string>("");
+  // Phase-2 cleanup: Via-Engineer channel removed; admin payments are always
+  // "direct". Kept as a const so downstream reads continue to compile.
+  const paymentChannel: PaymentChannel = "direct";
 
-  // Payer source
-  const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
-  const [customPayerName, setCustomPayerName] = useState<string>("");
-  const [depositPayerSource, setDepositPayerSource] = useState<string | null>(null);
-
-  const isSiteEngineer = userProfile?.role === "site_engineer";
+  // Payer source (split-aware)
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
 
   // Additional details
   const [subcontractId, setSubcontractId] = useState<string | null>(null);
   const [proofFile, setProofFile] = useState<UploadedFile | null>(null);
   const [notes, setNotes] = useState<string>("");
 
-  // Batch allocations for engineer wallet spending
-  const [batchAllocations, setBatchAllocations] = useState<BatchAllocation[]>([]);
-
   // Data state
-  const [engineers, setEngineers] = useState<Engineer[]>([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Settlement mutation with optimistic updates
@@ -171,69 +146,6 @@ export default function UnifiedSettlementDialog({
     },
   });
 
-  // Fetch site engineers when dialog opens
-  useEffect(() => {
-    const fetchEngineers = async () => {
-      if (!selectedSite?.id || !open) return;
-
-      setLoading(true);
-      try {
-        const { data: usersData } = await supabase
-          .from("users")
-          .select("id, name, email, avatar_url")
-          .eq("role", "site_engineer")
-          .eq("status", "active");
-
-        const engineerList: Engineer[] = (usersData || []).map((u: any) => ({
-          id: u.id,
-          name: u.name,
-          email: u.email,
-          avatar_url: u.avatar_url,
-        }));
-
-        // Get wallet balances from v2 view
-        const { data: balanceRows } = await (supabase as any)
-          .from("v_engineer_wallet_balance")
-          .select("user_id, balance")
-          .in("user_id", engineerList.map((e) => e.id))
-          .eq("site_id", selectedSite.id);
-        const balanceMap = Object.fromEntries(
-          (balanceRows ?? []).map((r: any) => [r.user_id, r.balance as number])
-        );
-        for (const eng of engineerList) {
-          eng.wallet_balance = balanceMap[eng.id] ?? 0;
-        }
-
-        setEngineers(engineerList);
-      } catch (err) {
-        console.error("Error fetching engineers:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchEngineers();
-  }, [selectedSite?.id, open, supabase]);
-
-  // Auto-select wallet channel for site engineers
-  useEffect(() => {
-    if (isSiteEngineer) setPaymentChannel("engineer_wallet");
-  }, [isSiteEngineer]);
-
-  // Fetch deposit payer source when engineer selected in wallet mode
-  useEffect(() => {
-    const fetchDepositSource = async () => {
-      if (paymentChannel !== "engineer_wallet" || !selectedEngineerId || !selectedSite?.id) {
-        setDepositPayerSource(null);
-        return;
-      }
-      const { payer_source } = await getLatestDepositPayerSource(supabase, selectedEngineerId, selectedSite.id);
-      setDepositPayerSource(payer_source);
-      if (payer_source) setPayerSource(payer_source as PayerSource);
-    };
-    fetchDepositSource();
-  }, [selectedEngineerId, paymentChannel, selectedSite?.id]);
-
   // Generate a unique storage key for this settlement context
   const storageKey = useMemo(() => {
     if (!config || !selectedSite?.id) return null;
@@ -248,11 +160,7 @@ export default function UnifiedSettlementDialog({
     if (!storageKey) return;
     const formState = {
       paymentMode,
-      paymentChannel,
-      selectedEngineerId,
-      engineerReference,
-      payerSource,
-      customPayerName,
+      payer,
       subcontractId,
       notes,
       settlementType,
@@ -263,7 +171,7 @@ export default function UnifiedSettlementDialog({
     } catch (e) {
       console.warn("Failed to save form state:", e);
     }
-  }, [storageKey, paymentMode, paymentChannel, selectedEngineerId, engineerReference, payerSource, customPayerName, subcontractId, notes, settlementType, selectedRecords]);
+  }, [storageKey, paymentMode, payer, subcontractId, notes, settlementType, selectedRecords]);
 
   // Auto-save form state when values change (debounced)
   useEffect(() => {
@@ -294,11 +202,11 @@ export default function UnifiedSettlementDialog({
           if (saved) {
             const formState = JSON.parse(saved);
             setPaymentMode(formState.paymentMode || "cash");
-            setPaymentChannel(formState.paymentChannel || "direct");
-            setSelectedEngineerId(formState.selectedEngineerId || "");
-            setEngineerReference(formState.engineerReference || "");
-            setPayerSource(formState.payerSource || "own_money");
-            setCustomPayerName(formState.customPayerName || "");
+            setPayer(
+              formState.payer && typeof formState.payer === "object"
+                ? formState.payer
+                : { mode: "single", source: "own_money" }
+            );
             setSubcontractId(formState.subcontractId ?? config.defaultSubcontractId ?? null);
             setNotes(formState.notes || "");
             setSettlementType(formState.settlementType || "all");
@@ -326,11 +234,7 @@ export default function UnifiedSettlementDialog({
 
         setSettlementType("all");
         setPaymentMode("cash");
-        setPaymentChannel("direct");
-        setSelectedEngineerId("");
-        setEngineerReference("");
-        setPayerSource("own_money");
-        setCustomPayerName("");
+        setPayer({ mode: "single", source: "own_money" });
         setSubcontractId(config.defaultSubcontractId || null);
         setNotes("");
       }
@@ -339,17 +243,6 @@ export default function UnifiedSettlementDialog({
       setError(null);
     }
   }, [open, config, storageKey]);
-
-  // Generate default reference for engineer
-  useEffect(() => {
-    if (paymentChannel === "engineer_wallet" && !engineerReference && config) {
-      if (config.context === "weekly") {
-        setEngineerReference(`Weekly salary settlement ${config.weekLabel || ""}`);
-      } else if (config.date) {
-        setEngineerReference(`Daily salary for ${dayjs(config.date).format("MMM D, YYYY")}`);
-      }
-    }
-  }, [paymentChannel, config, engineerReference]);
 
   // Calculate amounts based on selection
   const calculatedAmounts = useMemo(() => {
@@ -440,8 +333,10 @@ export default function UnifiedSettlementDialog({
       return;
     }
 
-    if (paymentChannel === "engineer_wallet" && !selectedEngineerId) {
-      setError("Please select a site engineer");
+    // Validate payer-source input (single OR split) before any side-effects.
+    const payerCheck = validatePayerSourceInput(payer, calculatedAmounts.selected);
+    if (!payerCheck.ok) {
+      setError(payerCheck.reason);
       return;
     }
 
@@ -464,19 +359,12 @@ export default function UnifiedSettlementDialog({
       totalAmount: calculatedAmounts.selected,
       paymentMode,
       paymentChannel,
-      payer: {
-        mode: "single",
-        source: payerSource,
-        name: payerSource === "custom" ? customPayerName || undefined : undefined,
-      },
-      engineerId: paymentChannel === "engineer_wallet" ? selectedEngineerId : undefined,
-      engineerReference: paymentChannel === "engineer_wallet" ? engineerReference : undefined,
+      payer,
       proofUrl: proofFile?.url,
       notes: notes || undefined,
       subcontractId: subcontractId || undefined,
       userId: userProfile.id,
       userName: userProfile.name || "Unknown",
-      batchAllocations: paymentChannel === "engineer_wallet" ? batchAllocations : undefined,
     };
 
     // Submit via mutation - handles loading state, retries, errors automatically
@@ -743,19 +631,35 @@ export default function UnifiedSettlementDialog({
         <Divider sx={{ my: 2 }} />
 
         {/* Payer Source — hidden for site engineers paying from wallet
-            (source is derived from deposits). Admin sees it disabled when wallet. */}
+            (source is derived from deposits). Phase-2 cleanup: Via-Engineer
+            channel removed; admin payments are always direct, so the
+            createWalletTransaction signal is hardcoded false. */}
         {!isSiteEngineerPayingFromWallet({
           userRole: userProfile?.role,
           payerType: "site_engineer",
-          createWalletTransaction: paymentChannel === "engineer_wallet",
+          createWalletTransaction: false,
         }) && (
-          <PayerSourceSelector
-            value={payerSource}
-            customName={customPayerName}
-            onChange={setPayerSource}
-            onCustomNameChange={setCustomPayerName}
-            disabled={settlementMutation.isPending || paymentChannel === "engineer_wallet"}
-          />
+          <Box sx={{ mb: 2 }}>
+            <PayerSourceSplitInput
+              value={payer}
+              onChange={setPayer}
+              total={calculatedAmounts.selected}
+              siteId={selectedSite?.id}
+              disabled={settlementMutation.isPending}
+            />
+            {payer.mode === "split" && (() => {
+              const check = validatePayerSourceInput(payer, calculatedAmounts.selected);
+              return check.ok ? null : (
+                <Typography
+                  variant="caption"
+                  color="error.main"
+                  sx={{ display: "block", mt: 0.5 }}
+                >
+                  {check.reason}
+                </Typography>
+              );
+            })()}
+          </Box>
         )}
 
         {/* Payment Mode */}
@@ -773,100 +677,6 @@ export default function UnifiedSettlementDialog({
             <FormControlLabel value="net_banking" control={<Radio size="small" />} label="Bank Transfer" />
           </RadioGroup>
         </Box>
-
-        {/* Payment Channel — hidden for site engineers (always wallet) */}
-        {!isSiteEngineer && (
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="subtitle2" fontWeight={600} gutterBottom>
-              Payment Channel
-            </Typography>
-            <ToggleButtonGroup
-              exclusive
-              value={paymentChannel}
-              onChange={(_, v) => v && setPaymentChannel(v)}
-              fullWidth
-              size="small"
-            >
-              <ToggleButton value="direct">
-                <PaymentIcon sx={{ mr: 1 }} fontSize="small" />
-                Direct Payment
-              </ToggleButton>
-              <ToggleButton value="engineer_wallet">
-                <WalletIcon sx={{ mr: 1 }} fontSize="small" />
-                Via Site Engineer
-              </ToggleButton>
-            </ToggleButtonGroup>
-          </Box>
-        )}
-
-        {/* Engineer Selection */}
-        <Collapse in={paymentChannel === "engineer_wallet"}>
-          <Box sx={{ mb: 2 }}>
-            <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-              <InputLabel>Select Site Engineer</InputLabel>
-              <Select
-                value={selectedEngineerId}
-                onChange={(e) => setSelectedEngineerId(e.target.value)}
-                label="Select Site Engineer"
-                disabled={loading}
-              >
-                {loading ? (
-                  <MenuItem disabled>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      <CircularProgress size={18} />
-                      <Typography variant="body2">Loading engineers...</Typography>
-                    </Box>
-                  </MenuItem>
-                ) : engineers.length === 0 ? (
-                  <MenuItem disabled>
-                    <Typography variant="body2" color="text.secondary">
-                      No site engineers found
-                    </Typography>
-                  </MenuItem>
-                ) : (
-                  engineers.map((eng) => (
-                    <MenuItem key={eng.id} value={eng.id}>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
-                        <Avatar src={eng.avatar_url || undefined} sx={{ width: 28, height: 28 }}>
-                          {eng.name?.[0]}
-                        </Avatar>
-                        <Box>
-                          <Typography variant="body2">{eng.name}</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Balance: Rs.{(eng.wallet_balance || 0).toLocaleString()}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </MenuItem>
-                  ))
-                )}
-              </Select>
-            </FormControl>
-
-            <TextField
-              fullWidth
-              size="small"
-              label="Reference/Purpose"
-              placeholder="What is this payment for?"
-              value={engineerReference}
-              onChange={(e) => setEngineerReference(e.target.value)}
-              helperText="This helps the engineer know which payment to settle"
-              sx={{ mb: 2 }}
-            />
-
-            {/* Batch Selection for wallet spending */}
-            {selectedEngineerId && calculatedAmounts.selected > 0 && (
-              <BatchSelector
-                engineerId={selectedEngineerId}
-                siteId={selectedSite?.id || null}
-                requiredAmount={calculatedAmounts.selected}
-                selectedBatches={batchAllocations}
-                onSelectionChange={setBatchAllocations}
-                disabled={settlementMutation.isPending}
-              />
-            )}
-          </Box>
-        </Collapse>
 
         {/* Subcontract Linking */}
         <Box sx={{ mb: 2 }}>
@@ -927,7 +737,7 @@ export default function UnifiedSettlementDialog({
           disabled={
             settlementMutation.isPending ||
             calculatedAmounts.selected === 0 ||
-            (paymentChannel === "engineer_wallet" && !selectedEngineerId) ||
+            !validatePayerSourceInput(payer, calculatedAmounts.selected).ok ||
             ((paymentMode === "upi" || paymentMode === "net_banking") && !proofFile)
           }
           startIcon={settlementMutation.isPending ? <CircularProgress size={20} /> : <PaymentIcon />}

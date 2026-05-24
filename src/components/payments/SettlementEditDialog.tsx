@@ -31,10 +31,11 @@ import { createClient } from "@/lib/supabase/client";
 import { useSite } from "@/contexts/SiteContext";
 import FileUploader, { UploadedFile } from "@/components/common/FileUploader";
 import SubcontractLinkSelector from "./SubcontractLinkSelector";
-import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
+import { toRpcArgs, validatePayerSourceInput } from "@/lib/settlement/payerSource";
 import dayjs from "dayjs";
 import type { DailyPaymentRecord, PaymentMode } from "@/types/payment.types";
-import type { PayerSource } from "@/types/settlement.types";
+import type { PayerSource, PayerSourceInput } from "@/types/settlement.types";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 interface SettlementEditDialogProps {
@@ -58,8 +59,10 @@ export default function SettlementEditDialog({
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("upi");
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [notes, setNotes] = useState<string>("");
-  const [moneySource, setMoneySource] = useState<PayerSource>("own_money");
-  const [moneySourceName, setMoneySourceName] = useState<string>("");
+  const [payer, setPayer] = useState<PayerSourceInput>({
+    mode: "single",
+    source: "own_money",
+  });
 
   // UI state
   const [processing, setProcessing] = useState(false);
@@ -72,8 +75,15 @@ export default function SettlementEditDialog({
       setPaymentMode(record.paymentMode || "upi");
       setProofUrl(record.proofUrl || null);
       setNotes(record.paymentNotes || "");
-      setMoneySource((record.moneySource as PayerSource) || "own_money");
-      setMoneySourceName(record.moneySourceName || "");
+      if (record.payerSourceSplit && record.payerSourceSplit.length > 0) {
+        setPayer({ mode: "split", rows: record.payerSourceSplit });
+      } else {
+        setPayer({
+          mode: "single",
+          source: (record.moneySource as PayerSource) ?? "own_money",
+          name: record.moneySourceName ?? undefined,
+        });
+      }
       setError(null);
     }
   }, [open, record]);
@@ -90,19 +100,29 @@ export default function SettlementEditDialog({
       return;
     }
 
+    const payerCheck = validatePayerSourceInput(payer, record.amount);
+    if (!payerCheck.ok) {
+      setError(payerCheck.reason);
+      return;
+    }
+
     setProcessing(true);
     setError(null);
 
     try {
-      // Prepare update payload for attendance record
+      const payerRpc = toRpcArgs(payer);
+
+      // Prepare update payload for attendance record.
+      // daily_attendance / market_laborer_attendance do not have a
+      // payer_source_split column, so we only sync the single-source view
+      // (with the 'split' sentinel + null name when in split mode). The
+      // per-row breakdown lives on settlement_groups (source of truth).
       const attendancePayload: Record<string, any> = {
         payment_mode: paymentMode,
         payment_proof_url: proofUrl,
         payment_notes: notes || null,
-        payer_source: moneySource,
-        payer_name: moneySource === "custom" || moneySource === "other_site_money"
-          ? moneySourceName
-          : null,
+        payer_source: payerRpc.p_payer_source,
+        payer_name: payerRpc.p_payer_name,
       };
 
       // Add subcontract to payload for both daily and market
@@ -127,13 +147,12 @@ export default function SettlementEditDialog({
 
       // If this is an engineer wallet payment, update the transaction money source
       if (record.engineerTransactionId && record.paidVia === "engineer_wallet") {
-        const { error: txError } = await supabase
+        const { error: txError } = await (supabase as any)
           .from("site_engineer_transactions")
           .update({
-            money_source: moneySource,
-            money_source_name: moneySource === "custom" || moneySource === "other_site_money"
-              ? moneySourceName
-              : null,
+            money_source: payerRpc.p_payer_source,
+            money_source_name: payerRpc.p_payer_name,
+            payer_source_split: payerRpc.p_payer_source_split,
           })
           .eq("id", record.engineerTransactionId);
 
@@ -148,10 +167,9 @@ export default function SettlementEditDialog({
           .from("settlement_groups")
           .update({
             subcontract_id: subcontractId,
-            payer_source: moneySource,
-            payer_name: moneySource === "custom" || moneySource === "other_site_money"
-              ? moneySourceName
-              : null,
+            payer_source: payerRpc.p_payer_source,
+            payer_name: payerRpc.p_payer_name,
+            payer_source_split: payerRpc.p_payer_source_split,
             payment_mode: paymentMode,
             proof_url: proofUrl,
             notes: notes || null,
@@ -296,12 +314,25 @@ export default function SettlementEditDialog({
               <Typography variant="subtitle2" sx={{ mb: 1 }}>
                 Whose Money
               </Typography>
-              <PayerSourceSelector
-                value={moneySource}
-                customName={moneySourceName}
-                onChange={(source: PayerSource) => setMoneySource(source)}
-                onCustomNameChange={(name: string) => setMoneySourceName(name)}
+              <PayerSourceSplitInput
+                value={payer}
+                onChange={setPayer}
+                total={record.amount}
+                siteId={selectedSite?.id}
+                disabled={processing}
               />
+              {(() => {
+                const c = validatePayerSourceInput(payer, record.amount);
+                return !c.ok && payer.mode === "split" ? (
+                  <Typography
+                    variant="caption"
+                    color="error.main"
+                    sx={{ mt: 1, display: "block" }}
+                  >
+                    {c.reason}
+                  </Typography>
+                ) : null;
+              })()}
             </Box>
           )}
 
@@ -368,7 +399,10 @@ export default function SettlementEditDialog({
         <Button
           variant="contained"
           onClick={handleSave}
-          disabled={processing}
+          disabled={
+            processing ||
+            !validatePayerSourceInput(payer, record.amount).ok
+          }
           startIcon={processing ? <CircularProgress size={16} /> : <EditIcon />}
         >
           {processing ? "Saving..." : "Save Changes"}

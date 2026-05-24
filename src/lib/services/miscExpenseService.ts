@@ -8,7 +8,14 @@ import type {
   MiscExpenseStatsWithBreakdown,
   CategoryBreakdown,
 } from "@/types/misc-expense.types";
-import type { PayerSource } from "@/types/settlement.types";
+import type {
+  PayerSourceInput,
+  PayerSourceSplitRow,
+} from "@/types/settlement.types";
+import {
+  validatePayerSourceInput,
+  toRpcArgs,
+} from "@/lib/settlement/payerSource";
 import { recordWalletSpending } from "./walletService";
 import { recordSpend } from "./engineerWalletV2";
 
@@ -49,7 +56,23 @@ export async function createMiscExpense(
       referenceNumber = refData as string;
     }
 
-    // 2. If via engineer wallet, record spending transaction
+    // 2. Validate payer-source input + serialise for the insert.
+    // Must run BEFORE the wallet spend below — otherwise a malformed split
+    // would debit the engineer's wallet with no misc_expense row to settle
+    // against, leaving a phantom spend in the ledger.
+    const payerCheck = validatePayerSourceInput(
+      formData.payer,
+      formData.amount,
+    );
+    if (!payerCheck.ok) {
+      return {
+        success: false,
+        error: `Invalid payer source: ${payerCheck.reason}`,
+      };
+    }
+    const payerRpc = toRpcArgs(formData.payer);
+
+    // 3. If via engineer wallet, record spending transaction
     if (formData.payer_type === "site_engineer" && formData.site_engineer_id) {
       if (useV2Wallet) {
         // v2 path: single LIFO pool, no batches. Atomic via RPC with WLT01 on
@@ -107,7 +130,7 @@ export async function createMiscExpense(
       }
     }
 
-    // 3. Create misc_expenses record
+    // 4. Create misc_expenses record
     const expenseData = {
       site_id: siteId,
       reference_number: referenceNumber,
@@ -117,10 +140,12 @@ export async function createMiscExpense(
       description: formData.description || null,
       vendor_name: formData.vendor_name || null,
       payment_mode: formData.payment_mode,
-      payer_source: formData.payer_source,
-      payer_name: (formData.payer_source === "custom" || formData.payer_source === "other_site_money")
-        ? formData.custom_payer_name
-        : null,
+      payer_source: payerRpc.p_payer_source,
+      payer_name: payerRpc.p_payer_name,
+      // `payer_source_split` is `PayerSourceSplitRow[] | null`; the Supabase
+      // JS client serialises it to JSONB on insert.
+      payer_source_split:
+        payerRpc.p_payer_source_split as PayerSourceSplitRow[] | null,
       payer_type: formData.payer_type,
       site_engineer_id: formData.payer_type === "site_engineer" ? formData.site_engineer_id : null,
       engineer_transaction_id: engineerTransactionId,
@@ -151,7 +176,7 @@ export async function createMiscExpense(
       throw expenseError;
     }
 
-    // 4. Update engineer transaction with expense reference (if applicable)
+    // 5. Update engineer transaction with expense reference (if applicable)
     if (engineerTransactionId) {
       await (supabase
         .from("site_engineer_transactions") as any)
@@ -190,8 +215,11 @@ export async function updateMiscExpense(
     description?: string | null;
     vendor_name?: string | null;
     payment_mode?: string;
-    payer_source?: PayerSource;
-    custom_payer_name?: string;
+    /**
+     * Payer-source input — optional because most edits don't touch the
+     * payer. Replaces the legacy `payer_source` + `custom_payer_name` pair.
+     */
+    payer?: PayerSourceInput;
     subcontract_id?: string | null;
     notes?: string | null;
     proof_url?: string | null;
@@ -205,17 +233,38 @@ export async function updateMiscExpense(
   userName: string
 ): Promise<MiscExpenseResult> {
   try {
+    // Strip `payer` from the shallow spread; it is not a DB column.
+    const { payer: payerUpdate, ...rest } = updates;
     const updateData: any = {
-      ...updates,
+      ...rest,
       updated_at: new Date().toISOString(),
     };
 
-    // Handle payer_name based on payer_source
-    if (updates.payer_source) {
-      updateData.payer_name = (updates.payer_source === "custom" || updates.payer_source === "other_site_money")
-        ? updates.custom_payer_name
-        : null;
-      delete updateData.custom_payer_name;
+    // Translate the payer-source input into the 3 actual DB columns.
+    if (payerUpdate) {
+      // `amount` may not be present in an edit that only changes the payer.
+      // Pass 0 to skip the sum-to-total check; the form's own submit
+      // validator (Task 5) enforces sum-to-total before calling here, and
+      // the SQL CHECK constraint rejects malformed shapes regardless.
+      const payerCheck = validatePayerSourceInput(
+        payerUpdate,
+        updates.amount ?? 0,
+      );
+      if (
+        !payerCheck.ok &&
+        payerUpdate.mode === "split" &&
+        !payerCheck.reason.startsWith("split sum")
+      ) {
+        return {
+          success: false,
+          error: `Invalid payer source: ${payerCheck.reason}`,
+        };
+      }
+      const payerRpc = toRpcArgs(payerUpdate);
+      updateData.payer_source = payerRpc.p_payer_source;
+      updateData.payer_name = payerRpc.p_payer_name;
+      updateData.payer_source_split =
+        payerRpc.p_payer_source_split as PayerSourceSplitRow[] | null;
     }
 
     const { error } = await (supabase

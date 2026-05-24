@@ -51,7 +51,6 @@ import type {
   ContractPaymentType,
 } from "@/types/payment.types";
 import type {
-  PayerSource,
   PayerSourceInput,
   SettlementRecord,
 } from "@/types/settlement.types";
@@ -205,17 +204,8 @@ export default function PaymentDialog({
 
       // For weekly payments, the service handles everything including engineer transactions
       if (isWeeklyPayment && weeklyPayment) {
-        // Guard: processContractPayment is still on the legacy single-source
-        // shape until Phase 2. A split payload would be silently collapsed to
-        // row 0 (data loss). Block submit with a clear message instead.
-        if (payer.mode === "split") {
-          setError(
-            "Split sources for weekly contract payments will be supported in Phase 2. Please choose a single source for now."
-          );
-          setProcessing(false);
-          return;
-        }
-        // Weekly contract laborer payment - uses new service
+        // Weekly contract laborer payment - uses processContractPayment, which
+        // accepts PayerSourceInput (single or split) as of Phase 2.
         await processWeeklyPayment(
           weeklyPayment.laborer,
           weeklyPayment.weekStart
@@ -280,16 +270,8 @@ export default function PaymentDialog({
     laborer: WeeklyContractLaborer,
     weekStart: string
   ) => {
-    // processContractPayment is still on the legacy single-payer-source shape
-    // (TODO(payer-split-phase-2) in settlementService.ts). For phase-1 we
-    // collapse a split selection back to its first row so the weekly contract
-    // path keeps working; full split support lands when that service migrates.
-    const legacyPayerSource: PayerSource =
-      payer.mode === "single" ? payer.source : payer.rows[0]?.source ?? "own_money";
-    const legacyPayerName: string | undefined =
-      payer.mode === "single" ? payer.name : payer.rows[0]?.name;
-
-    // Use the new processContractPayment service for contract weekly payments
+    // processContractPayment accepts PayerSourceInput (single or split) as of
+    // Phase 2. The service runs validatePayerSourceInput before the RPC call.
     const result = await processContractPayment(supabase, {
       siteId: selectedSite!.id,
       laborerId: laborer.laborerId,
@@ -300,11 +282,7 @@ export default function PaymentDialog({
       paymentForDate: weekStart,
       paymentMode: paymentMode,
       paymentChannel: paymentChannel,
-      payerSource: legacyPayerSource,
-      customPayerName:
-        (legacyPayerSource === "other_site_money" || legacyPayerSource === "custom")
-          ? legacyPayerName
-          : undefined,
+      payer,
       proofUrl: proofUrl || undefined,
       notes: notes || undefined,
       subcontractId: subcontractId || undefined,
