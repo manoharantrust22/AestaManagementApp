@@ -30,7 +30,16 @@ interface StageDotProps {
   softAccent: string;
 }
 
-function StageDot({ done, current, progress, accent, softAccent }: StageDotProps) {
+function StageDot({
+  done,
+  current,
+  progress,
+  accent,
+  softAccent,
+  /** Renders the dot as a green-check "done & terminal" state — used for the
+   *  last visible step when the thread is exhausted (fully consumed). */
+  completedSuccess,
+}: StageDotProps & { completedSuccess?: boolean }) {
   const isPartial =
     !done && progress != null && progress > 0 && progress < 1;
   return (
@@ -39,24 +48,35 @@ function StageDot({ done, current, progress, accent, softAccent }: StageDotProps
         width: 14,
         height: 14,
         borderRadius: "50%",
-        // done → filled black; partial → conic gradient fill; next-pending → accent fill; future → outlined
-        background: done
-          ? hubTokens.text
-          : isPartial
-            ? `conic-gradient(${accent} ${Math.round((progress ?? 0) * 360)}deg, ${hubTokens.hairline} 0deg)`
-            : current
-              ? accent
-              : "#fff",
-        border: done || isPartial || current ? "none" : `2px solid ${hubTokens.border}`,
+        // completedSuccess → green check; done → filled black; partial → conic;
+        // next-pending → accent fill; future → outlined.
+        background: completedSuccess
+          ? hubTokens.success
+          : done
+            ? hubTokens.text
+            : isPartial
+              ? `conic-gradient(${accent} ${Math.round((progress ?? 0) * 360)}deg, ${hubTokens.hairline} 0deg)`
+              : current
+                ? accent
+                : "#fff",
+        border:
+          completedSuccess || done || isPartial || current
+            ? "none"
+            : `2px solid ${hubTokens.border}`,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        boxShadow: current || isPartial ? `0 0 0 4px ${softAccent}` : "none",
+        boxShadow:
+          completedSuccess
+            ? `0 0 0 4px ${hubTokens.successSoft}`
+            : current || isPartial
+              ? `0 0 0 4px ${softAccent}`
+              : "none",
         flexShrink: 0,
         position: "relative",
       }}
     >
-      {done ? (
+      {completedSuccess || done ? (
         <CheckIcon sx={{ fontSize: 9, color: "#fff", strokeWidth: 3 }} />
       ) : isPartial ? (
         // Inner white circle on top of the conic gradient creates a ring
@@ -285,6 +305,16 @@ export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelin
         let current = stageKey === nextKey;
         let progress: number | undefined;
         let labelText: string = s.label;
+        // Mark the final IN USE step as a green "DONE" when the batch is
+        // exhausted. Easier to scan than "IN USE with a filled black check"
+        // because it conveys terminal completion at a glance.
+        let completedSuccess = false;
+        if (stageKey === "in-use" && thread.stage === "exhausted") {
+          completedSuccess = true;
+          done = true;
+          current = false;
+          labelText = "DONE";
+        }
 
         // DELIVER: show partial-progress arc + fraction label
         if (stageKey === "delivered" && po && receivedQty > 0 && !deliverFullyDone) {
@@ -327,12 +357,13 @@ export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelin
                 progress={progress}
                 accent={hubTokens.primary}
                 softAccent={hubTokens.primarySoft}
+                completedSuccess={completedSuccess}
               />
               <StageLabel
                 text={labelText}
                 done={done}
                 current={current}
-                accent={hubTokens.primary}
+                accent={completedSuccess ? hubTokens.success : hubTokens.primary}
               />
             </Box>
             {!isLast && (

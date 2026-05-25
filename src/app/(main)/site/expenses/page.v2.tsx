@@ -124,6 +124,56 @@ type TableItem =
 const LABOR_SET = new Set(LABOR_TYPES as readonly string[]);
 const BUILDING_SET = new Set(BUILDING_TYPES as readonly string[]);
 
+// Per-column min widths applied to header label row, header filter row, and
+// body cells. Without these, MUI Table distributes width by content alone and
+// chip-heavy cells (Status/Kind) squeeze the text columns until labels truncate.
+const COL_MIN_WIDTHS = {
+  settlement: 110,
+  ref: 130,
+  vendorDesc: 220,
+  tradeSub: 180,
+  kind: 110,
+  status: 90,
+  amount: 110,
+  actions: 64,
+} as const;
+
+// Per-column header filter row state (Excel-style sub-header). Empty strings
+// mean "no filter" for that column.
+type ColFilters = {
+  settlement: { from: string; to: string };
+  ref: string;
+  vendor: string;
+  trade: string;
+  kind: string;
+  status: "" | "paid" | "advance" | "pending";
+  amount: { min: string; max: string };
+};
+
+const EMPTY_COL_FILTERS: ColFilters = {
+  settlement: { from: "", to: "" },
+  ref: "",
+  vendor: "",
+  trade: "",
+  kind: "",
+  status: "",
+  amount: { min: "", max: "" },
+};
+
+function isAnyColFilterActive(c: ColFilters): boolean {
+  return (
+    !!c.settlement.from ||
+    !!c.settlement.to ||
+    !!c.ref ||
+    !!c.vendor ||
+    !!c.trade ||
+    !!c.kind ||
+    !!c.status ||
+    !!c.amount.min ||
+    !!c.amount.max
+  );
+}
+
 function formatINR(n: number): string {
   return "₹" + new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(Math.abs(n));
 }
@@ -198,6 +248,30 @@ export default function ExpensesPageV2() {
   );
   const [subKindFilter, setSubKindFilter] = useState<string>("all");
 
+  // Excel-style per-column header filters. Hydrate from URL (c_* keys) so a
+  // deep-link survives reload.
+  const [colFilters, setColFilters] = useState<ColFilters>(() => {
+    const status = searchParams.get("c_status");
+    return {
+      settlement: {
+        from: searchParams.get("c_dfrom") ?? "",
+        to: searchParams.get("c_dto") ?? "",
+      },
+      ref: searchParams.get("c_ref") ?? "",
+      vendor: searchParams.get("c_vendor") ?? "",
+      trade: searchParams.get("c_trade") ?? "",
+      kind: searchParams.get("c_kind") ?? "",
+      status:
+        status === "paid" || status === "advance" || status === "pending"
+          ? status
+          : "",
+      amount: {
+        min: searchParams.get("c_amin") ?? "",
+        max: searchParams.get("c_amax") ?? "",
+      },
+    };
+  });
+
   const [groupBy, setGroupBy] = useState<GroupByOption>("none");
   const [dense, setDense] = useState(false);
   const [mobileTab, setMobileTab] = useState<0 | 1>(0);
@@ -235,9 +309,19 @@ export default function ExpensesPageV2() {
     if (status !== "all") params.set("status", status);
     if (sitePayerId) params.set("payer", sitePayerId);
     if (tradeFilter !== "all") params.set("trade", tradeFilter);
+    // Column filters (Excel-style header row)
+    if (colFilters.settlement.from) params.set("c_dfrom", colFilters.settlement.from);
+    if (colFilters.settlement.to) params.set("c_dto", colFilters.settlement.to);
+    if (colFilters.ref) params.set("c_ref", colFilters.ref);
+    if (colFilters.vendor) params.set("c_vendor", colFilters.vendor);
+    if (colFilters.trade) params.set("c_trade", colFilters.trade);
+    if (colFilters.kind) params.set("c_kind", colFilters.kind);
+    if (colFilters.status) params.set("c_status", colFilters.status);
+    if (colFilters.amount.min) params.set("c_amin", colFilters.amount.min);
+    if (colFilters.amount.max) params.set("c_amax", colFilters.amount.max);
     const qs = params.toString();
     router.replace(`/site/expenses${qs ? `?${qs}` : ""}`, { scroll: false });
-  }, [search, group, activeTypes, status, sitePayerId, tradeFilter, router]);
+  }, [search, group, activeTypes, status, sitePayerId, tradeFilter, colFilters, router]);
 
   // Multi-payer settings
   const [hasMultiplePayers, setHasMultiplePayers] = useState(false);
@@ -417,17 +501,47 @@ export default function ExpensesPageV2() {
     return rows;
   }, [searchedRows, tradeFilter, subKindFilter, contractToTrade]);
 
+  // Excel-style per-column header filters. Applied on top of every other
+  // filter so they compose (AND) with the toolbar selects + free-text search.
+  const columnFilteredRows = useMemo(() => {
+    if (!isAnyColFilterActive(colFilters)) return filteredRows;
+    const refQ = colFilters.ref.toLowerCase();
+    const vendorQ = colFilters.vendor.toLowerCase();
+    const tradeQ = colFilters.trade.toLowerCase();
+    const minN = colFilters.amount.min ? Number(colFilters.amount.min) : null;
+    const maxN = colFilters.amount.max ? Number(colFilters.amount.max) : null;
+    return filteredRows.filter((row) => {
+      if (colFilters.settlement.from && row.date < colFilters.settlement.from) return false;
+      if (colFilters.settlement.to && row.date > colFilters.settlement.to) return false;
+      if (refQ && !(row.settlement_reference ?? "").toLowerCase().includes(refQ)) return false;
+      if (vendorQ) {
+        const hay = `${row.vendor_name ?? ""} ${row.description ?? ""}`.toLowerCase();
+        if (!hay.includes(vendorQ)) return false;
+      }
+      if (tradeQ) {
+        const tradeName = row.contract_id ? contractToTrade.get(row.contract_id)?.name ?? "" : "";
+        const hay = `${tradeName} ${row.subcontract_title ?? ""}`.toLowerCase();
+        if (!hay.includes(tradeQ)) return false;
+      }
+      if (colFilters.kind && row.expense_type !== colFilters.kind) return false;
+      if (colFilters.status && getDisplayStatus(row) !== colFilters.status) return false;
+      if (minN !== null && !Number.isNaN(minN) && row.amount < minN) return false;
+      if (maxN !== null && !Number.isNaN(maxN) && row.amount > maxN) return false;
+      return true;
+    });
+  }, [filteredRows, colFilters, contractToTrade]);
+
   // Footer totals
   // Loaded-slice totals — accurate only over what's currently fetched and
   // after client filters narrow what we display. Used as the "Filtered" line
   // when search/trade/sub-kind is active.
   const filteredLaborTotal = useMemo(
-    () => filteredRows.filter((r) => LABOR_SET.has(r.expense_type)).reduce((s, r) => s + r.amount, 0),
-    [filteredRows],
+    () => columnFilteredRows.filter((r) => LABOR_SET.has(r.expense_type)).reduce((s, r) => s + r.amount, 0),
+    [columnFilteredRows],
   );
   const filteredBuildingTotal = useMemo(
-    () => filteredRows.filter((r) => BUILDING_SET.has(r.expense_type)).reduce((s, r) => s + r.amount, 0),
-    [filteredRows],
+    () => columnFilteredRows.filter((r) => BUILDING_SET.has(r.expense_type)).reduce((s, r) => s + r.amount, 0),
+    [columnFilteredRows],
   );
   const filteredTotal = filteredLaborTotal + filteredBuildingTotal;
 
@@ -451,11 +565,14 @@ export default function ExpensesPageV2() {
   // affect both `expenses` and `filteredRows`, but the RPC doesn't currently
   // pass those — see spec §4 for why scope-total matches KPI cards.
   const hasClientFilter =
-    search.trim() !== "" || tradeFilter !== "all" || subKindFilter !== "all";
+    search.trim() !== "" ||
+    tradeFilter !== "all" ||
+    subKindFilter !== "all" ||
+    isAnyColFilterActive(colFilters);
 
   // Grouped table items
   const tableItems = useMemo<TableItem[]>(() => {
-    if (groupBy === "none") return filteredRows.map((row) => ({ type: "row", row }));
+    if (groupBy === "none") return columnFilteredRows.map((row) => ({ type: "row", row }));
 
     const getKey = (row: ExpenseRow): string => {
       if (groupBy === "trade") {
@@ -469,7 +586,7 @@ export default function ExpensesPageV2() {
     };
 
     const groups = new Map<string, ExpenseRow[]>();
-    for (const row of filteredRows) {
+    for (const row of columnFilteredRows) {
       const key = getKey(row);
       const arr = groups.get(key) ?? [];
       arr.push(row);
@@ -489,7 +606,7 @@ export default function ExpensesPageV2() {
       for (const row of rows) items.push({ type: "row", row });
     }
     return items;
-  }, [filteredRows, groupBy, contractToTrade]);
+  }, [columnFilteredRows, groupBy, contractToTrade]);
 
   // Has any active filter
   const hasFilter =
@@ -498,7 +615,8 @@ export default function ExpensesPageV2() {
     activeTypes.length > 0 ||
     status !== "all" ||
     tradeFilter !== "all" ||
-    subKindFilter !== "all";
+    subKindFilter !== "all" ||
+    isAnyColFilterActive(colFilters);
 
   const resetAllFilters = () => {
     setSearch("");
@@ -508,6 +626,7 @@ export default function ExpensesPageV2() {
     setTradeFilter("all");
     setSubKindFilter("all");
     setSitePayerId(null);
+    setColFilters(EMPTY_COL_FILTERS);
   };
 
   // Trade card click → filter table + scroll
@@ -857,16 +976,35 @@ export default function ExpensesPageV2() {
   // the page remains usable (accepted per spec).
   const headerCellSx = {
     fontWeight: 700,
-    fontSize: 11,
+    fontSize: 12,
     textTransform: "uppercase" as const,
     letterSpacing: 0.5,
     color: "text.secondary",
     bgcolor: "background.paper",
-    py: dense ? 0.75 : 1,
-    whiteSpace: "nowrap" as const,
+    py: dense ? 1 : 1.25,
+    // Allow two-word labels (e.g. "Vendor / Description") to wrap rather than
+    // truncate when their column is squeezed by chip-heavy neighbours.
+    whiteSpace: "normal" as const,
+    lineHeight: 1.2,
     position: "sticky" as const,
-    top: 96,
+    // Sits right below the records-bar (which is sticky at top:64, ~48px tall).
+    // Previously used top:96 which left a ~16px exposed strip where scrolling
+    // data rows peeked through between records-bar and header.
+    top: 112,
     zIndex: 1,
+  };
+
+  // Sub-header (Excel-style per-column filter row) sits right below the label
+  // row. top = header top (112) + header row height (~35).
+  const filterRowCellSx = {
+    bgcolor: "background.paper",
+    py: 0.5,
+    px: { xs: 0.5, md: 1 },
+    position: "sticky" as const,
+    top: dense ? 144 : 147,
+    zIndex: 1,
+    borderBottom: 1,
+    borderBottomColor: "divider",
   };
 
   // Task 6: mobile column hiding + sticky Date.
@@ -1038,12 +1176,17 @@ export default function ExpensesPageV2() {
           borderColor: "divider",
           bgcolor: "action.hover",
           position: "sticky",
-          top: 56,
+          // Sticky stack order (page-level scroll): toolbar (top:0, h:65) ►
+          // records-bar (top:64, h:~48) ► header label row (top:112) ►
+          // header filter row (top:147). Values chosen so adjacent sticky
+          // elements butt up against each other instead of leaving a gap
+          // that exposes scrolling data rows underneath.
+          top: 64,
           zIndex: 2,
         }}
       >
         <Typography variant="body2" fontWeight={600} sx={{ fontVariantNumeric: "tabular-nums" }}>
-          {filteredRows.length} records
+          {columnFilteredRows.length} records
         </Typography>
         {hasFilter && (
           <Button size="small" sx={{ fontSize: 12, textTransform: "none", py: 0 }} onClick={resetAllFilters}>
@@ -1082,35 +1225,192 @@ export default function ExpensesPageV2() {
         <Table stickyHeader size="small">
           <TableHead>
             <TableRow>
-              <TableCell sx={{ ...headerCellSx, ...stickyDateSx, top: 96 }}>
-                {/* Cursor pagination is DESC-only; ASC toggle is disabled.
-                    Add a TableSortLabel here only if bi-directional sorting is added. */}
-                Date
+              {/* DATE — kept `position: sticky` on all viewports so the
+                  header row never fragments. Previously the spread of
+                  `stickyDateSx` here overrode `position` to `static` on md+,
+                  which split the header (the other 7 cells stayed pinned at
+                  top: 96 while this one scrolled away). Now we only inherit
+                  the mobile left-pin (`left: 0`) without that override. */}
+              <TableCell
+                sx={{
+                  ...headerCellSx,
+                  left: 0,
+                  zIndex: 2,
+                  py: { xs: 0.5, md: dense ? 1 : 1.25 },
+                  px: { xs: 1, md: 2 },
+                  minWidth: COL_MIN_WIDTHS.settlement,
+                }}
+              >
+                Settlement
               </TableCell>
               {(
                 [
-                  { label: "Ref", hideOnMobile: false },
-                  { label: "Vendor / Description", hideOnMobile: true },
-                  { label: "Trade / Subcontract", hideOnMobile: true },
-                  { label: "Kind", hideOnMobile: false },
-                  { label: "Status", hideOnMobile: false },
-                  { label: "Amount", hideOnMobile: false },
-                  { label: "", hideOnMobile: false },
+                  { label: "Ref", hideOnMobile: false, minWidth: COL_MIN_WIDTHS.ref },
+                  { label: "Vendor / Description", hideOnMobile: true, minWidth: COL_MIN_WIDTHS.vendorDesc },
+                  { label: "Trade / Subcontract", hideOnMobile: true, minWidth: COL_MIN_WIDTHS.tradeSub },
+                  { label: "Kind", hideOnMobile: false, minWidth: COL_MIN_WIDTHS.kind },
+                  { label: "Status", hideOnMobile: false, minWidth: COL_MIN_WIDTHS.status },
+                  { label: "Amount", hideOnMobile: false, minWidth: COL_MIN_WIDTHS.amount },
+                  { label: "", hideOnMobile: false, minWidth: COL_MIN_WIDTHS.actions },
                 ] as const
               ).map((h) => (
                 <TableCell
                   key={h.label}
                   align={h.label === "Amount" ? "right" : "left"}
-                  sx={{ ...headerCellSx, ...(h.hideOnMobile ? hideOnMobileSx : {}) }}
+                  sx={{
+                    ...headerCellSx,
+                    minWidth: h.minWidth,
+                    ...(h.hideOnMobile ? hideOnMobileSx : {}),
+                  }}
                 >
                   {h.label}
                 </TableCell>
               ))}
             </TableRow>
+
+            {/* Excel-style filter row — sits below the label row, sticky
+                under it. Each cell holds the right control for its column
+                (text contains, select, date range, amount range). Filters
+                AND together AND with the toolbar filters above. */}
+            <TableRow>
+              {/* Settlement: date-range From/To */}
+              <TableCell
+                sx={{
+                  ...filterRowCellSx,
+                  left: 0,
+                  zIndex: 2,
+                  minWidth: COL_MIN_WIDTHS.settlement,
+                }}
+              >
+                <Box sx={{ display: "flex", gap: 0.5 }}>
+                  <TextField
+                    type="date"
+                    size="small"
+                    value={colFilters.settlement.from}
+                    onChange={(e) =>
+                      setColFilters((c) => ({ ...c, settlement: { ...c.settlement, from: e.target.value } }))
+                    }
+                    slotProps={{ inputLabel: { shrink: true } }}
+                    sx={{ "& .MuiInputBase-input": { fontSize: 11, py: 0.5, px: 0.5 }, minWidth: 0 }}
+                  />
+                  <TextField
+                    type="date"
+                    size="small"
+                    value={colFilters.settlement.to}
+                    onChange={(e) =>
+                      setColFilters((c) => ({ ...c, settlement: { ...c.settlement, to: e.target.value } }))
+                    }
+                    slotProps={{ inputLabel: { shrink: true } }}
+                    sx={{ "& .MuiInputBase-input": { fontSize: 11, py: 0.5, px: 0.5 }, minWidth: 0 }}
+                  />
+                </Box>
+              </TableCell>
+
+              {/* Ref */}
+              <TableCell sx={{ ...filterRowCellSx, minWidth: COL_MIN_WIDTHS.ref }}>
+                <TextField
+                  size="small"
+                  placeholder="Search…"
+                  value={colFilters.ref}
+                  onChange={(e) => setColFilters((c) => ({ ...c, ref: e.target.value }))}
+                  fullWidth
+                  sx={{ "& .MuiInputBase-input": { fontSize: 11, py: 0.5 } }}
+                />
+              </TableCell>
+
+              {/* Vendor / Description */}
+              <TableCell sx={{ ...filterRowCellSx, ...hideOnMobileSx, minWidth: COL_MIN_WIDTHS.vendorDesc }}>
+                <TextField
+                  size="small"
+                  placeholder="Search vendor or description…"
+                  value={colFilters.vendor}
+                  onChange={(e) => setColFilters((c) => ({ ...c, vendor: e.target.value }))}
+                  fullWidth
+                  sx={{ "& .MuiInputBase-input": { fontSize: 11, py: 0.5 } }}
+                />
+              </TableCell>
+
+              {/* Trade / Subcontract */}
+              <TableCell sx={{ ...filterRowCellSx, ...hideOnMobileSx, minWidth: COL_MIN_WIDTHS.tradeSub }}>
+                <TextField
+                  size="small"
+                  placeholder="Search…"
+                  value={colFilters.trade}
+                  onChange={(e) => setColFilters((c) => ({ ...c, trade: e.target.value }))}
+                  fullWidth
+                  sx={{ "& .MuiInputBase-input": { fontSize: 11, py: 0.5 } }}
+                />
+              </TableCell>
+
+              {/* Kind */}
+              <TableCell sx={{ ...filterRowCellSx, minWidth: COL_MIN_WIDTHS.kind }}>
+                <FormControl size="small" fullWidth>
+                  <Select
+                    value={colFilters.kind}
+                    displayEmpty
+                    onChange={(e) => setColFilters((c) => ({ ...c, kind: e.target.value }))}
+                    sx={{ fontSize: 11, "& .MuiSelect-select": { py: 0.5 } }}
+                  >
+                    <MenuItem value="" sx={{ fontSize: 12 }}>All</MenuItem>
+                    {[...LABOR_TYPES, ...BUILDING_TYPES].map((t) => (
+                      <MenuItem key={t} value={t} sx={{ fontSize: 12 }}>{t}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </TableCell>
+
+              {/* Status */}
+              <TableCell sx={{ ...filterRowCellSx, minWidth: COL_MIN_WIDTHS.status }}>
+                <FormControl size="small" fullWidth>
+                  <Select
+                    value={colFilters.status}
+                    displayEmpty
+                    onChange={(e) =>
+                      setColFilters((c) => ({ ...c, status: e.target.value as ColFilters["status"] }))
+                    }
+                    sx={{ fontSize: 11, "& .MuiSelect-select": { py: 0.5 } }}
+                  >
+                    <MenuItem value="" sx={{ fontSize: 12 }}>All</MenuItem>
+                    <MenuItem value="paid" sx={{ fontSize: 12 }}>Paid</MenuItem>
+                    <MenuItem value="advance" sx={{ fontSize: 12 }}>Advance</MenuItem>
+                    <MenuItem value="pending" sx={{ fontSize: 12 }}>Pending</MenuItem>
+                  </Select>
+                </FormControl>
+              </TableCell>
+
+              {/* Amount: min/max */}
+              <TableCell align="right" sx={{ ...filterRowCellSx, minWidth: COL_MIN_WIDTHS.amount }}>
+                <Box sx={{ display: "flex", gap: 0.5 }}>
+                  <TextField
+                    type="number"
+                    size="small"
+                    placeholder="Min"
+                    value={colFilters.amount.min}
+                    onChange={(e) =>
+                      setColFilters((c) => ({ ...c, amount: { ...c.amount, min: e.target.value } }))
+                    }
+                    sx={{ "& .MuiInputBase-input": { fontSize: 11, py: 0.5, px: 0.5, textAlign: "right" }, minWidth: 0 }}
+                  />
+                  <TextField
+                    type="number"
+                    size="small"
+                    placeholder="Max"
+                    value={colFilters.amount.max}
+                    onChange={(e) =>
+                      setColFilters((c) => ({ ...c, amount: { ...c.amount, max: e.target.value } }))
+                    }
+                    sx={{ "& .MuiInputBase-input": { fontSize: 11, py: 0.5, px: 0.5, textAlign: "right" }, minWidth: 0 }}
+                  />
+                </Box>
+              </TableCell>
+
+              {/* Actions: spacer */}
+              <TableCell sx={{ ...filterRowCellSx, minWidth: COL_MIN_WIDTHS.actions }} />
+            </TableRow>
           </TableHead>
 
           <TableBody>
-            {isLoading && filteredRows.length === 0 ? (
+            {isLoading && columnFilteredRows.length === 0 ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
                   {Array.from({ length: 8 }).map((__, j) => (
@@ -1158,9 +1458,37 @@ export default function ExpensesPageV2() {
                       borderColor: "divider",
                     }}
                   >
-                    {/* Date */}
+                    {/* Settlement date — DD MMM YY so 2025/2026 spans are
+                        unambiguous. Tooltip exposes the recorded date when
+                        it differs (e.g. material settled on 14 Feb 26 for a
+                        bill recorded 12 Feb 26). */}
                     <TableCell sx={{ ...stickyDateSx, color: "text.secondary", fontSize: 12, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-                      {dayjs(row.date).format("DD MMM")}
+                      {(() => {
+                        const settled = dayjs(row.date);
+                        const recorded = row.recorded_date ? dayjs(row.recorded_date) : null;
+                        const driftsFromRecorded =
+                          recorded && recorded.format("YYYY-MM-DD") !== settled.format("YYYY-MM-DD");
+                        const label = settled.format("DD MMM YY");
+                        if (!driftsFromRecorded) return label;
+                        return (
+                          <Tooltip
+                            arrow
+                            title={`Settled ${settled.format("DD MMM YYYY")} · recorded ${recorded!.format("DD MMM YYYY")}`}
+                          >
+                            <Box
+                              component="span"
+                              sx={{
+                                borderBottom: "1px dotted",
+                                borderColor: "warning.main",
+                                color: "warning.main",
+                                cursor: "help",
+                              }}
+                            >
+                              {label}
+                            </Box>
+                          </Tooltip>
+                        );
+                      })()}
                     </TableCell>
 
                     {/* Ref */}
@@ -1381,7 +1709,7 @@ export default function ExpensesPageV2() {
               <Box component="span" fontWeight={600} color="text.primary" sx={{ fontVariantNumeric: "tabular-nums" }}>
                 {formatINR(filteredTotal)}
               </Box>{" "}
-              · {filteredRows.length} rows
+              · {columnFilteredRows.length} rows
             </Typography>
           )}
           <Typography variant="caption" color="text.secondary" textTransform="uppercase" letterSpacing={0.5}>

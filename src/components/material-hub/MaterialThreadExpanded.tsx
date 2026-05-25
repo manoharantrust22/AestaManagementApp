@@ -19,8 +19,12 @@
  * Mirrors `ThreadExpanded` block in docs/MaterialHub_Redesign/proto-screens.jsx.
  */
 
-import { Box, Typography } from "@mui/material";
+import { Box, Tooltip, Typography } from "@mui/material";
 import CheckIcon from "@mui/icons-material/Check";
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import ImageIcon from "@mui/icons-material/Image";
+import DescriptionIcon from "@mui/icons-material/Description";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { inr } from "@/lib/material-hub/formatters";
 import { fmtDateShort } from "@/lib/material-hub/formatters";
@@ -123,6 +127,91 @@ function DetailRow({ label, value, emphasis, tone = "default" }: DetailRowProps)
   );
 }
 
+/** Small clickable icon link for an attached scan / screenshot / bill. Opens
+ *  in a new tab. Tooltip describes what's attached. Used in the PO, Delivery,
+ *  and Settlement blocks to surface paperwork without leaving the Hub. */
+function AttachmentIconLink({
+  url,
+  label,
+  icon,
+  tone = "primary",
+}: {
+  url: string | null | undefined;
+  label: string;
+  icon: "bill" | "screenshot" | "doc";
+  tone?: "primary" | "success" | "warn" | "muted";
+}) {
+  if (!url) return null;
+  const color =
+    tone === "success"
+      ? hubTokens.success
+      : tone === "warn"
+        ? hubTokens.warn
+        : tone === "muted"
+          ? hubTokens.muted
+          : hubTokens.primary;
+  const Icon =
+    icon === "screenshot"
+      ? ImageIcon
+      : icon === "doc"
+        ? DescriptionIcon
+        : ReceiptLongIcon;
+  return (
+    <Tooltip title={label} arrow>
+      <Box
+        component="a"
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        sx={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 22,
+          height: 22,
+          borderRadius: "6px",
+          background: hubTokens.chip,
+          color,
+          textDecoration: "none",
+          transition: "background 0.15s ease",
+          "&:hover": { background: hubTokens.hairline },
+        }}
+      >
+        <Icon sx={{ fontSize: 14 }} />
+      </Box>
+    </Tooltip>
+  );
+}
+
+/** Compact "View on inventory →" link rendered at the bottom of the
+ *  Inventory block. Passes a `?focus=<term>` query param so the inventory
+ *  page can auto-populate its search input and scroll the matching card
+ *  into view. */
+function InventoryLink({ target }: { target: string | null | undefined }) {
+  if (!target) return null;
+  return (
+    <Box sx={{ display: "flex", justifyContent: "flex-end", marginTop: "8px" }}>
+      <Box
+        component="a"
+        href={`/site/materials/inventory?focus=${encodeURIComponent(target)}`}
+        sx={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "4px",
+          fontSize: 11,
+          fontWeight: 600,
+          color: hubTokens.primary,
+          textDecoration: "none",
+          "&:hover": { textDecoration: "underline" },
+        }}
+      >
+        View on inventory
+        <ArrowForwardIcon sx={{ fontSize: 12 }} />
+      </Box>
+    </Box>
+  );
+}
+
 export interface MaterialThreadExpandedProps {
   thread: MaterialThread;
 }
@@ -206,7 +295,26 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
 
       {/* 2. Purchase order */}
       <Box>
-        <BlockHeader title="Purchase order" complete={hasPO} />
+        <BlockHeader
+          title="Purchase order"
+          complete={hasPO}
+          action={
+            t.po && (t.po.vendor_bill_url || t.po.quotation_url) ? (
+              <Box sx={{ display: "flex", gap: "4px" }}>
+                <AttachmentIconLink
+                  url={t.po.vendor_bill_url}
+                  label="Vendor bill"
+                  icon="bill"
+                />
+                <AttachmentIconLink
+                  url={t.po.quotation_url}
+                  label="Quotation"
+                  icon="doc"
+                />
+              </Box>
+            ) : undefined
+          }
+        />
         <Box
           sx={{
             background: hubTokens.card,
@@ -412,7 +520,29 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                       >
                         {b.grn_number}
                       </Box>
-                      {b.verified ? (
+                      {/* Per-batch attachments (challan / invoice scan) */}
+                      {(b.challan_url || b.invoice_url) && (
+                        <Box sx={{ display: "flex", gap: "3px", marginRight: "2px" }}>
+                          <AttachmentIconLink
+                            url={b.challan_url}
+                            label="Challan"
+                            icon="doc"
+                            tone="muted"
+                          />
+                          <AttachmentIconLink
+                            url={b.invoice_url}
+                            label="Invoice"
+                            icon="bill"
+                            tone="muted"
+                          />
+                        </Box>
+                      )}
+                      {b.verified || inUseOrBeyond ? (
+                        // Once the material is in-use / exhausted, the
+                        // GRN's verification flag is moot — the engineer
+                        // is consuming the stock, which is itself proof
+                        // it arrived. Treat consumption as implicit
+                        // verification rather than nagging "PENDING".
                         <Box
                           component="span"
                           sx={{
@@ -425,7 +555,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                             letterSpacing: "0.3px",
                           }}
                         >
-                          ✓ VERIFIED
+                          {b.verified ? "✓ VERIFIED" : "✓ ACCEPTED"}
                         </Box>
                       ) : (
                         <Box
@@ -471,7 +601,29 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
 
       {/* 4. Settlement */}
       <Box>
-        <BlockHeader title="Settlement" complete={hasSettlement} />
+        <BlockHeader
+          title="Settlement"
+          complete={hasSettlement}
+          action={
+            t.settlement &&
+            (t.settlement.payment_screenshot_url || t.settlement.bill_url) ? (
+              <Box sx={{ display: "flex", gap: "4px" }}>
+                <AttachmentIconLink
+                  url={t.settlement.payment_screenshot_url}
+                  label="Payment screenshot"
+                  icon="screenshot"
+                  tone="success"
+                />
+                <AttachmentIconLink
+                  url={t.settlement.bill_url}
+                  label="Vendor bill"
+                  icon="bill"
+                  tone="success"
+                />
+              </Box>
+            ) : undefined
+          }
+        />
         <Box
           sx={{
             background: hubTokens.card,
@@ -563,37 +715,23 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
         >
           {t.inventory ? (
             <>
-              {t.inventory.batch === "—" ? (
-                <Typography
-                  sx={{
-                    fontSize: 11,
-                    color: hubTokens.subtle,
-                    fontStyle: "italic",
-                    marginBottom: "6px",
-                  }}
-                >
-                  Merged into the site&apos;s {t.material_name} stock pool (own-site
-                  POs don&apos;t separate batches).
-                </Typography>
-              ) : (
-                <DetailRow
-                  label="Batch"
-                  value={
-                    <Box
-                      component="a"
-                      href="/site/materials/inventory"
-                      sx={{
-                        fontFamily: hubTokens.mono,
-                        color: hubTokens.primary,
-                        textDecoration: "none",
-                        "&:hover": { textDecoration: "underline" },
-                      }}
-                    >
-                      {t.inventory.batch}
-                    </Box>
-                  }
-                />
-              )}
+              <DetailRow
+                label="Batch"
+                value={
+                  <Box
+                    component="a"
+                    href={`/site/materials/inventory?focus=${encodeURIComponent(t.inventory.batch)}`}
+                    sx={{
+                      fontFamily: hubTokens.mono,
+                      color: hubTokens.primary,
+                      textDecoration: "none",
+                      "&:hover": { textDecoration: "underline" },
+                    }}
+                  >
+                    {t.inventory.batch}
+                  </Box>
+                }
+              />
               <DetailRow label="Received" value={`${t.inventory.received} ${t.material_unit}`} />
               <DetailRow label="Used" value={`${t.inventory.used} ${t.material_unit}`} />
               <DetailRow
@@ -623,9 +761,23 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                   }}
                 />
               </Box>
+              <InventoryLink
+                target={t.settlement?.expense_ref ?? t.inventory.batch}
+              />
             </>
           ) : receivedQty > 0 ? (
             <>
+              <Typography
+                sx={{
+                  fontSize: 11,
+                  color: hubTokens.subtle,
+                  fontStyle: "italic",
+                  marginBottom: "6px",
+                }}
+              >
+                Merged into the site&apos;s {t.material_name} stock pool
+                (own-site POs don&apos;t separate batches).
+              </Typography>
               <DetailRow
                 label="Added to stock"
                 value={`${Math.round(receivedQty)} ${t.material_unit}`}
@@ -638,16 +790,94 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                   tone="warn"
                 />
               )}
-              <Typography
-                sx={{
-                  fontSize: 10.5,
-                  color: hubTokens.subtle,
-                  fontStyle: "italic",
-                  marginTop: "6px",
-                }}
-              >
-                Live stock + usage history on /site/materials/inventory.
-              </Typography>
+              {t.pool && (t.pool.used > 0 || t.pool.remaining > 0) && (
+                <>
+                  <Box sx={{ marginTop: "8px" }}>
+                    <DetailRow
+                      label="Pool used"
+                      value={`${Math.round(t.pool.used)} ${t.material_unit}`}
+                    />
+                    <DetailRow
+                      label="Pool remaining"
+                      value={`${Math.round(t.pool.remaining)} ${t.material_unit}`}
+                      tone={t.pool.remaining <= 0 ? "muted" : "success"}
+                      emphasis
+                    />
+                  </Box>
+                  {/* Pool progress bar — visually mirrors batch-scoped bar so
+                      the engineer reads it the same way, but explicitly labeled
+                      as pool-wide rather than per-PO. */}
+                  <Box
+                    sx={{
+                      marginTop: "6px",
+                      height: 6,
+                      borderRadius: "3px",
+                      background: hubTokens.hairline,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        width: `${
+                          t.pool.used + t.pool.remaining > 0
+                            ? Math.min(
+                                100,
+                                (t.pool.used / (t.pool.used + t.pool.remaining)) * 100
+                              )
+                            : 0
+                        }%`,
+                        height: "100%",
+                        background:
+                          t.pool.remaining <= 0
+                            ? hubTokens.success
+                            : hubTokens.primary,
+                      }}
+                    />
+                  </Box>
+                  {/* Completion chip — at-a-glance state without forcing the
+                      engineer to do the (used / used+remaining) math. */}
+                  <Box
+                    sx={{
+                      marginTop: "6px",
+                      display: "flex",
+                      justifyContent: "flex-end",
+                    }}
+                  >
+                    <Box
+                      component="span"
+                      sx={{
+                        padding: "2px 8px",
+                        borderRadius: "10px",
+                        fontSize: 10,
+                        fontWeight: 800,
+                        letterSpacing: "0.4px",
+                        textTransform: "uppercase",
+                        background:
+                          t.pool.remaining <= 0
+                            ? hubTokens.successSoft
+                            : t.pool.used > 0
+                              ? hubTokens.warnSoft
+                              : hubTokens.chip,
+                        color:
+                          t.pool.remaining <= 0
+                            ? hubTokens.success
+                            : t.pool.used > 0
+                              ? hubTokens.warn
+                              : hubTokens.muted,
+                      }}
+                    >
+                      {t.pool.remaining <= 0
+                        ? "✓ Pool exhausted"
+                        : t.pool.used > 0
+                          ? "Pool in use"
+                          : "Pool untouched"}
+                    </Box>
+                  </Box>
+                </>
+              )}
+              <InventoryLink
+                target={t.settlement?.expense_ref ?? t.material_name}
+              />
             </>
           ) : (
             <Typography sx={{ fontSize: 12, color: hubTokens.subtle, fontStyle: "italic" }}>

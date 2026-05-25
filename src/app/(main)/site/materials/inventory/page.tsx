@@ -9,8 +9,8 @@
  * Mirrors `ProtoInventory` in docs/MaterialHub_Redesign/proto-inventory.jsx.
  */
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Alert,
   Box,
@@ -140,8 +140,18 @@ export default function InventoryPage() {
   const siteId = selectedSite?.id;
   const siteGroupId = selectedSite?.site_group_id ?? null;
 
+  // `?focus=<term>` from Material Hub → pre-populate the search and force the
+  // "All" tab so the matching card surfaces regardless of own/group split.
+  const searchParams = useSearchParams();
+  const focusParam = searchParams?.get("focus") ?? "";
   const [tab, setTab] = useState<Tab>("all");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(focusParam);
+  useEffect(() => {
+    if (focusParam) {
+      setSearch(focusParam);
+      setTab("all");
+    }
+  }, [focusParam]);
   const [layout, setLayout] = useState<"cards" | "table">("cards");
   // Per-batch is the new default — surfaces every purchase as its own card so
   // engineers can find specific brand variants (TNPL Cement, ARM Cement) that

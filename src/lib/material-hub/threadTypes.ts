@@ -45,6 +45,13 @@ export interface ThreadPO {
   payment_timing: "advance" | "on_delivery";
   /** Amount already paid against this PO (advance settlement). 0 if not yet paid. */
   advance_paid: number;
+  /** Vendor bill / invoice scan attached at PO time (if any). Surfaced as a
+   *  paperclip icon in the Hub expanded PO block so the engineer can verify
+   *  the bill without leaving the page. */
+  vendor_bill_url?: string | null;
+  /** Quotation document attached at PO time (rarely populated, but used by some
+   *  POs during the procurement step). */
+  quotation_url?: string | null;
   /**
    * Per-batch delivery log against this PO. One row per `deliveries` record
    * (filtered to the primary material). Empty array = no deliveries recorded
@@ -67,6 +74,11 @@ export interface ThreadDeliveryBatch {
   verified: boolean;
   vehicle_number?: string | null;
   notes?: string | null;
+  /** Vendor invoice / challan scans attached at delivery time (if any). The Hub
+   *  shows a paperclip per batch when set, so engineers can verify the paper
+   *  trail without leaving the row. */
+  invoice_url?: string | null;
+  challan_url?: string | null;
 }
 
 export interface ThreadDelivery {
@@ -87,11 +99,28 @@ export interface ThreadSettlement {
   expense_ref?: string | null;
   /** UUID of the material_purchase_expenses row (for future deep-link navigation). */
   expense_id?: string | null;
+  /** UPI / bank transfer payment proof attached at settlement time. */
+  payment_screenshot_url?: string | null;
+  /** Vendor bill scan attached to the expense (separate from PO.vendor_bill_url
+   *  which is captured at PO time). */
+  bill_url?: string | null;
 }
 
 export interface ThreadInventory {
   batch: string;
   received: number;
+  used: number;
+  remaining: number;
+}
+
+/**
+ * Site-wide pool snapshot for own-site (shared-bucket) POs. Distinct from
+ * per-batch `inventory` because the pool aggregates EVERY purchase of the same
+ * material on this site, not just this PO. Lets the Hub render a completion
+ * signal ("Pool exhausted" / "5 bag remaining in pool") for own-site threads
+ * without claiming per-PO accuracy.
+ */
+export interface ThreadPoolState {
   used: number;
   remaining: number;
 }
@@ -188,6 +217,10 @@ export interface MaterialThread {
   delivery?: ThreadDelivery;
   settlement?: ThreadSettlement;
   inventory?: ThreadInventory;
+  /** Site-wide pool stats for own-site (shared-bucket) threads. Populated
+   *  alongside the "Added to stock" fallback so the Hub can render a
+   *  completion signal (e.g. "Pool exhausted") without faking per-PO numbers. */
+  pool?: ThreadPoolState;
   inter_site_usage?: ThreadInterSiteUsage[];
 
   // Spot-only

@@ -37,10 +37,17 @@ export function pct(n: number, total: number): string {
   return Math.round((n / total) * 100) + "%";
 }
 
-/** Short scannable date: "14 May" */
+/** Short scannable date with 2-digit year: "14 Feb 25". The project spans
+ *  Nov 2025 → May 2026, so dropping the year created ambiguous month chips
+ *  ("18 Nov" could mean either year). 2-digit year keeps the chip compact
+ *  while removing the ambiguity. */
 export function fmtDateShort(d: string | Date | null | undefined): string {
   if (!d) return "—";
   const dt = typeof d === "string" ? new Date(d) : d;
   if (Number.isNaN(dt.getTime())) return "—";
-  return dt.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+  return dt.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "2-digit",
+  });
 }

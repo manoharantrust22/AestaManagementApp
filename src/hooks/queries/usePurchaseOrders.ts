@@ -2027,24 +2027,37 @@ export function useRecordDelivery() {
         throw itemsError;
       }
 
-      // Update PO item received quantities
+      // Update PO item received quantities. Two safeguards here to prevent the
+      // historical "received_qty inflated to 2× ordered" drift:
+      //   1. CAP the new running total at `ordered` (poItem.quantity) — even if
+      //      this mutation accidentally fires twice (network retry, dialog
+      //      double-submit), we never push past ordered.
+      //   2. REJECT the save when the incoming qty itself would push past
+      //      pending — the engineer probably mistyped (e.g. ordered 10, already
+      //      received 8, typed "+10" — should be capped at 2).
       if (data.po_id) {
         for (const item of data.items) {
           if (item.po_item_id) {
             const { data: poItem } = await supabase
               .from("purchase_order_items")
-              .select("received_qty")
+              .select("quantity, received_qty")
               .eq("id", item.po_item_id)
               .single();
 
             if (poItem) {
+              const ordered = Number(poItem.quantity ?? 0);
+              const alreadyReceived = Number(poItem.received_qty ?? 0);
+              const incoming = Number(item.accepted_qty ?? item.received_qty ?? 0);
+              const pending = Math.max(0, ordered - alreadyReceived);
+              if (incoming > pending + 0.001) {
+                throw new Error(
+                  `Cannot receive ${incoming} — only ${pending} pending against ordered ${ordered}. Adjust the delivery qty or amend the PO.`
+                );
+              }
+              const newReceived = Math.min(ordered, alreadyReceived + incoming);
               await supabase
                 .from("purchase_order_items")
-                .update({
-                  received_qty:
-                    (poItem.received_qty ?? 0) +
-                    (item.accepted_qty ?? item.received_qty),
-                })
+                .update({ received_qty: newReceived })
                 .eq("id", item.po_item_id);
             }
           }
@@ -2591,24 +2604,31 @@ export function useRecordAndVerifyDelivery() {
         throw itemsError;
       }
 
-      // Update PO item received quantities (same as useRecordDelivery)
+      // Update PO item received quantities (same as useRecordDelivery — see
+      // the comment block there for why we cap + validate).
       if (data.po_id) {
         for (const item of data.items) {
           if (item.po_item_id) {
             const { data: poItem } = await supabase
               .from("purchase_order_items")
-              .select("received_qty")
+              .select("quantity, received_qty")
               .eq("id", item.po_item_id)
               .single();
 
             if (poItem) {
+              const ordered = Number(poItem.quantity ?? 0);
+              const alreadyReceived = Number(poItem.received_qty ?? 0);
+              const incoming = Number(item.accepted_qty ?? item.received_qty ?? 0);
+              const pending = Math.max(0, ordered - alreadyReceived);
+              if (incoming > pending + 0.001) {
+                throw new Error(
+                  `Cannot receive ${incoming} — only ${pending} pending against ordered ${ordered}. Adjust the delivery qty or amend the PO.`
+                );
+              }
+              const newReceived = Math.min(ordered, alreadyReceived + incoming);
               await supabase
                 .from("purchase_order_items")
-                .update({
-                  received_qty:
-                    (poItem.received_qty ?? 0) +
-                    (item.accepted_qty ?? item.received_qty),
-                })
+                .update({ received_qty: newReceived })
                 .eq("id", item.po_item_id);
             }
           }

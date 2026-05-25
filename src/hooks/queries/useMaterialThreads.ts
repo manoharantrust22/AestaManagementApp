@@ -15,6 +15,7 @@ import type {
   ThreadKind,
   ThreadDeliveryBatch,
   ThreadInventory,
+  ThreadPoolState,
 } from "@/lib/material-hub/threadTypes";
 
 // ----------------------------------------------------------------------------
@@ -31,6 +32,8 @@ export interface DeliveryRow {
   verified: boolean | null;
   vehicle_number: string | null;
   notes: string | null;
+  invoice_url: string | null;
+  challan_url: string | null;
   items: Array<{
     material_id: string;
     received_qty: number | string;
@@ -52,7 +55,7 @@ function useSiteDeliveries(
         .select(
           `
           id, grn_number, po_id, site_id, delivery_date, delivery_status,
-          verified, vehicle_number, notes,
+          verified, vehicle_number, notes, invoice_url, challan_url,
           items:delivery_items(material_id, received_qty, accepted_qty)
           `
         );
@@ -118,9 +121,13 @@ function useSiteStockInventory(siteId: string | undefined) {
           inventory_id: string;
           quantity: number | string;
         }>) {
+          // stock_transactions.quantity for usage rows is stored as a negative
+          // delta (e.g. -10 for 10 consumed). Take abs so the running total is
+          // "amount used so far" — the consumer Math.max(0, used) downstream
+          // assumes a non-negative number.
           usageMap.set(
             row.inventory_id,
-            (usageMap.get(row.inventory_id) ?? 0) + Number(row.quantity)
+            (usageMap.get(row.inventory_id) ?? 0) + Math.abs(Number(row.quantity))
           );
         }
       }
@@ -226,6 +233,8 @@ export interface SettlementSnapshot {
   status: string | null;
   payment_channel: string | null;
   total_amount: number | string;
+  payment_screenshot_url: string | null;
+  bill_url: string | null;
 }
 
 function useSiteSettlements(
@@ -240,7 +249,7 @@ function useSiteSettlements(
       let query = (supabase as any)
         .from("material_purchase_expenses")
         .select(
-          "id, ref_code, purchase_order_id, site_id, is_paid, paid_date, status, payment_channel, total_amount"
+          "id, ref_code, purchase_order_id, site_id, is_paid, paid_date, status, payment_channel, total_amount, payment_screenshot_url, bill_url"
         )
         .not("purchase_order_id", "is", null);
 
@@ -417,6 +426,8 @@ function mapStandardThread(
         verified: !!d.verified,
         vehicle_number: d.vehicle_number,
         notes: d.notes,
+        invoice_url: d.invoice_url,
+        challan_url: d.challan_url,
       };
     });
 
@@ -441,30 +452,33 @@ function mapStandardThread(
         | "on_delivery",
       advance_paid: Number((po as any).advance_paid ?? 0),
       delivery_batches: deliveryBatches,
+      vendor_bill_url: (po as any).vendor_bill_url ?? null,
+      quotation_url: (po as any).quotation_url ?? null,
     };
   }
 
-  // Inventory snapshot — uses the same invMatch already resolved above.
+  // Inventory snapshot — only meaningful when the stock_inventory row is
+  // batch-scoped (group POs / historical batches). For the shared site bucket
+  // (own-site POs that merge into a single material pool) we surface the
+  // pool's state through `threadPool` instead, so the expanded view can show
+  // a completion signal ("Pool exhausted") without faking per-PO numbers.
   let threadInventory: ThreadInventory | undefined;
-  if (invMatch) {
+  let threadPool: ThreadPoolState | undefined;
+  if (invMatch && invMatch.stock.batch_code) {
     const remaining = Math.max(0, Number(invMatch.stock.current_qty));
     const used = Math.max(0, invMatch.used);
-    // For batch-scoped rows: received = remaining + used.
-    // For the shared site bucket (no batch_code): the math is bucket-wide
-    // and doesn't represent THIS purchase alone — flag via a "—" batch label
-    // so the expanded view can render it without misleading the engineer.
-    const isSharedBucket = !invMatch.stock.batch_code;
     threadInventory = {
-      batch: invMatch.stock.batch_code ?? "—",
-      received: isSharedBucket
-        ? // For bucket: prefer received_qty on the PO as the per-thread "received"
-          Number(po?.items?.reduce(
-            (s: number, it: any) => s + Number(it.received_qty ?? 0),
-            0
-          ) ?? 0)
-        : remaining + used,
+      batch: invMatch.stock.batch_code,
+      received: remaining + used,
       used,
       remaining,
+    };
+  } else if (invMatch) {
+    // Shared bucket: capture pool-wide used / remaining so the UI can show
+    // "Pool exhausted" or "5 bag left in pool" without claiming per-PO truth.
+    threadPool = {
+      used: Math.max(0, invMatch.used),
+      remaining: Math.max(0, Number(invMatch.stock.current_qty)),
     };
   }
 
@@ -495,6 +509,7 @@ function mapStandardThread(
     rejected_reason: mr.rejection_reason ?? null,
     po: threadPO,
     inventory: threadInventory,
+    pool: threadPool,
     settlement: settlement
       ? {
           status: settlement.is_paid ? "settled" : "pending",
@@ -508,6 +523,8 @@ function mapStandardThread(
           settled_at: settlement.paid_date,
           expense_ref: settlement.ref_code,
           expense_id: settlement.id,
+          payment_screenshot_url: settlement.payment_screenshot_url,
+          bill_url: settlement.bill_url,
         }
       : undefined,
     // delivery / inter_site_usage populated later
