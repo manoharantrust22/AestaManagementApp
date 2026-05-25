@@ -642,12 +642,86 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
             </>
           ) : t.settlement ? (
             <>
-              <DetailRow label="Amount" value={inr(t.settlement.amount)} emphasis />
+              {/* Bargain indication: when the actual settled amount is lower
+                  than the PO total (vendor accepted a discount), show the PO
+                  amount struck through next to the paid amount. Surfaces the
+                  savings without forcing the engineer to cross-reference the
+                  PO block. Threshold of ₹1 ignores cosmetic rounding. */}
+              {t.po && t.po.amount - t.settlement.amount > 1 ? (
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "baseline",
+                    padding: "4px 0",
+                    gap: "10px",
+                  }}
+                >
+                  <Typography sx={{ fontSize: 11, color: hubTokens.muted }}>
+                    Amount
+                  </Typography>
+                  <Box sx={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+                    <Typography
+                      sx={{
+                        fontSize: 11,
+                        color: hubTokens.muted,
+                        textDecoration: "line-through",
+                        fontFamily: hubTokens.mono,
+                      }}
+                    >
+                      {inr(t.po.amount)}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: 13,
+                        fontWeight: 700,
+                        color: hubTokens.success,
+                        fontFamily: hubTokens.mono,
+                      }}
+                    >
+                      {inr(t.settlement.amount)}
+                    </Typography>
+                  </Box>
+                </Box>
+              ) : (
+                <DetailRow label="Amount" value={inr(t.settlement.amount)} emphasis />
+              )}
+              {t.po && t.po.amount - t.settlement.amount > 1 && (
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    marginTop: "-2px",
+                    marginBottom: "4px",
+                  }}
+                >
+                  <Box
+                    component="span"
+                    sx={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: "0.3px",
+                      color: hubTokens.success,
+                      background: hubTokens.successSoft,
+                      padding: "2px 6px",
+                      borderRadius: "8px",
+                    }}
+                  >
+                    BARGAINED · saved {inr(t.po.amount - t.settlement.amount)}
+                  </Box>
+                </Box>
+              )}
               <DetailRow
                 label="Status"
                 value={t.settlement.status.toUpperCase()}
                 tone={t.settlement.status === "settled" ? "success" : "warn"}
               />
+              {t.settlement.payment_mode && (
+                <DetailRow
+                  label="Mode"
+                  value={t.settlement.payment_mode.toUpperCase()}
+                />
+              )}
               {t.settlement.paid_by && (
                 <DetailRow label="Paid by" value={t.settlement.paid_by} />
               )}

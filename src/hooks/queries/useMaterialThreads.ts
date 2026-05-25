@@ -235,6 +235,7 @@ export interface SettlementSnapshot {
   total_amount: number | string;
   payment_screenshot_url: string | null;
   bill_url: string | null;
+  payment_mode: string | null;
 }
 
 function useSiteSettlements(
@@ -249,7 +250,7 @@ function useSiteSettlements(
       let query = (supabase as any)
         .from("material_purchase_expenses")
         .select(
-          "id, ref_code, purchase_order_id, site_id, is_paid, paid_date, status, payment_channel, total_amount, payment_screenshot_url, bill_url"
+          "id, ref_code, purchase_order_id, site_id, is_paid, paid_date, status, payment_channel, total_amount, payment_screenshot_url, bill_url, payment_mode"
         )
         .not("purchase_order_id", "is", null);
 
@@ -566,6 +567,7 @@ function mapStandardThread(
           expense_id: settlement.id,
           payment_screenshot_url: settlement.payment_screenshot_url,
           bill_url: settlement.bill_url,
+          payment_mode: settlement.payment_mode,
         }
       : undefined,
     // delivery / inter_site_usage populated later
@@ -780,9 +782,13 @@ export function useMaterialThreads(
       settlementByPo,
     };
 
-    const standardThreads = mr.data.map((m) =>
-      mapStandardThread(m, poByRequest, deps)
-    );
+    const standardThreads = mr.data
+      // Drop cancelled MRs — they're audit-only history (used by reports /
+      // /site/material-requests), not actionable threads. Cluttering the Hub
+      // with greyed-out "All clear" cards trains the engineer to ignore real
+      // signal. Cancelled MRs remain inspectable on /site/material-requests.
+      .filter((m) => m.status !== "cancelled" && m.status !== "rejected")
+      .map((m) => mapStandardThread(m, poByRequest, deps));
     const spotThreads = sp.data.map(mapSpotThread);
 
     const sortedThreads = [...standardThreads, ...spotThreads].sort(

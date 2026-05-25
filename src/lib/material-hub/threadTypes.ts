@@ -99,6 +99,9 @@ export interface ThreadSettlement {
   expense_ref?: string | null;
   /** UUID of the material_purchase_expenses row (for future deep-link navigation). */
   expense_id?: string | null;
+  /** Payment mode used at settlement (upi / cash / bank_transfer / other).
+   *  Renders as a small chip next to the settled amount. */
+  payment_mode?: string | null;
   /** UPI / bank transfer payment proof attached at settlement time. */
   payment_screenshot_url?: string | null;
   /** Vendor bill scan attached to the expense (separate from PO.vendor_bill_url
