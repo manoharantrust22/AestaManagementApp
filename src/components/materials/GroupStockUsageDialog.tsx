@@ -35,6 +35,7 @@ import {
   type ConsolidatedGroupStockMaterial,
 } from "@/lib/utils/fifoAllocator";
 import { useRecordGroupStockUsageFIFO } from "@/hooks/queries/useBatchUsage";
+import QuantityWithPercentInput from "@/components/common/QuantityWithPercentInput";
 import type { GroupStockBatch } from "@/types/material.types";
 
 interface GroupStockUsageDialogProps {
@@ -56,7 +57,7 @@ export default function GroupStockUsageDialog({
   const [step, setStep] = useState<"form" | "preview">("form");
   const [selectedMaterial, setSelectedMaterial] =
     useState<ConsolidatedGroupStockMaterial | null>(null);
-  const [quantity, setQuantity] = useState<string>("");
+  const [quantity, setQuantity] = useState<number>(0);
   const [usageDate, setUsageDate] = useState<Dayjs | null>(dayjs());
   const [workDescription, setWorkDescription] = useState("");
   const [allocations, setAllocations] = useState<GroupStockBatchAllocation[]>([]);
@@ -83,7 +84,7 @@ export default function GroupStockUsageDialog({
   const handleReset = () => {
     setStep("form");
     setSelectedMaterial(null);
-    setQuantity("");
+    setQuantity(0);
     setUsageDate(dayjs());
     setWorkDescription("");
     setAllocations([]);
@@ -101,7 +102,7 @@ export default function GroupStockUsageDialog({
       setError("Please select a material");
       return;
     }
-    const qty = Number(quantity);
+    const qty = quantity;
     if (!qty || qty <= 0) {
       setError("Please enter a valid quantity");
       return;
@@ -179,7 +180,7 @@ export default function GroupStockUsageDialog({
               value={selectedMaterial}
               onChange={(_, val) => {
                 setSelectedMaterial(val);
-                setQuantity("");
+                setQuantity(0);
               }}
               getOptionLabel={(opt) =>
                 `${opt.material_name}${opt.brand_names.length > 0 ? ` (${opt.brand_names.join(", ")})` : ""}`
@@ -238,31 +239,12 @@ export default function GroupStockUsageDialog({
               </Paper>
             )}
 
-            {/* Quantity */}
-            <TextField
-              label="Quantity"
-              type="number"
+            {/* Quantity (with #/% toggle for fluid materials like sand, PPC) */}
+            <QuantityWithPercentInput
               value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              slotProps={{
-                input: {
-                  endAdornment: selectedMaterial ? (
-                    <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                      {selectedMaterial.unit}
-                    </Typography>
-                  ) : undefined,
-                },
-                htmlInput: {
-                  min: 1,
-                  max: selectedMaterial?.total_remaining ?? undefined,
-                  step: 1,
-                },
-              }}
-              helperText={
-                selectedMaterial
-                  ? `Max: ${selectedMaterial.total_remaining} ${selectedMaterial.unit}`
-                  : undefined
-              }
+              onChange={setQuantity}
+              unit={selectedMaterial?.unit ?? "units"}
+              remaining={selectedMaterial?.total_remaining ?? 0}
               disabled={!selectedMaterial}
             />
 
@@ -422,7 +404,7 @@ export default function GroupStockUsageDialog({
           <Button
             variant="contained"
             onClick={handlePreview}
-            disabled={!selectedMaterial || !quantity || Number(quantity) <= 0}
+            disabled={!selectedMaterial || quantity <= 0}
           >
             Preview Allocation
           </Button>

@@ -27,9 +27,10 @@ import {
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 import { useGroupMaterialPurchases } from "@/hooks/queries/useMaterialPurchases";
-import { useRecordBatchUsage, useBatchSettlementSummary } from "@/hooks/queries/useBatchUsage";
+import { useRecordBatchUsage, useBatchVariantSummary } from "@/hooks/queries/useBatchUsage";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatCurrency } from "@/lib/formatters";
+import QuantityWithPercentInput from "@/components/common/QuantityWithPercentInput";
 import type { MaterialPurchaseExpenseWithDetails } from "@/types/material.types";
 
 interface RecordBatchUsageDialogProps {
@@ -37,6 +38,27 @@ interface RecordBatchUsageDialogProps {
   onClose: () => void;
   siteId: string;
   preselectedBatchRefCode?: string;
+  preselectedMaterialId?: string;
+  preselectedBrandId?: string | null;
+}
+
+// Encoded "(batch, variant)" selection key — batch_ref_code::material_id::brand_id
+const VARIANT_KEY_SEP = "::";
+const NO_BRAND = "";
+
+function makeVariantKey(refCode: string, materialId: string, brandId: string | null | undefined) {
+  return [refCode, materialId, brandId ?? NO_BRAND].join(VARIANT_KEY_SEP);
+}
+
+function parseVariantKey(key: string): { refCode: string; materialId: string; brandId: string | null } | null {
+  if (!key) return null;
+  const parts = key.split(VARIANT_KEY_SEP);
+  if (parts.length !== 3) return null;
+  return {
+    refCode: parts[0],
+    materialId: parts[1],
+    brandId: parts[2] === NO_BRAND ? null : parts[2],
+  };
 }
 
 export default function RecordBatchUsageDialog({
@@ -44,6 +66,8 @@ export default function RecordBatchUsageDialog({
   onClose,
   siteId,
   preselectedBatchRefCode,
+  preselectedMaterialId,
+  preselectedBrandId,
 }: RecordBatchUsageDialogProps) {
   const isMobile = useIsMobile();
   const { user } = useAuth();
@@ -57,17 +81,14 @@ export default function RecordBatchUsageDialog({
   const recordUsage = useRecordBatchUsage();
 
   // Form state
-  const [selectedBatchRefCode, setSelectedBatchRefCode] = useState<string>("");
+  const [selectedKey, setSelectedKey] = useState<string>("");
   const [usageSiteId, setUsageSiteId] = useState<string>(siteId);
-  const [quantity, setQuantity] = useState<string>("");
+  const [quantity, setQuantity] = useState<number>(0);
   const [usageDate, setUsageDate] = useState<string>(
     new Date().toISOString().split("T")[0]
   );
   const [workDescription, setWorkDescription] = useState<string>("");
   const [error, setError] = useState<string>("");
-
-  // Get batch settlement summary for selected batch
-  const { data: batchSummary } = useBatchSettlementSummary(selectedBatchRefCode || undefined);
 
   // Filter out completed batches
   const activeBatches = useMemo(() => {
@@ -76,74 +97,148 @@ export default function RecordBatchUsageDialog({
     );
   }, [batches]);
 
-  // Get selected batch details
+  // Derive the selection (refCode, materialId, brandId) once from the key
+  const parsedSelection = useMemo(() => parseVariantKey(selectedKey), [selectedKey]);
+  const selectedRefCode = parsedSelection?.refCode ?? "";
+
+  // Get selected batch (whole MAT-xxx record, for paying site etc.)
   const selectedBatch = useMemo(() => {
-    return activeBatches.find((b) => b.ref_code === selectedBatchRefCode);
-  }, [activeBatches, selectedBatchRefCode]);
+    if (!selectedRefCode) return null;
+    return activeBatches.find((b) => b.ref_code === selectedRefCode);
+  }, [activeBatches, selectedRefCode]);
 
-  // Calculate unit cost and remaining quantity
+  // Per-variant breakdown (used/remaining scoped to the variant, not the whole batch)
+  const { data: variantSummary = [] } = useBatchVariantSummary(selectedRefCode || undefined);
+
+  // Selected variant row from the summary
+  const selectedVariant = useMemo(() => {
+    if (!parsedSelection || variantSummary.length === 0) return null;
+    return (
+      variantSummary.find(
+        (v) =>
+          v.material_id === parsedSelection.materialId &&
+          (v.brand_id ?? null) === (parsedSelection.brandId ?? null)
+      ) ?? null
+    );
+  }, [parsedSelection, variantSummary]);
+
+  // Build (batch × variant) options for the dropdown
+  const variantOptions = useMemo(() => {
+    const options: Array<{
+      key: string;
+      refCode: string;
+      materialId: string;
+      brandId: string | null;
+      materialName: string;
+      brandName: string | null;
+      unit: string;
+      unitCost: number;
+      originalQty: number;
+      remainingQty: number;
+      vendorName: string | null;
+      totalAmount: number;
+    }> = [];
+    for (const batch of activeBatches) {
+      for (const item of batch.items || []) {
+        const itemMaterialId = (item as any).material_id ?? item.material?.id;
+        const itemBrandId = (item as any).brand_id ?? item.brand?.id ?? null;
+        if (!itemMaterialId) continue;
+        // Try to pull live remaining from variantSummary when this is the selected batch
+        const liveVariant =
+          batch.ref_code === selectedRefCode
+            ? variantSummary.find(
+                (v) => v.material_id === itemMaterialId && (v.brand_id ?? null) === (itemBrandId ?? null)
+              )
+            : undefined;
+        const original = Number(item.quantity);
+        const remaining = liveVariant ? liveVariant.remaining_qty : original;
+        options.push({
+          key: makeVariantKey(batch.ref_code, itemMaterialId, itemBrandId),
+          refCode: batch.ref_code,
+          materialId: itemMaterialId,
+          brandId: itemBrandId,
+          materialName: item.material?.name || "Material",
+          brandName: item.brand?.brand_name ?? null,
+          unit: item.material?.unit || "nos",
+          unitCost: Number(item.unit_price) || 0,
+          originalQty: original,
+          remainingQty: remaining,
+          vendorName: batch.vendor_name ?? null,
+          totalAmount: Number(batch.total_amount) || 0,
+        });
+      }
+    }
+    return options;
+  }, [activeBatches, variantSummary, selectedRefCode]);
+
+  // Variant-scoped batchInfo for the info panel
   const batchInfo = useMemo(() => {
-    if (!selectedBatch) return null;
+    if (!selectedBatch || !parsedSelection) return null;
 
-    const items = selectedBatch.items || [];
-    const totalQty = items.reduce((sum, item) => sum + Number(item.quantity), 0);
-    const totalAmount = Number(selectedBatch.total_amount) || 0;
-    const unitCost = totalQty > 0 ? totalAmount / totalQty : 0;
-
-    // Use summary data if available, otherwise calculate from batch
-    const originalQty = batchSummary?.original_qty || selectedBatch.original_qty || totalQty;
-    const usedQty = batchSummary?.used_qty || selectedBatch.used_qty || 0;
-    const remainingQty = batchSummary?.remaining_qty || selectedBatch.remaining_qty || (originalQty - usedQty);
-
-    const material = items[0]?.material;
-    const brand = items[0]?.brand;
+    const matchingOption = variantOptions.find((o) => o.key === selectedKey);
+    const materialName = matchingOption?.materialName ?? "Material";
+    const brandName = matchingOption?.brandName ?? null;
+    const unit = matchingOption?.unit ?? "nos";
+    const unitCost = selectedVariant?.unit_cost ?? matchingOption?.unitCost ?? 0;
+    const originalQty = selectedVariant?.original_qty ?? matchingOption?.originalQty ?? 0;
+    const usedQty = selectedVariant?.used_qty ?? 0;
+    const remainingQty = selectedVariant?.remaining_qty ?? matchingOption?.remainingQty ?? originalQty;
 
     return {
-      materialName: material?.name || "Unknown Material",
-      brandName: brand?.brand_name,
-      unit: material?.unit || "nos",
+      materialName,
+      brandName,
+      unit,
       unitCost,
-      totalAmount,
+      totalAmount: Number(selectedBatch.total_amount) || 0,
       originalQty,
       usedQty,
       remainingQty,
       usagePercent: originalQty > 0 ? (usedQty / originalQty) * 100 : 0,
     };
-  }, [selectedBatch, batchSummary]);
+  }, [selectedBatch, parsedSelection, selectedKey, variantOptions, selectedVariant]);
 
-  // Set preselected batch on mount
+  // Set preselected (refCode, material, brand) on open
   useEffect(() => {
-    if (preselectedBatchRefCode && open) {
-      setSelectedBatchRefCode(preselectedBatchRefCode);
+    if (!open) return;
+    if (preselectedBatchRefCode && preselectedMaterialId) {
+      setSelectedKey(
+        makeVariantKey(preselectedBatchRefCode, preselectedMaterialId, preselectedBrandId ?? null)
+      );
+      return;
     }
-  }, [preselectedBatchRefCode, open]);
+    // Fall back: if only the batch was given (no variant), pick its first variant
+    if (preselectedBatchRefCode) {
+      const firstOption = variantOptions.find((o) => o.refCode === preselectedBatchRefCode);
+      if (firstOption) setSelectedKey(firstOption.key);
+    }
+  }, [open, preselectedBatchRefCode, preselectedMaterialId, preselectedBrandId, variantOptions]);
 
   // Reset form when dialog closes
   useEffect(() => {
     if (!open) {
-      setSelectedBatchRefCode(preselectedBatchRefCode || "");
+      setSelectedKey("");
       setUsageSiteId(siteId);
-      setQuantity("");
+      setQuantity(0);
       setUsageDate(new Date().toISOString().split("T")[0]);
       setWorkDescription("");
       setError("");
     }
-  }, [open, siteId, preselectedBatchRefCode]);
+  }, [open, siteId]);
 
   // Handle submit
   const handleSubmit = async () => {
     setError("");
 
     // Validation
-    if (!selectedBatchRefCode) {
-      setError("Please select a batch");
+    if (!parsedSelection) {
+      setError("Please select a batch and variant");
       return;
     }
     if (!usageSiteId) {
       setError("Please select which site used the material");
       return;
     }
-    if (!quantity || parseFloat(quantity) <= 0) {
+    if (!quantity || quantity <= 0) {
       setError("Please enter a valid quantity");
       return;
     }
@@ -152,9 +247,9 @@ export default function RecordBatchUsageDialog({
       return;
     }
 
-    const qty = parseFloat(quantity);
+    const qty = quantity;
 
-    // Check remaining quantity
+    // Check remaining quantity (variant-scoped)
     if (batchInfo && qty > batchInfo.remainingQty) {
       setError(
         `Insufficient quantity. Available: ${batchInfo.remainingQty} ${batchInfo.unit}`
@@ -164,8 +259,10 @@ export default function RecordBatchUsageDialog({
 
     try {
       await recordUsage.mutateAsync({
-        batch_ref_code: selectedBatchRefCode,
+        batch_ref_code: parsedSelection.refCode,
         usage_site_id: usageSiteId,
+        material_id: parsedSelection.materialId,
+        brand_id: parsedSelection.brandId,
         quantity: qty,
         usage_date: usageDate,
         work_description: workDescription || undefined,
@@ -187,7 +284,7 @@ export default function RecordBatchUsageDialog({
   // Calculate estimated cost
   const estimatedCost = useMemo(() => {
     if (!batchInfo || !quantity) return 0;
-    return parseFloat(quantity) * batchInfo.unitCost;
+    return quantity * batchInfo.unitCost;
   }, [batchInfo, quantity]);
 
   return (
@@ -222,36 +319,39 @@ export default function RecordBatchUsageDialog({
             </Grid>
           )}
 
-          {/* Batch Selection */}
+          {/* Batch + Variant Selection */}
           <Grid size={12}>
             <TextField
               select
               fullWidth
-              label="Select Batch"
-              value={selectedBatchRefCode}
-              onChange={(e) => setSelectedBatchRefCode(e.target.value)}
+              label="Select Batch · Variant"
+              value={selectedKey}
+              onChange={(e) => setSelectedKey(e.target.value)}
               required
-              disabled={!!preselectedBatchRefCode}
+              disabled={!!preselectedBatchRefCode && !!preselectedMaterialId}
+              helperText={
+                variantOptions.length > 0
+                  ? "Pick the specific size / variant. Quantity below is variant-scoped."
+                  : undefined
+              }
             >
-              {activeBatches.length === 0 ? (
+              {variantOptions.length === 0 ? (
                 <MenuItem disabled>No active batches available</MenuItem>
               ) : (
-                activeBatches.map((batch) => {
-                  const items = batch.items || [];
-                  const material = items[0]?.material;
-                  return (
-                    <MenuItem key={batch.ref_code} value={batch.ref_code}>
-                      <Box>
-                        <Typography variant="body2" fontWeight={500}>
-                          {batch.ref_code} - {material?.name || "Material"}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {formatCurrency(batch.total_amount)} | {batch.vendor_name || "Unknown Vendor"}
-                        </Typography>
-                      </Box>
-                    </MenuItem>
-                  );
-                })
+                variantOptions.map((opt) => (
+                  <MenuItem key={opt.key} value={opt.key}>
+                    <Box>
+                      <Typography variant="body2" fontWeight={500}>
+                        {opt.refCode} · {opt.materialName}
+                        {opt.brandName ? ` · ${opt.brandName}` : ""}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {opt.remainingQty} {opt.unit} remaining of {opt.originalQty}
+                        {opt.vendorName ? ` · ${opt.vendorName}` : ""}
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                ))
               )}
             </TextField>
           </Grid>
@@ -372,21 +472,14 @@ export default function RecordBatchUsageDialog({
             </Grid>
           )}
 
-          {/* Quantity */}
+          {/* Quantity (with #/% toggle for fluid materials like sand, PPC) */}
           <Grid size={{ xs: 12, sm: 6 }}>
-            <TextField
-              fullWidth
-              label={`Quantity (${batchInfo?.unit || "units"})`}
-              type="number"
+            <QuantityWithPercentInput
               value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
+              onChange={setQuantity}
+              unit={batchInfo?.unit || "units"}
+              remaining={batchInfo?.remainingQty ?? 0}
               required
-              inputProps={{ min: 0, step: "0.001" }}
-              helperText={
-                batchInfo
-                  ? `Max: ${batchInfo.remainingQty} ${batchInfo.unit}`
-                  : undefined
-              }
             />
           </Grid>
 
@@ -453,7 +546,7 @@ export default function RecordBatchUsageDialog({
         <Button
           variant="contained"
           onClick={handleSubmit}
-          disabled={recordUsage.isPending || !selectedBatchRefCode || !usageSiteId || !quantity}
+          disabled={recordUsage.isPending || !parsedSelection || !usageSiteId || quantity <= 0}
         >
           {recordUsage.isPending ? "Recording..." : "Record Usage"}
         </Button>

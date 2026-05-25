@@ -40,6 +40,7 @@ import type {
   MaterialUnit,
   UsageEntryFormData,
 } from "@/types/material.types";
+import QuantityWithPercentInput from "@/components/common/QuantityWithPercentInput";
 import dayjs from "dayjs";
 
 const UNIT_LABELS: Record<MaterialUnit, string> = {
@@ -410,32 +411,17 @@ export default function UsageEntryDrawer({
         {(selectedMaterial || isConsolidatedMode) && (
           <>
             <Grid container spacing={2}>
-              <Grid size={6}>
-                <TextField
-                  fullWidth
+              <Grid size={7}>
+                <QuantityWithPercentInput
+                  value={form.quantity}
+                  onChange={(qty) => setForm({ ...form, quantity: qty })}
+                  unit={UNIT_LABELS[unit] || unit}
+                  remaining={totalAvailable}
                   inputRef={quantityInputRef}
-                  label={`Quantity (${UNIT_LABELS[unit] || unit})`}
-                  type="number"
-                  value={form.quantity || ""}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      quantity: parseFloat(e.target.value) || 0,
-                    })
-                  }
-                  slotProps={{
-                    input: {
-                      inputProps: {
-                        min: 0,
-                        max: totalAvailable || 9999,
-                        step: 0.001,
-                      },
-                    },
-                  }}
                   required
                 />
               </Grid>
-              <Grid size={6}>
+              <Grid size={5}>
                 <Box
                   sx={{
                     p: 1.5,
