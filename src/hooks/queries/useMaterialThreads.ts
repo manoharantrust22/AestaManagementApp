@@ -447,15 +447,27 @@ function mapStandardThread(
   const settlement = po ? deps.settlementByPo.get(po.id) : undefined;
   const batchCode = settlement?.ref_code ?? null;
 
+  // Stock is keyed by the actually-purchased material (PO line), which can
+  // differ from the MR's original material when the engineer picks a more
+  // specific variant at PO time (e.g. MR "Jalli Gravel" → PO "Ondra 1.5 jalli").
+  // Prefer the PO's primary item so the inventory/usage lookup lands on the
+  // bucket that actually received the goods — otherwise invUsed/invRemaining
+  // come back zero and deriveStandardStage never trips the "exhausted" path,
+  // leaving fully-consumed threads stuck pulsing on IN USE.
+  const poPrimaryMaterialId = ((po as any)?.items?.[0]?.material_id ?? null) as
+    | string
+    | null;
+  const stockLookupMaterialId = poPrimaryMaterialId ?? primaryItem?.material_id;
+
   let invMatch: { stock: StockRow; used: number } | undefined;
-  if (primaryItem?.material_id) {
+  if (stockLookupMaterialId) {
     // Mirror threads (cluster-mate's group PO viewed from the consumer site)
     // do NOT have local inventory — the stock lives at the originating site.
     // Skip the lookup so we don't accidentally match this site's bucket.
     const candidates = isMirror
       ? []
       : deps.stockBySiteMaterial.get(
-          makeStockKey(mr.site_id, primaryItem.material_id)
+          makeStockKey(mr.site_id, stockLookupMaterialId)
         ) ?? [];
     if (batchCode) {
       invMatch = candidates.find((c) => c.stock.batch_code === batchCode);

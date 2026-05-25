@@ -9,6 +9,7 @@ import type {
   BatchUsageRecordWithDetails,
   BatchSettlementSummary,
   BatchSiteAllocation,
+  BatchVariantSummary,
   RecordBatchUsageFormData,
   InitiateBatchSettlementFormData,
   BatchSettlementResult,
@@ -219,6 +220,69 @@ export function useBatchSettlementSummary(batchRefCode: string | undefined) {
 }
 
 // ============================================
+// BATCH VARIANT SUMMARY (per-variant breakdown)
+// ============================================
+
+/**
+ * Per-(material, brand) original/used/remaining for a group-stock batch.
+ * Used by the variant-aware Log Usage dialog and the hub variant chips.
+ * Returns [] when batch is not group_stock or RPC isn't deployed yet.
+ */
+export function useBatchVariantSummary(batchRefCode: string | undefined) {
+  const supabase = createClient();
+
+  return useQuery({
+    queryKey: ["batch-variant-summary", batchRefCode || ""],
+    queryFn: async () => {
+      if (!batchRefCode) return [] as BatchVariantSummary[];
+
+      try {
+        const { data, error } = await (supabase as any).rpc("get_batch_variant_summary", {
+          p_batch_ref_code: batchRefCode,
+        });
+
+        if (error) {
+          if (isQueryError(error)) {
+            console.warn("Batch variant summary RPC unavailable:", error.message);
+            return [] as BatchVariantSummary[];
+          }
+          throw error;
+        }
+
+        return ((data || []) as Array<{
+          material_id: string;
+          brand_id: string | null;
+          material_name: string;
+          brand_name: string | null;
+          unit: string;
+          unit_cost: number | string;
+          original_qty: number | string;
+          used_qty: number | string;
+          remaining_qty: number | string;
+        }>).map((row) => ({
+          material_id: row.material_id,
+          brand_id: row.brand_id,
+          material_name: row.material_name,
+          brand_name: row.brand_name,
+          unit: row.unit,
+          unit_cost: Number(row.unit_cost),
+          original_qty: Number(row.original_qty),
+          used_qty: Number(row.used_qty),
+          remaining_qty: Number(row.remaining_qty),
+        })) as BatchVariantSummary[];
+      } catch (err) {
+        if (isQueryError(err)) {
+          console.warn("Batch variant summary query failed:", err);
+          return [] as BatchVariantSummary[];
+        }
+        throw err;
+      }
+    },
+    enabled: !!batchRefCode,
+  });
+}
+
+// ============================================
 // RECORD BATCH USAGE MUTATION
 // ============================================
 
@@ -232,10 +296,15 @@ export function useRecordBatchUsage() {
   return useMutation({
     retry: false, // Not idempotent - modifies stock and usage records
     mutationFn: async (data: RecordBatchUsageFormData & { created_by?: string }) => {
-      // Call the database function
+      if (!data.material_id) {
+        throw new Error("material_id is required to record batch usage (variant-aware)");
+      }
+      // Call the database function — variant-aware signature (2026-05-25)
       const { data: result, error } = await (supabase as any).rpc("record_batch_usage", {
         p_batch_ref_code: data.batch_ref_code,
         p_usage_site_id: data.usage_site_id,
+        p_material_id: data.material_id,
+        p_brand_id: data.brand_id ?? null,
         p_quantity: data.quantity,
         p_usage_date: data.usage_date,
         p_work_description: data.work_description || null,
@@ -260,6 +329,9 @@ export function useRecordBatchUsage() {
         queryKey: queryKeys.batchUsage.summary(variables.batch_ref_code),
       });
       queryClient.invalidateQueries({
+        queryKey: ["batch-variant-summary", variables.batch_ref_code],
+      });
+      queryClient.invalidateQueries({
         queryKey: queryKeys.materialPurchases.byRefCode(variables.batch_ref_code),
       });
       // Invalidate batches list
@@ -275,6 +347,10 @@ export function useRecordBatchUsage() {
       });
       queryClient.invalidateQueries({
         queryKey: ["expenses"],
+      });
+      // Hub threads consume per-variant data
+      queryClient.invalidateQueries({
+        queryKey: ["material-threads"],
       });
     },
   });

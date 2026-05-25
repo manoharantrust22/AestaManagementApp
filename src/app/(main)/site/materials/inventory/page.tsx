@@ -14,6 +14,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   Alert,
   Box,
+  Chip,
   CircularProgress,
   InputAdornment,
   Stack,
@@ -25,6 +26,7 @@ import {
 import SearchIcon from "@mui/icons-material/Search";
 import GridViewIcon from "@mui/icons-material/GridView";
 import ViewListIcon from "@mui/icons-material/ViewList";
+import FilterAltIcon from "@mui/icons-material/FilterAlt";
 import { useSelectedSite } from "@/contexts/SiteContext";
 import PageHeader from "@/components/layout/PageHeader";
 import {
@@ -140,10 +142,20 @@ export default function InventoryPage() {
   const siteId = selectedSite?.id;
   const siteGroupId = selectedSite?.site_group_id ?? null;
 
-  // `?focus=<term>` from Material Hub → pre-populate the search and force the
-  // "All" tab so the matching card surfaces regardless of own/group split.
+  // Material Hub → Inventory deep links use two query params:
+  //   ?focus=<term>          → human-readable handle (batch ref, expense
+  //                             ref_code). Pre-populates the visible search
+  //                             input so the user sees what we're filtering on.
+  //   ?focusMaterialId=<uuid>→ silent filter by material_id. Used when there's
+  //                             no good text handle (own-PO pooled threads).
+  //                             Doesn't touch the visible search input — a UUID
+  //                             in the search box would look like noise.
+  // Both force the "All" tab so the matching card surfaces regardless of
+  // own/group split.
   const searchParams = useSearchParams();
   const focusParam = searchParams?.get("focus") ?? "";
+  const focusMaterialId = searchParams?.get("focusMaterialId") ?? "";
+  const focusMaterialNameParam = searchParams?.get("focusMaterialName") ?? "";
   const [tab, setTab] = useState<Tab>("all");
   const [search, setSearch] = useState(focusParam);
   useEffect(() => {
@@ -152,6 +164,11 @@ export default function InventoryPage() {
       setTab("all");
     }
   }, [focusParam]);
+  useEffect(() => {
+    if (focusMaterialId) {
+      setTab("all");
+    }
+  }, [focusMaterialId]);
   const [layout, setLayout] = useState<"cards" | "table">("cards");
   // Per-batch is the new default — surfaces every purchase as its own card so
   // engineers can find specific brand variants (TNPL Cement, ARM Cement) that
@@ -165,6 +182,8 @@ export default function InventoryPage() {
   const [usageBatchRefCode, setUsageBatchRefCode] = useState<string | undefined>(
     undefined
   );
+  const [usageMaterialId, setUsageMaterialId] = useState<string | undefined>(undefined);
+  const [usageBrandId, setUsageBrandId] = useState<string | null | undefined>(undefined);
   const [usageDialogOpen, setUsageDialogOpen] = useState(false);
   const [ownUsageStockRow, setOwnUsageStockRow] =
     useState<ExtendedStockInventory | null>(null);
@@ -211,6 +230,9 @@ export default function InventoryPage() {
     let out = items;
     if (tab === "own") out = out.filter((i) => i.kind === "own");
     if (tab === "group") out = out.filter((i) => i.kind === "group");
+    if (focusMaterialId) {
+      out = out.filter((i) => i.material_id === focusMaterialId);
+    }
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       out = out.filter(
@@ -223,7 +245,7 @@ export default function InventoryPage() {
       );
     }
     return out;
-  }, [items, tab, search]);
+  }, [items, tab, search, focusMaterialId]);
 
   const counts = useMemo(
     () => ({
@@ -233,6 +255,21 @@ export default function InventoryPage() {
     }),
     [items]
   );
+
+  // Resolve the human-readable name for the focused material so the chip can
+  // say "Focused on: Chips Jalli" instead of leaking a UUID. The Hub passes the
+  // name explicitly via `focusMaterialName` because the inventory list may not
+  // contain a row for this material yet (delivery pending verification), in
+  // which case looking it up against `items` would also come up empty.
+  const focusedMaterialName = useMemo(() => {
+    if (!focusMaterialId) return null;
+    if (focusMaterialNameParam) return focusMaterialNameParam;
+    return items.find((i) => i.material_id === focusMaterialId)?.material_name ?? null;
+  }, [items, focusMaterialId, focusMaterialNameParam]);
+
+  const clearMaterialFocus = () => {
+    router.replace("/site/materials/inventory");
+  };
 
   const kpis = useMemo(() => {
     let ownValue = 0;
@@ -311,6 +348,22 @@ export default function InventoryPage() {
         lowStockCount={kpis.lowStock}
         totalBatches={kpis.total}
       />
+
+      {focusMaterialId && (
+        <Box sx={{ marginTop: "14px" }}>
+          <Chip
+            icon={<FilterAltIcon sx={{ fontSize: 14 }} />}
+            label={`Focused on: ${focusedMaterialName ?? "this material"}`}
+            onDelete={clearMaterialFocus}
+            sx={{
+              background: hubTokens.primarySoft,
+              color: hubTokens.primary,
+              fontWeight: 600,
+              "& .MuiChip-deleteIcon": { color: hubTokens.primary },
+            }}
+          />
+        </Box>
+      )}
 
       {/* Tabs + Search */}
       <Box
@@ -395,7 +448,11 @@ export default function InventoryPage() {
           }}
         >
           <Typography sx={{ fontSize: 13, color: hubTokens.muted }}>
-            {search ? `No matches for "${search}".` : "No batches in this view yet."}
+            {focusMaterialId
+              ? `No stock yet for ${focusedMaterialName ?? "this material"} at this site.`
+              : search
+                ? `No matches for "${search}".`
+                : "No batches in this view yet."}
           </Typography>
         </Box>
       ) : layout === "table" ? (
@@ -455,7 +512,12 @@ export default function InventoryPage() {
                   return;
                 }
                 // Group / batch-exact rows: existing batch usage flow.
+                // Pass the variant (material_id, brand_id) so the dialog
+                // scopes Used/Remaining to this row and writes the correct
+                // material on the RPC call (no more LIMIT 1 mis-attribution).
                 setUsageBatchRefCode(it.batch_code ?? undefined);
+                setUsageMaterialId(it.material_id ?? undefined);
+                setUsageBrandId(it.brand_id ?? null);
                 setUsageDialogOpen(true);
               }}
               onViewHistory={(it) => {
@@ -477,9 +539,15 @@ export default function InventoryPage() {
         <>
           <RecordBatchUsageDialog
             open={usageDialogOpen}
-            onClose={() => setUsageDialogOpen(false)}
+            onClose={() => {
+              setUsageDialogOpen(false);
+              setUsageMaterialId(undefined);
+              setUsageBrandId(undefined);
+            }}
             siteId={siteId}
             preselectedBatchRefCode={usageBatchRefCode}
+            preselectedMaterialId={usageMaterialId}
+            preselectedBrandId={usageBrandId}
           />
           <UsageEntryDrawer
             open={ownUsageOpen}

@@ -2216,9 +2216,24 @@ export interface BatchSettlementSummary {
 export interface RecordBatchUsageFormData {
   batch_ref_code: string;
   usage_site_id: string;
+  material_id: string;
+  brand_id?: string | null;
   quantity: number;
   usage_date: string;
   work_description?: string;
+}
+
+// Per-variant breakdown for a group batch (from get_batch_variant_summary RPC)
+export interface BatchVariantSummary {
+  material_id: string;
+  brand_id: string | null;
+  material_name: string;
+  brand_name: string | null;
+  unit: string;
+  unit_cost: number;
+  original_qty: number;
+  used_qty: number;
+  remaining_qty: number;
 }
 
 // Form data for initiating batch settlement

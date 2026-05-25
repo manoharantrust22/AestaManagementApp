@@ -117,6 +117,22 @@ export interface ThreadInventory {
 }
 
 /**
+ * Per-variant breakdown for multi-line POs (e.g. one PO covering TMT Rods
+ * 16mm + 12mm + 8mm). Used by the hub card title ("3 sizes" + chips) and by
+ * the expanded inventory block to surface variant-level used/remaining.
+ * Live used/remaining come from get_batch_variant_summary; requested_qty is
+ * from material_request_items so it works pre-PO too.
+ */
+export interface ThreadVariant {
+  material_id: string;
+  material_name: string;
+  unit: string;
+  brand_id?: string | null;
+  brand_name?: string | null;
+  requested_qty: number;
+}
+
+/**
  * Site-wide pool snapshot for own-site (shared-bucket) POs. Distinct from
  * per-batch `inventory` because the pool aggregates EVERY purchase of the same
  * material on this site, not just this PO. Lets the Hub render a completion
@@ -228,6 +244,7 @@ export interface MaterialThread {
   delivery?: ThreadDelivery;
   settlement?: ThreadSettlement;
   inventory?: ThreadInventory;
+  variants?: ThreadVariant[];
   /** Site-wide pool stats for own-site (shared-bucket) threads. Populated
    *  alongside the "Added to stock" fallback so the Hub can render a
    *  completion signal (e.g. "Pool exhausted") without faking per-PO numbers. */

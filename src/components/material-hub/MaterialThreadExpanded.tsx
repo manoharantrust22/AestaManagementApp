@@ -28,7 +28,12 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { inr } from "@/lib/material-hub/formatters";
 import { fmtDateShort } from "@/lib/material-hub/formatters";
+import { fmtQty } from "@/lib/formatters";
 import { M_STAGES, stageIndex } from "@/lib/material-hub/stageHelpers";
+import {
+  useBatchSettlementSummary,
+  useBatchVariantSummary,
+} from "@/hooks/queries/useBatchUsage";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 
 const DELIVERED_IDX = M_STAGES.indexOf("delivered");
@@ -184,16 +189,48 @@ function AttachmentIconLink({
 }
 
 /** Compact "View on inventory →" link rendered at the bottom of the
- *  Inventory block. Passes a `?focus=<term>` query param so the inventory
- *  page can auto-populate its search input and scroll the matching card
- *  into view. */
-function InventoryLink({ target }: { target: string | null | undefined }) {
-  if (!target) return null;
+ *  Inventory block.
+ *
+ *  Two routing modes:
+ *    - `search`     → `?focus=<term>` populates the inventory search box
+ *                     (visible to the user). Use this for human-readable refs
+ *                     like a batch/expense ref_code.
+ *    - `materialId` → `?focusMaterialId=<uuid>` silently filters to that
+ *                     material. Use this when there's no human-readable batch
+ *                     handle (own-PO pooled threads where stock merges into
+ *                     the material bucket) — a UUID in the visible search box
+ *                     would look like noise to the engineer.
+ *
+ *  `search` wins when both are provided. */
+function InventoryLink({
+  search,
+  materialId,
+  materialName,
+}: {
+  search?: string | null;
+  materialId?: string | null;
+  /** Display name carried alongside materialId so the inventory page can label
+   *  the "Focused on …" chip and empty state without needing to resolve the
+   *  UUID against fetched rows (a row may not exist yet if delivery hasn't
+   *  been verified). */
+  materialName?: string | null;
+}) {
+  let href: string | null = null;
+  if (search) {
+    href = `/site/materials/inventory?focus=${encodeURIComponent(search)}`;
+  } else if (materialId) {
+    const parts = [`focusMaterialId=${encodeURIComponent(materialId)}`];
+    if (materialName) {
+      parts.push(`focusMaterialName=${encodeURIComponent(materialName)}`);
+    }
+    href = `/site/materials/inventory?${parts.join("&")}`;
+  }
+  if (!href) return null;
   return (
     <Box sx={{ display: "flex", justifyContent: "flex-end", marginTop: "8px" }}>
       <Box
         component="a"
-        href={`/site/materials/inventory?focus=${encodeURIComponent(target)}`}
+        href={href}
         sx={{
           display: "inline-flex",
           alignItems: "center",
@@ -220,6 +257,15 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
   const t = thread;
   const isOwn = t.kind === "own";
   const isSpot = t.purchase_type === "spot";
+
+  // Group batch with a real ref code → fetch per-site + per-variant breakdown.
+  // The "—" sentinel from formatters means "no batch yet" — skip the RPC then.
+  const groupBatchRefCode =
+    !isOwn && t.inventory?.batch && t.inventory.batch !== "—"
+      ? t.inventory.batch
+      : undefined;
+  const { data: batchSummary } = useBatchSettlementSummary(groupBatchRefCode);
+  const { data: variantSummary = [] } = useBatchVariantSummary(groupBatchRefCode);
 
   // Block completion flags. Detailed records (t.delivery / t.settlement /
   // t.inventory) aren't always joined into the thread, so we fall back to
@@ -448,12 +494,12 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                 <>
                   <DetailRow
                     label="Received"
-                    value={`${Math.round(receivedQty)} of ${Math.round(orderedQty)} ${t.material_unit}`}
+                    value={`${fmtQty(receivedQty)} of ${fmtQty(orderedQty)} ${t.material_unit}`}
                     emphasis
                   />
                   <DetailRow
                     label="Pending"
-                    value={`${Math.max(0, Math.round(orderedQty - receivedQty))} ${t.material_unit}`}
+                    value={`${fmtQty(Math.max(0, orderedQty - receivedQty))} ${t.material_unit}`}
                     tone={orderedQty - receivedQty > 0 ? "warn" : "muted"}
                   />
                   {/* Progress bar */}
@@ -537,7 +583,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                           minWidth: 70,
                         }}
                       >
-                        {Math.round(b.accepted_qty || b.received_qty)} {t.material_unit}
+                        {fmtQty(b.accepted_qty || b.received_qty)} {t.material_unit}
                       </Box>
                       <Box
                         component="span"
@@ -835,12 +881,119 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               />
               <DetailRow label="Received" value={`${t.inventory.received} ${t.material_unit}`} />
               <DetailRow label="Used" value={`${t.inventory.used} ${t.material_unit}`} />
+              {/* Per-site usage chips for shared group batches.
+                  Only renders when the batch has been consumed across more than
+                  one site (or a single non-payer site) so the line stays quiet
+                  for pure self-use batches. */}
+              {batchSummary && batchSummary.site_allocations.length > 0 && (
+                <Box
+                  sx={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "4px",
+                    marginLeft: "12px",
+                    marginTop: "-2px",
+                    marginBottom: "6px",
+                  }}
+                >
+                  {batchSummary.site_allocations.map((a) => (
+                    <Box
+                      key={a.site_id}
+                      component="span"
+                      sx={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        padding: "1px 7px",
+                        borderRadius: "5px",
+                        background: a.is_payer ? hubTokens.successSoft : hubTokens.chip,
+                        color: a.is_payer ? hubTokens.success : hubTokens.muted,
+                        fontSize: 10.5,
+                        fontWeight: 600,
+                        lineHeight: "15px",
+                      }}
+                    >
+                      {a.site_name}: {Number(a.quantity_used)} {t.material_unit}
+                    </Box>
+                  ))}
+                </Box>
+              )}
               <DetailRow
                 label="Remaining"
                 value={`${t.inventory.remaining} ${t.material_unit}`}
                 emphasis
                 tone="success"
               />
+              {/* Per-variant breakdown for multi-line group batches.
+                  Renders a compact table beneath the totals so engineers can
+                  see used/remaining per size without leaving the row. */}
+              {variantSummary.length > 1 && (
+                <Box
+                  sx={{
+                    marginTop: "8px",
+                    paddingTop: "8px",
+                    borderTop: `1px dashed ${hubTokens.hairline}`,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "3px",
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      fontSize: 10,
+                      color: hubTokens.subtle,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.4px",
+                      fontWeight: 600,
+                    }}
+                  >
+                    By variant
+                  </Typography>
+                  {variantSummary.map((v) => (
+                    <Box
+                      key={`${v.material_id}::${v.brand_id ?? ""}`}
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        fontSize: 11.5,
+                      }}
+                    >
+                      <Box component="span" sx={{ color: hubTokens.text, fontWeight: 500 }}>
+                        {v.material_name}
+                        {v.brand_name ? (
+                          <Box
+                            component="span"
+                            sx={{
+                              color: hubTokens.subtle,
+                              fontWeight: 400,
+                              marginLeft: "4px",
+                            }}
+                          >
+                            · {v.brand_name}
+                          </Box>
+                        ) : null}
+                      </Box>
+                      <Box component="span" sx={{ color: hubTokens.muted, fontFamily: hubTokens.mono }}>
+                        <Box component="span" sx={{ color: hubTokens.text }}>
+                          {v.used_qty}
+                        </Box>
+                        {" used · "}
+                        <Box
+                          component="span"
+                          sx={{
+                            color: v.remaining_qty > 0 ? hubTokens.success : hubTokens.subtle,
+                            fontWeight: 600,
+                          }}
+                        >
+                          {v.remaining_qty}
+                        </Box>
+                        {` left · ${v.original_qty} ${v.unit}`}
+                      </Box>
+                    </Box>
+                  ))}
+                </Box>
+              )}
               <Box
                 sx={{
                   marginTop: "8px",
@@ -863,7 +1016,9 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                 />
               </Box>
               <InventoryLink
-                target={t.settlement?.expense_ref ?? t.inventory.batch}
+                search={t.settlement?.expense_ref ?? t.inventory.batch}
+                materialId={t.material_id}
+                materialName={t.material_name}
               />
             </>
           ) : receivedQty > 0 ? (
@@ -881,13 +1036,13 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               </Typography>
               <DetailRow
                 label="Added to stock"
-                value={`${Math.round(receivedQty)} ${t.material_unit}`}
+                value={`${fmtQty(receivedQty)} ${t.material_unit}`}
                 emphasis
               />
               {orderedQty > receivedQty && (
                 <DetailRow
                   label="Awaiting"
-                  value={`${Math.round(orderedQty - receivedQty)} ${t.material_unit}`}
+                  value={`${fmtQty(orderedQty - receivedQty)} ${t.material_unit}`}
                   tone="warn"
                 />
               )}
@@ -896,8 +1051,15 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                   used/remaining cannot be derived honestly — pool-level state
                   (exhaustion, totals) belongs on the Inventory page where it
                   is scoped to the material, not to one PO. */}
+              {/* Own-PO pool: the per-batch handle ("—") is meaningless and
+                  the variant-group display name often doesn't substring-match
+                  the inventory card names (e.g. "Chips Jalli / Thool Jalli"
+                  vs. individual variant rows). Use settlement ref if settled,
+                  else fall through to the silent material_id filter. */}
               <InventoryLink
-                target={t.settlement?.expense_ref ?? t.material_name}
+                search={t.settlement?.expense_ref}
+                materialId={t.material_id}
+                materialName={t.material_name}
               />
             </>
           ) : (
@@ -991,7 +1153,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                   <Box sx={{ fontFamily: hubTokens.mono }}>{u.site_id.slice(0, 8)}…</Box>
                   <Box sx={{ display: "flex", gap: "8px", alignItems: "center" }}>
                     <Box sx={{ color: hubTokens.muted }}>
-                      {u.used.toFixed(1)} {t.material_unit}
+                      {fmtQty(u.used)} {t.material_unit}
                     </Box>
                     <Box sx={{ fontFamily: hubTokens.mono, color: hubTokens.text, fontWeight: 600 }}>
                       {inr(u.value)}
