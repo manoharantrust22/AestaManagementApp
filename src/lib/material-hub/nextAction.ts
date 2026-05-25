@@ -16,6 +16,10 @@ export interface NextAction {
  * Mirrors `M.nextAction` in docs/MaterialHub_Redesign/proto-screens.jsx.
  */
 export function nextAction(t: MaterialThread): NextAction | null {
+  // Mirror threads (cluster-mate group POs surfaced read-only on the consumer
+  // site) — actions stay with the originating site. The Hub shows "Read-only".
+  if (t.is_mirror) return null;
+
   // Historical backfill: nothing to do. Records are entered in their terminal
   // state (already settled, already consumed); the Hub row shows "All clear".
   if (t.is_historical) return null;

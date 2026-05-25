@@ -192,6 +192,14 @@ export interface MaterialThread {
   floor: string | null;
   priority: ThreadPriority;
 
+  /** True when the current site is viewing a group thread that originated at a
+   *  cluster-mate site. Mirror threads are read-only here — actions stay on
+   *  the originator. The Hub renders a "Shared from <site>" chip + disabled
+   *  action button. */
+  is_mirror?: boolean;
+  mirrored_from_site_id?: string;
+  mirrored_from_site_name?: string;
+
   // Lifecycle
   stage: ThreadStage;
   kind: ThreadKind;

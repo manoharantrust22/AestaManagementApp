@@ -8,9 +8,10 @@
  * Mirrors the action-button block inside `ProtoThreadRow`.
  */
 
-import { Box } from "@mui/material";
+import { Box, Tooltip } from "@mui/material";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import CheckIcon from "@mui/icons-material/Check";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { nextAction } from "@/lib/material-hub/nextAction";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
@@ -30,6 +31,38 @@ export default function ThreadActionButton({
   onAction,
 }: ThreadActionButtonProps) {
   const next = nextAction(thread);
+
+  // Mirror threads (cluster-mate's group POs surfaced read-only on this site).
+  // We render a distinct "Read-only" pill instead of "All clear" so the
+  // engineer doesn't mistake the absence of an action for a completed thread.
+  if (thread.is_mirror) {
+    const sharedFrom = thread.mirrored_from_site_name
+      ? `Managed on ${thread.mirrored_from_site_name}`
+      : "Managed on the originating site";
+    return (
+      <Tooltip title={sharedFrom} arrow>
+        <Box
+          component="span"
+          sx={{
+            fontSize: 11.5,
+            color: hubTokens.muted,
+            fontWeight: 600,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "5px",
+            padding: "8px 12px",
+            background: hubTokens.chip,
+            borderRadius: "8px",
+            width: fullWidth ? "100%" : undefined,
+            justifyContent: fullWidth ? "center" : "flex-start",
+          }}
+        >
+          <VisibilityOutlinedIcon sx={{ fontSize: 13 }} />
+          Read-only
+        </Box>
+      </Tooltip>
+    );
+  }
 
   if (!next) {
     return (

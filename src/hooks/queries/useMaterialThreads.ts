@@ -15,7 +15,6 @@ import type {
   ThreadKind,
   ThreadDeliveryBatch,
   ThreadInventory,
-  ThreadPoolState,
 } from "@/lib/material-hub/threadTypes";
 
 // ----------------------------------------------------------------------------
@@ -50,6 +49,21 @@ function useSiteDeliveries(
     queryKey: ["deliveries", "for-site", siteId ?? null, siteGroupId ?? null],
     enabled: !!siteId,
     queryFn: async () => {
+      // For cluster-mate group threads to render their delivery batches on
+      // the consumer site, we need deliveries from ALL sites in the group.
+      // deliveries doesn't store site_group_id, so resolve sibling site IDs
+      // first then filter by site_id IN (this site, sibling sites).
+      let siteIds: string[] = siteId ? [siteId] : [];
+      if (siteGroupId) {
+        const { data: sites, error: sitesErr } = await (supabase as any)
+          .from("sites")
+          .select("id")
+          .eq("site_group_id", siteGroupId);
+        if (sitesErr) throw sitesErr;
+        const ids = ((sites ?? []) as Array<{ id: string }>).map((s) => s.id);
+        if (ids.length > 0) siteIds = ids;
+      }
+
       let query = (supabase as any)
         .from("deliveries")
         .select(
@@ -58,12 +72,9 @@ function useSiteDeliveries(
           verified, vehicle_number, notes, invoice_url, challan_url,
           items:delivery_items(material_id, received_qty, accepted_qty)
           `
-        );
-
-      // Sites can see their own deliveries + (if in group) cluster-mate deliveries.
-      // deliveries doesn't store site_group_id, so we go through site_id only.
-      query = query.eq("site_id", siteId);
-      query = query.order("delivery_date", { ascending: false });
+        )
+        .in("site_id", siteIds)
+        .order("delivery_date", { ascending: false });
 
       const { data, error } = await query;
       if (error) throw error;
@@ -238,6 +249,31 @@ export interface SettlementSnapshot {
   payment_mode: string | null;
 }
 
+// ----------------------------------------------------------------------------
+// Sites in this group (for "Shared from <site>" mirror-thread labels)
+// ----------------------------------------------------------------------------
+
+function useGroupSiteNames(siteGroupId: string | null | undefined) {
+  const supabase = createClient();
+  return useQuery({
+    queryKey: ["group-site-names", siteGroupId ?? null],
+    enabled: !!siteGroupId,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("sites")
+        .select("id, name")
+        .eq("site_group_id", siteGroupId);
+      if (error) throw error;
+      const map = new Map<string, string>();
+      for (const s of (data ?? []) as Array<{ id: string; name: string }>) {
+        map.set(s.id, s.name);
+      }
+      return map;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 function useSiteSettlements(
   siteId: string | undefined,
   siteGroupId: string | null | undefined
@@ -369,6 +405,11 @@ interface StandardThreadDeps {
    *  primary material's row. */
   stockBySiteBatch: Map<string, Array<{ stock: StockRow; used: number }>>;
   settlementByPo: Map<string, SettlementSnapshot>;
+  /** Site name lookup for "Shared from <site>" mirror chips. */
+  siteNameById: Map<string, string>;
+  /** The site currently being viewed — threads with mr.site_id ≠ this are
+   *  marked as mirror (read-only) on the consumer side. */
+  currentSiteId: string | undefined;
 }
 
 function makeStockKey(siteId: string, materialId: string) {
@@ -387,6 +428,15 @@ function mapStandardThread(
   const po = poByRequestId.get(mr.id);
   const primaryItem = mr.items?.[0];
 
+  // Mirror = cluster-mate's group thread surfaced read-only on this site. The
+  // current site is NOT the originator, so the lifecycle actions (Approve,
+  // Create PO, Record delivery, Settle) belong to the other site. We still
+  // render the thread so engineers can see what shared stock is coming in.
+  const isMirror = !!deps.currentSiteId && mr.site_id !== deps.currentSiteId;
+  const mirroredFromSiteName = isMirror
+    ? deps.siteNameById.get(mr.site_id) ?? null
+    : null;
+
   const totalQty = (mr.items ?? []).reduce(
     (sum, it) => sum + Number(it.requested_qty ?? 0),
     0
@@ -398,19 +448,15 @@ function mapStandardThread(
   const batchCode = settlement?.ref_code ?? null;
 
   let invMatch: { stock: StockRow; used: number } | undefined;
-  // Site-wide pool totals across ALL inventory rows for this (site, material).
-  // For own-site / shared-bucket threads we surface these as the "pool" — a
-  // single inventory row's tally is misleading because legacy "Restored from
-  // deleted usage record" adjustments routinely route extra used/received
-  // entries to specific rows that don't reflect real consumption of this PO.
-  let poolReceivedSiteWide = 0;
-  let poolUsedSiteWide = 0;
-  let poolRemainingSiteWide = 0;
   if (primaryItem?.material_id) {
-    const candidates =
-      deps.stockBySiteMaterial.get(
-        makeStockKey(mr.site_id, primaryItem.material_id)
-      ) ?? [];
+    // Mirror threads (cluster-mate's group PO viewed from the consumer site)
+    // do NOT have local inventory — the stock lives at the originating site.
+    // Skip the lookup so we don't accidentally match this site's bucket.
+    const candidates = isMirror
+      ? []
+      : deps.stockBySiteMaterial.get(
+          makeStockKey(mr.site_id, primaryItem.material_id)
+        ) ?? [];
     if (batchCode) {
       invMatch = candidates.find((c) => c.stock.batch_code === batchCode);
     }
@@ -420,13 +466,6 @@ function mapStandardThread(
       invMatch = candidates.find(
         (c) => !c.stock.batch_code || c.stock.batch_code === ""
       );
-    }
-    for (const c of candidates) {
-      const remaining = Math.max(0, Number(c.stock.current_qty));
-      const used = Math.max(0, c.used);
-      poolRemainingSiteWide += remaining;
-      poolUsedSiteWide += used;
-      poolReceivedSiteWide += remaining + used;
     }
   }
   const invUsed = invMatch ? Math.max(0, invMatch.used) : 0;
@@ -498,13 +537,16 @@ function mapStandardThread(
     };
   }
 
-  // Inventory snapshot — only meaningful when the stock_inventory row is
+  // Inventory snapshot — only populated when the stock_inventory row is
   // batch-scoped (group POs / historical batches). For the shared site bucket
-  // (own-site POs that merge into a single material pool) we surface the
-  // pool's state through `threadPool` instead, so the expanded view can show
-  // a completion signal ("Pool exhausted") without faking per-PO numbers.
+  // (own-site POs that merge into a single material pool) we deliberately
+  // leave `threadInventory` empty: per-PO used/remaining numbers for an
+  // own-site bucket are inherently fabricated, and the previous "site-wide
+  // pool" panel read as a contradiction next to "Added to stock: 10 bag"
+  // when the pool's running tally was hundreds. The "Added to stock" + link
+  // to Inventory is the truthful per-PO signal; pool-level state belongs on
+  // the Inventory page.
   let threadInventory: ThreadInventory | undefined;
-  let threadPool: ThreadPoolState | undefined;
   if (invMatch && invMatch.stock.batch_code) {
     // Multi-material bills: aggregate ALL stock_inventory rows tagged with
     // this batch_code on this site (e.g. one steel PO produces 3 inventory
@@ -523,19 +565,6 @@ function mapStandardThread(
       received: aggRemaining + aggUsed,
       used: aggUsed,
       remaining: aggRemaining,
-    };
-  } else if (invMatch || poolReceivedSiteWide > 0) {
-    // Shared bucket: surface SITE-WIDE pool totals (sum across every
-    // stock_inventory row for this site+material) rather than a single row's
-    // tally. Single-row numbers routinely fall out of internal balance
-    // because legacy "Restored from deleted usage" entries get appended to
-    // arbitrary inventory rows during usage edits — making "received 10 /
-    // used 30" appear on cards whose math is fine at the site level. The
-    // engineer's real question is "is this material gone on this site?" —
-    // which the aggregate answers correctly.
-    threadPool = {
-      used: poolUsedSiteWide,
-      remaining: poolRemainingSiteWide,
     };
   }
 
@@ -564,9 +593,22 @@ function mapStandardThread(
     approved_by: mr.approved_by ?? null,
     approved_at: mr.approved_at ?? null,
     rejected_reason: mr.rejection_reason ?? null,
+    is_mirror: isMirror || undefined,
+    mirrored_from_site_id: isMirror ? mr.site_id : undefined,
+    mirrored_from_site_name: mirroredFromSiteName ?? undefined,
     po: threadPO,
     inventory: threadInventory,
-    pool: threadPool,
+    variants:
+      (mr.items ?? []).length > 1
+        ? (mr.items ?? []).map((it: any) => ({
+            material_id: it.material_id,
+            material_name: it.material?.name ?? "—",
+            unit: it.material?.unit ?? "nos",
+            brand_id: it.brand_id ?? null,
+            brand_name: it.brand?.brand_name ?? null,
+            requested_qty: Number(it.requested_qty ?? 0),
+          }))
+        : undefined,
     settlement: settlement
       ? {
           status: settlement.is_paid ? "settled" : "pending",
@@ -727,6 +769,7 @@ export function useMaterialThreads(
   const deliveries = useSiteDeliveries(siteId, siteGroupId);
   const stock = useSiteStockInventory(siteId);
   const settlements = useSiteSettlements(siteId, siteGroupId);
+  const groupSiteNames = useGroupSiteNames(siteGroupId);
 
   const { threads, materialRequestById, purchaseOrderById, spotBatchById } = useMemo(() => {
     const mrMap = new Map<string, MaterialRequestWithDetails>();
@@ -795,6 +838,8 @@ export function useMaterialThreads(
       stockBySiteMaterial,
       stockBySiteBatch,
       settlementByPo,
+      siteNameById: groupSiteNames.data ?? new Map(),
+      currentSiteId: siteId,
     };
 
     const standardThreads = mr.data
@@ -817,7 +862,16 @@ export function useMaterialThreads(
       purchaseOrderById: poMap,
       spotBatchById: spMap,
     };
-  }, [mr.data, po.data, sp.data, deliveries.data, stock.data, settlements.data]);
+  }, [
+    mr.data,
+    po.data,
+    sp.data,
+    deliveries.data,
+    stock.data,
+    settlements.data,
+    groupSiteNames.data,
+    siteId,
+  ]);
 
   return {
     threads,

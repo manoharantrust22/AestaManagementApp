@@ -266,6 +266,31 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
         gap: "16px",
       }}
     >
+      {t.is_mirror && (
+        <Box
+          sx={{
+            gridColumn: { xs: "1", md: "1 / -1" },
+            background: hubTokens.chip,
+            border: `1px dashed ${hubTokens.border}`,
+            borderRadius: "8px",
+            padding: "8px 12px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            fontSize: 11.5,
+            color: hubTokens.muted,
+          }}
+        >
+          <Box component="span" sx={{ fontWeight: 700, color: hubTokens.text }}>
+            Shared from {t.mirrored_from_site_name ?? "another site"}
+          </Box>
+          <Box component="span">
+            · This thread is read-only here. Approvals, deliveries, and
+            settlement are managed on the originating site. Inventory · Stock
+            for this PO lives there too.
+          </Box>
+        </Box>
+      )}
       {/* 1. Request */}
       <Box>
         <BlockHeader title="Request" complete={hasRequest} />
@@ -866,104 +891,11 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                   tone="warn"
                 />
               )}
-              {t.pool && (t.pool.used > 0 || t.pool.remaining > 0) && (
-                <>
-                  <Box sx={{ marginTop: "8px" }}>
-                    <Typography
-                      sx={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        letterSpacing: "0.4px",
-                        color: hubTokens.muted,
-                        textTransform: "uppercase",
-                        marginTop: "4px",
-                        marginBottom: "2px",
-                      }}
-                    >
-                      Site-wide pool ({t.material_name})
-                    </Typography>
-                    <DetailRow
-                      label="Total used"
-                      value={`${Math.round(t.pool.used)} ${t.material_unit}`}
-                    />
-                    <DetailRow
-                      label="Total remaining"
-                      value={`${Math.round(t.pool.remaining)} ${t.material_unit}`}
-                      tone={t.pool.remaining <= 0 ? "muted" : "success"}
-                      emphasis
-                    />
-                  </Box>
-                  {/* Pool progress bar — visually mirrors batch-scoped bar so
-                      the engineer reads it the same way, but explicitly labeled
-                      as pool-wide rather than per-PO. */}
-                  <Box
-                    sx={{
-                      marginTop: "6px",
-                      height: 6,
-                      borderRadius: "3px",
-                      background: hubTokens.hairline,
-                      overflow: "hidden",
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        width: `${
-                          t.pool.used + t.pool.remaining > 0
-                            ? Math.min(
-                                100,
-                                (t.pool.used / (t.pool.used + t.pool.remaining)) * 100
-                              )
-                            : 0
-                        }%`,
-                        height: "100%",
-                        background:
-                          t.pool.remaining <= 0
-                            ? hubTokens.success
-                            : hubTokens.primary,
-                      }}
-                    />
-                  </Box>
-                  {/* Completion chip — at-a-glance state without forcing the
-                      engineer to do the (used / used+remaining) math. */}
-                  <Box
-                    sx={{
-                      marginTop: "6px",
-                      display: "flex",
-                      justifyContent: "flex-end",
-                    }}
-                  >
-                    <Box
-                      component="span"
-                      sx={{
-                        padding: "2px 8px",
-                        borderRadius: "10px",
-                        fontSize: 10,
-                        fontWeight: 800,
-                        letterSpacing: "0.4px",
-                        textTransform: "uppercase",
-                        background:
-                          t.pool.remaining <= 0
-                            ? hubTokens.successSoft
-                            : t.pool.used > 0
-                              ? hubTokens.warnSoft
-                              : hubTokens.chip,
-                        color:
-                          t.pool.remaining <= 0
-                            ? hubTokens.success
-                            : t.pool.used > 0
-                              ? hubTokens.warn
-                              : hubTokens.muted,
-                      }}
-                    >
-                      {t.pool.remaining <= 0
-                        ? "✓ Pool exhausted"
-                        : t.pool.used > 0
-                          ? "Pool in use"
-                          : "Pool untouched"}
-                    </Box>
-                  </Box>
-                </>
-              )}
+              {/* NOTE: site-wide pool stats intentionally NOT rendered here.
+                  Own-site POs merge into a shared bucket where per-PO
+                  used/remaining cannot be derived honestly — pool-level state
+                  (exhaustion, totals) belongs on the Inventory page where it
+                  is scoped to the material, not to one PO. */}
               <InventoryLink
                 target={t.settlement?.expense_ref ?? t.material_name}
               />

@@ -43,7 +43,9 @@ export default function MaterialThreadRow({
   const isAdvance = thread.advance;
   const isSpot = thread.purchase_type === "spot";
   const accent = isGroup ? hubTokens.pink : hubTokens.primary;
-  const bandOpacity = isGroup ? 1 : 0.35;
+  // Mirror threads (cluster-mate's group POs surfaced on this site) get a
+  // dimmed band so the visual hierarchy makes ownership obvious at a glance.
+  const bandOpacity = thread.is_mirror ? 0.22 : isGroup ? 1 : 0.35;
   const idx = stageIndex(thread.stage);
 
   const handleAction = (t: MaterialThread) => {
@@ -130,6 +132,11 @@ export default function MaterialThreadRow({
             {isGroup && (
               <ThreadChip tone="pink">
                 <Dot color={hubTokens.pink} /> Group · cluster
+              </ThreadChip>
+            )}
+            {thread.is_mirror && (
+              <ThreadChip tone="neutral">
+                Shared from {thread.mirrored_from_site_name ?? "other site"}
               </ThreadChip>
             )}
             {isAdvance && (
