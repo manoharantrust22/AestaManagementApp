@@ -346,11 +346,21 @@ interface StandardThreadDeps {
    *  material has per-batch separation (group stock). The mapper picks the row
    *  matching the thread's expense ref_code; falls back to the unnamed bucket. */
   stockBySiteMaterial: Map<string, Array<{ stock: StockRow; used: number }>>;
+  /** All inventory rows for a (site, batch_code) pair, regardless of material.
+   *  Used to aggregate multi-material bills (e.g. one steel PO with 16mm + 8mm
+   *  + 12mm rods, all tagged with the same batch_code) so the Hub Inventory
+   *  block reports the bill's full received/used/remaining instead of just the
+   *  primary material's row. */
+  stockBySiteBatch: Map<string, Array<{ stock: StockRow; used: number }>>;
   settlementByPo: Map<string, SettlementSnapshot>;
 }
 
 function makeStockKey(siteId: string, materialId: string) {
   return `${siteId}::${materialId}`;
+}
+
+function makeBatchKey(siteId: string, batchCode: string) {
+  return `${siteId}::batch::${batchCode}`;
 }
 
 function mapStandardThread(
@@ -372,6 +382,14 @@ function mapStandardThread(
   const batchCode = settlement?.ref_code ?? null;
 
   let invMatch: { stock: StockRow; used: number } | undefined;
+  // Site-wide pool totals across ALL inventory rows for this (site, material).
+  // For own-site / shared-bucket threads we surface these as the "pool" — a
+  // single inventory row's tally is misleading because legacy "Restored from
+  // deleted usage record" adjustments routinely route extra used/received
+  // entries to specific rows that don't reflect real consumption of this PO.
+  let poolReceivedSiteWide = 0;
+  let poolUsedSiteWide = 0;
+  let poolRemainingSiteWide = 0;
   if (primaryItem?.material_id) {
     const candidates =
       deps.stockBySiteMaterial.get(
@@ -386,6 +404,13 @@ function mapStandardThread(
       invMatch = candidates.find(
         (c) => !c.stock.batch_code || c.stock.batch_code === ""
       );
+    }
+    for (const c of candidates) {
+      const remaining = Math.max(0, Number(c.stock.current_qty));
+      const used = Math.max(0, c.used);
+      poolRemainingSiteWide += remaining;
+      poolUsedSiteWide += used;
+      poolReceivedSiteWide += remaining + used;
     }
   }
   const invUsed = invMatch ? Math.max(0, invMatch.used) : 0;
@@ -465,20 +490,36 @@ function mapStandardThread(
   let threadInventory: ThreadInventory | undefined;
   let threadPool: ThreadPoolState | undefined;
   if (invMatch && invMatch.stock.batch_code) {
-    const remaining = Math.max(0, Number(invMatch.stock.current_qty));
-    const used = Math.max(0, invMatch.used);
+    // Multi-material bills: aggregate ALL stock_inventory rows tagged with
+    // this batch_code on this site (e.g. one steel PO produces 3 inventory
+    // rows for 8mm/12mm/16mm, all sharing the same batch_code MAT-…). Sum
+    // them so the Hub reports the whole bill, not just the primary item.
+    const batchKey = makeBatchKey(mr.site_id, invMatch.stock.batch_code);
+    const sharedBatch = deps.stockBySiteBatch.get(batchKey) ?? [invMatch];
+    let aggRemaining = 0;
+    let aggUsed = 0;
+    for (const c of sharedBatch) {
+      aggRemaining += Math.max(0, Number(c.stock.current_qty));
+      aggUsed += Math.max(0, c.used);
+    }
     threadInventory = {
       batch: invMatch.stock.batch_code,
-      received: remaining + used,
-      used,
-      remaining,
+      received: aggRemaining + aggUsed,
+      used: aggUsed,
+      remaining: aggRemaining,
     };
-  } else if (invMatch) {
-    // Shared bucket: capture pool-wide used / remaining so the UI can show
-    // "Pool exhausted" or "5 bag left in pool" without claiming per-PO truth.
+  } else if (invMatch || poolReceivedSiteWide > 0) {
+    // Shared bucket: surface SITE-WIDE pool totals (sum across every
+    // stock_inventory row for this site+material) rather than a single row's
+    // tally. Single-row numbers routinely fall out of internal balance
+    // because legacy "Restored from deleted usage" entries get appended to
+    // arbitrary inventory rows during usage edits — making "received 10 /
+    // used 30" appear on cards whose math is fine at the site level. The
+    // engineer's real question is "is this material gone on this site?" —
+    // which the aggregate answers correctly.
     threadPool = {
-      used: Math.max(0, invMatch.used),
-      remaining: Math.max(0, Number(invMatch.stock.current_qty)),
+      used: poolUsedSiteWide,
+      remaining: poolRemainingSiteWide,
     };
   }
 
@@ -705,11 +746,22 @@ export function useMaterialThreads(
       string,
       Array<{ stock: StockRow; used: number }>
     >();
+    const stockBySiteBatch = new Map<
+      string,
+      Array<{ stock: StockRow; used: number }>
+    >();
     for (const s of stock.data?.stockRows ?? []) {
-      const key = makeStockKey(s.site_id, s.material_id);
-      const list = stockBySiteMaterial.get(key) ?? [];
-      list.push({ stock: s, used: stock.data?.usageMap.get(s.id) ?? 0 });
-      stockBySiteMaterial.set(key, list);
+      const entry = { stock: s, used: stock.data?.usageMap.get(s.id) ?? 0 };
+      const matKey = makeStockKey(s.site_id, s.material_id);
+      const matList = stockBySiteMaterial.get(matKey) ?? [];
+      matList.push(entry);
+      stockBySiteMaterial.set(matKey, matList);
+      if (s.batch_code) {
+        const batchKey = makeBatchKey(s.site_id, s.batch_code);
+        const batchList = stockBySiteBatch.get(batchKey) ?? [];
+        batchList.push(entry);
+        stockBySiteBatch.set(batchKey, batchList);
+      }
     }
     // Index settlements by purchase_order_id (one row per PO in normal flow).
     const settlementByPo = new Map<string, SettlementSnapshot>();
@@ -724,6 +776,7 @@ export function useMaterialThreads(
     const deps: StandardThreadDeps = {
       deliveriesByPo,
       stockBySiteMaterial,
+      stockBySiteBatch,
       settlementByPo,
     };
 

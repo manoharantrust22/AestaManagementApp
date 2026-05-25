@@ -793,12 +793,25 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               {t.pool && (t.pool.used > 0 || t.pool.remaining > 0) && (
                 <>
                   <Box sx={{ marginTop: "8px" }}>
+                    <Typography
+                      sx={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: "0.4px",
+                        color: hubTokens.muted,
+                        textTransform: "uppercase",
+                        marginTop: "4px",
+                        marginBottom: "2px",
+                      }}
+                    >
+                      Site-wide pool ({t.material_name})
+                    </Typography>
                     <DetailRow
-                      label="Pool used"
+                      label="Total used"
                       value={`${Math.round(t.pool.used)} ${t.material_unit}`}
                     />
                     <DetailRow
-                      label="Pool remaining"
+                      label="Total remaining"
                       value={`${Math.round(t.pool.remaining)} ${t.material_unit}`}
                       tone={t.pool.remaining <= 0 ? "muted" : "success"}
                       emphasis
