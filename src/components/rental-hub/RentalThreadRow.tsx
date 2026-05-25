@@ -26,6 +26,7 @@ import { dueLabel, elapsedLabel, overdueLabel } from "@/lib/rental-hub/formatter
 import RentalThreadPipeline from "./RentalThreadPipeline";
 import RentalMoneyBlock from "./RentalMoneyBlock";
 import RentalThreadActionButton from "./RentalThreadActionButton";
+import RentalThreadExpanded from "./RentalThreadExpanded";
 import type { RentalThread } from "@/lib/rental-hub/threadTypes";
 
 const BAND_COLORS = {
@@ -227,6 +228,9 @@ export default function RentalThreadRow({
           <RentalThreadActionButton thread={thread} fullWidth onAction={handleAction} />
         </Box>
       )}
+
+      {/* Inline expanded thread (desktop only — mobile uses tap-through) */}
+      {selected && !isMobile && <RentalThreadExpanded thread={thread} />}
     </Box>
   );
 }

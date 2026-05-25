@@ -33,9 +33,18 @@ interface StageDotProps {
   accent: string;
   softAccent: string;
   muted?: boolean;
+  /** Terminal completion (settled): green ring + green dot + check. */
+  completedSuccess?: boolean;
 }
 
-function StageDot({ done, current, accent, softAccent, muted }: StageDotProps) {
+function StageDot({
+  done,
+  current,
+  accent,
+  softAccent,
+  muted,
+  completedSuccess,
+}: StageDotProps) {
   if (muted) {
     return (
       <Box
@@ -56,16 +65,29 @@ function StageDot({ done, current, accent, softAccent, muted }: StageDotProps) {
         width: 14,
         height: 14,
         borderRadius: "50%",
-        background: done ? (current ? accent : hubTokens.text) : "#fff",
-        border: done ? "none" : `2px solid ${hubTokens.border}`,
+        background: completedSuccess
+          ? hubTokens.success
+          : done
+            ? current
+              ? accent
+              : hubTokens.text
+            : "#fff",
+        border:
+          completedSuccess || done ? "none" : `2px solid ${hubTokens.border}`,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        boxShadow: current ? `0 0 0 4px ${softAccent}` : "none",
+        boxShadow: completedSuccess
+          ? `0 0 0 4px ${hubTokens.successSoft}`
+          : current
+            ? `0 0 0 4px ${softAccent}`
+            : "none",
         flexShrink: 0,
       }}
     >
-      {done && current ? (
+      {completedSuccess ? (
+        <CheckIcon sx={{ fontSize: 9, color: "#fff", strokeWidth: 3 }} />
+      ) : done && current ? (
         <Box
           sx={{
             width: 5,
@@ -88,22 +110,32 @@ interface StageLabelProps {
   current: boolean;
   accent: string;
   muted?: boolean;
+  completedSuccess?: boolean;
 }
 
-function StageLabel({ text, done, current, accent, muted }: StageLabelProps) {
+function StageLabel({
+  text,
+  done,
+  current,
+  accent,
+  muted,
+  completedSuccess,
+}: StageLabelProps) {
   return (
     <Box
       component="span"
       sx={{
         fontSize: 9,
-        fontWeight: current ? 700 : 600,
-        color: muted
-          ? hubTokens.subtle
-          : done
-            ? current
-              ? accent
-              : hubTokens.muted
-            : hubTokens.subtle,
+        fontWeight: current || completedSuccess ? 700 : 600,
+        color: completedSuccess
+          ? hubTokens.success
+          : muted
+            ? hubTokens.subtle
+            : done
+              ? current
+                ? accent
+                : hubTokens.muted
+              : hubTokens.subtle,
         letterSpacing: "0.2px",
         textTransform: "uppercase",
         whiteSpace: "nowrap",
@@ -134,10 +166,17 @@ export default function RentalThreadPipeline({ thread }: RentalThreadPipelinePro
       {VISIBLE_STAGES.map((s, i) => {
         const done = !cancelled && idx >= 0 && i <= idx;
         const current = !cancelled && s.key === stage;
+        // SETTLED is a terminal completion — flip to green DONE (mirrors
+        // Materials Hub's exhausted-→-DONE pattern). Suppresses the pulsing
+        // current indicator since there is no "next" step.
+        const completedSuccess =
+          !cancelled && s.key === "settled" && stage === "settled";
+        const labelText = completedSuccess ? "DONE" : s.label;
+        const dotCurrent = completedSuccess ? false : current;
         const isLast = i === VISIBLE_STAGES.length - 1;
         const nextDone = !isLast && !cancelled && idx >= 0 && i + 1 <= idx;
         // Just-passed line flips to danger when overdue (spec line 197)
-        const lineIsJustPassed = current;
+        const lineIsJustPassed = current && !completedSuccess;
         return (
           <Box key={s.key} sx={{ display: "contents" }}>
             <Box
@@ -151,17 +190,19 @@ export default function RentalThreadPipeline({ thread }: RentalThreadPipelinePro
             >
               <StageDot
                 done={done}
-                current={current}
+                current={dotCurrent}
                 accent={accent}
                 softAccent={softAccent}
                 muted={cancelled}
+                completedSuccess={completedSuccess}
               />
               <StageLabel
-                text={s.label}
+                text={labelText}
                 done={done}
-                current={current}
+                current={dotCurrent}
                 accent={accent}
                 muted={cancelled}
+                completedSuccess={completedSuccess}
               />
             </Box>
             {!isLast && (
