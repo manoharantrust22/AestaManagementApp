@@ -537,12 +537,14 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                           />
                         </Box>
                       )}
-                      {b.verified || inUseOrBeyond ? (
-                        // Once the material is in-use / exhausted, the
-                        // GRN's verification flag is moot — the engineer
-                        // is consuming the stock, which is itself proof
-                        // it arrived. Treat consumption as implicit
-                        // verification rather than nagging "PENDING".
+                      {b.verified || settledOrBeyond ? (
+                        // Once the vendor has been paid (or the material
+                        // is in-use / exhausted), the GRN's verification
+                        // flag is moot — paying for the delivery is itself
+                        // acceptance. Verification "PENDING" only makes
+                        // sense in the window between delivery and
+                        // settlement, where the engineer's next action is
+                        // actually to verify before settling.
                         <Box
                           component="span"
                           sx={{
