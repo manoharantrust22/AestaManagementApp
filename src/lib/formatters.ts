@@ -202,6 +202,19 @@ export function formatQuantity(
 }
 
 /**
+ * Format a material/stock quantity with up to 3 decimal places, trailing
+ * zeros stripped. Matches DB precision (numeric(12,3)).
+ *   0.5  → "0.5"
+ *   1    → "1"
+ *   1.25 → "1.25"
+ *   0    → "0"
+ */
+export function fmtQty(n: number | null | undefined): string {
+  if (n == null || Number.isNaN(n)) return "0";
+  return (Math.round(n * 1000) / 1000).toString();
+}
+
+/**
  * Clean phone number to digits only (for WhatsApp URL)
  */
 export function cleanPhoneNumber(phone: string | null | undefined): string {

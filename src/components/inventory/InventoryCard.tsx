@@ -13,6 +13,7 @@
 import { Box, Button, Typography } from "@mui/material";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { inr } from "@/lib/material-hub/formatters";
+import { fmtQty } from "@/lib/formatters";
 import MaterialAvatar from "./MaterialAvatar";
 
 export interface InventoryItemView {
@@ -236,7 +237,7 @@ export default function InventoryCard({
               </Box>
               {" · "}
               <Box component="span" sx={{ color: hubTokens.subtle }}>
-                {item.received_qty.toFixed(0)} received
+                {fmtQty(item.received_qty)} received
               </Box>
             </Typography>
           </Box>

@@ -11,6 +11,7 @@
 import { Box } from "@mui/material";
 import CheckIcon from "@mui/icons-material/Check";
 import { hubTokens } from "@/lib/material-hub/tokens";
+import { fmtQty } from "@/lib/formatters";
 import { M_STAGES, VISIBLE_STAGES, stageIndex } from "@/lib/material-hub/stageHelpers";
 import type { MaterialThread, ThreadStage } from "@/lib/material-hub/threadTypes";
 
@@ -277,7 +278,7 @@ export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelin
                   // showing "0/20" there misrepresents the per-thread state.
                   text={
                     inv && inv.received > 0 && inv.batch !== "—"
-                      ? `STOCK ${Math.round(inv.remaining)}/${Math.round(inv.received)}`
+                      ? `STOCK ${fmtQty(inv.remaining)}/${fmtQty(inv.received)}`
                       : "STOCK"
                   }
                   done={inventoryDone}
@@ -319,7 +320,7 @@ export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelin
         // DELIVER: show partial-progress arc + fraction label
         if (stageKey === "delivered" && po && receivedQty > 0 && !deliverFullyDone) {
           progress = deliverFraction;
-          labelText = `${s.label} ${Math.round(receivedQty)}/${Math.round(orderedQty)}`;
+          labelText = `${s.label} ${fmtQty(receivedQty)}/${fmtQty(orderedQty)}`;
           // Keep the pulse on DELIVER while partial (the engineer's next action
           // is to record the next batch, not to advance to SETTLE).
           current = true;
