@@ -333,7 +333,22 @@ function deriveStandardStage(
   return base;
 }
 
-function deriveKind(mr: MaterialRequestWithDetails): ThreadKind {
+function deriveKind(
+  mr: MaterialRequestWithDetails,
+  po: PurchaseOrderWithDetails | undefined
+): ThreadKind {
+  // The PO is the source of truth for group vs own — v1 /site/purchase-orders
+  // parses `notes` for "[GROUP STOCK]" and shows the chip from that. We mirror
+  // that here AND fall back to `po.site_group_id` being set. `mr.purchase_type`
+  // is unreliable: many MRs were created as own_site but converted to group
+  // stock at PO creation time, leaving the MR's flag stale.
+  if (po) {
+    const notes = ((po as any).notes ?? "") as string;
+    const hasGroupMarker = notes.includes("[GROUP STOCK]") || notes.includes("[GROUP_STOCK]");
+    const hasGroupId = !!(po as any).site_group_id;
+    if (hasGroupMarker || hasGroupId) return "group";
+    return "own";
+  }
   return mr.purchase_type === "group_stock" ? "group" : "own";
 }
 
@@ -534,7 +549,7 @@ function mapStandardThread(
     floor: null,
     priority: mr.priority,
     stage,
-    kind: deriveKind(mr),
+    kind: deriveKind(mr, po),
     advance: po?.payment_timing === "advance",
     material_id: primaryItem?.material_id ?? "",
     material_name: (primaryItem as any)?.material?.name ?? "—",
