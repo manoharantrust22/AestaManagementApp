@@ -301,6 +301,31 @@ function SettlementSlotCard({
               <Box component="span">{fmtDateShort(s.settledAt)}</Box>
             </Box>
           )}
+          {s.reference && (
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "baseline",
+                fontSize: 10.5,
+                color: hubTokens.muted,
+              }}
+            >
+              <Box component="span">Expense</Box>
+              <Box
+                component="a"
+                href={`/site/expenses?q=${encodeURIComponent(s.reference)}`}
+                sx={{
+                  fontFamily: hubTokens.mono,
+                  color: hubTokens.primary,
+                  textDecoration: "none",
+                  "&:hover": { textDecoration: "underline" },
+                }}
+              >
+                {s.reference}
+              </Box>
+            </Box>
+          )}
           {(s.vendorBillUrl || s.finalReceiptUrl || s.upiScreenshotUrl) && (
             <Box sx={{ display: "flex", gap: "4px", marginTop: "4px" }}>
               <AttachmentIconLink
@@ -355,6 +380,17 @@ export default function RentalThreadExpanded({ thread }: RentalThreadExpandedPro
   const savings = vendorSavings(t);
   const balance = Math.max(0, t.accruedCost - t.totalAdvancePaid);
 
+  // order_date stamped after start_date means data-entry day was recorded,
+  // not the real transaction date. Display the start date instead so the
+  // row doesn't appear to be "ordered in the future".
+  const orderDateClampedFromFuture =
+    !!t.expectedStart &&
+    !!t.orderDate &&
+    new Date(t.orderDate).getTime() > new Date(t.expectedStart).getTime();
+  const displayOrderDate = orderDateClampedFromFuture
+    ? t.expectedStart
+    : t.orderDate;
+
   const transportInPending =
     t.requiresTransportInSettlement && !t.settlements.transportIn;
   const transportOutPending =
@@ -395,7 +431,27 @@ export default function RentalThreadExpanded({ thread }: RentalThreadExpandedPro
           {t.vendor?.shop_name && (
             <DetailRow label="Shop" value={t.vendor.shop_name} tone="muted" />
           )}
-          <DetailRow label="Order date" value={fmtDateShort(t.orderDate)} />
+          {/* Clamp order_date to start_date when it's stamped in the future —
+              historical/backfill rentals get the data-entry day in order_date,
+              which can land after the real start. Show the older of the two so
+              the row reads as "ordered on or before it started". */}
+          <DetailRow
+            label="Order date"
+            value={fmtDateShort(displayOrderDate)}
+          />
+          {orderDateClampedFromFuture && (
+            <Typography
+              sx={{
+                fontSize: 10,
+                color: hubTokens.subtle,
+                fontStyle: "italic",
+                textAlign: "right",
+                marginTop: "-2px",
+              }}
+            >
+              Captured {fmtDateShort(t.orderDate)} · using start date for display
+            </Typography>
+          )}
           <DetailRow
             label="Start"
             value={

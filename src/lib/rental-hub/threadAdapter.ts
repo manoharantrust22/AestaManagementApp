@@ -166,6 +166,60 @@ function requiresTransportSettlement(t: RentalThreadTransport): boolean {
   return t.cost > 0 && t.by !== null && t.by !== "vendor";
 }
 
+/**
+ * Compute the billable rental cost using original ordered quantity (NOT
+ * quantity_outstanding). The upstream useRentalOrders hook taper-down formula
+ * is correct for active partial-return tracking, but it returns 0 for any
+ * fully-returned order (since outstanding = 0). For completed/settled
+ * orders the hub instead needs the total cost actually consumed by the rental.
+ *
+ *   hourly items:  qty × daily_rate_actual × hours_used
+ *   daily items:   qty × daily_rate_actual × max(1, billable_days)
+ *
+ * billable_days for a daily item:
+ *   end   = actual_return_date OR expected_return_date OR now
+ *   start = item_start_date OR order.start_date
+ *   raw   = ceil((end - start) / day)
+ *   if exclude_start_date: raw = raw - 1
+ *   billable = max(1, raw)   (a same-day rental still bills 1 day)
+ */
+function computeBillableCost(o: RentalOrderWithDetails): number {
+  const items = o.items ?? [];
+  if (items.length === 0) return 0;
+  const endRef = o.actual_return_date
+    ? new Date(o.actual_return_date)
+    : o.expected_return_date
+      ? new Date(o.expected_return_date)
+      : new Date();
+  const orderStartRef = o.start_date ? new Date(o.start_date) : null;
+  const dayMs = 1000 * 60 * 60 * 24;
+
+  let total = 0;
+  for (const item of items) {
+    const qty = item.quantity ?? 0;
+    const rate = item.daily_rate_actual ?? 0;
+    if (qty === 0 || rate === 0) continue;
+
+    if (item.rate_type === "hourly") {
+      total += qty * rate * (item.hours_used ?? 0);
+      continue;
+    }
+    const start = item.item_start_date
+      ? new Date(item.item_start_date)
+      : orderStartRef;
+    if (!start) {
+      total += qty * rate;
+      continue;
+    }
+    const raw = Math.ceil((endRef.getTime() - start.getTime()) / dayMs);
+    let billable = raw;
+    if (o.exclude_start_date) billable -= 1;
+    billable = Math.max(1, billable);
+    total += qty * rate * billable;
+  }
+  return total;
+}
+
 function computeEffectiveStatus(
   status: RentalOrderWithDetails["status"],
   settlements: RentalSettlementMap,
@@ -216,6 +270,24 @@ export function mapRentalOrderToThread(o: RentalOrderWithDetails): RentalThread 
     requiresOut,
   );
 
+  // Cost meter selection:
+  //   active / partially_returned → live meter (outstanding × elapsed)
+  //   completed / settled / historical → original-qty billable cost
+  // Falls back to billable cost whenever the upstream meter reads ₹0 but the
+  // rental had real items (the upstream formula returns 0 once every line is
+  // fully returned, since it uses quantity_outstanding).
+  const liveAccrued = o.accrued_rental_cost ?? 0;
+  const isLifecycleClosed =
+    o.status === "completed" || effective_status === "settled";
+  const billable = isLifecycleClosed || liveAccrued === 0
+    ? computeBillableCost(o)
+    : 0;
+  const accruedCost = isLifecycleClosed
+    ? billable
+    : liveAccrued > 0
+      ? liveAccrued
+      : billable;
+
   return {
     id: o.rental_order_number,
     source_row_id: o.id,
@@ -250,7 +322,7 @@ export function mapRentalOrderToThread(o: RentalOrderWithDetails): RentalThread 
     returns,
     settlements: settlementMap,
 
-    accruedCost: o.accrued_rental_cost ?? 0,
+    accruedCost,
     totalAdvancePaid: o.total_advance_paid ?? 0,
     daysSinceStart: o.days_since_start ?? 0,
     isOverdue: o.is_overdue ?? false,
