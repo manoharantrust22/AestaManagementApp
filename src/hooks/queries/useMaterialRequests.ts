@@ -163,7 +163,7 @@ export function useMaterialRequest(id: string | undefined) {
             material:materials(id, name, code, unit, gst_rate, image_url),
             brand:material_brands(id, brand_name, image_url)
           ),
-          converted_to_po:purchase_orders(id, po_number, status)
+          converted_to_po:purchase_orders!material_requests_converted_to_po_id_fkey(id, po_number, status)
         `
         )
         .eq("id", id)
