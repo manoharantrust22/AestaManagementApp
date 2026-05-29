@@ -18,9 +18,12 @@ const SELECTED_COMPANY_KEY = "selectedCompanyId";
 const COMPANIES_CACHE_KEY = "cachedCompanies";
 
 // Helper functions to safely access localStorage
-function getStoredCompanyId(): string | null {
+export function getStoredCompanyId(): string | null {
   if (typeof window === "undefined") return null;
   try {
+    // Per-tab sessionStorage wins; shared localStorage is the fresh-tab seed.
+    const sessionVal = sessionStorage.getItem(SELECTED_COMPANY_KEY);
+    if (sessionVal !== null) return sessionVal;
     return localStorage.getItem(SELECTED_COMPANY_KEY);
   } catch {
     return null;
@@ -37,12 +40,14 @@ function getStoredCompanies(): CompanyMembership[] {
   }
 }
 
-function storeCompanyId(companyId: string | null): void {
+export function storeCompanyId(companyId: string | null): void {
   if (typeof window === "undefined") return;
   try {
     if (companyId) {
-      localStorage.setItem(SELECTED_COMPANY_KEY, companyId);
+      sessionStorage.setItem(SELECTED_COMPANY_KEY, companyId); // per-tab
+      localStorage.setItem(SELECTED_COMPANY_KEY, companyId); // shared seed
     } else {
+      sessionStorage.removeItem(SELECTED_COMPANY_KEY);
       localStorage.removeItem(SELECTED_COMPANY_KEY);
     }
   } catch {
@@ -192,10 +197,10 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
     }
   }, [userProfile, supabase]);
 
-  // Restore from localStorage on mount
+  // Restore from sessionStorage (per-tab) → localStorage (shared seed) on mount.
   useEffect(() => {
     const cachedCompanies = getStoredCompanies();
-    const savedCompanyId = getStoredCompanyId();
+    const savedCompanyId = getStoredCompanyId(); // sessionStorage → localStorage
 
     if (cachedCompanies.length > 0) {
       console.log(
@@ -205,13 +210,16 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
       );
       setCompanies(cachedCompanies);
 
-      if (savedCompanyId) {
-        const found = cachedCompanies.find((c) => c.id === savedCompanyId);
-        const selectedCompany = found || cachedCompanies.find((c) => c.is_primary) || cachedCompanies[0] || null;
-        setSelectedCompanyState(selectedCompany);
-      } else {
-        const primaryCompany = cachedCompanies.find((c) => c.is_primary) || cachedCompanies[0] || null;
-        setSelectedCompanyState(primaryCompany);
+      const found = savedCompanyId
+        ? cachedCompanies.find((c) => c.id === savedCompanyId)
+        : undefined;
+      const selectedCompany =
+        found || cachedCompanies.find((c) => c.is_primary) || cachedCompanies[0] || null;
+      setSelectedCompanyState(selectedCompany);
+
+      if (selectedCompany) {
+        // Claim per-tab ownership so another tab's switch can't override us.
+        storeCompanyId(selectedCompany.id);
       }
     }
   }, []);
