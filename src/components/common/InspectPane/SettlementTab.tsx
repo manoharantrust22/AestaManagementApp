@@ -16,6 +16,7 @@ import { entitySettlementRef, type InspectEntity } from "./types";
 import { useSettlementDetails } from "@/hooks/queries/useSettlementDetails";
 import { useSalaryWaterfall } from "@/hooks/queries/useSalaryWaterfall";
 import { usePaymentsLedger } from "@/hooks/queries/usePaymentsLedger";
+import InspectPaneError from "./InspectPaneError";
 import SettlementRefDetailDialog from "@/components/payments/SettlementRefDetailDialog";
 
 function formatINR(n: number): string {
@@ -75,10 +76,14 @@ function SingleRefSettlement({
   const settlementRef = entitySettlementRef(entity);
   const isPending = !settlementRef;
 
-  const { data, isLoading } = useSettlementDetails(
+  const { data, isLoading, isError, refetch } = useSettlementDetails(
     settlementRef,
     entity.siteId
   );
+
+  if (isError && !isPending) {
+    return <InspectPaneError onRetry={() => refetch()} />;
+  }
 
   if (isLoading && !isPending) {
     return (
@@ -218,12 +223,21 @@ function WeeklyAggregateSettlement({
   // The waterfall is order-dependent: settlements made AFTER this week can
   // legitimately fill earlier weeks. Re-running with just (weekStart..weekEnd)
   // sees only that week's settlements and produces wrong allocations.
-  const { data: weeks, isLoading } = useSalaryWaterfall({
+  const {
+    data: weeks,
+    isLoading,
+    isError,
+    refetch,
+  } = useSalaryWaterfall({
     siteId: entity.siteId,
     subcontractId: entity.subcontractId,
     dateFrom: entity.scopeFrom,
     dateTo: entity.scopeTo,
   });
+
+  if (isError) {
+    return <InspectPaneError onRetry={() => refetch()} />;
+  }
 
   if (isLoading) {
     return (
@@ -503,13 +517,22 @@ function DailyMarketWeeklySettlement({
 }) {
   const theme = useTheme();
   const [refDetail, setRefDetail] = useState<string | null>(null);
-  const { data: rows, isLoading } = usePaymentsLedger({
+  const {
+    data: rows,
+    isLoading,
+    isError,
+    refetch,
+  } = usePaymentsLedger({
     siteId: entity.siteId,
     dateFrom: entity.weekStart,
     dateTo: entity.weekEnd,
     type: "daily-market",
     status: "all",
   });
+
+  if (isError) {
+    return <InspectPaneError onRetry={() => refetch()} />;
+  }
 
   if (isLoading) {
     return (

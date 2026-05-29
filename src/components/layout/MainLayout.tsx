@@ -89,6 +89,7 @@ import ActiveSectionChip from "@/components/layout/ActiveSectionChip";
 import SettlementDialogManager from "@/components/settlement/SettlementDialogManager";
 import ChatAssistant from "@/components/chat-assistant/ChatAssistant";
 import StaleStateSnackbar from "@/components/layout/StaleStateSnackbar";
+import ConnectionDegradedSnackbar from "@/components/layout/ConnectionDegradedSnackbar";
 import ThemeToggle from "@/components/common/ThemeToggle";
 import DateRangePicker from "@/components/common/DateRangePicker";
 import ManualRefreshButton from "@/components/common/ManualRefreshButton";
@@ -267,6 +268,11 @@ const siteNavCategories: NavCategory[] = [
         text: "Inventory",
         icon: <InventoryIcon />,
         path: "/site/materials/inventory",
+      },
+      {
+        text: "Rentals",
+        icon: <RentalIcon />,
+        path: "/site/rentals/v2",
       },
     ],
   },
@@ -1469,6 +1475,12 @@ export default function MainLayout({
           no longer matches its expected state (e.g. dialog opened on stale
           IDB cache after idle, another tab already approved it). */}
       <StaleStateSnackbar />
+
+      {/* Connection-degraded banner — fires when pool recovery gives up
+          (SessionManager heal still failing, or QueryProvider's timeout
+          circuit-breaker tripped). Offers a one-tap Reload, the only thing
+          that tears down the browser's poisoned per-host socket pool. */}
+      <ConnectionDegradedSnackbar />
 
       {/* Refresh feedback snackbar */}
       <Snackbar

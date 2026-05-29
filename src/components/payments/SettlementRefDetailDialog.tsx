@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -38,8 +38,11 @@ import {
   Link as LinkIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
+  Refresh as RefreshIcon,
 } from "@mui/icons-material";
+import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout } from "@/lib/utils/timeout";
 import dayjs from "dayjs";
 import { sanitizeStorageUrl } from "@/lib/utils/storageUrl";
 import PhotoFullscreenDialog from "@/components/attendance/work-updates/PhotoFullscreenDialog";
@@ -94,6 +97,12 @@ export interface SettlementDetails {
   weekAllocations: { weekStart: string; weekEnd: string; amount: number }[];
   laborers: LaborerPayment[];
 }
+
+// 3 sequential round-trips (settlement_groups → labor_payments →
+// payment_week_allocations). Fail fast so a poisoned connection pool surfaces a
+// Retry button instead of an open-ended spinner; the QueryProvider timeout
+// circuit-breaker then heals the pool before the retry.
+const SETTLEMENT_DETAIL_TIMEOUT_MS = 12_000;
 
 interface SettlementRefDetailDialogProps {
   open: boolean;
@@ -161,11 +170,16 @@ function getPaymentChannelLabel(channel: string): string {
 async function getSettlementDetailsByReference(
   supabase: any,
   reference: string,
-  contractOnly: boolean = false
+  contractOnly: boolean = false,
+  signal?: AbortSignal
 ): Promise<SettlementDetails | null> {
-  try {
+  // NOTE: errors are intentionally re-thrown (not swallowed to null) so the
+  // React Query layer can tell a genuine "not found" (returns null) apart from
+  // a timeout / network stall (throws) — the latter feeds the connection-pool
+  // recovery + Retry fallback instead of showing a misleading "not found".
+  {
     // Query settlement_groups
-    const { data: sg, error: sgError } = await supabase
+    let sgQuery = supabase
       .from("settlement_groups")
       .select(
         `
@@ -192,11 +206,16 @@ async function getSettlementDetailsByReference(
         subcontracts(title)
       `
       )
-      .eq("settlement_reference", reference)
-      .single();
+      .eq("settlement_reference", reference);
+    if (signal) sgQuery = sgQuery.abortSignal(signal);
+    const { data: sg, error: sgError } = await sgQuery.single();
 
-    if (sgError || !sg) {
-      console.error("Settlement group not found:", sgError);
+    if (sgError) {
+      // PGRST116 = no rows. A genuine not-found, not an error worth retrying.
+      if ((sgError as any).code === "PGRST116") return null;
+      throw sgError;
+    }
+    if (!sg) {
       return null;
     }
 
@@ -220,9 +239,11 @@ async function getSettlementDetailsByReference(
     if (contractOnly) {
       paymentsQuery = paymentsQuery.eq("is_under_contract", true);
     }
+    if (signal) paymentsQuery = paymentsQuery.abortSignal(signal);
 
-    const { data: payments, error: paymentsError } = await paymentsQuery
-      .order("amount", { ascending: false });
+    const { data: payments } = await paymentsQuery.order("amount", {
+      ascending: false,
+    });
 
     const laborers: LaborerPayment[] = (payments || []).map((p: any) => ({
       laborerId: p.laborer_id,
@@ -320,9 +341,6 @@ async function getSettlementDetailsByReference(
       weekAllocations,
       laborers,
     };
-  } catch (err: any) {
-    console.error("Error fetching settlement details:", err);
-    return null;
   }
 }
 
@@ -336,9 +354,6 @@ export default function SettlementRefDetailDialog({
   contractOnly = false,
 }: SettlementRefDetailDialogProps) {
   const supabase = createClient();
-  const [loading, setLoading] = useState(false);
-  const [details, setDetails] = useState<SettlementDetails | null>(null);
-  const [error, setError] = useState<string | null>(null);
   // Laborer distribution is secondary detail — default collapsed so the
   // payment record (mode/channel/source/proofs) is what users see first.
   const [laborersExpanded, setLaborersExpanded] = useState(false);
@@ -346,37 +361,32 @@ export default function SettlementRefDetailDialog({
   const [proofsExpanded, setProofsExpanded] = useState(true);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
-  useEffect(() => {
-    const fetchDetails = async () => {
-      if (!open || !settlementReference) {
-        setDetails(null);
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        const data = await getSettlementDetailsByReference(
+  // React Query so this dialog joins the global connection-pool recovery: a
+  // stalled fetch fails fast at SETTLEMENT_DETAIL_TIMEOUT_MS, QueryProvider's
+  // timeout circuit-breaker heals the pool + retries, and `isError` drives a
+  // Retry button instead of the old infinite spinner ("loads forever until I
+  // refresh the page"). enabled-gated on `open` so it doesn't fetch while closed.
+  const {
+    data: details,
+    isLoading: loading,
+    isError,
+    refetch,
+  } = useQuery<SettlementDetails | null>({
+    queryKey: ["settlement-ref-detail", settlementReference, contractOnly],
+    enabled: open && Boolean(settlementReference),
+    staleTime: 60_000,
+    queryFn: ({ signal }) =>
+      withTimeout(
+        getSettlementDetailsByReference(
           supabase,
-          settlementReference,
-          contractOnly
-        );
-        if (data) {
-          setDetails(data);
-        } else {
-          setError("Settlement not found");
-        }
-      } catch (err: any) {
-        console.error("Error fetching settlement details:", err);
-        setError(err.message || "Failed to load settlement details");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchDetails();
-  }, [open, settlementReference, supabase, contractOnly]);
+          settlementReference!,
+          contractOnly,
+          signal
+        ),
+        SETTLEMENT_DETAIL_TIMEOUT_MS,
+        `Settlement details timed out after ${SETTLEMENT_DETAIL_TIMEOUT_MS / 1000}s.`
+      ),
+  });
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -403,10 +413,24 @@ export default function SettlementRefDetailDialog({
           <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
             <CircularProgress />
           </Box>
-        ) : error ? (
-          <Typography color="error" sx={{ py: 2 }}>
-            {error}
-          </Typography>
+        ) : isError ? (
+          <Box sx={{ py: 3, textAlign: "center" }}>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ mb: 1.5 }}
+            >
+              Couldn&apos;t load settlement details.
+            </Typography>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              onClick={() => refetch()}
+            >
+              Retry
+            </Button>
+          </Box>
         ) : details ? (
           <Box>
             {/* Reference Code & Status */}
@@ -798,7 +822,11 @@ export default function SettlementRefDetailDialog({
               </Typography>
             </Box>
           </Box>
-        ) : null}
+        ) : (
+          <Typography color="text.secondary" sx={{ py: 2 }}>
+            Settlement not found.
+          </Typography>
+        )}
       </DialogContent>
 
       <DialogActions sx={{ px: 3, py: 2, justifyContent: canEdit && details && !details.isCancelled ? "space-between" : "flex-end" }}>

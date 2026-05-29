@@ -5,6 +5,7 @@ import { Box, Skeleton, Stack, Typography, useTheme } from "@mui/material";
 import dayjs from "dayjs";
 import type { InspectEntity } from "./types";
 import { useWorkUpdates } from "@/hooks/queries/useWorkUpdates";
+import InspectPaneError from "./InspectPaneError";
 import PhotoFullscreenDialog from "@/components/attendance/work-updates/PhotoFullscreenDialog";
 import type { WorkPhoto } from "@/types/work-updates.types";
 
@@ -45,7 +46,15 @@ export default function WorkUpdatesTab({ entity }: { entity: InspectEntity }) {
           }
         : { siteId: entity.siteId, dateFrom: "1970-01-01", dateTo: "1970-01-01" };
 
-  const { data, isLoading } = useWorkUpdates(siteId, dateFrom, dateTo);
+  const { data, isLoading, isError, refetch } = useWorkUpdates(
+    siteId,
+    dateFrom,
+    dateTo,
+  );
+
+  if (isError) {
+    return <InspectPaneError onRetry={() => refetch()} />;
+  }
 
   if (isLoading) {
     return (

@@ -7,6 +7,7 @@ import { entitySettlementRef, type InspectEntity } from "./types";
 import { useSettlementAudit } from "@/hooks/useSettlementAudit";
 import { useSalaryWaterfall } from "@/hooks/queries/useSalaryWaterfall";
 import { usePaymentsLedger } from "@/hooks/queries/usePaymentsLedger";
+import InspectPaneError from "./InspectPaneError";
 
 export default function AuditTab({ entity }: { entity: InspectEntity }) {
   // weekly-aggregate / daily-market-weekly have no single ref; render
@@ -23,7 +24,8 @@ export default function AuditTab({ entity }: { entity: InspectEntity }) {
 function SingleRefAudit({ entity }: { entity: InspectEntity }) {
   const theme = useTheme();
   const settlementRef = entitySettlementRef(entity);
-  const { data, isLoading } = useSettlementAudit(settlementRef);
+  const { data, isLoading, isError, refetch } =
+    useSettlementAudit(settlementRef);
 
   if (!settlementRef) {
     return (
@@ -33,6 +35,10 @@ function SingleRefAudit({ entity }: { entity: InspectEntity }) {
         </Typography>
       </Box>
     );
+  }
+
+  if (isError) {
+    return <InspectPaneError onRetry={() => refetch()} />;
   }
 
   if (isLoading) {
@@ -119,12 +125,21 @@ function WeeklyAggregateAudit({
   const theme = useTheme();
   // Use the page's scope so audit history matches the page row (the waterfall
   // is order-dependent — see SettlementTab.tsx for the longer note).
-  const { data: weeks, isLoading } = useSalaryWaterfall({
+  const {
+    data: weeks,
+    isLoading,
+    isError,
+    refetch,
+  } = useSalaryWaterfall({
     siteId: entity.siteId,
     subcontractId: entity.subcontractId,
     dateFrom: entity.scopeFrom,
     dateTo: entity.scopeTo,
   });
+
+  if (isError) {
+    return <InspectPaneError onRetry={() => refetch()} />;
+  }
 
   if (isLoading) {
     return (
@@ -181,13 +196,22 @@ function DailyMarketWeeklyAudit({
 }: {
   entity: Extract<InspectEntity, { kind: "daily-market-weekly" }>;
 }) {
-  const { data: rows, isLoading } = usePaymentsLedger({
+  const {
+    data: rows,
+    isLoading,
+    isError,
+    refetch,
+  } = usePaymentsLedger({
     siteId: entity.siteId,
     dateFrom: entity.weekStart,
     dateTo: entity.weekEnd,
     type: "daily-market",
     status: "all",
   });
+
+  if (isError) {
+    return <InspectPaneError onRetry={() => refetch()} />;
+  }
 
   if (isLoading) {
     return (
@@ -250,7 +274,8 @@ function RefAuditSection({
   settlementRef: string;
   amount: number;
 }) {
-  const { data, isLoading } = useSettlementAudit(settlementRef);
+  const { data, isLoading, isError, refetch } =
+    useSettlementAudit(settlementRef);
   const events = data ?? [];
 
   return (
@@ -278,7 +303,9 @@ function RefAuditSection({
           ₹{amount.toLocaleString("en-IN")} allocated
         </Typography>
       </Box>
-      {isLoading ? (
+      {isError ? (
+        <InspectPaneError onRetry={() => refetch()} />
+      ) : isLoading ? (
         <Skeleton variant="rounded" width="100%" height={48} />
       ) : events.length === 0 ? (
         <Typography variant="caption" color="text.disabled">

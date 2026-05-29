@@ -1,7 +1,7 @@
 // Service Worker for Aesta Construction Manager
 // Handles: PWA caching + offline fallback + push notifications
 
-const PWA_CACHE = "aesta-pwa-v1";
+const PWA_CACHE = "aesta-pwa-v2";
 
 // Assets to precache during install
 const PRECACHE_URLS = [
@@ -71,8 +71,11 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Static assets in /icons/: cache-first
-  if (url.pathname.startsWith("/icons/")) {
+  // Static assets in /icons/ + the favicon: cache-first.
+  // favicon.png is precached on install but used to fall through to the
+  // passthrough branch below, so it revalidated (304) on every navigation.
+  // Serving it from the precache here eliminates that per-load round trip.
+  if (url.pathname.startsWith("/icons/") || url.pathname === "/favicon.png") {
     event.respondWith(
       caches.match(request).then((cached) => {
         if (cached) return cached;

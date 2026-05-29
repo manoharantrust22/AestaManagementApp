@@ -23,6 +23,12 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout } from "@/lib/utils/timeout";
+
+// Single-row select; fail-fast at 8s so React Query surfaces an error (and the
+// AuditTab's Retry fallback) instead of leaving the tab skeleton hanging behind
+// a poisoned connection pool. Matches useAttendanceForDate's per-query timeout.
+const AUDIT_TIMEOUT_MS = 8_000;
 
 export interface AuditEvent {
   timestamp: string;
@@ -37,14 +43,21 @@ export function useSettlementAudit(settlementRef: string | null) {
     queryKey: ["settlement-audit", settlementRef],
     enabled: Boolean(settlementRef),
     staleTime: 60_000,
-    queryFn: async (): Promise<AuditEvent[]> => {
+    queryFn: async ({ signal }): Promise<AuditEvent[]> => {
       if (!settlementRef) return [];
-      const { data, error } = await (supabase.from("settlement_groups") as any)
-        .select(
-          "created_at, updated_at, created_by_name, cancelled_at, cancelled_by, is_cancelled, cancellation_reason"
-        )
-        .eq("settlement_reference", settlementRef)
-        .single();
+      const { data, error } = await withTimeout(
+        Promise.resolve(
+          (supabase.from("settlement_groups") as any)
+            .select(
+              "created_at, updated_at, created_by_name, cancelled_at, cancelled_by, is_cancelled, cancellation_reason"
+            )
+            .eq("settlement_reference", settlementRef)
+            .abortSignal(signal)
+            .single()
+        ),
+        AUDIT_TIMEOUT_MS,
+        `Settlement-audit query timed out after ${AUDIT_TIMEOUT_MS / 1000}s.`
+      );
 
       if (error) {
         // Not-found (e.g. ref not yet propagated) shouldn't crash the tab.

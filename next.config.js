@@ -21,6 +21,15 @@ const nextConfig = {
       ],
     },
     {
+      // favicon is a stable asset — let the browser HTTP-cache it on first load
+      // (before the service worker is active), instead of revalidating (304)
+      // every navigation under the must-revalidate catch-all below.
+      source: '/favicon.png',
+      headers: [
+        { key: 'Cache-Control', value: 'public, max-age=2592000, immutable' },
+      ],
+    },
+    {
       source: '/sw.js',
       headers: [
         { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },

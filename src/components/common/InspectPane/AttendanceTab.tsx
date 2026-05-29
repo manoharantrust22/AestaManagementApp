@@ -19,6 +19,7 @@ import {
   type LaborerWeekDay,
 } from "@/hooks/queries/useLaborerWeek";
 import { useWeekAggregateAttendance } from "@/hooks/queries/useWeekAggregateAttendance";
+import InspectPaneError from "./InspectPaneError";
 
 // ----------------------------------------------------------------
 // Shared sub-component
@@ -88,7 +89,14 @@ function DailyShape({
   entity: Extract<InspectEntity, { kind: "daily-date" }>;
 }) {
   const theme = useTheme();
-  const { data, isLoading } = useAttendanceForDate(entity.siteId, entity.date);
+  const { data, isLoading, isError, refetch } = useAttendanceForDate(
+    entity.siteId,
+    entity.date,
+  );
+
+  if (isError) {
+    return <InspectPaneError onRetry={() => refetch()} />;
+  }
 
   if (isLoading) {
     return (
@@ -330,12 +338,16 @@ function WeeklyShape({
   entity: Extract<InspectEntity, { kind: "weekly-week" }>;
 }) {
   const theme = useTheme();
-  const { data, isLoading } = useLaborerWeek(
+  const { data, isLoading, isError, refetch } = useLaborerWeek(
     entity.siteId,
     entity.laborerId,
     entity.weekStart,
     entity.weekEnd
   );
+
+  if (isError) {
+    return <InspectPaneError onRetry={() => refetch()} />;
+  }
 
   if (isLoading) {
     return (
@@ -607,7 +619,7 @@ function WeeklyAggregateShape({
   entity: Extract<InspectEntity, { kind: "weekly-aggregate" }>;
 }) {
   const theme = useTheme();
-  const { data, isLoading } = useWeekAggregateAttendance(
+  const { data, isLoading, isError, refetch } = useWeekAggregateAttendance(
     entity.siteId,
     entity.subcontractId,
     entity.weekStart,
@@ -617,6 +629,10 @@ function WeeklyAggregateShape({
   // Click a day chip to expand a per-laborer breakdown for that date below.
   // Click again to collapse.
   const [expandedDate, setExpandedDate] = React.useState<string | null>(null);
+
+  if (isError) {
+    return <InspectPaneError onRetry={() => refetch()} />;
+  }
 
   if (isLoading) {
     return (
@@ -1076,7 +1092,10 @@ function DayDetailExpansion({
 }) {
   void subcontractId; // Per-day RPC is not subcontract-scoped today; whole site
   const theme = useTheme();
-  const { data, isLoading } = useAttendanceForDate(siteId, date);
+  const { data, isLoading, isError, refetch } = useAttendanceForDate(
+    siteId,
+    date,
+  );
 
   // contract-primary uses the legacy commingled list; daily-market-primary
   // splits daily vs contract and demotes the contract bucket.
@@ -1165,7 +1184,9 @@ function DayDetailExpansion({
         </Typography>
       )}
 
-      {isLoading ? (
+      {isError ? (
+        <InspectPaneError onRetry={() => refetch()} />
+      ) : isLoading ? (
         <Skeleton variant="rounded" height={64} />
       ) : (
         <>
@@ -1514,13 +1535,17 @@ function DailyMarketWeeklyShape({
   entity: Extract<InspectEntity, { kind: "daily-market-weekly" }>;
 }) {
   const theme = useTheme();
-  const { data, isLoading } = useDailyMarketWeekAggregate(
+  const { data, isLoading, isError, refetch } = useDailyMarketWeekAggregate(
     entity.siteId,
     entity.weekStart,
     entity.weekEnd
   );
 
   const [expandedDate, setExpandedDate] = React.useState<string | null>(null);
+
+  if (isError) {
+    return <InspectPaneError onRetry={() => refetch()} />;
+  }
 
   if (isLoading) {
     return (

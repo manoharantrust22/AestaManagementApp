@@ -12,6 +12,7 @@ import { SessionExpiredError } from "@/lib/supabase/client";
 import {
   refreshSessionDeduped,
   setSessionManagerQueryClient,
+  healConnectionPoolNow,
 } from "@/lib/auth/sessionManager";
 import { isAbortOrTimeoutError } from "@/lib/utils/timeout";
 import { isStaleStateError } from "@/lib/utils/staleState";
@@ -106,6 +107,20 @@ function isTimeoutError(error: unknown): boolean {
 let _lastTimeoutRecoveryAt = 0;
 const TIMEOUT_RECOVERY_DEBOUNCE_MS = 10_000;
 
+// Circuit breaker for the timeout-recovery path. When the proxy ORIGIN itself
+// is unreachable (not just a single poisoned socket), cancel+invalidate just
+// re-runs the failed query onto the same dead pool, which times out again and
+// re-triggers recovery — an infinite cancel→refetch→timeout loop that pins
+// queries in `isLoading` forever (the "skeleton never resolves after idle"
+// bug). We bound consecutive recovery cycles: each cycle escalates (heal the
+// pool, THEN refetch); after MAX cycles with no intervening success we STOP
+// auto-refetching and signal the UI (connection-degraded) so the InspectPane
+// error/Retry fallback shows instead of an endless skeleton. The streak resets
+// to 0 on the next successful query (QueryCache.onSuccess) — i.e. as soon as
+// the pool is proven alive again.
+let _timeoutRecoveryStreak = 0;
+const MAX_TIMEOUT_RECOVERY_CYCLES = 3;
+
 export default function QueryProvider({
   children,
 }: {
@@ -122,6 +137,15 @@ export default function QueryProvider({
     // to hard-refresh the browser. TanStack Query v5 replacement for
     // defaultOptions.queries.onError.
     const queryCache = new QueryCache({
+      onSuccess: () => {
+        // A query completed successfully → the connection pool is alive again.
+        // Clear the timeout circuit breaker so a future, genuinely-separate
+        // stall gets the full recovery budget instead of being treated as a
+        // continuation of an old dead-pool streak.
+        if (_timeoutRecoveryStreak !== 0) {
+          _timeoutRecoveryStreak = 0;
+        }
+      },
       onError: async (error: any, query) => {
         if (isSessionError(error)) {
           console.warn(
@@ -171,17 +195,42 @@ export default function QueryProvider({
             return;
           }
           _lastTimeoutRecoveryAt = now;
+          _timeoutRecoveryStreak += 1;
+
+          // Circuit breaker: if repeated recovery cycles have not yielded a
+          // single successful query, the proxy origin itself is unreachable —
+          // refetching again would just re-stall on the same dead pool and keep
+          // the skeleton spinning forever. Stop the loop and let the UI surface
+          // its error/Retry fallback (InspectPane) + a Reconnect banner.
+          if (_timeoutRecoveryStreak > MAX_TIMEOUT_RECOVERY_CYCLES) {
+            console.error(
+              `[QueryCache] Timeout recovery gave up after ${MAX_TIMEOUT_RECOVERY_CYCLES} cycles — connection degraded, not refetching`
+            );
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("connection-degraded"));
+            }
+            return;
+          }
 
           console.warn(
             "[QueryCache] Query timeout detected on",
             JSON.stringify(query.queryKey).substring(0, 100),
-            "— triggering connection-pool recovery"
+            `— recovery cycle ${_timeoutRecoveryStreak}/${MAX_TIMEOUT_RECOVERY_CYCLES}`
           );
 
           try {
             await clientRef.current.cancelQueries();
           } catch (err) {
             console.warn("[QueryCache] cancelQueries threw during recovery:", err);
+          }
+          // Escalate: actually heal the pool (canary + realtime WS eviction +
+          // REST warm-up) BEFORE refetching, so a genuinely dead pool gets
+          // cycled instead of re-hammered. A bare invalidate cannot evict the
+          // browser's half-open sockets; this can.
+          try {
+            await healConnectionPoolNow();
+          } catch (err) {
+            console.warn("[QueryCache] healConnectionPoolNow threw:", err);
           }
           // Small delay so cancellation propagates before refetch fires.
           setTimeout(() => {

@@ -42,6 +42,14 @@ let _recoverInFlight: Promise<void> | null = null;
 // so it's edge-cached and never round-trips to Supabase under normal conditions.
 const CANARY_TIMEOUT_MS = 3000;
 
+// Number of parallel warm-up GETs fired after a failed canary. The realtime WS
+// eviction only frees the WS socket; the REST sockets the app's queries use are
+// still half-open. Firing a few parallel pings trips the dead sockets so the
+// browser evicts them and the user's NEXT real query opens a fresh connection
+// instead of queuing behind a dead one. Kept below the browser's ~6-per-host
+// cap so warm-up itself never starves real traffic.
+const POOL_WARMUP_REQUESTS = 3;
+
 type SessionManagerState = {
   isInitialized: boolean;
   lastActivity: number;
@@ -494,6 +502,11 @@ class SessionManager {
       return;
     }
 
+    // Cycle the REST socket pool too. Evicting only the WS socket above is not
+    // enough — the half-open REST sockets the drawer/page queries actually use
+    // are what produce the "stuck on skeleton" hang. Warming forces fresh ones.
+    await this.warmConnectionPool();
+
     // Verify the heal worked. If still failing, surface a UI-level event so
     // the app can show a brief "Reconnecting…" banner instead of leaving the
     // user to puzzle out why the next action fails.
@@ -549,6 +562,47 @@ class SessionManager {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Force the browser to open fresh REST sockets after the pool was found
+   * poisoned. Fires POOL_WARMUP_REQUESTS parallel GETs (each bound by
+   * CANARY_TIMEOUT_MS) at the proxy. Results are intentionally ignored — this
+   * is a pool-cycling side effect, not a health check: the stalled pings trip
+   * the dead half-open sockets so the browser evicts them, and the user's next
+   * real query opens a clean connection instead of hanging the InspectPane.
+   */
+  private async warmConnectionPool(): Promise<void> {
+    if (typeof window === "undefined") return;
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const apikey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !apikey) return;
+
+    const pings = Array.from({ length: POOL_WARMUP_REQUESTS }, () => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), CANARY_TIMEOUT_MS);
+      return fetch(`${url}/rest/v1/labor_categories?select=id&limit=1`, {
+        method: "GET",
+        headers: { apikey, Accept: "application/json" },
+        signal: ctrl.signal,
+        cache: "no-store",
+      })
+        .catch(() => undefined)
+        .finally(() => clearTimeout(timer));
+    });
+    await Promise.allSettled(pings);
+    console.log(
+      `[SessionManager] Fired ${POOL_WARMUP_REQUESTS} REST pool warm-up pings`
+    );
+  }
+
+  /**
+   * Public entry point for QueryProvider's timeout circuit-breaker. Lets the
+   * query-error path escalate to a real pool heal (canary + WS eviction + REST
+   * warm-up) before blindly refetching onto a dead pool.
+   */
+  async healConnectionPoolNow(): Promise<void> {
+    return this.healConnectionPool();
   }
 
   private setupActivityTracking(): void {
@@ -626,6 +680,7 @@ export const stopSessionManager = () => sessionManager.stop();
 export const refreshSession = () => sessionManager.refreshSession();
 export const refreshSessionDeduped = () => sessionManager.refreshSessionDeduped();
 export const setSessionManagerQueryClient = (qc: QueryClient) => sessionManager.setQueryClient(qc);
+export const healConnectionPoolNow = () => sessionManager.healConnectionPoolNow();
 export const ensureFreshSession = () => sessionManager.ensureFreshSession();
 export const isUserIdle = () => sessionManager.isUserIdle();
 export const getLastActivity = () => sessionManager.getLastActivity();
