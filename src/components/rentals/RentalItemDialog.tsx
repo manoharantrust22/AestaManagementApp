@@ -30,9 +30,12 @@ import {
   useCreateRentalItemSize,
   useUpdateRentalItemSize,
   useDeleteRentalItemSize,
+  useAddRentalStoreInventory,
 } from "@/hooks/queries/useRentals";
+import { useCreateVendor } from "@/hooks/queries/useVendors";
 import { createClient } from "@/lib/supabase/client";
 import ImageUploadWithCrop from "@/components/common/ImageUploadWithCrop";
+import VendorAutocomplete from "@/components/common/VendorAutocomplete";
 import type {
   RentalItemWithDetails,
   RentalItemFormData,
@@ -79,8 +82,17 @@ export default function RentalItemDialog({
   const createSize = useCreateRentalItemSize();
   const updateSize = useUpdateRentalItemSize();
   const deleteSize = useDeleteRentalItemSize();
+  const addInventory = useAddRentalStoreInventory();
+  const createVendor = useCreateVendor();
 
   const [error, setError] = useState("");
+
+  // Vendor-at-create state (only used when adding a new item)
+  const [vendorId, setVendorId] = useState<string | null>(null);
+  const [vendorRate, setVendorRate] = useState("");
+  const [showQuickVendor, setShowQuickVendor] = useState(false);
+  const [quickVendorName, setQuickVendorName] = useState("");
+  const [quickVendorPhone, setQuickVendorPhone] = useState("");
 
   // Variant staging — for both new and edit. Each entry has either `id` (persisted) or `tempId` (pending).
   type VariantRow = {
@@ -145,6 +157,11 @@ export default function RentalItemDialog({
     }
     setError("");
     setNewRow({ size_label: "", daily_rate: "" });
+    setVendorId(null);
+    setVendorRate("");
+    setShowQuickVendor(false);
+    setQuickVendorName("");
+    setQuickVendorPhone("");
     // On create, clear the variant staging area immediately
     if (!item) setVariants([]);
     // On edit, variants are seeded by the existingSizes effect below
@@ -224,8 +241,31 @@ export default function RentalItemDialog({
         await updateItem.mutateAsync({ id: item.id, data: formData });
         parentId = item.id;
       } else {
+        // Quick-add new vendor first so we have its id before linking to the item
+        let resolvedVendorId = vendorId;
+        if (showQuickVendor && quickVendorName.trim()) {
+          const newVendor = await createVendor.mutateAsync({
+            name: quickVendorName.trim(),
+            phone: quickVendorPhone.trim() || undefined,
+            vendor_type: "rental_store",
+          });
+          resolvedVendorId = newVendor.id;
+        }
+
         const created = await createItem.mutateAsync(formData);
         parentId = created.id;
+
+        // Link vendor rate if provided
+        if (resolvedVendorId && vendorRate && parseFloat(vendorRate) > 0) {
+          await addInventory.mutateAsync({
+            vendor_id: resolvedVendorId,
+            rental_item_id: parentId,
+            daily_rate: parseFloat(vendorRate),
+            min_rental_days: 1,
+            long_term_discount_percentage: 0,
+            long_term_threshold_days: 30,
+          });
+        }
       }
 
       // Persist variant changes
@@ -254,11 +294,16 @@ export default function RentalItemDialog({
       onClose();
     } catch (err: unknown) {
       const error = err as Error;
-      setError(error.message || "Failed to save rental item");
+      const msg = error.message || "Failed to save rental item";
+      setError(
+        msg.includes("rental_items_code_key")
+          ? `Code "${formData.code}" is already in use. Clear the Code field to auto-generate a unique one.`
+          : msg
+      );
     }
   };
 
-  const isLoading = createItem.isPending || updateItem.isPending;
+  const isLoading = createItem.isPending || updateItem.isPending || addInventory.isPending || createVendor.isPending;
 
   return (
     <Dialog
@@ -442,6 +487,101 @@ export default function RentalItemDialog({
               helperText="Used when an order line doesn't pick a variant"
             />
           </Grid>
+
+          {/* Vendor rate — only shown when creating a new item */}
+          {!isEdit && (
+            <Grid size={12}>
+              <Box
+                sx={{
+                  p: 1.5,
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 1.5,
+                  bgcolor: "grey.50",
+                }}
+              >
+                <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+                  <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                    VENDOR RATE (optional)
+                  </Typography>
+                  {!showQuickVendor && (
+                    <Button
+                      size="small"
+                      sx={{ fontSize: "0.7rem", py: 0 }}
+                      onClick={() => { setShowQuickVendor(true); setVendorId(null); }}
+                    >
+                      + New vendor
+                    </Button>
+                  )}
+                </Stack>
+
+                {showQuickVendor ? (
+                  <Stack spacing={1}>
+                    <Typography variant="caption" color="primary.main" fontWeight={500}>
+                      Quick-add vendor
+                    </Typography>
+                    <Stack direction="row" spacing={1}>
+                      <TextField
+                        size="small"
+                        fullWidth
+                        label="Vendor name *"
+                        value={quickVendorName}
+                        onChange={(e) => setQuickVendorName(e.target.value)}
+                        placeholder="e.g., Rajan Rentals"
+                      />
+                      <TextField
+                        size="small"
+                        sx={{ width: 160 }}
+                        label="Phone"
+                        value={quickVendorPhone}
+                        onChange={(e) => setQuickVendorPhone(e.target.value)}
+                        placeholder="optional"
+                      />
+                    </Stack>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label={formData.rate_type === "hourly" ? "Rate (₹/hour)" : "Rate (₹/day)"}
+                      value={vendorRate}
+                      onChange={(e) => setVendorRate(e.target.value)}
+                      InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
+                      placeholder="0"
+                    />
+                    <Stack direction="row" spacing={1} justifyContent="flex-end">
+                      <Button
+                        size="small"
+                        onClick={() => { setShowQuickVendor(false); setQuickVendorName(""); setQuickVendorPhone(""); setVendorRate(""); }}
+                      >
+                        Cancel
+                      </Button>
+                    </Stack>
+                  </Stack>
+                ) : (
+                  <Stack direction="row" spacing={1} alignItems="flex-start">
+                    <Box sx={{ flex: 1 }}>
+                      <VendorAutocomplete
+                        size="small"
+                        label="Vendor"
+                        value={vendorId}
+                        vendorType="rental_store"
+                        onChange={(val) => setVendorId(typeof val === "string" ? val : null)}
+                      />
+                    </Box>
+                    <TextField
+                      size="small"
+                      sx={{ width: 130 }}
+                      type="number"
+                      label={formData.rate_type === "hourly" ? "₹/hour" : "₹/day"}
+                      value={vendorRate}
+                      onChange={(e) => setVendorRate(e.target.value)}
+                      disabled={!vendorId}
+                      InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
+                    />
+                  </Stack>
+                )}
+              </Box>
+            </Grid>
+          )}
 
           <Grid size={12}>
             <TextField

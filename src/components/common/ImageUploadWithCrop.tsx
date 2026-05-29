@@ -105,6 +105,11 @@ export default function ImageUploadWithCrop({
     setUploading(true);
     setError(null);
 
+    const abortController = new AbortController();
+    // Safety net: if session lock or network hangs indefinitely after idle,
+    // abort and surface an actionable error instead of spinning forever.
+    let masterTimeoutId: ReturnType<typeof setTimeout> | undefined;
+
     try {
       // Compress the cropped image if needed (with 8s safety timeout)
       let finalBlob = croppedBlob;
@@ -125,13 +130,22 @@ export default function ImageUploadWithCrop({
 
       console.log(`[ImageUpload] Uploading to ${bucketName}/${filePath}, size: ${finalBlob.size} bytes`);
 
-      const { publicUrl } = await hardenedUpload({
-        supabase,
-        bucketName,
-        filePath,
-        file: finalBlob,
-        contentType: "image/jpeg",
-      });
+      const { publicUrl } = await Promise.race([
+        hardenedUpload({
+          supabase,
+          bucketName,
+          filePath,
+          file: finalBlob,
+          contentType: "image/jpeg",
+          signal: abortController.signal,
+        }),
+        new Promise<never>((_, reject) => {
+          masterTimeoutId = setTimeout(() => {
+            abortController.abort();
+            reject(new Error("Upload timed out. Please check your connection and try again."));
+          }, 45_000);
+        }),
+      ]);
 
       console.log("[ImageUpload] Public URL:", publicUrl);
       onChange(publicUrl);
@@ -145,9 +159,32 @@ export default function ImageUploadWithCrop({
           : message
       );
     } finally {
+      clearTimeout(masterTimeoutId);
       setUploading(false);
     }
   }, [supabase, bucketName, folderPath, fileNamePrefix, maxSizeKB, onChange]);
+
+  const handlePasteImage = useCallback((e: React.ClipboardEvent) => {
+    if (uploading || disabled) return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const blob = item.getAsFile();
+        if (!blob) continue;
+        setError(null);
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          setSelectedImage(event.target?.result as string);
+          setCropperOpen(true);
+        };
+        reader.onerror = () => setError("Failed to read pasted image");
+        reader.readAsDataURL(blob);
+        return;
+      }
+    }
+  }, [uploading, disabled]);
 
   const handleRemove = useCallback(() => {
     onChange(null);
@@ -159,7 +196,7 @@ export default function ImageUploadWithCrop({
   }, []);
 
   return (
-    <Box>
+    <Box onPaste={handlePasteImage} tabIndex={-1} sx={{ outline: "none" }}>
       {label && (
         <Typography variant="body2" fontWeight={500} sx={{ mb: 1 }}>
           {label}
@@ -178,6 +215,8 @@ export default function ImageUploadWithCrop({
       {value ? (
         // Show uploaded image preview
         <Box
+          onPaste={handlePasteImage}
+          tabIndex={0}
           sx={{
             display: "flex",
             alignItems: "center",
@@ -187,6 +226,8 @@ export default function ImageUploadWithCrop({
             borderColor: "divider",
             borderRadius: 2,
             bgcolor: alpha(theme.palette.success.main, 0.05),
+            outline: "none",
+            "&:focus-visible": { borderColor: "primary.main" },
           }}
         >
           <Avatar
@@ -201,7 +242,7 @@ export default function ImageUploadWithCrop({
               Photo uploaded
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              Click edit to change
+              Click edit to change · Ctrl+V to replace
             </Typography>
           </Box>
           <Box sx={{ display: "flex", gap: 0.5 }}>
@@ -232,6 +273,7 @@ export default function ImageUploadWithCrop({
           variant="outlined"
           startIcon={uploading ? <CircularProgress size={18} /> : <AddPhotoIcon />}
           onClick={() => fileInputRef.current?.click()}
+          onPaste={handlePasteImage}
           disabled={disabled || uploading}
           sx={{
             width: "100%",
@@ -239,13 +281,20 @@ export default function ImageUploadWithCrop({
             borderStyle: "dashed",
             borderColor: "divider",
             color: "text.secondary",
+            flexDirection: "column",
+            gap: 0,
             "&:hover": {
               borderColor: "primary.main",
               bgcolor: alpha(theme.palette.primary.main, 0.04),
             },
           }}
         >
-          {uploading ? "Uploading..." : "Add Photo"}
+          <Box component="span">{uploading ? "Uploading..." : "Add Photo"}</Box>
+          {!uploading && (
+            <Box component="span" sx={{ fontSize: "0.65rem", opacity: 0.55, mt: 0.25 }}>
+              or Ctrl+V to paste
+            </Box>
+          )}
         </Button>
       )}
 

@@ -62,6 +62,8 @@ export function RentalItemInspectPane({
   const [addVendorOpen, setAddVendorOpen] = useState(false);
   const [newVendorId, setNewVendorId] = useState<string | null>(null);
   const [newVendorRate, setNewVendorRate] = useState<string>("");
+  const [editingInvId, setEditingInvId] = useState<string | null>(null);
+  const [editingRate, setEditingRate] = useState<string>("");
 
   const supabase = createClient();
   const updateItem = useUpdateRentalItem();
@@ -77,6 +79,8 @@ export function RentalItemInspectPane({
     setAddVendorOpen(false);
     setNewVendorId(null);
     setNewVendorRate("");
+    setEditingInvId(null);
+    setEditingRate("");
   }, [itemId]);
 
   const resetAddVendor = () => {
@@ -322,34 +326,78 @@ export function RentalItemInspectPane({
                       bgcolor: "background.paper",
                     }}
                   >
-                    <Box
-                      sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        mb: 0.25,
-                      }}
-                    >
-                      <Typography variant="body2" fontWeight={600}>
-                        {inv.vendor?.name}
-                      </Typography>
-                      {idx === 0 && hasStrictCheapest && (
-                        <Chip
-                          label="CHEAPEST"
+                    {editingInvId === inv.id ? (
+                      <Stack spacing={1}>
+                        <Typography variant="body2" fontWeight={600}>
+                          {inv.vendor?.name}
+                        </Typography>
+                        <TextField
                           size="small"
-                          color="success"
-                          variant="outlined"
-                          sx={{ fontSize: 9, height: 18 }}
+                          type="number"
+                          autoFocus
+                          label={rateType === "hourly" ? "₹/hour" : "₹/day"}
+                          value={editingRate}
+                          onChange={(e) => setEditingRate(e.target.value)}
+                          InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
                         />
-                      )}
-                    </Box>
-                    <Typography variant="subtitle2" color="warning.main" fontWeight={700}>
-                      ₹{inv.rate}/{rateType === "hourly" ? "hour" : "day"}
-                    </Typography>
-                    {inv.transport_cost != null && Number(inv.transport_cost) > 0 && (
-                      <Typography variant="caption" color="text.secondary">
-                        Transport: ₹{inv.transport_cost} outward
-                      </Typography>
+                        <Stack direction="row" spacing={1} justifyContent="flex-end">
+                          <Button
+                            size="small"
+                            onClick={() => { setEditingInvId(null); setEditingRate(""); }}
+                            disabled={addInventory.isPending}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            disabled={!editingRate || parseFloat(editingRate) <= 0 || addInventory.isPending}
+                            onClick={async () => {
+                              if (!itemId || !inv.vendor_id) return;
+                              await addInventory.mutateAsync({
+                                vendor_id: inv.vendor_id,
+                                rental_item_id: itemId,
+                                daily_rate: parseFloat(editingRate),
+                                min_rental_days: inv.min_rental_days ?? 1,
+                                long_term_discount_percentage: Number(inv.long_term_discount_percentage ?? 0),
+                                long_term_threshold_days: inv.long_term_threshold_days ?? 30,
+                              });
+                              setEditingInvId(null);
+                              setEditingRate("");
+                            }}
+                          >
+                            {addInventory.isPending ? "Saving…" : "Save"}
+                          </Button>
+                        </Stack>
+                      </Stack>
+                    ) : (
+                      <>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.25 }}>
+                          <Typography variant="body2" fontWeight={600}>
+                            {inv.vendor?.name}
+                          </Typography>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                            {idx === 0 && hasStrictCheapest && (
+                              <Chip label="CHEAPEST" size="small" color="success" variant="outlined" sx={{ fontSize: 9, height: 18 }} />
+                            )}
+                            <IconButton
+                              size="small"
+                              onClick={() => { setEditingInvId(inv.id); setEditingRate(String(inv.rate)); setAddVendorOpen(false); }}
+                              title="Edit rate"
+                            >
+                              <EditIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                          </Box>
+                        </Box>
+                        <Typography variant="subtitle2" color="warning.main" fontWeight={700}>
+                          ₹{inv.rate}/{rateType === "hourly" ? "hour" : "day"}
+                        </Typography>
+                        {inv.transport_cost != null && Number(inv.transport_cost) > 0 && (
+                          <Typography variant="caption" color="text.secondary">
+                            Transport: ₹{inv.transport_cost} outward
+                          </Typography>
+                        )}
+                      </>
                     )}
                   </Box>
                 ))}

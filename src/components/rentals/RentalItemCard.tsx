@@ -126,6 +126,10 @@ export function RentalItemCard({
                     </Typography>
                   )}
                 </Typography>
+              ) : lowestRate != null ? (
+                <Typography variant="caption" color="warning.main" fontWeight={700}>
+                  ₹{lowestRate}/{item.rate_type === "hourly" ? "hour" : "day"}
+                </Typography>
               ) : (
                 <Typography variant="caption" color="text.disabled">
                   No vendors yet

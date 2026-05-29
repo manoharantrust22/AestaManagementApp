@@ -195,14 +195,18 @@ export function useRentalItemsWithVendorStats(categoryId?: string | null) {
       return (data ?? []).map((item: any) => ({
         ...item,
         vendor_count: (item.inventory as any[])?.length ?? 0,
-        lowest_rate:
-          (item.inventory as any[])?.length > 0
-            ? Math.min(
-                ...(item.inventory as any[]).map(
-                  (inv: any) => inv.daily_rate ?? Infinity
-                )
-              )
-            : null,
+        lowest_rate: (() => {
+          const vendorRates = ((item.inventory as any[]) ?? []).map(
+            (inv: any) => inv.daily_rate ?? Infinity
+          );
+          if (vendorRates.length > 0) {
+            // When vendors exist, "from" reflects the cheapest vendor rate only
+            const min = Math.min(...vendorRates);
+            return isFinite(min) ? min : null;
+          }
+          // No vendors — fall back to the item's own default_daily_rate for display
+          return item.default_daily_rate ?? null;
+        })(),
         sizes: ((item.sizes as any[]) ?? []).filter((s: any) => s.is_active),
       })) as (RentalItemWithDetails & {
         vendor_count: number;
@@ -387,12 +391,19 @@ export function useCreateRentalItem() {
                 ? "SHT"
                 : "OTH";
 
-        const { count } = await supabase
+        // Use MAX of existing numeric suffixes — COUNT collides when items are
+        // deleted or have gaps (e.g. EQP-0001,0002,0003 deleted → count=3 → EQP-0004 taken)
+        const { data: existingCodes } = await supabase
           .from("rental_items")
-          .select("*", { count: "exact", head: true })
+          .select("code")
           .ilike("code", `${prefix}-%`);
 
-        data.code = `${prefix}-${String((count || 0) + 1).padStart(4, "0")}`;
+        let maxNum = 0;
+        for (const row of existingCodes ?? []) {
+          const match = row.code?.match(/-(\d+)$/);
+          if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+        }
+        data.code = `${prefix}-${String(maxNum + 1).padStart(4, "0")}`;
       }
 
       const { data: result, error } = await supabase
@@ -2161,6 +2172,8 @@ export function useCreateHistoricalRental() {
           return_by: outbound?.paid_to === "driver" ? "company" : outbound ? "vendor" : null,
           vendor_slip_url: data.calculation_sheet_url ?? null,
           notes: data.bill_ref ? `Bill/Ref: ${data.bill_ref}` : null,
+          internal_notes: data.internal_notes ?? null,
+          parent_order_id: data.parent_order_id ?? null,
         })
         .select()
         .single();
@@ -2338,6 +2351,7 @@ export function useUpdateHistoricalRental() {
           return_by: outbound?.paid_to === "driver" ? "company" : outbound ? "vendor" : null,
           vendor_slip_url: data.calculation_sheet_url ?? null,
           notes: data.bill_ref ? `Bill/Ref: ${data.bill_ref}` : null,
+          internal_notes: data.internal_notes ?? null,
         })
         .eq("id", orderId);
 

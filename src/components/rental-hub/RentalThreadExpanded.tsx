@@ -15,11 +15,18 @@
  * Mirrors `MaterialThreadExpanded` in src/components/material-hub/.
  */
 
-import { Box, Tooltip, Typography } from "@mui/material";
+import { useState } from "react";
+import { Box, Button, Tooltip, Typography } from "@mui/material";
 import CheckIcon from "@mui/icons-material/Check";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import ImageIcon from "@mui/icons-material/Image";
 import DescriptionIcon from "@mui/icons-material/Description";
+import EditIcon from "@mui/icons-material/Edit";
+import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
+import HistoricalRentalDialog from "@/components/rentals/HistoricalRentalDialog";
+import { SettlementSyncDialog } from "@/components/rentals/SettlementSyncDialog";
+import { RentalSettlementEditDialog } from "@/components/rentals/RentalSettlementEditDialog";
+import type { RentalSettlement } from "@/types/rental.types";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { inr, fmtDateShort } from "@/lib/material-hub/formatters";
 import { stageIndex, visibleStageForThread } from "@/lib/rental-hub/stageHelpers";
@@ -363,6 +370,51 @@ export default function RentalThreadExpanded({ thread }: RentalThreadExpandedPro
   const stage = visibleStageForThread(t);
   const idx = stageIndex(stage);
 
+  const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [amendmentOpen, setAmendmentOpen] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [correctedTotal, setCorrectedTotal] = useState(0);
+  const [editingSettlement, setEditingSettlement] = useState<RentalSettlement | null>(null);
+
+  // Shape the hub settlement type into the full RentalSettlement shape needed by edit dialog
+  function vendorSettlementForEdit(): RentalSettlement | null {
+    const s = t.settlements.vendor;
+    if (!s) return null;
+    return {
+      id: s.id,
+      rental_order_id: t.source_row_id,
+      party_type: "vendor" as any,
+      party_name: null,
+      settlement_date: s.settledAt,
+      settlement_reference: s.reference ?? null,
+      total_rental_amount: s.rentalAmount,
+      total_transport_amount: s.transportAmount,
+      total_damage_amount: s.damageAmount,
+      negotiated_final_amount: s.negotiatedFinalAmount,
+      total_advance_paid: s.totalAdvancePaid,
+      balance_amount: s.balanceAmount,
+      payment_mode: s.paymentMode,
+      payment_channel: null,
+      payer_source: s.payerSource as any,
+      payer_name: null,
+      payer_source_split: null,
+      vendor_bill_url: s.vendorBillUrl,
+      final_receipt_url: s.finalReceiptUrl,
+      upi_screenshot_url: s.upiScreenshotUrl,
+      subcontract_id: null,
+      engineer_transaction_id: null,
+      settlement_group_id: null,
+      notes: null,
+      settled_by: s.settledBy,
+      settled_by_name: null,
+      created_at: s.settledAt,
+      updated_at: s.settledAt,
+    } as RentalSettlement;
+  }
+
+  const isCompletedHistorical = t.isHistorical && t.status === "completed";
+  const isCompletedLive = !t.isHistorical && t.status === "completed";
+
   // Block completion flags (per 5-stage pipeline)
   const hasRequest = true;
   const hasConfirm = idx >= 1 || t.effective_status === "settled";
@@ -418,7 +470,59 @@ export default function RentalThreadExpanded({ thread }: RentalThreadExpandedPro
     >
       {/* 1. Request */}
       <Box>
-        <BlockHeader title="Request" complete={hasRequest} />
+        <BlockHeader
+          title="Request"
+          complete={hasRequest}
+          action={
+            isCompletedHistorical ? (
+              <Tooltip title="Fix mistakes in items, rates, or dates for this historical record">
+                <Button
+                  size="small"
+                  startIcon={<EditIcon sx={{ fontSize: 11 }} />}
+                  onClick={() => setCorrectionOpen(true)}
+                  sx={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: "#b45309",
+                    background: "#fef3c7",
+                    border: "1px solid #fcd34d",
+                    borderRadius: "6px",
+                    px: 1,
+                    py: 0.25,
+                    minHeight: 0,
+                    lineHeight: 1.4,
+                    "&:hover": { background: "#fde68a" },
+                  }}
+                >
+                  Correct Entry
+                </Button>
+              </Tooltip>
+            ) : isCompletedLive ? (
+              <Tooltip title="Add missed items via a linked amendment order">
+                <Button
+                  size="small"
+                  startIcon={<AddCircleOutlineIcon sx={{ fontSize: 11 }} />}
+                  onClick={() => setAmendmentOpen(true)}
+                  sx={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: "#1d4ed8",
+                    background: "#eff6ff",
+                    border: "1px solid #bfdbfe",
+                    borderRadius: "6px",
+                    px: 1,
+                    py: 0.25,
+                    minHeight: 0,
+                    lineHeight: 1.4,
+                    "&:hover": { background: "#dbeafe" },
+                  }}
+                >
+                  Create Amendment
+                </Button>
+              </Tooltip>
+            ) : undefined
+          }
+        />
         <Box
           sx={{
             background: hubTokens.card,
@@ -883,6 +987,52 @@ export default function RentalThreadExpanded({ thread }: RentalThreadExpandedPro
           )}
         </Box>
       </Box>
+
+      {/* Correction / Amendment dialogs */}
+      <HistoricalRentalDialog
+        open={correctionOpen}
+        onClose={() => setCorrectionOpen(false)}
+        siteId={t.site_id}
+        orderId={t.source_row_id}
+        correctionMode
+        onSaveSuccess={(newTotal) => {
+          const oldTotal = t.settlements.vendor?.rentalAmount ?? 0;
+          setCorrectedTotal(newTotal);
+          if (Math.abs(newTotal - oldTotal) > 1 && t.settlements.vendor) {
+            setSyncOpen(true);
+          }
+        }}
+      />
+
+      <HistoricalRentalDialog
+        open={amendmentOpen}
+        onClose={() => setAmendmentOpen(false)}
+        siteId={t.site_id}
+        amendmentOfOrderId={t.source_row_id}
+      />
+
+      {syncOpen && (
+        <SettlementSyncDialog
+          open={syncOpen}
+          onClose={() => setSyncOpen(false)}
+          settlement={{ ...(vendorSettlementForEdit()!), total_rental_amount: t.settlements.vendor?.rentalAmount ?? 0 }}
+          newTotal={correctedTotal}
+          onUpdateSettlement={() => {
+            const shaped = vendorSettlementForEdit();
+            if (shaped) setEditingSettlement(shaped);
+          }}
+        />
+      )}
+
+      {editingSettlement && (
+        <RentalSettlementEditDialog
+          open={!!editingSettlement}
+          onClose={() => setEditingSettlement(null)}
+          settlement={editingSettlement}
+          siteId={t.site_id}
+          orderId={t.source_row_id}
+        />
+      )}
 
       {/* 5. Settlement */}
       <Box sx={{ gridColumn: { xs: "auto", md: "span 2" } }}>

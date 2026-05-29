@@ -81,6 +81,12 @@ interface HistoricalRentalDialogProps {
   siteId: string;
   /** When set, dialog opens in edit mode pre-filled from this order */
   orderId?: string | null;
+  /** When true, shows a required correction-reason field and stamps internal_notes */
+  correctionMode?: boolean;
+  /** Called after a successful save with the new calculated rental total */
+  onSaveSuccess?: (newTotal: number) => void;
+  /** When set, the new order will be linked as an amendment to this order */
+  amendmentOfOrderId?: string;
 }
 
 type PaymentMode = "cash" | "upi" | "bank_transfer" | "cheque";
@@ -196,6 +202,9 @@ export default function HistoricalRentalDialog({
   onClose,
   siteId,
   orderId,
+  correctionMode = false,
+  onSaveSuccess,
+  amendmentOfOrderId,
 }: HistoricalRentalDialogProps) {
   const isMobile = useIsMobile();
   const { userProfile } = useAuth();
@@ -265,6 +274,7 @@ export default function HistoricalRentalDialog({
   });
 
   const [error, setError] = useState<string | null>(null);
+  const [correctionReason, setCorrectionReason] = useState("");
 
   // Pre-fill from existing order when in edit mode
   useEffect(() => {
@@ -398,6 +408,7 @@ export default function HistoricalRentalDialog({
     setOutDriverSettleMode("cash");
     setOutPayer({ mode: "single", source: "own_money" });
     setError(null);
+    setCorrectionReason("");
   }
 
   function handleClose() {
@@ -459,6 +470,9 @@ export default function HistoricalRentalDialog({
 
   function buildFormData(): Parameters<typeof createHistorical.mutateAsync>[0] {
     const parsedTotal = parseFloat(rentalTotal);
+    const internalNotes = correctionMode && correctionReason.trim()
+      ? `[CORRECTION ${dayjs().format("YYYY-MM-DD")}: ${correctionReason.trim()}]`
+      : undefined;
     return {
       site_id: siteId,
       vendor_id: vendorId!,
@@ -472,6 +486,8 @@ export default function HistoricalRentalDialog({
       inbound_transport: inboundEnabled ? inbound : undefined,
       outbound_transport: outboundEnabled ? outbound : undefined,
       advances,
+      internal_notes: internalNotes,
+      parent_order_id: amendmentOfOrderId ?? undefined,
     };
   }
 
@@ -479,6 +495,8 @@ export default function HistoricalRentalDialog({
     setError(null);
 
     if (!vendorId) return setError("Please select a vendor.");
+    if (correctionMode && isEditMode && !isDraftOrder && !correctionReason.trim())
+      return setError("Please enter a reason for this correction.");
     if (!asDraft) {
       if (!startDate) return setError("Please enter start date.");
       if (!endDate) return setError("Please enter end date.");
@@ -607,6 +625,8 @@ export default function HistoricalRentalDialog({
             : undefined,
         });
       }
+      const savedTotal = parseFloat(rentalTotal) || 0;
+      onSaveSuccess?.(savedTotal);
       handleClose();
     } catch (err: any) {
       setError(err.message ?? "Failed to save. Please try again.");
@@ -638,7 +658,13 @@ export default function HistoricalRentalDialog({
     >
       <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1, pr: 6 }}>
         <HistoryIcon color="action" />
-        {isEditMode ? "Edit Historical Rental Record" : "Add Historical Rental Record"}
+        {correctionMode && isEditMode
+          ? "Correct Historical Rental Record"
+          : amendmentOfOrderId
+            ? "Create Amendment Order"
+            : isEditMode
+              ? "Edit Historical Rental Record"
+              : "Add Historical Rental Record"}
         <IconButton
           onClick={handleClose}
           disabled={isBusy}
@@ -659,6 +685,29 @@ export default function HistoricalRentalDialog({
           {error && (
             <Grid size={12}>
               <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>
+            </Grid>
+          )}
+
+          {correctionMode && isEditMode && !isDraftOrder && (
+            <Grid size={12}>
+              <Alert severity="warning" variant="outlined" sx={{ mb: 0 }}>
+                You are correcting a settled record. The existing settlement amount may need updating after saving.
+              </Alert>
+            </Grid>
+          )}
+
+          {correctionMode && isEditMode && !isDraftOrder && (
+            <Grid size={12}>
+              <TextField
+                fullWidth
+                required
+                label="Reason for correction"
+                placeholder="e.g. Missed 2 sandhu satti items"
+                value={correctionReason}
+                onChange={(e) => setCorrectionReason(e.target.value)}
+                inputProps={{ maxLength: 200 }}
+                helperText="Recorded in audit trail for this order"
+              />
             </Grid>
           )}
 

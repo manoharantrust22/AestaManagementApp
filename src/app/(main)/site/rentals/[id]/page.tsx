@@ -36,6 +36,7 @@ import {
   Edit as EditIcon,
   DeleteOutline as DeleteIcon,
   History as HistoryIcon,
+  AddCircleOutline as AmendIcon,
 } from "@mui/icons-material";
 import PageHeader from "@/components/layout/PageHeader";
 import { useSite } from "@/contexts/SiteContext";
@@ -54,6 +55,7 @@ import {
 import { MultiPartySettlementDialog } from "@/components/rentals/MultiPartySettlementDialog";
 import { RentalSettlementEditDialog } from "@/components/rentals/RentalSettlementEditDialog";
 import HistoricalRentalDialog from "@/components/rentals/HistoricalRentalDialog";
+import { SettlementSyncDialog } from "@/components/rentals/SettlementSyncDialog";
 import RentalSettleViaWallet from "@/components/rentals/RentalSettleViaWallet";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCurrentUserWalletEnabled } from "@/hooks/queries/useEngineerWalletV2";
@@ -97,6 +99,10 @@ export default function RentalOrderDetailsPage() {
   const [selectedItem, setSelectedItem] = useState<RentalOrderItemWithDetails | undefined>();
   const [deletingAdvanceId, setDeletingAdvanceId] = useState<string | null>(null);
   const [historicalDialogOpen, setHistoricalDialogOpen] = useState(false);
+  const [correctionDialogOpen, setCorrectionDialogOpen] = useState(false);
+  const [amendmentDialogOpen, setAmendmentDialogOpen] = useState(false);
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [correctedTotal, setCorrectedTotal] = useState<number>(0);
   const deleteAdvance = useDeleteRentalAdvance();
 
   const handleRecordReturn = (item?: RentalOrderItemWithDetails) => {
@@ -198,6 +204,29 @@ export default function RentalOrderDetailsPage() {
               >
                 Complete Record
               </Button>
+            )}
+            {isHistorical && order.status === "completed" && (
+              <Tooltip title="Fix mistakes in this historical record (items, rates, dates)">
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  startIcon={<EditIcon />}
+                  onClick={() => setCorrectionDialogOpen(true)}
+                >
+                  Correct Entry
+                </Button>
+              </Tooltip>
+            )}
+            {!isHistorical && order.status === "completed" && (
+              <Tooltip title="Add missed items or fix quantities via a linked amendment order">
+                <Button
+                  variant="outlined"
+                  startIcon={<AmendIcon />}
+                  onClick={() => setAmendmentDialogOpen(true)}
+                >
+                  Create Amendment
+                </Button>
+              </Tooltip>
             )}
             {!isHistorical && order.status === "completed" && (
               <Button
@@ -895,6 +924,44 @@ export default function RentalOrderDetailsPage() {
         onClose={() => setHistoricalDialogOpen(false)}
         siteId={order.site_id}
         orderId={order.id}
+      />
+
+      {/* Correction dialog — for completed historical orders */}
+      <HistoricalRentalDialog
+        open={correctionDialogOpen}
+        onClose={() => setCorrectionDialogOpen(false)}
+        siteId={order.site_id}
+        orderId={order.id}
+        correctionMode
+        onSaveSuccess={(newTotal) => {
+          setCorrectedTotal(newTotal);
+          const vendorSettlement = settlements.find((s: any) => s.party_type === "vendor") ?? settlements[0];
+          if (vendorSettlement) {
+            const oldTotal = (vendorSettlement as any).total_rental_amount ?? 0;
+            if (Math.abs(newTotal - oldTotal) > 1) {
+              setSyncDialogOpen(true);
+            }
+          }
+        }}
+      />
+
+      {/* Settlement sync dialog — shown when correction changes the total */}
+      {syncDialogOpen && settlement && (
+        <SettlementSyncDialog
+          open={syncDialogOpen}
+          onClose={() => setSyncDialogOpen(false)}
+          settlement={settlement as any}
+          newTotal={correctedTotal}
+          onUpdateSettlement={() => setEditingSettlement(settlement as any)}
+        />
+      )}
+
+      {/* Amendment dialog — for completed live orders */}
+      <HistoricalRentalDialog
+        open={amendmentDialogOpen}
+        onClose={() => setAmendmentDialogOpen(false)}
+        siteId={order.site_id}
+        amendmentOfOrderId={order.id}
       />
     </Box>
   );

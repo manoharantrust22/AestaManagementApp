@@ -705,4 +705,6 @@ export interface HistoricalRentalFormData {
   inbound_driver_settlement?: HistoricalSettlementFormData;   // only when inbound paid_to = "driver"
   outbound_driver_settlement?: HistoricalSettlementFormData;  // only when outbound paid_to = "driver"
   status?: "draft" | "completed";
+  internal_notes?: string;     // correction audit trail: "[CORRECTION date: reason]"
+  parent_order_id?: string;    // amendment orders link back to the original
 }
