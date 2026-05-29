@@ -1119,7 +1119,7 @@ After `const week = weeks?.find(...)` is computed and before the `return`, deriv
   const { data: proofFlags } = useSettlementProofFlags(refList, entity.siteId);
 ```
 
-> Hook-order note: `useSettlementProofFlags` must be called unconditionally on every render of this component. The existing early returns (`isError`, `isLoading`, `!week`) happen BEFORE this point, which would violate the rules of hooks. Move the `useSettlementProofFlags` call up to directly after the `useSalaryWaterfall` call (top of the component), computing `refList` from `weeks` defensively:
+> Hook-order note: `useSettlementProofFlags` must be called unconditionally on every render of this component. The existing early returns (`isLoading`, then `!week`) happen BEFORE this point, which would violate the rules of hooks. Move the `useSettlementProofFlags` call up to directly after the `useSalaryWaterfall` call (top of the component), computing `refList` from `weeks` defensively:
 >
 > ```tsx
 > const refList =
@@ -1162,7 +1162,7 @@ In the `week.filledBy.map(...)` ref button (the `<Box component="button" ...>{f.
                   </Box>
 ```
 
-Make the embedded detail dialog editable (the `<SettlementRefDetailDialog .../>` around line 481):
+Make the embedded detail dialog editable (the `<SettlementRefDetailDialog .../>` in `WeeklyAggregateSettlement`, ~line 467 — locate by content):
 
 ```tsx
       <SettlementRefDetailDialog
@@ -1199,7 +1199,7 @@ function DailyMarketWeeklySettlement({
 }) {
 ```
 
-The `byDate` grouping produces `dates` with `refs: Set<string>`. Collect all refs and fetch flags. Add this immediately after the `usePaymentsLedger({...})` call (before the `if (isError)` return — unconditional for hook order):
+The `byDate` grouping produces `dates` with `refs: Set<string>`. Collect all refs and fetch flags. Add this immediately after the `usePaymentsLedger({...})` destructure (before the `if (isLoading)` early return — must be unconditional for hook order):
 
 ```tsx
   const allRefs = Array.from(
@@ -1244,7 +1244,7 @@ In the per-date ref chips (the `refs.map((ref) => ( <Box component="button" ...>
                   ))
 ```
 
-Find this component's embedded `<SettlementRefDetailDialog .../>` (it mounts one the same way `WeeklyAggregateSettlement` does — search for `SettlementRefDetailDialog` within `DailyMarketWeeklySettlement`, after line 732) and make it editable with the same four added props as in Step 4:
+Find this component's embedded `<SettlementRefDetailDialog .../>` (it mounts one the same way `WeeklyAggregateSettlement` does — ~line 725, locate by content within `DailyMarketWeeklySettlement`) and make it editable with the same four added props as in Step 4:
 
 ```tsx
       <SettlementRefDetailDialog
