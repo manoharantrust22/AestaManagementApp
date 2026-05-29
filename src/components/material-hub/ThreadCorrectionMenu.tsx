@@ -20,6 +20,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Box,
   Menu,
@@ -45,12 +46,16 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   useDeleteMaterialRequestCascade,
   useRevertLinkedPOsToDraft,
+  useMaterialRequest,
 } from "@/hooks/queries/useMaterialRequests";
 import {
   useCancelPurchaseOrder,
   useDeletePurchaseOrderCascade,
   useReverseDelivery,
+  usePurchaseOrder,
 } from "@/hooks/queries/usePurchaseOrders";
+import MaterialRequestDialog from "@/components/materials/MaterialRequestDialog";
+import UnifiedPurchaseOrderDialog from "@/components/materials/UnifiedPurchaseOrderDialog";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 
 export type CorrectionSection = "request" | "po" | "delivery" | "settlement";
@@ -76,6 +81,7 @@ export default function ThreadCorrectionMenu({
 }: ThreadCorrectionMenuProps) {
   const router = useRouter();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const deleteRequestCascade = useDeleteMaterialRequestCascade();
   const revertLinkedPOs = useRevertLinkedPOsToDraft();
@@ -87,15 +93,34 @@ export default function ThreadCorrectionMenu({
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  if (!canEdit) return null;
+  const [editRequestOpen, setEditRequestOpen] = useState(false);
+  const [editPOOpen, setEditPOOpen] = useState(false);
 
   const open = Boolean(anchorEl);
-  const closeMenu = () => setAnchorEl(null);
   const siteId = t.site_id;
   const requestId = t.source === "material_request" ? t.source_row_id : null;
   const poId = t.po?.id ?? null;
   const deliveryBatches = t.po?.delivery_batches ?? [];
+
+  // Lazily fetch the full record only while its edit dialog is open (the
+  // dialogs don't self-fetch). open is gated on the data so the dialog never
+  // flashes its "create" mode before edit data arrives.
+  const { data: requestForEdit } = useMaterialRequest(
+    editRequestOpen && requestId ? requestId : undefined
+  );
+  const { data: poForEdit } = usePurchaseOrder(
+    editPOOpen && poId ? poId : undefined
+  );
+
+  // After an inline edit, refresh the Hub threads (the dialogs invalidate their
+  // own request/PO caches but not the composed thread view).
+  const refreshHub = () => {
+    queryClient.invalidateQueries({ queryKey: ["material-threads"] });
+  };
+
+  if (!canEdit) return null;
+
+  const closeMenu = () => setAnchorEl(null);
 
   const ask = (a: PendingAction) => {
     setError(null);
@@ -125,13 +150,12 @@ export default function ThreadCorrectionMenu({
       <MenuItem
         key="edit-req"
         onClick={() => {
+          setEditRequestOpen(true);
           closeMenu();
-          router.push(`/site/material-requests?focus=${encodeURIComponent(requestId)}`);
         }}
       >
         <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
         <ListItemText>Edit request</ListItemText>
-        <OpenInNewIcon sx={{ fontSize: 13, color: hubTokens.subtle, ml: 1 }} />
       </MenuItem>
     );
     if (t.po) {
@@ -183,13 +207,12 @@ export default function ThreadCorrectionMenu({
       <MenuItem
         key="edit-po"
         onClick={() => {
+          setEditPOOpen(true);
           closeMenu();
-          router.push(`/site/purchase-orders?focus=${encodeURIComponent(poId)}`);
         }}
       >
         <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
         <ListItemText>Edit PO</ListItemText>
-        <OpenInNewIcon sx={{ fontSize: 13, color: hubTokens.subtle, ml: 1 }} />
       </MenuItem>
     );
     items.push(
@@ -354,6 +377,33 @@ export default function ThreadCorrectionMenu({
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Inline edit dialogs — reuse the same forms as the v1 pages. open is
+          gated on the loaded record so the dialog opens straight into edit
+          mode (never flashes "create"). */}
+      {requestId && (
+        <MaterialRequestDialog
+          open={editRequestOpen && !!requestForEdit}
+          onClose={() => {
+            setEditRequestOpen(false);
+            refreshHub();
+          }}
+          request={requestForEdit ?? null}
+          siteId={siteId}
+        />
+      )}
+      {poId && (
+        <UnifiedPurchaseOrderDialog
+          open={editPOOpen && !!poForEdit}
+          onClose={() => {
+            setEditPOOpen(false);
+            refreshHub();
+          }}
+          purchaseOrder={poForEdit ?? null}
+          siteId={siteId}
+          onSuccess={() => refreshHub()}
+        />
+      )}
     </>
   );
 }
