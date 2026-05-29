@@ -26,6 +26,9 @@ interface ScreenshotViewerProps {
   images: string[];
   initialIndex?: number;
   title?: string;
+  /** Override the modal's stacking context. Needed when the host pane runs in
+   *  fullscreen (z-index 1400) — without this the lightbox renders underneath. */
+  zIndex?: number;
 }
 
 export default function ScreenshotViewer({
@@ -34,6 +37,7 @@ export default function ScreenshotViewer({
   images,
   initialIndex = 0,
   title,
+  zIndex,
 }: ScreenshotViewerProps) {
   const theme = useTheme();
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
@@ -123,6 +127,7 @@ export default function ScreenshotViewer({
       onClose={onClose}
       maxWidth={false}
       fullWidth
+      sx={zIndex !== undefined ? { zIndex } : undefined}
       PaperProps={{
         sx: {
           bgcolor: "transparent",
