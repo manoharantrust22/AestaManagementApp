@@ -28,6 +28,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Dialog,
@@ -561,13 +562,94 @@ export default function CreateRentalV2Dialog({
                   <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems="center">
                     {/* Item picker / name */}
                     {isHistorical ? (
-                      <TextField
-                        label="Item name"
-                        value={row.itemNameOverride}
-                        onChange={(e) => updateItem(idx, { itemNameOverride: e.target.value })}
+                      <Autocomplete
+                        freeSolo
                         fullWidth
                         size="small"
-                        required
+                        options={catalogItems}
+                        clearOnBlur={false}
+                        selectOnFocus
+                        handleHomeEndKeys
+                        slotProps={{ popper: { disablePortal: false } }}
+                        getOptionLabel={(option) =>
+                          typeof option === "string" ? option : option.name
+                        }
+                        inputValue={row.itemNameOverride}
+                        onInputChange={(_, newInput, reason) => {
+                          // Free-typing or clearing: keep the name; selection is
+                          // handled in onChange (reason "reset") so we skip it here.
+                          if (reason === "input" || reason === "clear") {
+                            updateItem(idx, {
+                              itemNameOverride: newInput,
+                              rentalItemId: "",
+                            });
+                          }
+                        }}
+                        onChange={(_, value) => {
+                          if (value && typeof value !== "string") {
+                            // Catalog item picked → link id + auto-fill rate/type.
+                            updateItem(idx, {
+                              itemNameOverride: value.name,
+                              rentalItemId: value.id,
+                              dailyRate:
+                                value.default_daily_rate ?? row.dailyRate,
+                              rateType:
+                                value.rate_type === "hourly" ? "hourly" : "daily",
+                            });
+                          } else if (typeof value === "string") {
+                            updateItem(idx, {
+                              itemNameOverride: value,
+                              rentalItemId: "",
+                            });
+                          }
+                        }}
+                        renderOption={(props, option) => {
+                          // MUI v7 carries `key` inside props — pull it out so it
+                          // isn't spread (which drops it and triggers a key warning).
+                          const { key, ...liProps } = props;
+                          return (
+                            <Box
+                              component="li"
+                              key={key}
+                              {...liProps}
+                              sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}
+                            >
+                              <span>
+                                {option.name}
+                                {option.unit ? (
+                                  <Box
+                                    component="span"
+                                    sx={{ color: hubTokens.muted, fontSize: 11, ml: 0.5 }}
+                                  >
+                                    ({option.unit})
+                                  </Box>
+                                ) : null}
+                              </span>
+                              {option.default_daily_rate != null && (
+                                <Box
+                                  component="span"
+                                  sx={{
+                                    ml: "auto",
+                                    color: hubTokens.muted,
+                                    fontSize: 11,
+                                    fontFamily: hubTokens.mono,
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {inr(option.default_daily_rate)}/day
+                                </Box>
+                              )}
+                            </Box>
+                          );
+                        }}
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            label="Item name"
+                            placeholder="Search catalog or type a name"
+                            required
+                          />
+                        )}
                       />
                     ) : (
                       <FormControl size="small" fullWidth required>
