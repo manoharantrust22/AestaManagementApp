@@ -15,7 +15,7 @@
  * read-only — mirroring BatchUsageHistoryTab.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Box,
   Typography,
@@ -99,6 +99,37 @@ export default function UsageLogList({
     deletePool.isPending;
 
   const unit = item?.material_unit ?? "";
+
+  const variantLabel = (r: UsageLogRow) =>
+    `${r.material_name ?? item?.material_name ?? "—"}${r.brand_name ? ` · ${r.brand_name}` : ""}`;
+
+  // Per-site × per-variant rollup: answers "how much of each size did each
+  // site use" — the cross-tab the inventory card (per-variant) and inter-site
+  // block (per-site) each only show one axis of. Only worth showing when there
+  // is more than one size or more than one site to break down.
+  const summary = useMemo(() => {
+    const bySite = new Map<string, Map<string, number>>();
+    for (const r of rows) {
+      const site = r.usage_site_name ?? "This site";
+      const variant = variantLabel(r);
+      if (!bySite.has(site)) bySite.set(site, new Map());
+      const m = bySite.get(site)!;
+      m.set(variant, (m.get(variant) ?? 0) + r.quantity);
+    }
+    return Array.from(bySite.entries()).map(([site, variants]) => ({
+      site,
+      total: Array.from(variants.values()).reduce((s, n) => s + n, 0),
+      variants: Array.from(variants.entries()).map(([name, qty]) => ({ name, qty })),
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
+
+  const distinctVariants = useMemo(
+    () => new Set(rows.map((r) => variantLabel(r))).size,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows]
+  );
+  const showSummary = rows.length > 0 && (distinctVariants > 1 || summary.length > 1);
 
   // A row is editable when canEdit, not locked, and (for group) used at the
   // current site — matching BatchUsageHistoryTab's per-site gate.
@@ -212,6 +243,64 @@ export default function UsageLogList({
         </Box>
       )}
 
+      {/* Per-site × per-size rollup */}
+      {showSummary && (
+        <Box
+          sx={{
+            mb: 1,
+            p: 1,
+            borderRadius: "8px",
+            background: hubTokens.hairline,
+            display: "flex",
+            flexDirection: "column",
+            gap: 0.75,
+          }}
+        >
+          <Typography
+            sx={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.4px",
+              textTransform: "uppercase",
+              color: hubTokens.subtle,
+            }}
+          >
+            Used by site &amp; size
+          </Typography>
+          {summary.map((s) => (
+            <Box key={s.site}>
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "baseline",
+                }}
+              >
+                <Typography sx={{ fontSize: 12, fontWeight: 700, color: hubTokens.text }}>
+                  {s.site}
+                </Typography>
+                <Typography sx={{ fontSize: 11, color: hubTokens.muted, fontFamily: hubTokens.mono }}>
+                  {fmtQty(s.total, unit)}
+                </Typography>
+              </Box>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: "4px 10px", pl: 1, mt: 0.25 }}>
+                {s.variants.map((v) => (
+                  <Box
+                    key={v.name}
+                    sx={{ display: "flex", gap: "5px", alignItems: "baseline", fontSize: 11.5 }}
+                  >
+                    <Box component="span" sx={{ color: hubTokens.muted }}>{v.name}</Box>
+                    <Box component="span" sx={{ fontWeight: 700, color: hubTokens.text, fontFamily: hubTokens.mono }}>
+                      {fmtQty(v.qty, unit)}
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          ))}
+        </Box>
+      )}
+
       <Box sx={{ display: "flex", flexDirection: "column" }}>
         {rows.map((r) => {
           const locked = rowIsLocked(r);
@@ -239,6 +328,12 @@ export default function UsageLogList({
                 >
                   <Typography sx={{ fontSize: 13, fontWeight: 700, color: hubTokens.text }}>
                     {fmtQty(r.quantity, r.unit || unit)}
+                    <Box
+                      component="span"
+                      sx={{ fontSize: 11.5, fontWeight: 500, color: hubTokens.muted, ml: 0.75 }}
+                    >
+                      {variantLabel(r)}
+                    </Box>
                   </Typography>
                   <Typography sx={{ fontSize: 11.5, color: hubTokens.muted, whiteSpace: "nowrap" }}>
                     {formatDate(r.usage_date)}

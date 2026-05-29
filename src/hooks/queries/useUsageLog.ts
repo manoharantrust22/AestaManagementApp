@@ -94,7 +94,7 @@ export function useUsageLog(
              brand_id, usage_site_id, created_by,
              usage_site:sites!batch_usage_records_usage_site_id_fkey(id, name),
              material:materials!batch_usage_records_material_id_fkey(name, unit),
-             brand:brands!batch_usage_records_brand_id_fkey(brand_name)`
+             brand:material_brands!batch_usage_records_brand_id_fkey(brand_name)`
           )
           .eq("batch_ref_code", item.batch_code)
           .order("usage_date", { ascending: false });
