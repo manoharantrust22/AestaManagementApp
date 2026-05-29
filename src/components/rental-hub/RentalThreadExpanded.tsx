@@ -415,6 +415,22 @@ export default function RentalThreadExpanded({ thread }: RentalThreadExpandedPro
   const isCompletedHistorical = t.isHistorical && t.status === "completed";
   const isCompletedLive = !t.isHistorical && t.status === "completed";
 
+  // For terminal orders, show actual rental duration (start → return date).
+  // daysSinceStart counts to today, which bloats the display for old completed orders.
+  const isTerminalOrder = t.status === "completed" || t.status === "cancelled";
+  const displayDays = (() => {
+    if (isTerminalOrder) {
+      const endRef = t.actualEnd ?? t.expectedEnd;
+      if (!endRef || !t.expectedStart) return t.daysSinceStart;
+      const diffDays = Math.ceil(
+        (new Date(endRef).getTime() - new Date(t.expectedStart).getTime()) /
+          (1000 * 60 * 60 * 24)
+      );
+      return Math.max(1, t.excludeStartDate ? diffDays : diffDays + 1);
+    }
+    return t.daysSinceStart;
+  })();
+
   // Block completion flags (per 5-stage pipeline)
   const hasRequest = true;
   const hasConfirm = idx >= 1 || t.effective_status === "settled";
@@ -726,8 +742,8 @@ export default function RentalThreadExpanded({ thread }: RentalThreadExpandedPro
           {hasActive ? (
             <>
               <DetailRow
-                label="Days elapsed"
-                value={`${t.daysSinceStart}d`}
+                label={isTerminalOrder ? "Rental days" : "Days elapsed"}
+                value={`${displayDays}d`}
                 emphasis
               />
               {burn > 0 &&
