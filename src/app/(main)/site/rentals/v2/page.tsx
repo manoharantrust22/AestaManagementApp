@@ -84,9 +84,8 @@ function filterThreads(
 
 export default function RentalHubV2Page() {
   const { selectedSite } = useSelectedSite();
-  const { threads, rentalOrderById, isLoading, isError, error } = useRentalThreads(
-    selectedSite?.id,
-  );
+  const { threads, rentalOrderById, isLoading, isError, error, refetch } =
+    useRentalThreads(selectedSite?.id);
 
   const [filter, setFilter] = useState<RentalFilterKey>("active");
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -142,7 +141,15 @@ export default function RentalHubV2Page() {
       )}
 
       {isError && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert
+          severity="error"
+          sx={{ mb: 2 }}
+          action={
+            <Button color="inherit" size="small" onClick={() => refetch()}>
+              Retry
+            </Button>
+          }
+        >
           Failed to load rentals: {String((error as Error)?.message ?? error)}
         </Alert>
       )}

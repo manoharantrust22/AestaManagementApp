@@ -181,14 +181,27 @@ export default function QueryProvider({
         //   The Cloudflare proxy + browser per-host connection-pool can land
         //   in a state where 6 sockets to aestabuilders.workers.dev are all
         //   in CLOSE_WAIT / half-open after a network hiccup. New REST/RPC
-        //   queries queue behind those dead sockets and time out at 30s
+        //   queries queue behind those dead sockets and time out
         //   (wrapQueryFn). Hard refresh tears down the pool — that's why
         //   "browser refresh fixes it" was the only known recovery. This
-        //   handler reproduces that recovery in-place: cancel the in-flight
-        //   queries (so the dead sockets are released), then invalidate the
+        //   handler reproduces that recovery in-place: heal the connection
+        //   pool (canary + WS eviction + REST warm-up), then invalidate the
         //   active queries so RQ kicks off fresh fetches that open NEW
         //   sockets. Debounced so a burst of simultaneous timeouts on the
         //   same dashboard only runs recovery once.
+        //
+        //   We deliberately do NOT cancelQueries() here. cancelQueries aborts
+        //   EVERY in-flight query app-wide — including innocent ones that just
+        //   mounted on the page the user navigated to (e.g. the Rental Hub's
+        //   ["rentals","orders",…] load). A cancelled query reverts to pending
+        //   instead of erroring, so the consuming page is stranded on its
+        //   loading state forever (it never reaches isError), and any query
+        //   restored-from-persist as pending then logs "dehydrated as pending
+        //   ended up rejecting" with a CancelledError. The timed-out query has
+        //   ALREADY rejected (that's what got us here) and retries on its own;
+        //   healing the pool first means that retry lands on a fresh socket.
+        //   Mirrors the earlier cancelQueries() removal from sessionManager's
+        //   idle-wake path.
         if (isTimeoutError(error) && clientRef.current) {
           const now = Date.now();
           if (now - _lastTimeoutRecoveryAt < TIMEOUT_RECOVERY_DEBOUNCE_MS) {
@@ -218,21 +231,17 @@ export default function QueryProvider({
             `— recovery cycle ${_timeoutRecoveryStreak}/${MAX_TIMEOUT_RECOVERY_CYCLES}`
           );
 
-          try {
-            await clientRef.current.cancelQueries();
-          } catch (err) {
-            console.warn("[QueryCache] cancelQueries threw during recovery:", err);
-          }
-          // Escalate: actually heal the pool (canary + realtime WS eviction +
-          // REST warm-up) BEFORE refetching, so a genuinely dead pool gets
-          // cycled instead of re-hammered. A bare invalidate cannot evict the
-          // browser's half-open sockets; this can.
+          // Heal the pool (canary + realtime WS eviction + REST warm-up)
+          // BEFORE refetching, so a genuinely dead pool gets cycled instead of
+          // re-hammered. A bare invalidate cannot evict the browser's half-open
+          // sockets; this can. (No cancelQueries — see the note above.)
           try {
             await healConnectionPoolNow();
           } catch (err) {
             console.warn("[QueryCache] healConnectionPoolNow threw:", err);
           }
-          // Small delay so cancellation propagates before refetch fires.
+          // Small delay so the heal's fresh sockets are established before the
+          // refetch fires onto them.
           setTimeout(() => {
             clientRef.current?.invalidateQueries({ refetchType: "active" });
           }, 500);
@@ -466,9 +475,17 @@ export default function QueryProvider({
         maxAge: 24 * 60 * 60 * 1000, // 24 hours max age for persisted data
         buster: "v3", // Bumped after Cloudflare proxy migration to invalidate old cache
         dehydrateOptions: {
-          shouldDehydrateQuery: (query) => {
-            return shouldPersistQuery(query.queryKey);
-          },
+          // Only persist SETTLED (successful) queries. React Query's default is
+          // `status === 'success'`; our custom predicate dropped that guard and
+          // keyed off the query key alone — so an in-flight query captured at a
+          // throttled-persist tick got serialized as `pending`. On the next
+          // load it restored as pending and, the moment its fetch rejected
+          // (e.g. a post-idle timeout/cancel), RQ logged "A query that was
+          // dehydrated as pending ended up rejecting". Gate on success status
+          // so only real cached data is ever restored.
+          shouldDehydrateQuery: (query) =>
+            query.state.status === "success" &&
+            shouldPersistQuery(query.queryKey),
         },
       }}
       onSuccess={() => {

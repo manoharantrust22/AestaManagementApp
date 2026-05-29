@@ -495,7 +495,7 @@ export function useRentalOrders(
         `
         )
         .eq("site_id", siteId)
-        .order("created_at", { ascending: false });
+        .order("start_date", { ascending: false });
 
       if (filters?.status && filters.status !== "all") {
         query = query.eq("status", filters.status as any);
@@ -2251,6 +2251,9 @@ export function useCreateHistoricalRental() {
             payer_source: sett.payer_source,
             payer_name: sett.payer_name ?? null,
             payer_source_split: sett.payer_source_split ?? null,
+            upi_screenshot_url: sett.upi_screenshot_url ?? null,
+            vendor_bill_url: sett.bill_url ?? null,
+            subcontract_id: sett.subcontract_id ?? null,
           });
 
         if (settErr) throw new Error(`Failed to create settlement: ${settErr.message}`);

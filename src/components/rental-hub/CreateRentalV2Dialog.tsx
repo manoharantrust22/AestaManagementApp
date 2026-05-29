@@ -31,6 +31,7 @@ import {
   Autocomplete,
   Box,
   Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -56,6 +57,11 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import HistoryIcon from "@mui/icons-material/History";
 import RentalStoreSelector from "@/components/rentals/RentalStoreSelector";
+import { ReceiptCapture } from "@/components/common/ReceiptCapture";
+import type { ReceiptCaptureValue } from "@/components/common/ReceiptCapture";
+import SubcontractLinkSelector from "@/components/payments/SubcontractLinkSelector";
+import { isSiteEngineerPayingFromWallet } from "@/components/expenses/walletPayerLock";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   useCreateHistoricalRental,
   useCreateRentalOrder,
@@ -73,7 +79,6 @@ import type {
 } from "@/types/rental.types";
 import dayjs from "dayjs";
 
-type HistoricalSubStatus = "still_on_site" | "all_returned" | "fully_settled";
 type TransportHandler = "vendor" | "company" | "laborer";
 type RateType = "daily" | "hourly";
 
@@ -97,7 +102,6 @@ export interface CreateRentalV2DialogProps {
   siteId: string;
 }
 
-const PAYER_SOURCES = ["Company Account", "Site Cash", "Engineer Wallet"];
 const PAYMENT_MODES = ["Cash", "Bank Transfer", "UPI", "Cheque"];
 
 let rowKey = 0;
@@ -120,14 +124,13 @@ export default function CreateRentalV2Dialog({
   onClose,
   siteId,
 }: CreateRentalV2DialogProps) {
+  const { userProfile } = useAuth();
   const createOrder = useCreateRentalOrder();
   const createHistorical = useCreateHistoricalRental();
   const createSettlement = useCreateRentalSettlementParty();
   const { data: catalogItems = [] } = useRentalItems();
 
   const [isHistorical, setIsHistorical] = useState(false);
-  const [historicalStatus, setHistoricalStatus] =
-    useState<HistoricalSubStatus>("all_returned");
 
   const [vendorId, setVendorId] = useState("");
   const [pickupDate, setPickupDate] = useState(dayjs().format("YYYY-MM-DD"));
@@ -147,8 +150,10 @@ export default function CreateRentalV2Dialog({
   const [discountPct, setDiscountPct] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
 
-  const [payerSource, setPayerSource] = useState("Site Cash");
   const [paymentMode, setPaymentMode] = useState("Cash");
+  const [billCapture, setBillCapture] = useState<ReceiptCaptureValue | null>(null);
+  const [screenshotCapture, setScreenshotCapture] = useState<ReceiptCaptureValue | null>(null);
+  const [subcontractId, setSubcontractId] = useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -156,7 +161,6 @@ export default function CreateRentalV2Dialog({
   useEffect(() => {
     if (open) {
       setIsHistorical(false);
-      setHistoricalStatus("all_returned");
       setVendorId("");
       setPickupDate(dayjs().format("YYYY-MM-DD"));
       setReturnDate("");
@@ -168,8 +172,10 @@ export default function CreateRentalV2Dialog({
       setUnloadingCost("");
       setDiscountPct("");
       setNotes("");
-      setPayerSource("Site Cash");
       setPaymentMode("Cash");
+      setBillCapture(null);
+      setScreenshotCapture(null);
+      setSubcontractId(null);
       setError(null);
       setBusy(false);
     }
@@ -247,9 +253,10 @@ export default function CreateRentalV2Dialog({
   );
 
   const transportTotal = useMemo(() => {
+    if (isHistorical) return Number(transportCost) || 0;
     if (transportHandler === "vendor") return 0;
     return (Number(transportCost) || 0) + (Number(loadingCost) || 0) + (Number(unloadingCost) || 0);
-  }, [transportHandler, transportCost, loadingCost, unloadingCost]);
+  }, [isHistorical, transportHandler, transportCost, loadingCost, unloadingCost]);
 
   const discountAmount = useMemo(() => {
     const pct = Number(discountPct) || 0;
@@ -258,7 +265,11 @@ export default function CreateRentalV2Dialog({
 
   const grandTotal = itemsSubtotal + transportTotal - discountAmount;
 
-  const stillOnSiteDisabled = isHistorical && historicalStatus === "still_on_site";
+  const isWalletLocked = isSiteEngineerPayingFromWallet({
+    userRole: userProfile?.role,
+    payerType: "site_engineer",
+    createWalletTransaction: true,
+  });
 
   const itemsValid = items.every(
     (r) =>
@@ -274,8 +285,7 @@ export default function CreateRentalV2Dialog({
     !!pickupDate &&
     (!isHistorical || !!returnDate) &&
     itemsValid &&
-    items.length > 0 &&
-    !stillOnSiteDisabled;
+    items.length > 0;
 
   // ─── submit handlers ─────────────────────────────────────────────
   const submitForward = async () => {
@@ -312,14 +322,11 @@ export default function CreateRentalV2Dialog({
   };
 
   const submitHistorical = async () => {
+    const transportAmount = Number(transportCost) || 0;
     const inbound =
-      transportHandler === "vendor"
-        ? { amount: 0, paid_to: "vendor" as const }
-        : {
-            amount: Number(transportCost) || 0,
-            paid_to: "driver" as const,
-            driver_name: undefined,
-          };
+      transportAmount > 0
+        ? { amount: transportAmount, paid_to: "driver" as const, driver_name: undefined }
+        : { amount: 0, paid_to: "vendor" as const };
 
     const itemPayload = items.map((r) => ({
       item_name: r.itemNameOverride,
@@ -330,8 +337,6 @@ export default function CreateRentalV2Dialog({
       daily_rate: r.dailyRate,
       days,
     }));
-
-    const includeSettlement = historicalStatus === "fully_settled";
 
     const payload: HistoricalRentalFormData = {
       site_id: siteId,
@@ -344,14 +349,15 @@ export default function CreateRentalV2Dialog({
       inbound_transport:
         transportHandler === "vendor" || inbound.amount > 0 ? inbound : undefined,
       advances: [],
-      settlement: includeSettlement
-        ? {
-            final_amount: grandTotal,
-            settlement_date: returnDate || pickupDate,
-            payer_source: payerSource,
-            payment_mode: paymentMode,
-          }
-        : undefined,
+      settlement: {
+        final_amount: grandTotal,
+        settlement_date: returnDate || pickupDate,
+        payer_source: isWalletLocked ? "Engineer Wallet" : "Company",
+        payment_mode: paymentMode,
+        upi_screenshot_url: screenshotCapture?.url ?? null,
+        bill_url: billCapture?.url ?? null,
+        subcontract_id: subcontractId ?? null,
+      },
       bill_ref: notes || undefined,
       status: "completed",
     };
@@ -487,57 +493,6 @@ export default function CreateRentalV2Dialog({
               )}
             </Box>
 
-            {isHistorical && (
-              <Box sx={{ mt: 1.5, pl: 4 }}>
-                <Typography sx={{ fontSize: 11, fontWeight: 700, color: hubTokens.muted, mb: 0.5 }}>
-                  Status when recorded
-                </Typography>
-                <RadioGroup
-                  value={historicalStatus}
-                  onChange={(e) => setHistoricalStatus(e.target.value as HistoricalSubStatus)}
-                  row
-                  sx={{ gap: 0.5 }}
-                >
-                  <FormControlLabel
-                    value="still_on_site"
-                    disabled
-                    control={<Radio size="small" />}
-                    label={
-                      <Box component="span" sx={{ fontSize: 12.5 }}>
-                        Still on site{" "}
-                        <Box
-                          component="span"
-                          sx={{
-                            fontSize: 9.5,
-                            color: hubTokens.subtle,
-                            fontWeight: 700,
-                            marginLeft: "4px",
-                          }}
-                        >
-                          (use v1 for now)
-                        </Box>
-                      </Box>
-                    }
-                  />
-                  <FormControlLabel
-                    value="all_returned"
-                    control={<Radio size="small" />}
-                    label={<Box component="span" sx={{ fontSize: 12.5 }}>All returned</Box>}
-                  />
-                  <FormControlLabel
-                    value="fully_settled"
-                    control={<Radio size="small" />}
-                    label={<Box component="span" sx={{ fontSize: 12.5 }}>Fully settled</Box>}
-                  />
-                </RadioGroup>
-                {stillOnSiteDisabled && (
-                  <Alert severity="info" sx={{ mt: 1, py: 0.25 }}>
-                    Status &quot;Still on site&quot; isn&apos;t supported in v2 of
-                    the create flow yet. Use the v1 page meanwhile.
-                  </Alert>
-                )}
-              </Box>
-            )}
           </Paper>
 
           {/* 3. Vendor */}
@@ -559,16 +514,29 @@ export default function CreateRentalV2Dialog({
               required
               InputLabelProps={{ shrink: true }}
             />
-            <TextField
-              type="date"
-              label={returnLabel}
-              value={returnDate}
-              onChange={(e) => setReturnDate(e.target.value)}
-              fullWidth
-              required={isHistorical}
-              InputLabelProps={{ shrink: true }}
-              helperText={`Estimated ${days} day${days === 1 ? "" : "s"}`}
-            />
+            <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 0.5 }}>
+              <TextField
+                type="date"
+                label={returnLabel}
+                value={returnDate}
+                onChange={(e) => setReturnDate(e.target.value)}
+                fullWidth
+                required={isHistorical}
+                InputLabelProps={{ shrink: true }}
+                helperText={`Estimated ${days} day${days === 1 ? "" : "s"}`}
+              />
+              {isHistorical && pickupDate && (
+                <Box>
+                  <Chip
+                    label="Same as pickup"
+                    size="small"
+                    variant="outlined"
+                    onClick={() => setReturnDate(pickupDate)}
+                    sx={{ fontSize: 11, height: 22, cursor: "pointer" }}
+                  />
+                </Box>
+              )}
+            </Box>
           </Stack>
 
           {/* 5. Exclude start */}
@@ -820,74 +788,89 @@ export default function CreateRentalV2Dialog({
             </Stack>
           </Box>
 
-          {/* 7. Transport handler */}
-          <Box>
-            <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: hubTokens.muted, mb: 0.75 }}>
-              Transport · who handles it
-            </Typography>
-            <RadioGroup
-              value={transportHandler}
-              onChange={(e) => setTransportHandler(e.target.value as TransportHandler)}
-              row
-            >
-              <FormControlLabel
-                value="vendor"
-                control={<Radio size="small" />}
-                label={<Box component="span" sx={{ fontSize: 12.5 }}>Vendor (bundled)</Box>}
-              />
-              <FormControlLabel
-                value="company"
-                control={<Radio size="small" />}
-                label={<Box component="span" sx={{ fontSize: 12.5 }}>Company truck/driver</Box>}
-              />
-              <FormControlLabel
-                value="laborer"
-                control={<Radio size="small" />}
-                label={<Box component="span" sx={{ fontSize: 12.5 }}>On-site laborer</Box>}
-              />
-            </RadioGroup>
-          </Box>
-
-          {/* 8. Transport cost panel */}
-          {transportHandler !== "vendor" && (
-            <Box
-              sx={{
-                p: 1.5,
-                borderRadius: "10px",
-                background: hubTokens.bg,
-                border: `1px solid ${hubTokens.border}`,
-              }}
-            >
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                <TextField
-                  label="Transport ₹"
-                  type="number"
-                  value={transportCost}
-                  onChange={(e) => setTransportCost(e.target.value)}
-                  fullWidth
-                  size="small"
-                  inputProps={{ min: 0, step: 1 }}
-                />
-                <TextField
-                  label="Loading ₹"
-                  type="number"
-                  value={loadingCost}
-                  onChange={(e) => setLoadingCost(e.target.value)}
-                  fullWidth
-                  size="small"
-                  inputProps={{ min: 0, step: 1 }}
-                />
-                <TextField
-                  label="Unloading ₹"
-                  type="number"
-                  value={unloadingCost}
-                  onChange={(e) => setUnloadingCost(e.target.value)}
-                  fullWidth
-                  size="small"
-                  inputProps={{ min: 0, step: 1 }}
-                />
-              </Stack>
-            </Box>
+          {/* 7 & 8. Transport */}
+          {isHistorical ? (
+            /* Historical: one optional field — no need to track who handled it */
+            <TextField
+              label="Transport / loading charges ₹ (optional)"
+              type="number"
+              value={transportCost}
+              onChange={(e) => setTransportCost(e.target.value)}
+              fullWidth
+              size="small"
+              inputProps={{ min: 0, step: 1 }}
+              helperText="Bike petrol, labour loading, or any other transport cost"
+            />
+          ) : (
+            /* Forward rental: full handler radio + cost breakdown */
+            <>
+              <Box>
+                <Typography sx={{ fontSize: 12.5, fontWeight: 700, color: hubTokens.muted, mb: 0.75 }}>
+                  Transport · who handles it
+                </Typography>
+                <RadioGroup
+                  value={transportHandler}
+                  onChange={(e) => setTransportHandler(e.target.value as TransportHandler)}
+                  row
+                >
+                  <FormControlLabel
+                    value="vendor"
+                    control={<Radio size="small" />}
+                    label={<Box component="span" sx={{ fontSize: 12.5 }}>Vendor (bundled)</Box>}
+                  />
+                  <FormControlLabel
+                    value="company"
+                    control={<Radio size="small" />}
+                    label={<Box component="span" sx={{ fontSize: 12.5 }}>Company truck/driver</Box>}
+                  />
+                  <FormControlLabel
+                    value="laborer"
+                    control={<Radio size="small" />}
+                    label={<Box component="span" sx={{ fontSize: 12.5 }}>On-site laborer</Box>}
+                  />
+                </RadioGroup>
+              </Box>
+              {transportHandler !== "vendor" && (
+                <Box
+                  sx={{
+                    p: 1.5,
+                    borderRadius: "10px",
+                    background: hubTokens.bg,
+                    border: `1px solid ${hubTokens.border}`,
+                  }}
+                >
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                    <TextField
+                      label="Transport ₹"
+                      type="number"
+                      value={transportCost}
+                      onChange={(e) => setTransportCost(e.target.value)}
+                      fullWidth
+                      size="small"
+                      inputProps={{ min: 0, step: 1 }}
+                    />
+                    <TextField
+                      label="Loading ₹"
+                      type="number"
+                      value={loadingCost}
+                      onChange={(e) => setLoadingCost(e.target.value)}
+                      fullWidth
+                      size="small"
+                      inputProps={{ min: 0, step: 1 }}
+                    />
+                    <TextField
+                      label="Unloading ₹"
+                      type="number"
+                      value={unloadingCost}
+                      onChange={(e) => setUnloadingCost(e.target.value)}
+                      fullWidth
+                      size="small"
+                      inputProps={{ min: 0, step: 1 }}
+                    />
+                  </Stack>
+                </Box>
+              )}
+            </>
           )}
 
           {/* 9. Discount + Notes */}
@@ -910,8 +893,8 @@ export default function CreateRentalV2Dialog({
             />
           </Stack>
 
-          {/* Settlement extras for Fully settled */}
-          {isHistorical && historicalStatus === "fully_settled" && (
+          {/* Settlement details — always shown for historical rentals */}
+          {isHistorical && (
             <Box
               sx={{
                 p: 1.5,
@@ -920,38 +903,73 @@ export default function CreateRentalV2Dialog({
                 border: `1px solid ${hubTokens.success}`,
               }}
             >
-              <Typography sx={{ fontSize: 12.5, fontWeight: 700, mb: 1 }}>
+              <Typography sx={{ fontSize: 12.5, fontWeight: 700, mb: 1.5 }}>
                 Settlement details
               </Typography>
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                <FormControl size="small" fullWidth>
-                  <InputLabel>Payer source</InputLabel>
-                  <Select
-                    label="Payer source"
-                    value={payerSource}
-                    onChange={(e) => setPayerSource(e.target.value)}
-                  >
-                    {PAYER_SOURCES.map((s) => (
-                      <MenuItem key={s} value={s}>
-                        {s}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                <FormControl size="small" fullWidth>
-                  <InputLabel>Payment mode</InputLabel>
-                  <Select
-                    label="Payment mode"
-                    value={paymentMode}
-                    onChange={(e) => setPaymentMode(e.target.value)}
-                  >
-                    {PAYMENT_MODES.map((m) => (
-                      <MenuItem key={m} value={m}>
-                        {m}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+              <Stack spacing={1.5}>
+                {/* Payer source + payment mode — hidden for site engineers (wallet auto-deducted) */}
+                {isWalletLocked ? (
+                  <Alert severity="info" sx={{ py: 0.5 }}>
+                    Payment will be deducted from your engineer wallet.
+                  </Alert>
+                ) : (
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems="center">
+                    <Box
+                      sx={{
+                        flex: 1,
+                        px: 1.5,
+                        py: 1,
+                        borderRadius: "8px",
+                        border: `1px solid ${hubTokens.border}`,
+                        background: hubTokens.bg,
+                      }}
+                    >
+                      <Typography sx={{ fontSize: 10.5, color: hubTokens.muted, mb: 0.25 }}>
+                        Payer source
+                      </Typography>
+                      <Typography sx={{ fontSize: 13.5, fontWeight: 600 }}>Company</Typography>
+                    </Box>
+                    <FormControl size="small" fullWidth sx={{ flex: 1 }}>
+                      <InputLabel>Payment mode</InputLabel>
+                      <Select
+                        label="Payment mode"
+                        value={paymentMode}
+                        onChange={(e) => setPaymentMode(e.target.value)}
+                      >
+                        {PAYMENT_MODES.map((m) => (
+                          <MenuItem key={m} value={m}>
+                            {m}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Stack>
+                )}
+
+                {/* Bill upload */}
+                <ReceiptCapture
+                  label="Bill image (optional)"
+                  folder={`bills/${siteId}`}
+                  value={billCapture}
+                  onChange={setBillCapture}
+                />
+
+                {/* UPI screenshot — only when payment mode is UPI */}
+                {paymentMode === "UPI" && (
+                  <ReceiptCapture
+                    label="UPI screenshot (optional)"
+                    folder={`screenshots/${siteId}`}
+                    value={screenshotCapture}
+                    onChange={setScreenshotCapture}
+                  />
+                )}
+
+                {/* Subcontract linking */}
+                <SubcontractLinkSelector
+                  selectedSubcontractId={subcontractId}
+                  onSelect={setSubcontractId}
+                  paymentAmount={grandTotal}
+                />
               </Stack>
             </Box>
           )}
@@ -998,11 +1016,7 @@ export default function CreateRentalV2Dialog({
           disabled={!canSubmit || busy}
           sx={{ textTransform: "none", fontWeight: 700 }}
         >
-          {isHistorical
-            ? historicalStatus === "fully_settled"
-              ? "Record settled rental"
-              : "Record historical rental"
-            : "Create rental"}
+          {isHistorical ? "Record settled rental" : "Create rental"}
         </Button>
       </DialogActions>
     </Dialog>

@@ -683,6 +683,9 @@ export interface HistoricalSettlementFormData {
   payer_name?: string | null;
   payer_source_split?: PayerSourceSplitRow[] | null;
   payment_mode: string;
+  upi_screenshot_url?: string | null;
+  bill_url?: string | null;
+  subcontract_id?: string | null;
 }
 
 export interface HistoricalRentalFormData {
