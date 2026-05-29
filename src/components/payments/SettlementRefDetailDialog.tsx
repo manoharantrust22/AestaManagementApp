@@ -158,7 +158,7 @@ function getPaymentChannelLabel(channel: string): string {
   }
 }
 
-async function getSettlementDetailsByReference(
+export async function getSettlementDetailsByReference(
   supabase: any,
   reference: string,
   contractOnly: boolean = false
