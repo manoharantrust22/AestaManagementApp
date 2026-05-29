@@ -50,6 +50,9 @@ export function InspectPane(props: InspectPaneProps) {
     onTogglePin,
     onOpenInPage,
     onSettleClick,
+    canEditSettlement,
+    onEditSettlement,
+    onDeleteSettlement,
     zIndex,
   } = props;
 
@@ -230,7 +233,14 @@ export function InspectPane(props: InspectPaneProps) {
         {activeTab === "attendance" && <AttendanceTab entity={entity} />}
         {activeTab === "work-updates" && <WorkUpdatesTab entity={entity} />}
         {activeTab === "settlement" && (
-          <SettlementTab entity={entity} onSettleClick={onSettleClick} />
+          <SettlementTab
+            entity={entity}
+            onSettleClick={onSettleClick}
+            canEditSettlement={canEditSettlement}
+            onEditSettlement={onEditSettlement}
+            onDeleteSettlement={onDeleteSettlement}
+            paneZIndex={zIndex}
+          />
         )}
         {activeTab === "audit" && <AuditTab entity={entity} />}
       </Box>

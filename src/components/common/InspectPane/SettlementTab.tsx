@@ -4,6 +4,7 @@ import React from "react";
 import {
   Box,
   Button,
+  Chip,
   Skeleton,
   Stack,
   Typography,
@@ -13,14 +14,58 @@ import {
 import dayjs from "dayjs";
 import { useState } from "react";
 import { entitySettlementRef, type InspectEntity } from "./types";
-import { useSettlementDetails } from "@/hooks/queries/useSettlementDetails";
+import { useSettlementFullDetails } from "@/hooks/queries/useSettlementFullDetails";
+import ScreenshotViewer from "@/components/common/ScreenshotViewer";
+import type { SettlementDetails } from "@/components/payments/SettlementRefDetailDialog";
 import { useSalaryWaterfall } from "@/hooks/queries/useSalaryWaterfall";
 import { usePaymentsLedger } from "@/hooks/queries/usePaymentsLedger";
 import InspectPaneError from "./InspectPaneError";
 import SettlementRefDetailDialog from "@/components/payments/SettlementRefDetailDialog";
+import { useSettlementProofFlags } from "@/hooks/queries/useSettlementProofFlags";
+import {
+  Image as ImageIcon,
+  ImageNotSupported as ImageNotSupportedIcon,
+  StickyNote2 as NotesIcon,
+} from "@mui/icons-material";
 
 function formatINR(n: number): string {
   return `₹${n.toLocaleString("en-IN")}`;
+}
+
+function paymentModeLabel(mode: string | null | undefined): string | null {
+  if (!mode) return null;
+  switch (mode) {
+    case "upi": return "UPI";
+    case "cash": return "Cash";
+    case "net_banking": return "Net Banking";
+    case "company_direct_online": return "Direct (Online)";
+    case "via_site_engineer": return "Via Engineer";
+    default: return mode;
+  }
+}
+function paymentChannelLabel(channel: string | null | undefined): string | null {
+  if (!channel) return null;
+  switch (channel) {
+    case "direct": return "Direct Payment";
+    case "engineer_wallet": return "Via Engineer Wallet";
+    default: return channel;
+  }
+}
+function payerLabel(d: SettlementDetails): string {
+  if (d.payerSourceSplit && d.payerSourceSplit.length > 0) return "Split";
+  const source = d.payerSource;
+  const name = d.payerName;
+  if (!source) return name ?? "—";
+  switch (source) {
+    case "own_money": return "Own Money";
+    case "amma_money":
+    case "mothers_money": return "Amma Money";
+    case "client_money": return "Client Money";
+    case "trust_account": return "Trust Account";
+    case "other_site_money": return name || "Other Site Money";
+    case "custom": return name || "Custom";
+    default: return name || source;
+  }
 }
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -44,39 +89,100 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function ProofFlagIcons({
+  flag,
+}: {
+  flag: { hasProof: boolean; hasNotes: boolean } | undefined;
+}) {
+  return (
+    <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, ml: 0.5 }}>
+      {flag?.hasProof ? (
+        <Box component="span" role="img" aria-label="Screenshot attached" sx={{ display: "inline-flex", alignItems: "center" }}>
+          <ImageIcon sx={{ fontSize: 14 }} color="action" />
+        </Box>
+      ) : (
+        <Box component="span" role="img" aria-label="No screenshot" sx={{ display: "inline-flex", alignItems: "center" }}>
+          <ImageNotSupportedIcon sx={{ fontSize: 14 }} color="warning" />
+        </Box>
+      )}
+      {flag?.hasNotes && (
+        <Box component="span" role="img" aria-label="Has notes" sx={{ display: "inline-flex", alignItems: "center" }}>
+          <NotesIcon sx={{ fontSize: 14 }} color="disabled" />
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 export default function SettlementTab({
   entity,
   onSettleClick,
+  canEditSettlement,
+  onEditSettlement,
+  onDeleteSettlement,
+  paneZIndex,
 }: {
   entity: InspectEntity;
   onSettleClick?: (entity: InspectEntity) => void;
+  canEditSettlement?: boolean;
+  onEditSettlement?: (details: SettlementDetails) => void;
+  onDeleteSettlement?: (details: SettlementDetails) => void;
+  paneZIndex?: number;
 }) {
-  // weekly-aggregate / daily-market-weekly have no single settlement_ref;
-  // render dedicated sub-components so each component's hook order
-  // stays stable.
   if (entity.kind === "weekly-aggregate") {
     return (
-      <WeeklyAggregateSettlement entity={entity} onSettleClick={onSettleClick} />
+      <WeeklyAggregateSettlement
+        entity={entity}
+        onSettleClick={onSettleClick}
+        canEditSettlement={canEditSettlement}
+        onEditSettlement={onEditSettlement}
+        onDeleteSettlement={onDeleteSettlement}
+      />
     );
   }
   if (entity.kind === "daily-market-weekly") {
-    return <DailyMarketWeeklySettlement entity={entity} />;
+    return (
+      <DailyMarketWeeklySettlement
+        entity={entity}
+        canEditSettlement={canEditSettlement}
+        onEditSettlement={onEditSettlement}
+        onDeleteSettlement={onDeleteSettlement}
+      />
+    );
   }
-  return <SingleRefSettlement entity={entity} onSettleClick={onSettleClick} />;
+  return (
+    <SingleRefSettlement
+      entity={entity}
+      onSettleClick={onSettleClick}
+      canEditSettlement={canEditSettlement}
+      onEditSettlement={onEditSettlement}
+      paneZIndex={paneZIndex}
+    />
+  );
 }
 
 function SingleRefSettlement({
   entity,
   onSettleClick,
+  canEditSettlement,
+  onEditSettlement,
+  paneZIndex,
 }: {
   entity: Exclude<InspectEntity, { kind: "weekly-aggregate" }>;
   onSettleClick?: (entity: InspectEntity) => void;
+  canEditSettlement?: boolean;
+  onEditSettlement?: (details: SettlementDetails) => void;
+  paneZIndex?: number;
 }) {
   const theme = useTheme();
   const settlementRef = entitySettlementRef(entity);
   const isPending = !settlementRef;
+  const [viewer, setViewer] = useState<{ open: boolean; index: number }>({
+    open: false,
+    index: 0,
+  });
 
-  const { data, isLoading, isError, refetch } = useSettlementDetails(
+  const { data, isLoading, isError, refetch } = useSettlementFullDetails(
     settlementRef,
     entity.siteId
   );
@@ -126,6 +232,9 @@ function SingleRefSettlement({
     );
   }
 
+  const proofUrls = data?.proofUrls ?? [];
+  const isCancelled = Boolean(data?.isCancelled);
+
   return (
     <Box sx={{ p: 2 }}>
       <Stack
@@ -168,18 +277,94 @@ function SingleRefSettlement({
         <Row
           label="Settled on"
           value={
-            data?.settledOn
-              ? dayjs(data.settledOn).format("DD MMM YYYY")
+            data?.settlementDate
+              ? dayjs(data.settlementDate).format("DD MMM YYYY")
               : "—"
           }
         />
-        <Row label="Payer" value={data?.payerName ?? "—"} />
-        <Row label="Payment mode" value={data?.paymentMode ?? "—"} />
-        <Row label="Channel" value={data?.channel ?? "—"} />
-        <Row label="Recorded by" value={data?.recordedByName ?? "—"} />
+        <Row label="Payer" value={data ? payerLabel(data) : "—"} />
+        <Row
+          label="Payment mode"
+          value={paymentModeLabel(data?.paymentMode) ?? "—"}
+        />
+        <Row
+          label="Channel"
+          value={paymentChannelLabel(data?.paymentChannel) ?? "—"}
+        />
+        <Row label="Recorded by" value={data?.createdByName ?? "—"} />
       </Stack>
 
-      {data?.linkedExpenseRef && (
+      {/* Screenshot / proof */}
+      <Box sx={{ mt: 2 }}>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: "block", mb: 0.75 }}
+        >
+          Payment screenshot
+        </Typography>
+        {proofUrls.length > 0 ? (
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+            {proofUrls.map((url, i) => (
+              <Box
+                key={url}
+                component="img"
+                src={url}
+                alt={`Payment proof ${i + 1}`}
+                onClick={() => setViewer({ open: true, index: i })}
+                sx={{
+                  width: 64,
+                  height: 64,
+                  objectFit: "cover",
+                  borderRadius: 1,
+                  border: `1px solid ${theme.palette.divider}`,
+                  cursor: "pointer",
+                  "&:hover": { borderColor: theme.palette.primary.main },
+                }}
+              />
+            ))}
+          </Box>
+        ) : isCancelled ? (
+          <Typography variant="body2" color="text.secondary">
+            —
+          </Typography>
+        ) : (
+          <Box
+            sx={{
+              p: 1.25,
+              borderRadius: 1,
+              bgcolor: alpha(theme.palette.warning.main, 0.12),
+              border: `1px solid ${theme.palette.warning.main}`,
+            }}
+          >
+            <Typography variant="body2" fontWeight={600} color="warning.dark">
+              No screenshot uploaded
+            </Typography>
+          </Box>
+        )}
+      </Box>
+
+      {/* Notes */}
+      <Box sx={{ mt: 2 }}>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: "block", mb: 0.5 }}
+        >
+          Notes
+        </Typography>
+        {data?.notes ? (
+          <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+            {data.notes}
+          </Typography>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            No notes
+          </Typography>
+        )}
+      </Box>
+
+      {data?.subcontractId && (
         <Box
           sx={{
             mt: 2,
@@ -201,6 +386,31 @@ function SingleRefSettlement({
           </Typography>
         </Box>
       )}
+
+      {/* Edit / cancelled footer */}
+      <Box sx={{ mt: 2 }}>
+        {isCancelled ? (
+          <Chip label="Cancelled" color="default" size="small" />
+        ) : canEditSettlement && data ? (
+          <Button
+            variant="outlined"
+            fullWidth
+            onClick={() => onEditSettlement?.(data)}
+            disabled={!onEditSettlement}
+          >
+            Edit settlement
+          </Button>
+        ) : null}
+      </Box>
+
+      <ScreenshotViewer
+        open={viewer.open}
+        onClose={() => setViewer((v) => ({ ...v, open: false }))}
+        images={proofUrls}
+        initialIndex={viewer.index}
+        title="Payment Proof"
+        zIndex={paneZIndex !== undefined ? paneZIndex + 100 : undefined}
+      />
     </Box>
   );
 }
@@ -213,9 +423,15 @@ function SingleRefSettlement({
 function WeeklyAggregateSettlement({
   entity,
   onSettleClick,
+  canEditSettlement,
+  onEditSettlement,
+  onDeleteSettlement,
 }: {
   entity: Extract<InspectEntity, { kind: "weekly-aggregate" }>;
   onSettleClick?: (entity: InspectEntity) => void;
+  canEditSettlement?: boolean;
+  onEditSettlement?: (details: SettlementDetails) => void;
+  onDeleteSettlement?: (details: SettlementDetails) => void;
 }) {
   const theme = useTheme();
   const [refDetail, setRefDetail] = useState<string | null>(null);
@@ -234,6 +450,13 @@ function WeeklyAggregateSettlement({
     dateFrom: entity.scopeFrom,
     dateTo: entity.scopeTo,
   });
+
+  // Hook must be called unconditionally before any early returns.
+  const refList =
+    (weeks?.find((w) => w.weekStart === entity.weekStart)?.filledBy ?? []).map(
+      (f) => f.ref
+    );
+  const { data: proofFlags } = useSettlementProofFlags(refList, entity.siteId);
 
   if (isError) {
     return <InspectPaneError onRetry={() => refetch()} />;
@@ -366,28 +589,31 @@ function WeeklyAggregateSettlement({
                     py: 0.5,
                   }}
                 >
-                  <Box
-                    component="button"
-                    type="button"
-                    onClick={() => setRefDetail(f.ref)}
-                    sx={{
-                      fontFamily: "ui-monospace, monospace",
-                      fontSize: 11,
-                      color: "primary.main",
-                      background: "transparent",
-                      border: "none",
-                      p: 0,
-                      textAlign: "left",
-                      cursor: "pointer",
-                      fontWeight: 600,
-                      "&:hover": { textDecoration: "underline" },
-                      "&:focus-visible": {
-                        outline: `2px solid ${theme.palette.primary.main}`,
-                        outlineOffset: 2,
-                      },
-                    }}
-                  >
-                    {f.ref}
+                  <Box sx={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+                    <Box
+                      component="button"
+                      type="button"
+                      onClick={() => setRefDetail(f.ref)}
+                      sx={{
+                        fontFamily: "ui-monospace, monospace",
+                        fontSize: 11,
+                        color: "primary.main",
+                        background: "transparent",
+                        border: "none",
+                        p: 0,
+                        textAlign: "left",
+                        cursor: "pointer",
+                        fontWeight: 600,
+                        "&:hover": { textDecoration: "underline" },
+                        "&:focus-visible": {
+                          outline: `2px solid ${theme.palette.primary.main}`,
+                          outlineOffset: 2,
+                        },
+                      }}
+                    >
+                      {f.ref}
+                    </Box>
+                    <ProofFlagIcons flag={proofFlags?.get(f.ref)} />
                   </Box>
                   <Typography
                     variant="caption"
@@ -482,6 +708,15 @@ function WeeklyAggregateSettlement({
         open={refDetail !== null}
         settlementReference={refDetail}
         onClose={() => setRefDetail(null)}
+        canEdit={canEditSettlement}
+        onEdit={(d) => {
+          setRefDetail(null);
+          onEditSettlement?.(d);
+        }}
+        onDelete={(d) => {
+          setRefDetail(null);
+          onDeleteSettlement?.(d);
+        }}
       />
 
       {/* Settle CTA when underpaid or untouched */}
@@ -512,8 +747,14 @@ function WeeklyAggregateSettlement({
 
 function DailyMarketWeeklySettlement({
   entity,
+  canEditSettlement,
+  onEditSettlement,
+  onDeleteSettlement,
 }: {
   entity: Extract<InspectEntity, { kind: "daily-market-weekly" }>;
+  canEditSettlement?: boolean;
+  onEditSettlement?: (details: SettlementDetails) => void;
+  onDeleteSettlement?: (details: SettlementDetails) => void;
 }) {
   const theme = useTheme();
   const [refDetail, setRefDetail] = useState<string | null>(null);
@@ -529,6 +770,12 @@ function DailyMarketWeeklySettlement({
     type: "daily-market",
     status: "all",
   });
+
+  // Hook must be called unconditionally before any early returns.
+  const allRefs = Array.from(
+    new Set((rows ?? []).map((r) => r.settlementRef).filter(Boolean) as string[])
+  );
+  const { data: proofFlags } = useSettlementProofFlags(allRefs, entity.siteId);
 
   if (isError) {
     return <InspectPaneError onRetry={() => refetch()} />;
@@ -682,27 +929,32 @@ function DailyMarketWeeklySettlement({
                   refs.map((ref) => (
                     <Box
                       key={ref}
-                      component="button"
-                      type="button"
-                      onClick={() => setRefDetail(ref)}
-                      sx={{
-                        fontFamily: "ui-monospace, monospace",
-                        fontSize: 10.5,
-                        color: "primary.main",
-                        background: "transparent",
-                        border: "none",
-                        p: 0,
-                        textAlign: "left",
-                        cursor: "pointer",
-                        fontWeight: 600,
-                        "&:hover": { textDecoration: "underline" },
-                        "&:focus-visible": {
-                          outline: `2px solid ${theme.palette.primary.main}`,
-                          outlineOffset: 2,
-                        },
-                      }}
+                      sx={{ display: "inline-flex", alignItems: "center" }}
                     >
-                      {ref}
+                      <Box
+                        component="button"
+                        type="button"
+                        onClick={() => setRefDetail(ref)}
+                        sx={{
+                          fontFamily: "ui-monospace, monospace",
+                          fontSize: 10.5,
+                          color: "primary.main",
+                          background: "transparent",
+                          border: "none",
+                          p: 0,
+                          textAlign: "left",
+                          cursor: "pointer",
+                          fontWeight: 600,
+                          "&:hover": { textDecoration: "underline" },
+                          "&:focus-visible": {
+                            outline: `2px solid ${theme.palette.primary.main}`,
+                            outlineOffset: 2,
+                          },
+                        }}
+                      >
+                        {ref}
+                      </Box>
+                      <ProofFlagIcons flag={proofFlags?.get(ref)} />
                     </Box>
                   ))
                 ) : (
@@ -749,6 +1001,15 @@ function DailyMarketWeeklySettlement({
         open={refDetail !== null}
         settlementReference={refDetail}
         onClose={() => setRefDetail(null)}
+        canEdit={canEditSettlement}
+        onEdit={(d) => {
+          setRefDetail(null);
+          onEditSettlement?.(d);
+        }}
+        onDelete={(d) => {
+          setRefDetail(null);
+          onDeleteSettlement?.(d);
+        }}
       />
     </Box>
   );

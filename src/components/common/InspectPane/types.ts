@@ -1,3 +1,5 @@
+import type { SettlementDetails } from "@/components/payments/SettlementRefDetailDialog";
+
 // Identifies the "thing" the pane is showing. Five shapes:
 // - daily-date          : one date (settled or pending), all laborers paid that day
 // - weekly-week         : one laborer × one week (Sun-Sat)
@@ -98,6 +100,11 @@ export interface InspectPaneProps {
   onTogglePin: () => void;
   onOpenInPage: (entity: InspectEntity) => void;
   onSettleClick?: (entity: InspectEntity) => void;
+  /** Edit/delete a settlement straight from the Settlement tab. Wired by the
+   *  host page to its existing edit/delete dialogs. */
+  canEditSettlement?: boolean;
+  onEditSettlement?: (details: SettlementDetails) => void;
+  onDeleteSettlement?: (details: SettlementDetails) => void;
   // Override the Drawer's stacking context. Needed when the pane sits inside
   // a fullscreen container that creates its own stacking context at the same
   // z-index as the MUI default modal (1300) — without this the temporary

@@ -1864,6 +1864,9 @@ export default function PaymentsContent() {
         onTogglePin={pane.togglePin}
         onOpenInPage={handleOpenInPage}
         onSettleClick={handleSettleClick}
+        canEditSettlement={canEditSettlements}
+        onEditSettlement={(d) => setEditTarget(d)}
+        onDeleteSettlement={(d) => setDeleteTarget(d)}
         zIndex={isFullscreen ? 1400 : undefined}
       />
 
