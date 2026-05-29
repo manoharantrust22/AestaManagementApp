@@ -25,7 +25,7 @@
  * deferred. Most real-world rentals are 1-3 lines; this covers the 80% case.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Autocomplete,
@@ -61,12 +61,15 @@ import {
   useCreateRentalOrder,
   useCreateRentalSettlementParty,
   useRentalItems,
+  useRentalStoreInventory,
 } from "@/hooks/queries/useRentals";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { inr } from "@/lib/rental-hub/formatters";
 import type {
   HistoricalRentalFormData,
+  RentalItemWithDetails,
   RentalOrderFormData,
+  RentalStoreInventoryWithDetails,
 } from "@/types/rental.types";
 import dayjs from "dayjs";
 
@@ -82,6 +85,10 @@ interface ItemRow {
   dailyRate: number;
   rateType: RateType;
   hoursUsed?: number;
+  // True while dailyRate is auto-filled from the catalog/vendor (vs hand-typed).
+  // Lets us re-resolve the rate when the vendor changes without clobbering a
+  // number the user entered manually.
+  rateAutoFilled: boolean;
 }
 
 export interface CreateRentalV2DialogProps {
@@ -104,6 +111,7 @@ function makeBlankRow(): ItemRow {
     quantity: 1,
     dailyRate: 0,
     rateType: "daily",
+    rateAutoFilled: false,
   };
 }
 
@@ -127,6 +135,9 @@ export default function CreateRentalV2Dialog({
   const [excludeStartDate, setExcludeStartDate] = useState(false);
 
   const [items, setItems] = useState<ItemRow[]>([makeBlankRow()]);
+
+  // Selected vendor's catalog rates (enabled only once a vendor is chosen).
+  const { data: vendorInventory = [] } = useRentalStoreInventory(vendorId);
 
   const [transportHandler, setTransportHandler] = useState<TransportHandler>("vendor");
   const [transportCost, setTransportCost] = useState<string>("");
@@ -163,6 +174,57 @@ export default function CreateRentalV2Dialog({
       setBusy(false);
     }
   }, [open]);
+
+  // ─── vendor-aware rate resolution ────────────────────────────────
+  // Map the selected vendor's inventory by rental_item_id for O(1) lookup.
+  const vendorRateByItemId = useMemo(() => {
+    const map = new Map<string, RentalStoreInventoryWithDetails>();
+    for (const inv of vendorInventory) {
+      if (!map.has(inv.rental_item_id)) map.set(inv.rental_item_id, inv);
+    }
+    return map;
+  }, [vendorInventory]);
+
+  const catalogById = useMemo(() => {
+    const map = new Map<string, RentalItemWithDetails>();
+    for (const item of catalogItems) map.set(item.id, item);
+    return map;
+  }, [catalogItems]);
+
+  // Rate for a catalog item: prefer the SELECTED vendor's rate, fall back to
+  // the catalog default. Returns the source so the UI can label it.
+  const resolveItemRate = useCallback(
+    (item: Pick<RentalItemWithDetails, "id" | "default_daily_rate">) => {
+      const inv = vendorRateByItemId.get(item.id);
+      if (inv && typeof inv.daily_rate === "number" && inv.daily_rate > 0) {
+        return { rate: inv.daily_rate, source: "vendor" as const };
+      }
+      if (typeof item.default_daily_rate === "number") {
+        return { rate: item.default_daily_rate, source: "catalog" as const };
+      }
+      return { rate: 0, source: "none" as const };
+    },
+    [vendorRateByItemId],
+  );
+
+  // When the vendor (and thus its rates) changes, re-resolve the rate for
+  // catalog-linked rows — but only ones still on an auto-filled rate, so a
+  // number the user typed by hand is never clobbered.
+  useEffect(() => {
+    setItems((prev) => {
+      let changed = false;
+      const next = prev.map((r) => {
+        if (!r.rentalItemId || !r.rateAutoFilled) return r;
+        const item = catalogById.get(r.rentalItemId);
+        if (!item) return r;
+        const rate = resolveItemRate(item).rate;
+        if (rate === r.dailyRate) return r;
+        changed = true;
+        return { ...r, dailyRate: rate };
+      });
+      return changed ? next : prev;
+    });
+  }, [vendorRateByItemId, catalogById, resolveItemRate]);
 
   // ─── derived totals ─────────────────────────────────────────────
   const days = useMemo(() => {
@@ -576,30 +638,35 @@ export default function CreateRentalV2Dialog({
                         }
                         inputValue={row.itemNameOverride}
                         onInputChange={(_, newInput, reason) => {
-                          // Free-typing or clearing: keep the name; selection is
-                          // handled in onChange (reason "reset") so we skip it here.
+                          // Free-typing or clearing: keep the name and drop the
+                          // catalog link; selection is handled in onChange
+                          // (reason "reset") so we skip it here.
                           if (reason === "input" || reason === "clear") {
                             updateItem(idx, {
                               itemNameOverride: newInput,
                               rentalItemId: "",
+                              rateAutoFilled: false,
                             });
                           }
                         }}
                         onChange={(_, value) => {
                           if (value && typeof value !== "string") {
-                            // Catalog item picked → link id + auto-fill rate/type.
+                            // Catalog item picked → link id + auto-fill the
+                            // selected vendor's rate (falls back to catalog
+                            // default) and the rate type.
                             updateItem(idx, {
                               itemNameOverride: value.name,
                               rentalItemId: value.id,
-                              dailyRate:
-                                value.default_daily_rate ?? row.dailyRate,
+                              dailyRate: resolveItemRate(value).rate,
                               rateType:
                                 value.rate_type === "hourly" ? "hourly" : "daily",
+                              rateAutoFilled: true,
                             });
                           } else if (typeof value === "string") {
                             updateItem(idx, {
                               itemNameOverride: value,
                               rentalItemId: "",
+                              rateAutoFilled: false,
                             });
                           }
                         }}
@@ -625,20 +692,28 @@ export default function CreateRentalV2Dialog({
                                   </Box>
                                 ) : null}
                               </span>
-                              {option.default_daily_rate != null && (
-                                <Box
-                                  component="span"
-                                  sx={{
-                                    ml: "auto",
-                                    color: hubTokens.muted,
-                                    fontSize: 11,
-                                    fontFamily: hubTokens.mono,
-                                    whiteSpace: "nowrap",
-                                  }}
-                                >
-                                  {inr(option.default_daily_rate)}/day
-                                </Box>
-                              )}
+                              {(() => {
+                                const { rate, source } = resolveItemRate(option);
+                                if (source === "none") return null;
+                                return (
+                                  <Box
+                                    component="span"
+                                    sx={{
+                                      ml: "auto",
+                                      color:
+                                        source === "vendor"
+                                          ? hubTokens.success
+                                          : hubTokens.muted,
+                                      fontSize: 11,
+                                      fontFamily: hubTokens.mono,
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {inr(rate)}/day
+                                    {source === "vendor" ? " · vendor" : ""}
+                                  </Box>
+                                );
+                              })()}
                             </Box>
                           );
                         }}
@@ -690,7 +765,10 @@ export default function CreateRentalV2Dialog({
                       type="number"
                       value={row.dailyRate}
                       onChange={(e) =>
-                        updateItem(idx, { dailyRate: Number(e.target.value) || 0 })
+                        updateItem(idx, {
+                          dailyRate: Number(e.target.value) || 0,
+                          rateAutoFilled: false,
+                        })
                       }
                       size="small"
                       sx={{ minWidth: 100 }}
