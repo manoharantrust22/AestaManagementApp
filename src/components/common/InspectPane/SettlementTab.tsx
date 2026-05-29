@@ -4,6 +4,7 @@ import React from "react";
 import {
   Box,
   Button,
+  Chip,
   Skeleton,
   Stack,
   Typography,
@@ -13,13 +14,51 @@ import {
 import dayjs from "dayjs";
 import { useState } from "react";
 import { entitySettlementRef, type InspectEntity } from "./types";
-import { useSettlementDetails } from "@/hooks/queries/useSettlementDetails";
+import { useSettlementFullDetails } from "@/hooks/queries/useSettlementFullDetails";
+import ScreenshotViewer from "@/components/common/ScreenshotViewer";
+import type { SettlementDetails } from "@/components/payments/SettlementRefDetailDialog";
 import { useSalaryWaterfall } from "@/hooks/queries/useSalaryWaterfall";
 import { usePaymentsLedger } from "@/hooks/queries/usePaymentsLedger";
 import SettlementRefDetailDialog from "@/components/payments/SettlementRefDetailDialog";
 
 function formatINR(n: number): string {
   return `₹${n.toLocaleString("en-IN")}`;
+}
+
+function paymentModeLabel(mode: string | null | undefined): string | null {
+  if (!mode) return null;
+  switch (mode) {
+    case "upi": return "UPI";
+    case "cash": return "Cash";
+    case "net_banking": return "Net Banking";
+    case "company_direct_online": return "Direct (Online)";
+    case "via_site_engineer": return "Via Engineer";
+    default: return mode;
+  }
+}
+function paymentChannelLabel(channel: string | null | undefined): string | null {
+  if (!channel) return null;
+  switch (channel) {
+    case "direct": return "Direct Payment";
+    case "engineer_wallet": return "Via Engineer Wallet";
+    default: return channel;
+  }
+}
+function payerLabel(d: SettlementDetails): string {
+  if (d.payerSourceSplit && d.payerSourceSplit.length > 0) return "Split";
+  const source = d.payerSource;
+  const name = d.payerName;
+  if (!source) return name ?? "—";
+  switch (source) {
+    case "own_money": return "Own Money";
+    case "amma_money":
+    case "mothers_money": return "Amma Money";
+    case "client_money": return "Client Money";
+    case "trust_account": return "Trust Account";
+    case "other_site_money": return name || "Other Site Money";
+    case "custom": return name || "Custom";
+    default: return name || source;
+  }
 }
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -46,13 +85,16 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 export default function SettlementTab({
   entity,
   onSettleClick,
+  canEditSettlement,
+  onEditSettlement,
+  paneZIndex,
 }: {
   entity: InspectEntity;
   onSettleClick?: (entity: InspectEntity) => void;
+  canEditSettlement?: boolean;
+  onEditSettlement?: (details: SettlementDetails) => void;
+  paneZIndex?: number;
 }) {
-  // weekly-aggregate / daily-market-weekly have no single settlement_ref;
-  // render dedicated sub-components so each component's hook order
-  // stays stable.
   if (entity.kind === "weekly-aggregate") {
     return (
       <WeeklyAggregateSettlement entity={entity} onSettleClick={onSettleClick} />
@@ -61,21 +103,39 @@ export default function SettlementTab({
   if (entity.kind === "daily-market-weekly") {
     return <DailyMarketWeeklySettlement entity={entity} />;
   }
-  return <SingleRefSettlement entity={entity} onSettleClick={onSettleClick} />;
+  return (
+    <SingleRefSettlement
+      entity={entity}
+      onSettleClick={onSettleClick}
+      canEditSettlement={canEditSettlement}
+      onEditSettlement={onEditSettlement}
+      paneZIndex={paneZIndex}
+    />
+  );
 }
 
 function SingleRefSettlement({
   entity,
   onSettleClick,
+  canEditSettlement,
+  onEditSettlement,
+  paneZIndex,
 }: {
   entity: Exclude<InspectEntity, { kind: "weekly-aggregate" }>;
   onSettleClick?: (entity: InspectEntity) => void;
+  canEditSettlement?: boolean;
+  onEditSettlement?: (details: SettlementDetails) => void;
+  paneZIndex?: number;
 }) {
   const theme = useTheme();
   const settlementRef = entitySettlementRef(entity);
   const isPending = !settlementRef;
+  const [viewer, setViewer] = useState<{ open: boolean; index: number }>({
+    open: false,
+    index: 0,
+  });
 
-  const { data, isLoading } = useSettlementDetails(
+  const { data, isLoading } = useSettlementFullDetails(
     settlementRef,
     entity.siteId
   );
@@ -121,6 +181,9 @@ function SingleRefSettlement({
     );
   }
 
+  const proofUrls = data?.proofUrls ?? [];
+  const isCancelled = Boolean(data?.isCancelled);
+
   return (
     <Box sx={{ p: 2 }}>
       <Stack
@@ -163,18 +226,94 @@ function SingleRefSettlement({
         <Row
           label="Settled on"
           value={
-            data?.settledOn
-              ? dayjs(data.settledOn).format("DD MMM YYYY")
+            data?.settlementDate
+              ? dayjs(data.settlementDate).format("DD MMM YYYY")
               : "—"
           }
         />
-        <Row label="Payer" value={data?.payerName ?? "—"} />
-        <Row label="Payment mode" value={data?.paymentMode ?? "—"} />
-        <Row label="Channel" value={data?.channel ?? "—"} />
-        <Row label="Recorded by" value={data?.recordedByName ?? "—"} />
+        <Row label="Payer" value={data ? payerLabel(data) : "—"} />
+        <Row
+          label="Payment mode"
+          value={paymentModeLabel(data?.paymentMode) ?? "—"}
+        />
+        <Row
+          label="Channel"
+          value={paymentChannelLabel(data?.paymentChannel) ?? "—"}
+        />
+        <Row label="Recorded by" value={data?.createdByName ?? "—"} />
       </Stack>
 
-      {data?.linkedExpenseRef && (
+      {/* Screenshot / proof */}
+      <Box sx={{ mt: 2 }}>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: "block", mb: 0.75 }}
+        >
+          Payment screenshot
+        </Typography>
+        {proofUrls.length > 0 ? (
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+            {proofUrls.map((url, i) => (
+              <Box
+                key={url}
+                component="img"
+                src={url}
+                alt={`Payment proof ${i + 1}`}
+                onClick={() => setViewer({ open: true, index: i })}
+                sx={{
+                  width: 64,
+                  height: 64,
+                  objectFit: "cover",
+                  borderRadius: 1,
+                  border: `1px solid ${theme.palette.divider}`,
+                  cursor: "pointer",
+                  "&:hover": { borderColor: theme.palette.primary.main },
+                }}
+              />
+            ))}
+          </Box>
+        ) : isCancelled ? (
+          <Typography variant="body2" color="text.secondary">
+            —
+          </Typography>
+        ) : (
+          <Box
+            sx={{
+              p: 1.25,
+              borderRadius: 1,
+              bgcolor: alpha(theme.palette.warning.main, 0.12),
+              border: `1px solid ${theme.palette.warning.main}`,
+            }}
+          >
+            <Typography variant="body2" fontWeight={600} color="warning.dark">
+              No screenshot uploaded
+            </Typography>
+          </Box>
+        )}
+      </Box>
+
+      {/* Notes */}
+      <Box sx={{ mt: 2 }}>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: "block", mb: 0.5 }}
+        >
+          Notes
+        </Typography>
+        {data?.notes ? (
+          <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+            {data.notes}
+          </Typography>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            No notes
+          </Typography>
+        )}
+      </Box>
+
+      {data?.subcontractId && (
         <Box
           sx={{
             mt: 2,
@@ -196,6 +335,31 @@ function SingleRefSettlement({
           </Typography>
         </Box>
       )}
+
+      {/* Edit / cancelled footer */}
+      <Box sx={{ mt: 2 }}>
+        {isCancelled ? (
+          <Chip label="Cancelled" color="default" size="small" />
+        ) : canEditSettlement && data ? (
+          <Button
+            variant="outlined"
+            fullWidth
+            onClick={() => onEditSettlement?.(data)}
+            disabled={!onEditSettlement}
+          >
+            Edit settlement
+          </Button>
+        ) : null}
+      </Box>
+
+      <ScreenshotViewer
+        open={viewer.open}
+        onClose={() => setViewer((v) => ({ ...v, open: false }))}
+        images={proofUrls}
+        initialIndex={viewer.index}
+        title="Payment Proof"
+        zIndex={paneZIndex !== undefined ? paneZIndex + 100 : undefined}
+      />
     </Box>
   );
 }

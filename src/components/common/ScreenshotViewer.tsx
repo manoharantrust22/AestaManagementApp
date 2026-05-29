@@ -209,7 +209,7 @@ export default function ScreenshotViewer({
             </IconButton>
 
             {/* Download button */}
-            <IconButton onClick={handleDownload} sx={{ color: "white" }} size="small">
+            <IconButton onClick={handleDownload} sx={{ color: "white" }} size="small" aria-label="Download">
               <DownloadIcon />
             </IconButton>
 
