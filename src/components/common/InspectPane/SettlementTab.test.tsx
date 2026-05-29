@@ -11,6 +11,15 @@ vi.mock("@/hooks/queries/useSettlementFullDetails", () => ({
 }));
 vi.mock("@/lib/supabase/client", () => ({ createClient: () => ({}) }));
 
+const mockUseProofFlags = vi.fn();
+vi.mock("@/hooks/queries/useSettlementProofFlags", () => ({
+  useSettlementProofFlags: (...a: any[]) => mockUseProofFlags(...a),
+}));
+const mockUseLedger = vi.fn();
+vi.mock("@/hooks/queries/usePaymentsLedger", () => ({
+  usePaymentsLedger: (...a: any[]) => mockUseLedger(...a),
+}));
+
 const dailyEntity: InspectEntity = {
   kind: "daily-date",
   siteId: "site-1",
@@ -110,5 +119,52 @@ describe("SettlementTab — single settlement", () => {
     mockUseFull.mockReturnValue({ data: baseDetails, isLoading: false });
     renderTab({ canEditSettlement: false, onEditSettlement: vi.fn() });
     expect(screen.queryByRole("button", { name: /edit settlement/i })).toBeNull();
+  });
+});
+
+describe("SettlementTab — daily-market-weekly roll-up", () => {
+  beforeEach(() => {
+    mockUseProofFlags.mockReset();
+    mockUseLedger.mockReset();
+  });
+
+  const weekEntity: InspectEntity = {
+    kind: "daily-market-weekly",
+    siteId: "site-1",
+    weekStart: "2025-11-16",
+    weekEnd: "2025-11-22",
+    scopeFrom: null,
+    scopeTo: null,
+  };
+
+  function renderRollup() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <SettlementTab entity={weekEntity} canEditSettlement onEditSettlement={vi.fn()} />
+      </QueryClientProvider>
+    );
+  }
+
+  it("shows a proof-present icon for refs with a screenshot and a missing icon otherwise", () => {
+    mockUseLedger.mockReturnValue({
+      data: [
+        { date: "2025-11-18", amount: 2600, isPaid: true, isPending: false, settlementRef: "SET-A" },
+        { date: "2025-11-17", amount: 1500, isPaid: true, isPending: false, settlementRef: "SET-B" },
+      ],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    mockUseProofFlags.mockReturnValue({
+      data: new Map([
+        ["SET-A", { hasProof: true, hasNotes: false }],
+        ["SET-B", { hasProof: false, hasNotes: true }],
+      ]),
+    });
+    renderRollup();
+    expect(screen.getByLabelText("Screenshot attached")).toBeInTheDocument();
+    expect(screen.getByLabelText("No screenshot")).toBeInTheDocument();
+    expect(screen.getByLabelText("Has notes")).toBeInTheDocument();
   });
 });

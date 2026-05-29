@@ -20,6 +20,12 @@ import type { SettlementDetails } from "@/components/payments/SettlementRefDetai
 import { useSalaryWaterfall } from "@/hooks/queries/useSalaryWaterfall";
 import { usePaymentsLedger } from "@/hooks/queries/usePaymentsLedger";
 import SettlementRefDetailDialog from "@/components/payments/SettlementRefDetailDialog";
+import { useSettlementProofFlags } from "@/hooks/queries/useSettlementProofFlags";
+import {
+  Image as ImageIcon,
+  ImageNotSupported as ImageNotSupportedIcon,
+  StickyNote2 as NotesIcon,
+} from "@mui/icons-material";
 
 function formatINR(n: number): string {
   return `₹${n.toLocaleString("en-IN")}`;
@@ -82,26 +88,66 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function ProofFlagIcons({
+  flag,
+}: {
+  flag: { hasProof: boolean; hasNotes: boolean } | undefined;
+}) {
+  return (
+    <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, ml: 0.5 }}>
+      {flag?.hasProof ? (
+        <Box component="span" role="img" aria-label="Screenshot attached" sx={{ display: "inline-flex", alignItems: "center" }}>
+          <ImageIcon sx={{ fontSize: 14 }} color="action" />
+        </Box>
+      ) : (
+        <Box component="span" role="img" aria-label="No screenshot" sx={{ display: "inline-flex", alignItems: "center" }}>
+          <ImageNotSupportedIcon sx={{ fontSize: 14 }} color="warning" />
+        </Box>
+      )}
+      {flag?.hasNotes && (
+        <Box component="span" role="img" aria-label="Has notes" sx={{ display: "inline-flex", alignItems: "center" }}>
+          <NotesIcon sx={{ fontSize: 14 }} color="disabled" />
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 export default function SettlementTab({
   entity,
   onSettleClick,
   canEditSettlement,
   onEditSettlement,
+  onDeleteSettlement,
   paneZIndex,
 }: {
   entity: InspectEntity;
   onSettleClick?: (entity: InspectEntity) => void;
   canEditSettlement?: boolean;
   onEditSettlement?: (details: SettlementDetails) => void;
+  onDeleteSettlement?: (details: SettlementDetails) => void;
   paneZIndex?: number;
 }) {
   if (entity.kind === "weekly-aggregate") {
     return (
-      <WeeklyAggregateSettlement entity={entity} onSettleClick={onSettleClick} />
+      <WeeklyAggregateSettlement
+        entity={entity}
+        onSettleClick={onSettleClick}
+        canEditSettlement={canEditSettlement}
+        onEditSettlement={onEditSettlement}
+        onDeleteSettlement={onDeleteSettlement}
+      />
     );
   }
   if (entity.kind === "daily-market-weekly") {
-    return <DailyMarketWeeklySettlement entity={entity} />;
+    return (
+      <DailyMarketWeeklySettlement
+        entity={entity}
+        canEditSettlement={canEditSettlement}
+        onEditSettlement={onEditSettlement}
+        onDeleteSettlement={onDeleteSettlement}
+      />
+    );
   }
   return (
     <SingleRefSettlement
@@ -372,9 +418,15 @@ function SingleRefSettlement({
 function WeeklyAggregateSettlement({
   entity,
   onSettleClick,
+  canEditSettlement,
+  onEditSettlement,
+  onDeleteSettlement,
 }: {
   entity: Extract<InspectEntity, { kind: "weekly-aggregate" }>;
   onSettleClick?: (entity: InspectEntity) => void;
+  canEditSettlement?: boolean;
+  onEditSettlement?: (details: SettlementDetails) => void;
+  onDeleteSettlement?: (details: SettlementDetails) => void;
 }) {
   const theme = useTheme();
   const [refDetail, setRefDetail] = useState<string | null>(null);
@@ -388,6 +440,13 @@ function WeeklyAggregateSettlement({
     dateFrom: entity.scopeFrom,
     dateTo: entity.scopeTo,
   });
+
+  // Hook must be called unconditionally before any early returns.
+  const refList =
+    (weeks?.find((w) => w.weekStart === entity.weekStart)?.filledBy ?? []).map(
+      (f) => f.ref
+    );
+  const { data: proofFlags } = useSettlementProofFlags(refList, entity.siteId);
 
   if (isLoading) {
     return (
@@ -516,28 +575,31 @@ function WeeklyAggregateSettlement({
                     py: 0.5,
                   }}
                 >
-                  <Box
-                    component="button"
-                    type="button"
-                    onClick={() => setRefDetail(f.ref)}
-                    sx={{
-                      fontFamily: "ui-monospace, monospace",
-                      fontSize: 11,
-                      color: "primary.main",
-                      background: "transparent",
-                      border: "none",
-                      p: 0,
-                      textAlign: "left",
-                      cursor: "pointer",
-                      fontWeight: 600,
-                      "&:hover": { textDecoration: "underline" },
-                      "&:focus-visible": {
-                        outline: `2px solid ${theme.palette.primary.main}`,
-                        outlineOffset: 2,
-                      },
-                    }}
-                  >
-                    {f.ref}
+                  <Box sx={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+                    <Box
+                      component="button"
+                      type="button"
+                      onClick={() => setRefDetail(f.ref)}
+                      sx={{
+                        fontFamily: "ui-monospace, monospace",
+                        fontSize: 11,
+                        color: "primary.main",
+                        background: "transparent",
+                        border: "none",
+                        p: 0,
+                        textAlign: "left",
+                        cursor: "pointer",
+                        fontWeight: 600,
+                        "&:hover": { textDecoration: "underline" },
+                        "&:focus-visible": {
+                          outline: `2px solid ${theme.palette.primary.main}`,
+                          outlineOffset: 2,
+                        },
+                      }}
+                    >
+                      {f.ref}
+                    </Box>
+                    <ProofFlagIcons flag={proofFlags?.get(f.ref)} />
                   </Box>
                   <Typography
                     variant="caption"
@@ -632,6 +694,15 @@ function WeeklyAggregateSettlement({
         open={refDetail !== null}
         settlementReference={refDetail}
         onClose={() => setRefDetail(null)}
+        canEdit={canEditSettlement}
+        onEdit={(d) => {
+          setRefDetail(null);
+          onEditSettlement?.(d);
+        }}
+        onDelete={(d) => {
+          setRefDetail(null);
+          onDeleteSettlement?.(d);
+        }}
       />
 
       {/* Settle CTA when underpaid or untouched */}
@@ -662,8 +733,14 @@ function WeeklyAggregateSettlement({
 
 function DailyMarketWeeklySettlement({
   entity,
+  canEditSettlement,
+  onEditSettlement,
+  onDeleteSettlement,
 }: {
   entity: Extract<InspectEntity, { kind: "daily-market-weekly" }>;
+  canEditSettlement?: boolean;
+  onEditSettlement?: (details: SettlementDetails) => void;
+  onDeleteSettlement?: (details: SettlementDetails) => void;
 }) {
   const theme = useTheme();
   const [refDetail, setRefDetail] = useState<string | null>(null);
@@ -674,6 +751,12 @@ function DailyMarketWeeklySettlement({
     type: "daily-market",
     status: "all",
   });
+
+  // Hook must be called unconditionally before any early returns.
+  const allRefs = Array.from(
+    new Set((rows ?? []).map((r) => r.settlementRef).filter(Boolean) as string[])
+  );
+  const { data: proofFlags } = useSettlementProofFlags(allRefs, entity.siteId);
 
   if (isLoading) {
     return (
@@ -823,27 +906,32 @@ function DailyMarketWeeklySettlement({
                   refs.map((ref) => (
                     <Box
                       key={ref}
-                      component="button"
-                      type="button"
-                      onClick={() => setRefDetail(ref)}
-                      sx={{
-                        fontFamily: "ui-monospace, monospace",
-                        fontSize: 10.5,
-                        color: "primary.main",
-                        background: "transparent",
-                        border: "none",
-                        p: 0,
-                        textAlign: "left",
-                        cursor: "pointer",
-                        fontWeight: 600,
-                        "&:hover": { textDecoration: "underline" },
-                        "&:focus-visible": {
-                          outline: `2px solid ${theme.palette.primary.main}`,
-                          outlineOffset: 2,
-                        },
-                      }}
+                      sx={{ display: "inline-flex", alignItems: "center" }}
                     >
-                      {ref}
+                      <Box
+                        component="button"
+                        type="button"
+                        onClick={() => setRefDetail(ref)}
+                        sx={{
+                          fontFamily: "ui-monospace, monospace",
+                          fontSize: 10.5,
+                          color: "primary.main",
+                          background: "transparent",
+                          border: "none",
+                          p: 0,
+                          textAlign: "left",
+                          cursor: "pointer",
+                          fontWeight: 600,
+                          "&:hover": { textDecoration: "underline" },
+                          "&:focus-visible": {
+                            outline: `2px solid ${theme.palette.primary.main}`,
+                            outlineOffset: 2,
+                          },
+                        }}
+                      >
+                        {ref}
+                      </Box>
+                      <ProofFlagIcons flag={proofFlags?.get(ref)} />
                     </Box>
                   ))
                 ) : (
@@ -890,6 +978,15 @@ function DailyMarketWeeklySettlement({
         open={refDetail !== null}
         settlementReference={refDetail}
         onClose={() => setRefDetail(null)}
+        canEdit={canEditSettlement}
+        onEdit={(d) => {
+          setRefDetail(null);
+          onEditSettlement?.(d);
+        }}
+        onDelete={(d) => {
+          setRefDetail(null);
+          onDeleteSettlement?.(d);
+        }}
       />
     </Box>
   );
