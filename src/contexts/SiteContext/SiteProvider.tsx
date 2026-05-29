@@ -28,7 +28,7 @@ const SITES_CACHE_KEY = "cachedSites";
 const MAX_FETCH_RETRIES = 3;
 
 // Helper functions to safely access storage
-function getStoredSiteId(): string | null {
+export function getStoredSiteId(): string | null {
   if (typeof window === "undefined") return null;
   try {
     const sessionVal = sessionStorage.getItem(SELECTED_SITE_KEY);
@@ -49,7 +49,7 @@ function getStoredSites(): Site[] {
   }
 }
 
-function storeSiteId(siteId: string | null): void {
+export function storeSiteId(siteId: string | null): void {
   if (typeof window === "undefined") return;
   try {
     if (siteId) {
@@ -153,10 +153,10 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
           return null;
         }
 
-        // Try to restore from cookie first, then localStorage
+        // Per-tab sessionStorage/localStorage wins; the shared cookie only seeds a fresh tab.
         const cookieSiteId = getSelectedSiteCookie();
-        const localStorageSiteId = getStoredSiteId();
-        const savedSiteId = cookieSiteId || localStorageSiteId;
+        const storedSiteId = getStoredSiteId(); // sessionStorage → localStorage
+        const savedSiteId = storedSiteId || cookieSiteId;
 
         if (savedSiteId) {
           const savedSite = sitesData.find((s) => s.id === savedSiteId);
@@ -203,12 +203,14 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
     }
   }, [userProfile, supabase]);
 
-  // Restore from localStorage/cookie on mount
+  // Restore on mount. Priority: per-tab sessionStorage → shared localStorage → shared cookie.
+  // After resolving, write the id back to sessionStorage so this tab owns its selection
+  // and a site switch in another tab can never override it on reload/remount.
   useEffect(() => {
     const cachedSites = getStoredSites();
     const cookieSiteId = getSelectedSiteCookie();
-    const localStorageSiteId = getStoredSiteId();
-    const savedSiteId = cookieSiteId || localStorageSiteId;
+    const storedSiteId = getStoredSiteId(); // sessionStorage → localStorage
+    const savedSiteId = storedSiteId || cookieSiteId;
 
     if (cachedSites.length > 0) {
       console.log(
@@ -218,19 +220,15 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
       );
       setSites(cachedSites);
 
-      if (savedSiteId) {
-        const found = cachedSites.find((s) => s.id === savedSiteId);
-        const selectedSite = found || cachedSites[0] || null;
-        setSelectedSiteState(selectedSite);
-        if (!cookieSiteId && localStorageSiteId && selectedSite) {
-          setSelectedSiteCookie(selectedSite.id);
-        }
-      } else {
-        const firstSite = cachedSites[0] || null;
-        setSelectedSiteState(firstSite);
-        if (firstSite) {
-          setSelectedSiteCookie(firstSite.id);
-        }
+      const found = savedSiteId
+        ? cachedSites.find((s) => s.id === savedSiteId)
+        : undefined;
+      const selectedSite = found || cachedSites[0] || null;
+      setSelectedSiteState(selectedSite);
+
+      if (selectedSite) {
+        storeSiteId(selectedSite.id); // claim per-tab ownership (session + local)
+        if (!cookieSiteId) setSelectedSiteCookie(selectedSite.id);
       }
     }
   }, []);
