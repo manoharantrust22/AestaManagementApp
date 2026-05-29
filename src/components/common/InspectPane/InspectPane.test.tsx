@@ -5,6 +5,38 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { InspectPane } from "./InspectPane";
 import type { InspectEntity } from "./types";
 
+vi.mock("@/hooks/queries/useSettlementFullDetails", () => ({
+  useSettlementFullDetails: () => ({
+    data: {
+      settlementGroupId: "g1",
+      settlementReference: "SS-0421",
+      settlementDate: "2026-04-21",
+      totalAmount: 1000,
+      distributedToLaborers: 1000,
+      actualPaymentDate: null,
+      paymentType: null,
+      laborerCount: 1,
+      paymentChannel: "direct",
+      paymentMode: "upi",
+      payerSource: "client_money",
+      payerName: null,
+      payerSourceSplit: null,
+      proofUrls: [],
+      notes: null,
+      subcontractId: null,
+      subcontractTitle: null,
+      createdBy: null,
+      createdByName: "Hari",
+      createdAt: "2026-04-21",
+      isCancelled: false,
+      isContract: false,
+      weekAllocations: [],
+      laborers: [],
+    },
+    isLoading: false,
+  }),
+}));
+
 // Mock the supabase client used inside AttendanceTab's hooks so that
 // rendering the pane shell in this test doesn't trigger real network.
 // (The hook's queryFn is gated behind enabled: Boolean(siteId && date),
@@ -118,5 +150,19 @@ describe("InspectPane", () => {
     renderWithClient(<InspectPane {...baseProps} entity={weeklyEntity} />);
     expect(screen.getByText(/Week 14[–-]20 Apr/)).toBeInTheDocument();
     expect(screen.getByText(/WS-W16-01/)).toBeInTheDocument();
+  });
+
+  it("forwards Edit from the Settlement tab to onEditSettlement", () => {
+    const onEditSettlement = vi.fn();
+    renderWithClient(
+      <InspectPane
+        {...baseProps}
+        activeTab="settlement"
+        canEditSettlement
+        onEditSettlement={onEditSettlement}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: /edit settlement/i }));
+    expect(onEditSettlement).toHaveBeenCalledTimes(1);
   });
 });
