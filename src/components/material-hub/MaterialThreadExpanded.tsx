@@ -19,12 +19,15 @@
  * Mirrors `ThreadExpanded` block in docs/MaterialHub_Redesign/proto-screens.jsx.
  */
 
-import { Box, Tooltip, Typography } from "@mui/material";
+import { useState } from "react";
+import { Box, Collapse, Tooltip, Typography } from "@mui/material";
 import CheckIcon from "@mui/icons-material/Check";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import ImageIcon from "@mui/icons-material/Image";
 import DescriptionIcon from "@mui/icons-material/Description";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { inr } from "@/lib/material-hub/formatters";
 import { fmtDateShort } from "@/lib/material-hub/formatters";
@@ -34,6 +37,11 @@ import {
   useBatchSettlementSummary,
   useBatchVariantSummary,
 } from "@/hooks/queries/useBatchUsage";
+import { useAuth } from "@/contexts/AuthContext";
+import { hasEditPermission } from "@/lib/permissions";
+import UsageLogList from "@/components/inventory/UsageLogList";
+import type { UsageLogItem } from "@/hooks/queries/useUsageLog";
+import ThreadCorrectionMenu from "@/components/material-hub/ThreadCorrectionMenu";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 
 const DELIVERED_IDX = M_STAGES.indexOf("delivered");
@@ -44,9 +52,11 @@ interface BlockHeaderProps {
   title: string;
   complete: boolean;
   action?: React.ReactNode;
+  /** Secondary control (e.g. the "Correct" menu) rendered left of `action`. */
+  correct?: React.ReactNode;
 }
 
-function BlockHeader({ title, complete, action }: BlockHeaderProps) {
+function BlockHeader({ title, complete, action, correct }: BlockHeaderProps) {
   return (
     <Box
       sx={{
@@ -83,7 +93,12 @@ function BlockHeader({ title, complete, action }: BlockHeaderProps) {
           {title}
         </Box>
       </Box>
-      {action}
+      {(correct || action) && (
+        <Box sx={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          {correct}
+          {action}
+        </Box>
+      )}
     </Box>
   );
 }
@@ -258,6 +273,13 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
   const isOwn = t.kind === "own";
   const isSpot = t.purchase_type === "spot";
 
+  const { userProfile } = useAuth();
+  // All roles may correct/edit (subject to per-row settled locks); mirror
+  // threads stay read-only — corrections belong to the originating site.
+  const canEdit = !t.is_mirror && hasEditPermission(userProfile?.role);
+
+  const [showUsageLog, setShowUsageLog] = useState(false);
+
   // Group batch with a real ref code → fetch per-site + per-variant breakdown.
   // The "—" sentinel from formatters means "no batch yet" — skip the RPC then.
   const groupBatchRefCode =
@@ -266,6 +288,18 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
       : undefined;
   const { data: batchSummary } = useBatchSettlementSummary(groupBatchRefCode);
   const { data: variantSummary = [] } = useBatchVariantSummary(groupBatchRefCode);
+
+  // Usage-log item: a group thread keys on its batch ref_code (one row per
+  // event); an own/pooled thread keys on (site, material) — brand is left null
+  // so merged variants of the same material all surface.
+  const usageLogItem: UsageLogItem = {
+    material_id: t.material_id,
+    brand_id: null,
+    material_name: t.material_name,
+    material_unit: t.material_unit,
+    batch_code: groupBatchRefCode ?? null,
+    kind: isOwn ? "own" : "group",
+  };
 
   // Block completion flags. Detailed records (t.delivery / t.settlement /
   // t.inventory) aren't always joined into the thread, so we fall back to
@@ -339,7 +373,11 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
       )}
       {/* 1. Request */}
       <Box>
-        <BlockHeader title="Request" complete={hasRequest} />
+        <BlockHeader
+          title="Request"
+          complete={hasRequest}
+          correct={<ThreadCorrectionMenu thread={t} section="request" canEdit={canEdit} />}
+        />
         <Box
           sx={{
             background: hubTokens.card,
@@ -369,6 +407,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
         <BlockHeader
           title="Purchase order"
           complete={hasPO}
+          correct={<ThreadCorrectionMenu thread={t} section="po" canEdit={canEdit} />}
           action={
             t.po && (t.po.vendor_bill_url || t.po.quotation_url) ? (
               <Box sx={{ display: "flex", gap: "4px" }}>
@@ -448,7 +487,11 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
 
       {/* 3. Delivery & quality */}
       <Box>
-        <BlockHeader title="Delivery & quality" complete={hasDelivery} />
+        <BlockHeader
+          title="Delivery & quality"
+          complete={hasDelivery}
+          correct={<ThreadCorrectionMenu thread={t} section="delivery" canEdit={canEdit} />}
+        />
         <Box
           sx={{
             background: hubTokens.card,
@@ -677,6 +720,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
         <BlockHeader
           title="Settlement"
           complete={hasSettlement}
+          correct={<ThreadCorrectionMenu thread={t} section="settlement" canEdit={canEdit} />}
           action={
             t.settlement &&
             (t.settlement.payment_screenshot_url || t.settlement.bill_url) ? (
@@ -1067,6 +1111,54 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               No inventory yet.
             </Typography>
           )}
+
+          {/* Usage log — who recorded what, when, how much, for which work.
+              Collapsed by default; an admin/role-gated edit pencil + delete sit
+              on each event once expanded. Only meaningful once stock exists. */}
+          {(t.inventory || receivedQty > 0) && (
+            <Box sx={{ marginTop: "10px", paddingTop: "10px", borderTop: `1px dashed ${hubTokens.hairline}` }}>
+              <Box
+                role="button"
+                tabIndex={0}
+                onClick={() => setShowUsageLog((v) => !v)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setShowUsageLog((v) => !v);
+                  }
+                }}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  cursor: "pointer",
+                  userSelect: "none",
+                  color: hubTokens.primary,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  "&:hover": { textDecoration: "underline" },
+                }}
+              >
+                {showUsageLog ? (
+                  <ExpandLessIcon sx={{ fontSize: 15 }} />
+                ) : (
+                  <ExpandMoreIcon sx={{ fontSize: 15 }} />
+                )}
+                {showUsageLog ? "Hide usage log" : "Show usage log"}
+              </Box>
+              <Collapse in={showUsageLog} unmountOnExit>
+                <Box sx={{ marginTop: "6px" }}>
+                  <UsageLogList
+                    item={usageLogItem}
+                    siteId={t.site_id}
+                    canEdit={canEdit}
+                    showHeader
+                    enabled={showUsageLog}
+                  />
+                </Box>
+              </Collapse>
+            </Box>
+          )}
         </Box>
       </Box>
 
@@ -1135,32 +1227,48 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                 Will post after settlement.
               </Typography>
             )
-          ) : t.inter_site_usage && t.inter_site_usage.length > 0 ? (
+          ) : batchSummary && batchSummary.site_allocations.length > 0 ? (
+            // Prefer the settlement summary: it carries real site names, the
+            // payer flag, and per-site amounts. The legacy t.inter_site_usage
+            // only had truncated UUIDs, so we render from batchSummary whenever
+            // it's available (it is, once the batch has any logged usage).
             <Box sx={{ display: "flex", flexDirection: "column", gap: "5px" }}>
-              {t.inter_site_usage.map((u, i) => (
-                <Box
-                  key={i}
-                  sx={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "4px 6px",
-                    background: hubTokens.hairline,
-                    borderRadius: "6px",
-                    fontSize: 11.5,
-                  }}
-                >
-                  <Box sx={{ fontFamily: hubTokens.mono }}>{u.site_id.slice(0, 8)}…</Box>
-                  <Box sx={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                    <Box sx={{ color: hubTokens.muted }}>
-                      {fmtQty(u.used)} {t.material_unit}
+              {batchSummary.site_allocations.map((a) => {
+                const settled = a.settlement_status === "settled";
+                return (
+                  <Box
+                    key={a.site_id}
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "5px 8px",
+                      background: a.is_payer ? hubTokens.successSoft : hubTokens.hairline,
+                      borderRadius: "6px",
+                      fontSize: 11.5,
+                    }}
+                  >
+                    <Box sx={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                      <Box sx={{ fontWeight: 600, color: hubTokens.text }}>{a.site_name}</Box>
+                      <Box sx={{ fontSize: 10, color: hubTokens.subtle }}>
+                        {a.is_payer
+                          ? "self-use (paid for batch)"
+                          : settled
+                            ? `settled with ${batchSummary.paying_site_name}`
+                            : `owes ${batchSummary.paying_site_name}`}
+                      </Box>
                     </Box>
-                    <Box sx={{ fontFamily: hubTokens.mono, color: hubTokens.text, fontWeight: 600 }}>
-                      {inr(u.value)}
+                    <Box sx={{ display: "flex", gap: "8px", alignItems: "center", flexShrink: 0 }}>
+                      <Box sx={{ color: hubTokens.muted }}>
+                        {fmtQty(Number(a.quantity_used))} {t.material_unit}
+                      </Box>
+                      <Box sx={{ fontFamily: hubTokens.mono, color: hubTokens.text, fontWeight: 600 }}>
+                        {inr(Number(a.amount))}
+                      </Box>
                     </Box>
                   </Box>
-                </Box>
-              ))}
+                );
+              })}
             </Box>
           ) : (
             <Typography sx={{ fontSize: 12, color: hubTokens.subtle, fontStyle: "italic" }}>

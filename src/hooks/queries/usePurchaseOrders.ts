@@ -1002,6 +1002,64 @@ export function useCancelPurchaseOrder() {
 }
 
 /**
+ * Reverse a single recorded delivery (Material Hub DELIVERY "Correct" → redo).
+ * Calls the atomic reverse_delivery RPC, which rolls back the stock this
+ * delivery added, decrements PO-item received quantities, drops the derived
+ * expense/group-stock artifacts when it's the sole delivery, and recomputes
+ * the PO status. The RPC refuses (success:false) when usage has been logged or
+ * a settlement exists — the message is surfaced so the caller can clear the
+ * blocker first.
+ */
+export function useReverseDelivery() {
+  const queryClient = useQueryClient();
+  const supabase = createClient() as any;
+
+  return useMutation({
+    retry: false, // Not idempotent — reverses stock
+    mutationFn: async ({
+      deliveryId,
+      siteId,
+      reason,
+      actorId,
+    }: {
+      deliveryId: string;
+      siteId: string;
+      reason?: string;
+      actorId?: string;
+    }) => {
+      await ensureFreshSession();
+
+      const { data, error } = await supabase.rpc("reverse_delivery", {
+        p_delivery_id: deliveryId,
+        p_reason: reason ?? null,
+        p_actor: actorId ?? null,
+      });
+
+      if (error) throw error;
+      if (data && !data.success) {
+        throw new Error(data.error || "Failed to reverse delivery");
+      }
+      return { siteId, ...data };
+    },
+    onSuccess: (result) => {
+      const siteId = result.siteId as string;
+      queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.bySite(siteId) });
+      queryClient.invalidateQueries({ queryKey: ["deliveries", siteId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.materialPurchases.bySite(siteId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.materialPurchases.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.materialStock.all });
+      queryClient.invalidateQueries({ queryKey: ["batch-usage-records"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.batchUsage.all });
+      queryClient.invalidateQueries({ queryKey: ["group-stock-transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["site-material-expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["all-expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["material-threads"] });
+      queryClient.invalidateQueries({ queryKey: ["usage-history"] });
+    },
+  });
+}
+
+/**
  * Delete a purchase order (draft, cancelled, or delivered)
  */
 export function useDeletePurchaseOrder() {
