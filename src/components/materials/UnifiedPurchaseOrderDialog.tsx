@@ -80,6 +80,8 @@ import FileUploader from "@/components/common/FileUploader";
 import { BillPreviewButton } from "@/components/common/BillViewerDialog";
 import { createClient } from "@/lib/supabase/client";
 import RequestItemRow from "./RequestItemRow";
+import QuickAddVendorDialog from "./QuickAddVendorDialog";
+import VendorDialog from "./VendorDialog";
 
 // ============================================================================
 // Types
@@ -124,6 +126,20 @@ interface POItemRow extends PurchaseOrderItemFormData {
   approvedQty?: number;
   alreadyOrderedQty?: number;
   remainingQty?: number;
+}
+
+// De-duplicate a vendor list by id, keeping the first occurrence (so richer
+// VendorForMaterials entries with badges win over plain Vendor duplicates).
+function dedupeById<T extends { id: string }>(list: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of list) {
+    if (item && !seen.has(item.id)) {
+      seen.add(item.id);
+      out.push(item);
+    }
+  }
+  return out;
 }
 
 // ============================================================================
@@ -220,6 +236,13 @@ export default function UnifiedPurchaseOrderDialog({
 
   const [error, setError] = useState("");
   const [selectedVendor, setSelectedVendor] = useState<Vendor | VendorForMaterials | null>(null);
+  // Inline vendor management (request mode): reveal the full directory, add new vendors.
+  const [vendorPickerOpen, setVendorPickerOpen] = useState(false);
+  const [showAllVendors, setShowAllVendors] = useState(false);
+  const [manualVendors, setManualVendors] = useState<Vendor[]>([]);
+  const [quickAddVendorOpen, setQuickAddVendorOpen] = useState(false);
+  const [fullVendorFormOpen, setFullVendorFormOpen] = useState(false);
+  const [prefillVendorName, setPrefillVendorName] = useState("");
   const [purchaseDate, setPurchaseDate] = useState(today);
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("");
@@ -227,6 +250,27 @@ export default function UnifiedPurchaseOrderDialog({
   const [paymentTiming, setPaymentTiming] = useState<"advance" | "on_delivery">("on_delivery");
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<POItemRow[]>([]);
+
+  // Vendor picker options: the "supplies these materials" set (`vendors`), plus
+  // inline-created vendors, plus the full directory once the user expands it.
+  // `selectedVendor` is appended last so it's always a valid option (no MUI warning).
+  const vendorOptions = useMemo<(Vendor | VendorForMaterials)[]>(() => {
+    return dedupeById<Vendor | VendorForMaterials>([
+      ...manualVendors,
+      ...(vendors as (Vendor | VendorForMaterials)[]),
+      ...(showAllVendors ? allVendors : []),
+      ...(selectedVendor ? [selectedVendor] : []),
+    ]);
+  }, [manualVendors, vendors, showAllVendors, allVendors, selectedVendor]);
+
+  // Select a freshly-created (or de-duped existing) vendor and close the add flow.
+  const handleVendorCreated = (vendor: Vendor) => {
+    setManualVendors((prev) => dedupeById([vendor, ...prev]));
+    setSelectedVendor(vendor);
+    setQuickAddVendorOpen(false);
+    setFullVendorFormOpen(false);
+    setVendorPickerOpen(false);
+  };
 
   // Inline editing state for PO items
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
@@ -399,6 +443,14 @@ export default function UnifiedPurchaseOrderDialog({
   // Reset form when dialog opens/closes
   useEffect(() => {
     if (!open) return;
+
+    // Reset inline-vendor picker state on each open.
+    setShowAllVendors(false);
+    setManualVendors([]);
+    setVendorPickerOpen(false);
+    setQuickAddVendorOpen(false);
+    setFullVendorFormOpen(false);
+    setPrefillVendorName("");
 
     if (purchaseOrder) {
       // Edit mode - load existing PO data
@@ -1175,6 +1227,7 @@ export default function UnifiedPurchaseOrderDialog({
   // ============================================================================
 
   return (
+    <>
     <Dialog
       open={open}
       onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }}
@@ -1260,10 +1313,14 @@ export default function UnifiedPurchaseOrderDialog({
 
           <Grid size={{ xs: 12, md: isRequestMode ? 6 : 4 }}>
             <Autocomplete
-              options={vendors as (Vendor | VendorForMaterials)[]}
+              options={vendorOptions}
               getOptionLabel={(option) => option.name}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
               value={selectedVendor}
               onChange={(_, value) => setSelectedVendor(value)}
+              open={vendorPickerOpen}
+              onOpen={() => setVendorPickerOpen(true)}
+              onClose={() => setVendorPickerOpen(false)}
               loading={isLoadingFilteredVendors}
               renderInput={(params) => (
                 <TextField
@@ -1328,14 +1385,55 @@ export default function UnifiedPurchaseOrderDialog({
                       ? "No vendors supply these materials"
                       : "No vendors found"
               }
+              PaperComponent={(paperProps) => (
+                <Paper {...paperProps}>
+                  {paperProps.children}
+                  <Divider />
+                  <Box sx={{ p: 0.5, display: "flex", flexDirection: "column", alignItems: "stretch" }}>
+                    {isRequestMode && !showAllVendors && allVendors.length > vendors.length && (
+                      <Button
+                        size="small"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => setShowAllVendors(true)}
+                        sx={{ justifyContent: "flex-start", textTransform: "none" }}
+                      >
+                        Show all directory vendors ({allVendors.length - vendors.length})
+                      </Button>
+                    )}
+                    <Button
+                      size="small"
+                      startIcon={<AddIcon />}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setVendorPickerOpen(false);
+                        setQuickAddVendorOpen(true);
+                      }}
+                      sx={{ justifyContent: "flex-start", textTransform: "none" }}
+                    >
+                      Add new vendor
+                    </Button>
+                  </Box>
+                </Paper>
+              )}
               slotProps={{
                 popper: { disablePortal: false }
               }}
             />
-            {isRequestMode && vendors.length > 0 && (
+            {isRequestMode && (
               <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-                Showing {vendors.length} vendor{vendors.length !== 1 ? "s" : ""} that supply the selected materials
+                {filteredVendors.length > 0
+                  ? `Showing ${filteredVendors.length} that supply these${allVendors.length > filteredVendors.length ? ` · ${allVendors.length - filteredVendors.length} more in your directory` : ""}`
+                  : `No vendors linked to these materials · showing all ${allVendors.length} in your directory`}
               </Typography>
+            )}
+            {selectedVendor && isRequestMode && !filteredVendors.some((v) => v.id === selectedVendor.id) && (
+              <Alert
+                severity="info"
+                icon={<InfoIcon fontSize="inherit" />}
+                sx={{ mt: 1, py: 0, "& .MuiAlert-message": { py: 0.5 } }}
+              >
+                {selectedVendor.name} isn’t linked to these materials yet — creating this PO will link them automatically.
+              </Alert>
             )}
           </Grid>
 
@@ -2424,5 +2522,26 @@ export default function UnifiedPurchaseOrderDialog({
         </Button>
       </DialogActions>
     </Dialog>
+
+    <QuickAddVendorDialog
+      open={quickAddVendorOpen}
+      onClose={() => setQuickAddVendorOpen(false)}
+      onCreated={handleVendorCreated}
+      allVendors={allVendors}
+      onOpenFullForm={(name) => {
+        setPrefillVendorName(name);
+        setQuickAddVendorOpen(false);
+        setFullVendorFormOpen(true);
+      }}
+    />
+
+    <VendorDialog
+      open={fullVendorFormOpen}
+      onClose={() => setFullVendorFormOpen(false)}
+      vendor={null}
+      onCreated={handleVendorCreated}
+      prefill={prefillVendorName ? { name: prefillVendorName } : undefined}
+    />
+    </>
   );
 }

@@ -48,6 +48,7 @@ import {
   useUpdateVendor,
 } from "@/hooks/queries/useVendors";
 import type {
+  Vendor,
   VendorWithCategories,
   VendorFormData,
   VendorType,
@@ -60,12 +61,18 @@ interface VendorDialogProps {
   onClose: () => void;
   vendor: VendorWithCategories | null;
   categories?: MaterialCategory[]; // Optional - CategoryAutocomplete fetches its own data
+  /** Called with the newly created vendor after a successful create (not on edit). */
+  onCreated?: (vendor: Vendor) => void;
+  /** Seed fields when creating a new vendor (e.g. a name carried over from quick-add). */
+  prefill?: Partial<VendorFormData>;
 }
 
 export default function VendorDialog({
   open,
   onClose,
   vendor,
+  onCreated,
+  prefill,
 }: VendorDialogProps) {
   const isMobile = useIsMobile();
   const isEdit = !!vendor;
@@ -127,8 +134,10 @@ export default function VendorDialog({
       upi_id: vendor?.upi_id || "",
       qr_code_url: vendor?.qr_code_url || "",
       shop_photo_url: vendor?.shop_photo_url || "",
+      // When creating, seed any fields handed over (e.g. name typed in quick-add).
+      ...(vendor ? {} : prefill),
     }),
-    [vendor]
+    [vendor, prefill]
   );
 
   // Use form draft hook for persistence
@@ -306,11 +315,14 @@ export default function VendorDialog({
           id: vendor.id,
           data: formData,
         });
+        clearDraft(); // Clear draft on successful save
+        onClose();
       } else {
-        await createVendor.mutateAsync(formData);
+        const created = await createVendor.mutateAsync(formData);
+        clearDraft(); // Clear draft on successful save
+        onClose();
+        onCreated?.(created);
       }
-      clearDraft(); // Clear draft on successful save
-      onClose();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to save vendor";
       setError(message);

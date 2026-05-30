@@ -528,7 +528,14 @@ export function useUpsertVendorInventory() {
         queryClient.invalidateQueries({
           queryKey: queryKeys.vendorInventory.byMaterial(variables.material_id),
         });
+        queryClient.invalidateQueries({
+          queryKey: ["material-vendor-summary", variables.material_id],
+        });
       }
+      // Linking a vendor to a material also changes which vendors "supply" it.
+      // Invalidate the whole vendors namespace so vendor-by-material pickers
+      // (e.g. the PO dialog's useVendorsForMaterials) refresh without a hard reload.
+      queryClient.invalidateQueries({ queryKey: queryKeys.vendors.all });
     },
   });
 }

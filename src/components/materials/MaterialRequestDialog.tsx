@@ -28,6 +28,8 @@ import {
   Tooltip,
   ToggleButton,
   ToggleButtonGroup,
+  Chip,
+  Stack,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -154,6 +156,14 @@ export default function MaterialRequestDialog({
   const [sectionId, setSectionId] = useState("");
   const today = new Date().toISOString().split("T")[0];
   const [requestDate, setRequestDate] = useState(today);
+
+  // Add N days to a YYYY-MM-DD string, returning a YYYY-MM-DD string.
+  const addDaysToDate = (isoDate: string, days: number) => {
+    if (!isoDate) return "";
+    const d = new Date(isoDate + "T00:00:00");
+    d.setDate(d.getDate() + days);
+    return d.toISOString().split("T")[0];
+  };
   const [requiredByDate, setRequiredByDate] = useState("");
   const [priority, setPriority] = useState<RequestPriority>("normal");
   const [purchaseType, setPurchaseType] = useState<'own_site' | 'group_stock'>('own_site');
@@ -658,6 +668,27 @@ export default function MaterialRequestDialog({
           {deliveryType === 'one_time' && (
             <>
               <Grid size={{ xs: 6, md: 4 }}>
+                {/* Quick-fill chips compute off Request Date (falls back to today) so the
+                    common "same as request date" case needs one tap instead of typing. */}
+                <Stack direction="row" spacing={0.5} sx={{ mb: 0.5, flexWrap: "wrap", gap: 0.5 }}>
+                  {[
+                    { label: "Same day", days: 0 },
+                    { label: "+1 day", days: 1 },
+                    { label: "+2 days", days: 2 },
+                  ].map(({ label, days }) => {
+                    const chipDate = addDaysToDate(requestDate || today, days);
+                    return (
+                      <Chip
+                        key={label}
+                        label={label}
+                        size="small"
+                        variant={requiredByDate === chipDate ? "filled" : "outlined"}
+                        color={requiredByDate === chipDate ? "primary" : "default"}
+                        onClick={() => setRequiredByDate(chipDate)}
+                      />
+                    );
+                  })}
+                </Stack>
                 <TextField
                   fullWidth
                   type="date"
