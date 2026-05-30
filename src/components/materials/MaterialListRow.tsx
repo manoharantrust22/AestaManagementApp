@@ -58,6 +58,7 @@ interface MaterialListRowProps {
   vendorCount: number;
   bestPrice?: number | null;
   bestPriceVendor?: string | null;
+  priceNote?: string | null;
   /**
    * Chronologically-latest purchase of this material (from v_material_latest_purchase).
    * Surfaces a "Last: ₹X · vendor · date · 📎" line under the best-price chip,
@@ -83,6 +84,7 @@ export function MaterialListRow({
   vendorCount,
   bestPrice,
   bestPriceVendor,
+  priceNote,
   latestPurchase,
   isFrequent = false,
   selected = false,
@@ -281,7 +283,7 @@ export function MaterialListRow({
     <>
       {bestPrice != null ? (
         <Tooltip
-          title={bestPriceVendor ? `Best price: ${bestPriceVendor}` : "Best price"}
+          title={bestPriceVendor ? `Best price: ${bestPriceVendor}${priceNote ? ` · ${priceNote}` : ""}` : priceNote || "Best price"}
           placement="top"
         >
           <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>

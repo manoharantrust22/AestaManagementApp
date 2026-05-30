@@ -3,6 +3,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { wrapQueryFn } from "@/lib/utils/timeout";
+import {
+  computeLandedCost,
+  landedCostNote,
+  type LandedCostInput,
+} from "@/lib/materials/landedCost";
 
 /**
  * Material order statistics - frequency of orders for each material
@@ -24,7 +29,16 @@ export interface MaterialBestPrice {
   brand_name: string | null;
   vendor_id: string;
   vendor_name: string;
+  /** Raw quoted price (current_price) of the cheapest-landed quote. */
   unit_price: number;
+  /** The comparison/display figure: price + transport/loading/unloading + GST (when stated). */
+  landed_cost: number;
+  /** GST added on top of unit_price (0 when none stated). */
+  gst_extra: number;
+  /** Transport + loading + unloading added on top of unit_price. */
+  transport_extra: number;
+  /** Short note for the tooltip, e.g. "incl. transport"; "" when landed == unit_price. */
+  price_note: string;
   price_includes_gst: boolean;
 }
 
@@ -114,7 +128,9 @@ export function useMaterialBestPrices() {
   return useQuery({
     queryKey: ["materials", "best-prices"],
     queryFn: wrapQueryFn(async () => {
-      // Get vendor inventory with vendor names and brand info
+      // Pull every available quote with the cost components needed to compute
+      // landed cost, plus each row's parent_id so a variant's quote can roll up
+      // to its parent material's card.
       const { data, error } = await supabase
         .from("vendor_inventory")
         .select(`
@@ -123,41 +139,65 @@ export function useMaterialBestPrices() {
           vendor_id,
           current_price,
           price_includes_gst,
+          gst_rate,
+          price_includes_transport,
+          transport_cost,
+          loading_cost,
+          unloading_cost,
           vendors(name),
-          material_brands(brand_name)
+          material_brands(brand_name),
+          material:materials(parent_id)
         `)
         .eq("is_available", true)
-        .not("material_id", "is", null)
-        .order("current_price", { ascending: true });
+        .not("material_id", "is", null);
 
       if (error) {
         console.warn("Could not fetch best prices:", error.message);
         return new Map<string, MaterialBestPrice>();
       }
 
-      // Get best (lowest) price per material + brand combination
+      // Keep the lowest-LANDED quote per material. Each quote is keyed under both
+      // its own material_id and (when it is a variant) its parent_id, so a parent
+      // card rolls up its variants' quotes while standalone/variant cards still
+      // resolve directly. This also collapses the old `${id}_${brand}` composite
+      // key that every consumer looked up by plain id — the bug that made every
+      // card read "No price".
       const priceMap = new Map<string, MaterialBestPrice>();
+
+      const consider = (key: string, entry: MaterialBestPrice) => {
+        const existing = priceMap.get(key);
+        if (!existing || entry.landed_cost < existing.landed_cost) {
+          priceMap.set(key, entry);
+        }
+      };
 
       for (const item of data || []) {
         if (!item.material_id) continue;
+        if (item.current_price == null) continue; // a null must never win as ₹0
 
-        // Create composite key using material_id and brand_id
-        const key = `${item.material_id}_${item.brand_id || 'no-brand'}`;
+        const breakdown = computeLandedCost(item as unknown as LandedCostInput);
+        const vendorData = item.vendors as { name: string } | null;
+        const brandData = item.material_brands as { brand_name: string } | null;
+        const parentId =
+          (item.material as { parent_id: string | null } | null)?.parent_id ||
+          null;
 
-        // Only store if this is the first (lowest price) for this material+brand
-        if (!priceMap.has(key)) {
-          const vendorData = item.vendors as { name: string } | null;
-          const brandData = item.material_brands as { brand_name: string } | null;
-          priceMap.set(key, {
-            material_id: item.material_id,
-            brand_id: item.brand_id || null,
-            brand_name: brandData?.brand_name || null,
-            vendor_id: item.vendor_id,
-            vendor_name: vendorData?.name || "Unknown",
-            unit_price: item.current_price || 0,
-            price_includes_gst: item.price_includes_gst || false,
-          });
-        }
+        const entry: MaterialBestPrice = {
+          material_id: item.material_id,
+          brand_id: item.brand_id || null,
+          brand_name: brandData?.brand_name || null,
+          vendor_id: item.vendor_id,
+          vendor_name: vendorData?.name || "Unknown",
+          unit_price: breakdown.base,
+          landed_cost: breakdown.landed,
+          gst_extra: breakdown.gstExtra,
+          transport_extra: breakdown.transportExtra,
+          price_note: landedCostNote(breakdown),
+          price_includes_gst: item.price_includes_gst || false,
+        };
+
+        consider(item.material_id, entry);
+        if (parentId) consider(parentId, entry);
       }
 
       return priceMap;

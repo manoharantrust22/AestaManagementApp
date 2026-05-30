@@ -200,8 +200,8 @@ export default function MaterialsPage() {
                 return a.name.localeCompare(b.name);
               }
               case "lowest_price": {
-                const aP = bestPrices?.get(a.id)?.unit_price ?? Number.MAX_SAFE_INTEGER;
-                const bP = bestPrices?.get(b.id)?.unit_price ?? Number.MAX_SAFE_INTEGER;
+                const aP = bestPrices?.get(a.id)?.landed_cost ?? Number.MAX_SAFE_INTEGER;
+                const bP = bestPrices?.get(b.id)?.landed_cost ?? Number.MAX_SAFE_INTEGER;
                 if (aP !== bP) return aP - bP;
                 return a.name.localeCompare(b.name);
               }
@@ -216,7 +216,7 @@ export default function MaterialsPage() {
       const vendorN = vendorCounts[m.id] || 0;
       const hasImage = !!m.image_url;
       const hasVariants = (m.variant_count || 0) > 0;
-      const hasPrice = bestPrices?.get(m.id)?.unit_price != null;
+      const hasPrice = bestPrices?.get(m.id)?.landed_cost != null;
       if (activeFilters.has("frequent") && !isFrequent) return false;
       if (activeFilters.has("has_image") && !hasImage) return false;
       if (activeFilters.has("has_vendors") && vendorN === 0) return false;
@@ -468,8 +468,9 @@ export default function MaterialsPage() {
                   variantCount={variantCount}
                   brandCount={brandCount}
                   vendorCount={vendorCounts[m.id] || 0}
-                  bestPrice={bp?.unit_price}
+                  bestPrice={bp?.landed_cost}
                   bestPriceVendor={bp?.vendor_name}
+                  priceNote={bp?.price_note}
                   latestPurchase={latestPurchases?.get(m.id) ?? null}
                   isFrequent={isFrequent}
                   selected={top?.kind === "material" && top.id === m.id}
@@ -540,7 +541,9 @@ export default function MaterialsPage() {
                   variantCount={variantCount}
                   brandCount={brandCount}
                   vendorCount={vendorCounts[m.id] || 0}
-                  bestPrice={bp?.unit_price}
+                  bestPrice={bp?.landed_cost}
+                  bestPriceVendor={bp?.vendor_name}
+                  priceNote={bp?.price_note}
                   isFrequent={isFrequent}
                   selected={top?.kind === "material" && top.id === m.id}
                   onClick={() => handleRowClick(m)}

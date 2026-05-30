@@ -618,13 +618,27 @@ function VendorSummaryRow({
   const lastUpdated = summary.latest_quote_updated;
   const variantPrices = summary.variant_prices || [];
   const hasVariantPrices = variantPrices.length > 0;
-  // Min/max range across variants for the headline price display
+  // Min/max LANDED range across variants for the headline price display.
   const variantPriceMin = hasVariantPrices
-    ? Math.min(...variantPrices.map((vp) => vp.price))
+    ? Math.min(...variantPrices.map((vp) => vp.landed_price))
     : null;
   const variantPriceMax = hasVariantPrices
-    ? Math.max(...variantPrices.map((vp) => vp.price))
+    ? Math.max(...variantPrices.map((vp) => vp.landed_price))
     : null;
+  // Breakdown tooltip for the headline landed price (only when extras apply).
+  const landedBase = summary.min_landed_base;
+  const landedTransport = summary.min_landed_transport_extra || 0;
+  const landedGst = summary.min_landed_gst_extra || 0;
+  const landedBreakdownTitle =
+    landedBase != null && (landedTransport > 0 || landedGst > 0)
+      ? [
+          `Base ${formatCurrency(landedBase)}`,
+          landedTransport > 0 ? `+ ${formatCurrency(landedTransport)} transport` : null,
+          landedGst > 0 ? `+ ${formatCurrency(landedGst)} GST` : null,
+        ]
+          .filter(Boolean)
+          .join("   ")
+      : "";
   const variantsCollapsedCount = 2;
   const visibleVariants = variantsExpanded
     ? variantPrices
@@ -744,18 +758,20 @@ function VendorSummaryRow({
                 {variantPrices.length} variant{variantPrices.length === 1 ? "" : "s"} · per {unitLabel}
               </Typography>
             </>
-          ) : summary.min_price != null ? (
+          ) : summary.min_landed_price != null ? (
             <>
-              <Typography
-                sx={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  fontVariantNumeric: "tabular-nums",
-                  color: "success.dark",
-                }}
-              >
-                {formatCurrency(summary.min_price)}
-              </Typography>
+              <Tooltip placement="top" title={landedBreakdownTitle}>
+                <Typography
+                  sx={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    fontVariantNumeric: "tabular-nums",
+                    color: "success.dark",
+                  }}
+                >
+                  {formatCurrency(summary.min_landed_price)}
+                </Typography>
+              </Tooltip>
               <Typography
                 sx={{
                   fontSize: 9.5,
@@ -875,7 +891,7 @@ function VendorSummaryRow({
                   whiteSpace: "nowrap",
                 }}
               >
-                {formatCurrency(vp.price)}
+                {formatCurrency(vp.landed_price)}
               </Typography>
             </Box>
           ))}

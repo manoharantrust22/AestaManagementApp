@@ -37,6 +37,8 @@ interface MaterialGridCardProps {
   brandCount: number;
   vendorCount: number;
   bestPrice?: number | null;
+  bestPriceVendor?: string | null;
+  priceNote?: string | null;
   isFrequent?: boolean;
   selected?: boolean;
   onClick: () => void;
@@ -48,6 +50,8 @@ export function MaterialGridCard({
   brandCount,
   vendorCount,
   bestPrice,
+  bestPriceVendor,
+  priceNote,
   isFrequent = false,
   selected = false,
   onClick,
@@ -221,16 +225,25 @@ export function MaterialGridCard({
           }}
         >
           {bestPrice != null ? (
-            <Typography
-              sx={{
-                fontSize: 13,
-                fontWeight: 700,
-                fontVariantNumeric: "tabular-nums",
-                color: "success.dark",
-              }}
+            <Tooltip
+              placement="top"
+              title={
+                bestPriceVendor
+                  ? `Best price: ${bestPriceVendor}${priceNote ? ` · ${priceNote}` : ""}`
+                  : priceNote || "Best price"
+              }
             >
-              {formatCurrency(bestPrice)}
-            </Typography>
+              <Typography
+                sx={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  fontVariantNumeric: "tabular-nums",
+                  color: "success.dark",
+                }}
+              >
+                {formatCurrency(bestPrice)}
+              </Typography>
+            </Tooltip>
           ) : (
             <Typography
               sx={{

@@ -146,7 +146,10 @@ export interface VariantPriceEntry {
   variant_id: string;
   variant_name: string;
   variant_code: string | null;
+  /** Cheapest raw quoted price for this variant. */
   price: number;
+  /** Cheapest landed price (price + transport/loading/unloading + GST when stated). */
+  landed_price: number;
 }
 
 export interface MaterialVendorSummary {
@@ -162,7 +165,16 @@ export interface MaterialVendorSummary {
   quote_count: number;
   brand_chips: string[];
   distinct_brands_count: number;
+  /** Lowest raw quoted price across this vendor's quotes (base, pre-transport/GST). */
   min_price: number | null;
+  /** Lowest landed price across this vendor's quotes (the comparison figure). */
+  min_landed_price: number | null;
+  /** Raw quoted price of the cheapest-landed quote (for the breakdown tooltip). */
+  min_landed_base: number | null;
+  /** GST added on the cheapest-landed quote (0 when none stated). */
+  min_landed_gst_extra: number | null;
+  /** Transport + loading + unloading added on the cheapest-landed quote. */
+  min_landed_transport_extra: number | null;
   latest_quote_updated: string | null;
   last_purchase_date: string | null;
   last_purchase_amount: number | null;
