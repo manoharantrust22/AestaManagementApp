@@ -274,6 +274,48 @@ function useGroupSiteNames(siteGroupId: string | null | undefined) {
   });
 }
 
+interface GroupBatchUsageSummary {
+  /** batch_ref_code → total ₹ of unsettled cross-site (non-self) usage. */
+  pendingCrossSiteByBatch: Map<string, number>;
+  /** batch_ref_codes that have at least one cross-site (non-self) usage row. */
+  hasCrossSiteByBatch: Set<string>;
+}
+
+function useGroupBatchUsageSummary(siteGroupId: string | null | undefined) {
+  const supabase = createClient();
+  return useQuery({
+    queryKey: ["batch-usage-summary", "for-hub", siteGroupId ?? null],
+    enabled: !!siteGroupId,
+    queryFn: async (): Promise<GroupBatchUsageSummary> => {
+      const { data, error } = await (supabase as any)
+        .from("batch_usage_records")
+        .select("batch_ref_code, is_self_use, settlement_status, total_cost")
+        .eq("site_group_id", siteGroupId);
+      if (error) throw error;
+      const pendingCrossSiteByBatch = new Map<string, number>();
+      const hasCrossSiteByBatch = new Set<string>();
+      for (const r of (data ?? []) as Array<{
+        batch_ref_code: string;
+        is_self_use: boolean;
+        settlement_status: string;
+        total_cost: number | string;
+      }>) {
+        if (r.is_self_use) continue;
+        hasCrossSiteByBatch.add(r.batch_ref_code);
+        if (r.settlement_status === "pending") {
+          pendingCrossSiteByBatch.set(
+            r.batch_ref_code,
+            (pendingCrossSiteByBatch.get(r.batch_ref_code) ?? 0) +
+              Number(r.total_cost ?? 0)
+          );
+        }
+      }
+      return { pendingCrossSiteByBatch, hasCrossSiteByBatch };
+    },
+    staleTime: 60000,
+  });
+}
+
 function useSiteSettlements(
   siteId: string | undefined,
   siteGroupId: string | null | undefined
@@ -313,7 +355,8 @@ function deriveStandardStage(
   po: PurchaseOrderWithDetails | undefined,
   settlement: SettlementSnapshot | undefined,
   inventoryUsed: number,
-  inventoryRemaining: number
+  inventoryRemaining: number,
+  hasPendingInterSite: boolean
 ): ThreadStage {
   if (mr.status === "rejected") return "rejected";
   if (mr.status === "cancelled") return "rejected";
@@ -360,10 +403,13 @@ function deriveStandardStage(
   }
 
   // Once settled AND the stock is exhausted (nothing remaining + some used),
-  // mark as "exhausted". Otherwise if anything has been consumed, mark "in-use".
+  // mark as "exhausted" — but only if there's no unsettled cross-site debt on
+  // this batch. A group batch whose other-site portion is still owed stays
+  // "in-use" (the lifecycle isn't truly DONE until it's reconciled too).
   if (base === "settled") {
-    if (inventoryUsed > 0 && inventoryRemaining <= 0) return "exhausted";
-    if (inventoryUsed > 0) return "in-use";
+    if (inventoryUsed > 0 && inventoryRemaining <= 0 && !hasPendingInterSite)
+      return "exhausted";
+    if (inventoryUsed > 0 || hasPendingInterSite) return "in-use";
   }
 
   return base;
@@ -405,6 +451,12 @@ interface StandardThreadDeps {
    *  primary material's row. */
   stockBySiteBatch: Map<string, Array<{ stock: StockRow; used: number }>>;
   settlementByPo: Map<string, SettlementSnapshot>;
+  /** Pending cross-site debt (₹) per batch_ref_code — keeps a group thread
+   *  from reading DONE until the cross-site portion is settled. */
+  pendingInterSiteByBatch: Map<string, number>;
+  /** Batches that have ANY cross-site (non-self) usage row, settled or not —
+   *  distinguishes a truly own-used group buy from shared-and-settled. */
+  hasCrossSiteByBatch: Set<string>;
   /** Site name lookup for "Shared from <site>" mirror chips. */
   siteNameById: Map<string, string>;
   /** The site currently being viewed — threads with mr.site_id ≠ this are
@@ -480,10 +532,54 @@ function mapStandardThread(
       );
     }
   }
-  const invUsed = invMatch ? Math.max(0, invMatch.used) : 0;
-  const invRemaining = invMatch ? Math.max(0, Number(invMatch.stock.current_qty)) : 0;
+  // For batch-scoped stock (group POs / multi-variant bills) aggregate ALL
+  // stock_inventory rows sharing this batch_code so a 3-variant steel bill
+  // reports the whole bill. Matching only the single primary-material row
+  // left fully-consumed multi-variant threads stuck pulsing on IN USE.
+  let invUsed = invMatch ? Math.max(0, invMatch.used) : 0;
+  let invRemaining = invMatch ? Math.max(0, Number(invMatch.stock.current_qty)) : 0;
+  let aggBatch: { received: number; used: number; remaining: number } | undefined;
+  if (invMatch && invMatch.stock.batch_code) {
+    const batchKey = makeBatchKey(mr.site_id, invMatch.stock.batch_code);
+    const sharedBatch = deps.stockBySiteBatch.get(batchKey) ?? [invMatch];
+    let aggRemaining = 0;
+    let aggUsed = 0;
+    for (const c of sharedBatch) {
+      aggRemaining += Math.max(0, Number(c.stock.current_qty));
+      aggUsed += Math.max(0, c.used);
+    }
+    invUsed = aggUsed;
+    invRemaining = aggRemaining;
+    aggBatch = { received: aggRemaining + aggUsed, used: aggUsed, remaining: aggRemaining };
+  }
 
-  const stage = deriveStandardStage(mr, po, settlement, invUsed, invRemaining);
+  // Batch ref used to look up cross-site usage. When an inventory row matched,
+  // its batch_code equals the settlement ref_code and the batch_usage_records
+  // batch_ref_code — all three share the MAT-/GSP- code.
+  const batchRefForUsage = settlement?.ref_code ?? invMatch?.stock.batch_code ?? null;
+  const hasPendingInterSite =
+    !!batchRefForUsage && (deps.pendingInterSiteByBatch.get(batchRefForUsage) ?? 0) > 0;
+
+  const threadKind = deriveKind(mr, po);
+
+  // A group buy that was fully consumed by the paying site itself, with no
+  // cross-site usage at all (distinct from shared-and-settled). Drives the
+  // "used fully by own site" badge on the Hub.
+  const isGroupSelfUsed =
+    threadKind === "group" &&
+    !!batchRefForUsage &&
+    !deps.hasCrossSiteByBatch.has(batchRefForUsage) &&
+    invUsed > 0 &&
+    invRemaining <= 0;
+
+  const stage = deriveStandardStage(
+    mr,
+    po,
+    settlement,
+    invUsed,
+    invRemaining,
+    hasPendingInterSite
+  );
 
   let threadPO: MaterialThread["po"] | undefined;
   if (po) {
@@ -558,25 +654,17 @@ function mapStandardThread(
   // when the pool's running tally was hundreds. The "Added to stock" + link
   // to Inventory is the truthful per-PO signal; pool-level state belongs on
   // the Inventory page.
+  // Reuse the batch aggregation computed for the stage decision above
+  // (sums all stock_inventory rows sharing this batch_code on this site, e.g.
+  // one steel PO producing 8mm/12mm/16mm rows) so the Hub reports the whole
+  // bill, not just the primary item.
   let threadInventory: ThreadInventory | undefined;
   if (invMatch && invMatch.stock.batch_code) {
-    // Multi-material bills: aggregate ALL stock_inventory rows tagged with
-    // this batch_code on this site (e.g. one steel PO produces 3 inventory
-    // rows for 8mm/12mm/16mm, all sharing the same batch_code MAT-…). Sum
-    // them so the Hub reports the whole bill, not just the primary item.
-    const batchKey = makeBatchKey(mr.site_id, invMatch.stock.batch_code);
-    const sharedBatch = deps.stockBySiteBatch.get(batchKey) ?? [invMatch];
-    let aggRemaining = 0;
-    let aggUsed = 0;
-    for (const c of sharedBatch) {
-      aggRemaining += Math.max(0, Number(c.stock.current_qty));
-      aggUsed += Math.max(0, c.used);
-    }
     threadInventory = {
       batch: invMatch.stock.batch_code,
-      received: aggRemaining + aggUsed,
-      used: aggUsed,
-      remaining: aggRemaining,
+      received: aggBatch?.received ?? invRemaining + invUsed,
+      used: aggBatch?.used ?? invUsed,
+      remaining: aggBatch?.remaining ?? invRemaining,
     };
   }
 
@@ -590,7 +678,8 @@ function mapStandardThread(
     floor: null,
     priority: mr.priority,
     stage,
-    kind: deriveKind(mr, po),
+    kind: threadKind,
+    is_group_self_used: isGroupSelfUsed || undefined,
     advance: po?.payment_timing === "advance",
     material_id: primaryItem?.material_id ?? "",
     material_name: (primaryItem as any)?.material?.name ?? "—",
@@ -782,6 +871,7 @@ export function useMaterialThreads(
   const stock = useSiteStockInventory(siteId);
   const settlements = useSiteSettlements(siteId, siteGroupId);
   const groupSiteNames = useGroupSiteNames(siteGroupId);
+  const batchUsage = useGroupBatchUsageSummary(siteGroupId);
 
   const { threads, materialRequestById, purchaseOrderById, spotBatchById } = useMemo(() => {
     const mrMap = new Map<string, MaterialRequestWithDetails>();
@@ -850,6 +940,10 @@ export function useMaterialThreads(
       stockBySiteMaterial,
       stockBySiteBatch,
       settlementByPo,
+      pendingInterSiteByBatch:
+        batchUsage.data?.pendingCrossSiteByBatch ?? new Map<string, number>(),
+      hasCrossSiteByBatch:
+        batchUsage.data?.hasCrossSiteByBatch ?? new Set<string>(),
       siteNameById: groupSiteNames.data ?? new Map(),
       currentSiteId: siteId,
     };
@@ -882,6 +976,7 @@ export function useMaterialThreads(
     stock.data,
     settlements.data,
     groupSiteNames.data,
+    batchUsage.data,
     siteId,
   ]);
 

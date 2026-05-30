@@ -35,6 +35,7 @@ import { BillPreviewButton } from "@/components/common/BillViewerDialog";
 import PhotoLightbox from "@/components/dashboard/PhotoLightbox";
 import { usePoLifecyclePhotos, type LifecyclePhoto } from "@/hooks/queries/usePoLifecyclePhotos";
 import { usePoLifecycleActivity, type LifecycleEvent } from "@/hooks/queries/usePoLifecycleActivity";
+import { useBatchSettlementSummary } from "@/hooks/queries/useBatchUsage";
 import type { WorkPhoto } from "@/types/work-updates.types";
 import type {
   MaterialPurchaseExpenseWithDetails,
@@ -119,6 +120,14 @@ export default function SettlementInspectDrawer({
     description: p.caption,
     uploadedAt: p.recordedAt ?? "",
   }));
+
+  // Originating group batch this expense was carved out of (self-use / from-
+  // group allocations) — fetch its total value to show alongside "Source batch".
+  const sourceBatchCode =
+    item?.itemType === "expense"
+      ? (item as MaterialPurchaseExpenseWithDetails).original_batch_code ?? undefined
+      : undefined;
+  const sourceBatchSummary = useBatchSettlementSummary(sourceBatchCode);
 
   if (!item) return null;
 
@@ -343,6 +352,14 @@ export default function SettlementInspectDrawer({
                 <Typography variant="body2" sx={{ fontFamily: "monospace", mt: 0.5 }}>
                   {purchase.original_batch_code}
                 </Typography>
+                {sourceBatchSummary.data && (
+                  <Typography variant="caption" color="text.secondary">
+                    Batch total {formatCurrency(sourceBatchSummary.data.total_amount)}
+                    {sourceBatchSummary.data.paying_site_name
+                      ? ` · paid by ${sourceBatchSummary.data.paying_site_name}`
+                      : ""}
+                  </Typography>
+                )}
               </Box>
             )}
 

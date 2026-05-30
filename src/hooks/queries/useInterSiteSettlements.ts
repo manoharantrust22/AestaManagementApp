@@ -35,6 +35,83 @@ function isQueryError(error: unknown): boolean {
 }
 
 // ============================================
+// SETTLEMENT → EXPENSE ALLOCATIONS (two-sided breakdown)
+// ============================================
+
+/** One source batch's contribution to a settlement: the full batch value, the
+ *  creditor's self-use share, and the debtor's settled share — each tied to the
+ *  material_purchase_expenses row it produced (for drill-down links). */
+export interface SettlementExpenseAllocationView {
+  id: string;
+  batch_ref_code: string;
+  creditor_site_id: string;
+  creditor_expense_id: string | null;
+  creditor_expense_ref: string | null;
+  creditor_original_amount: number;
+  creditor_self_use_amount: number;
+  debtor_site_id: string;
+  debtor_expense_id: string | null;
+  debtor_expense_ref: string | null;
+  debtor_settled_amount: number;
+}
+
+export function useSettlementAllocations(settlementId: string | undefined) {
+  const supabase = createClient();
+  return useQuery({
+    queryKey: ["settlement-expense-allocations", settlementId ?? null],
+    enabled: !!settlementId,
+    queryFn: async (): Promise<SettlementExpenseAllocationView[]> => {
+      const { data, error } = await (supabase as any)
+        .from("settlement_expense_allocations")
+        .select("*")
+        .eq("settlement_id", settlementId);
+      if (error) {
+        if (isQueryError(error)) return [];
+        throw error;
+      }
+      const rows = (data ?? []) as any[];
+      // Resolve each linked expense's ref_code so the panel can link to the
+      // actual "From Group" / "Self Use" entries on /site/material-expenses.
+      const expenseIds = Array.from(
+        new Set(
+          rows
+            .flatMap((r) => [r.creditor_expense_id, r.debtor_expense_id])
+            .filter(Boolean) as string[]
+        )
+      );
+      const refById = new Map<string, string>();
+      if (expenseIds.length > 0) {
+        const { data: exp } = await (supabase as any)
+          .from("material_purchase_expenses")
+          .select("id, ref_code")
+          .in("id", expenseIds);
+        for (const e of (exp ?? []) as Array<{ id: string; ref_code: string }>) {
+          refById.set(e.id, e.ref_code);
+        }
+      }
+      return rows.map((r) => ({
+        id: r.id,
+        batch_ref_code: r.batch_ref_code,
+        creditor_site_id: r.creditor_site_id,
+        creditor_expense_id: r.creditor_expense_id,
+        creditor_expense_ref: r.creditor_expense_id
+          ? refById.get(r.creditor_expense_id) ?? null
+          : null,
+        creditor_original_amount: Number(r.creditor_original_amount ?? 0),
+        creditor_self_use_amount: Number(r.creditor_self_use_amount ?? 0),
+        debtor_site_id: r.debtor_site_id,
+        debtor_expense_id: r.debtor_expense_id,
+        debtor_expense_ref: r.debtor_expense_id
+          ? refById.get(r.debtor_expense_id) ?? null
+          : null,
+        debtor_settled_amount: Number(r.debtor_settled_amount ?? 0),
+      }));
+    },
+    staleTime: 60000,
+  });
+}
+
+// ============================================
 // FETCH SETTLEMENTS
 // ============================================
 

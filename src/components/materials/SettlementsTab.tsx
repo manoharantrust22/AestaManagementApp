@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { Fragment, useState, useMemo } from 'react'
 import {
   Box,
   Button,
@@ -25,10 +25,13 @@ import {
   Visibility as ViewIcon,
   AccountBalance as SettlementIcon,
   Warning as WarningIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
 } from '@mui/icons-material'
 import { formatCurrency, formatDate } from '@/lib/formatters'
 import { SETTLEMENT_STATUS_COLORS, SETTLEMENT_STATUS_LABELS } from '@/types/material.types'
 import type { InterSiteBalance, InterSiteSettlementWithDetails } from '@/types/material.types'
+import { useSettlementAllocations } from '@/hooks/queries/useInterSiteSettlements'
 
 type StatusFilter = 'all' | 'unsettled' | 'in_progress' | 'settled' | 'cancelled'
 
@@ -84,6 +87,8 @@ export default function SettlementsTab({
   highlightCode,
 }: SettlementsTabProps) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  // Which settlement row's two-sided expense breakdown is expanded.
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   // Unify balances and settlements into a single list
   const unifiedRows = useMemo(() => {
@@ -334,16 +339,34 @@ export default function SettlementsTab({
                   !!row.code &&
                   row.code.toLowerCase() === highlightCode.toLowerCase()
                 return (
+                <Fragment key={row.id}>
                 <TableRow
-                  key={row.id}
                   hover
                   sx={isHighlighted ? { backgroundColor: 'action.selected', outline: '2px solid', outlineColor: 'primary.main' } : undefined}
                 >
                   <TableCell>
                     {row.code ? (
-                      <Typography variant="body2" fontWeight={500} sx={{ fontFamily: 'monospace' }}>
-                        {row.code}
-                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        {row.type === 'settlement' && (
+                          <Tooltip title="Show expense breakdown">
+                            <IconButton
+                              size="small"
+                              onClick={() =>
+                                setExpandedId((cur) => (cur === row.id ? null : row.id))
+                              }
+                            >
+                              {expandedId === row.id ? (
+                                <ExpandLessIcon fontSize="small" />
+                              ) : (
+                                <ExpandMoreIcon fontSize="small" />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        <Typography variant="body2" fontWeight={500} sx={{ fontFamily: 'monospace' }}>
+                          {row.code}
+                        </Typography>
+                      </Box>
                     ) : (
                       <Typography variant="caption" color="text.disabled">-</Typography>
                     )}
@@ -394,6 +417,14 @@ export default function SettlementsTab({
                     {getActions(row)}
                   </TableCell>
                 </TableRow>
+                {row.type === 'settlement' && expandedId === row.id && (
+                  <TableRow>
+                    <TableCell colSpan={9} sx={{ bgcolor: 'action.hover', py: 1.5 }}>
+                      <SettlementAllocationPanel settlementId={row.id} />
+                    </TableCell>
+                  </TableRow>
+                )}
+                </Fragment>
                 )
               })
             ) : (
@@ -425,6 +456,100 @@ export default function SettlementsTab({
           </TableBody>
         </Table>
       </TableContainer>
+    </Box>
+  )
+}
+
+/**
+ * Two-sided expense breakdown for one settlement: per source batch, the total
+ * batch value plus the creditor's self-use share and the debtor's settled
+ * share — each linked to the material_purchase_expenses row it produced.
+ * Reads settlement_expense_allocations (written by the settlement flow).
+ */
+function SettlementAllocationPanel({ settlementId }: { settlementId: string }) {
+  const { data: allocations = [], isLoading } = useSettlementAllocations(settlementId)
+
+  if (isLoading) {
+    return <Skeleton variant="rounded" height={72} />
+  }
+  if (allocations.length === 0) {
+    return (
+      <Typography variant="caption" color="text.secondary">
+        No per-batch expense breakdown recorded for this settlement.
+      </Typography>
+    )
+  }
+
+  const expenseHref = (ref: string | null) =>
+    ref ? `/site/material-expenses?q=${encodeURIComponent(ref)}` : undefined
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <Typography variant="caption" color="text.secondary" fontWeight={600}>
+        Expense breakdown by source batch
+      </Typography>
+      {allocations.map((a) => (
+        <Box
+          key={a.id}
+          sx={{
+            border: (theme) => `1px solid ${theme.palette.divider}`,
+            borderRadius: 1,
+            p: 1.25,
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 2,
+            alignItems: 'center',
+          }}
+        >
+          <Box sx={{ minWidth: 140 }}>
+            <Typography variant="caption" color="text.secondary" display="block">
+              Source batch
+            </Typography>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+              {a.batch_ref_code}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Batch total {formatCurrency(a.creditor_original_amount)}
+            </Typography>
+          </Box>
+
+          <Box sx={{ minWidth: 150 }}>
+            <Typography variant="caption" color="text.secondary" display="block">
+              Creditor self-use
+            </Typography>
+            <Typography variant="body2" fontWeight={600}>
+              {formatCurrency(a.creditor_self_use_amount)}
+            </Typography>
+            {a.creditor_expense_ref && (
+              <Box
+                component="a"
+                href={expenseHref(a.creditor_expense_ref)}
+                sx={{ fontSize: 11, fontFamily: 'monospace', color: 'primary.main' }}
+              >
+                {a.creditor_expense_ref}
+              </Box>
+            )}
+          </Box>
+
+          <Box sx={{ minWidth: 150 }}>
+            <Typography variant="caption" color="text.secondary" display="block">
+              Debtor settled (From Group)
+            </Typography>
+            <Typography variant="body2" fontWeight={600}>
+              {formatCurrency(a.debtor_settled_amount)}
+            </Typography>
+            {a.debtor_expense_ref && (
+              <Box
+                component="a"
+                href={expenseHref(a.debtor_expense_ref)}
+                sx={{ fontSize: 11, fontFamily: 'monospace', color: 'primary.main' }}
+              >
+                {a.debtor_expense_ref}
+              </Box>
+            )}
+          </Box>
+        </Box>
+      ))}
     </Box>
   )
 }

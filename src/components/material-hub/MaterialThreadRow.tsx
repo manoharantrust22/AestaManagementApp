@@ -135,6 +135,11 @@ export default function MaterialThreadRow({
                 <Dot color={hubTokens.pink} /> Group · cluster
               </ThreadChip>
             )}
+            {isGroup && thread.is_group_self_used && (
+              <ThreadChip tone="success">
+                <Dot color={hubTokens.success} /> Used fully by own site
+              </ThreadChip>
+            )}
             {thread.is_mirror && (
               <ThreadChip tone="neutral">
                 Shared from {thread.mirrored_from_site_name ?? "other site"}
@@ -509,7 +514,7 @@ function DraftTag({ label, title }: { label: string; title: string }) {
   );
 }
 
-type ChipTone = "warn" | "pink" | "danger" | "primary" | "neutral";
+type ChipTone = "warn" | "pink" | "danger" | "primary" | "neutral" | "success";
 
 function ThreadChip({ children, tone }: { children: React.ReactNode; tone: ChipTone }) {
   const colors = {
@@ -518,6 +523,7 @@ function ThreadChip({ children, tone }: { children: React.ReactNode; tone: ChipT
     danger: { bg: hubTokens.dangerSoft, fg: hubTokens.danger },
     primary: { bg: hubTokens.primarySoft, fg: hubTokens.primary },
     neutral: { bg: hubTokens.chip, fg: hubTokens.muted },
+    success: { bg: hubTokens.successSoft, fg: hubTokens.success },
   }[tone];
   return (
     <Box

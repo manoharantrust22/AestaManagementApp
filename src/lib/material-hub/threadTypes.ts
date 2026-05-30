@@ -219,6 +219,10 @@ export interface MaterialThread {
   // Lifecycle
   stage: ThreadStage;
   kind: ThreadKind;
+  /** A group ("cluster") buy that ended up fully consumed by the paying site
+   *  itself — no cross-site usage at all. Drives the "used fully by own site"
+   *  badge so the user knows it was ordered as a group but never shared. */
+  is_group_self_used?: boolean;
   advance: boolean;
 
   // Material (primary, when multi-line)

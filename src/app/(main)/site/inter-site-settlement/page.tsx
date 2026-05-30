@@ -126,6 +126,11 @@ export default function InterSiteSettlementPage() {
   const codeParam = searchParams.get('code')
   const hasProcessedCode = useRef(false)
 
+  // Deep-link: read ?batch=<refCode> param (from the Materials Hub "Settle
+  // this batch" shortcut) — auto-opens the per-batch settle dialog.
+  const batchParam = searchParams.get('batch')
+  const hasProcessedBatch = useRef(false)
+
   // Track which tabs have been visited to avoid unmounting fetched data
   const visitedTabs = useRef(new Set<number>([0]))
   if (!visitedTabs.current.has(tabValue)) {
@@ -170,7 +175,7 @@ export default function InterSiteSettlementPage() {
     { limit: 100 }
   )
   const { data: batchesWithUsage = [], isLoading: batchesLoading } = useBatchesWithUsage(
-    tab0Active ? groupMembership?.groupId : undefined
+    tab0Active || !!batchParam ? groupMembership?.groupId : undefined
   )
 
   // Mutation hooks
@@ -409,6 +414,38 @@ export default function InterSiteSettlementPage() {
     setNetSettlePair({ balanceA, balanceB })
     setNetSettleDialogOpen(true)
   }
+
+  // Deep-link: ?batch=<refCode> from the Materials Hub. Focus the Stock &
+  // Batches tab and, when the batch has exactly one site still owing, open the
+  // per-batch settle dialog straight away. Settling it writes to
+  // inter_site_material_settlements and flips batch_usage_records, so the
+  // ledger, summary cards, and Hub lifecycle all recompute.
+  useEffect(() => {
+    if (!batchParam || hasProcessedBatch.current) return
+    if (batchesLoading || batchesWithUsage.length === 0) return
+    const batch: any = batchesWithUsage.find(
+      (b: any) => b.ref_code === batchParam || b.batch_code === batchParam
+    )
+    if (!batch) return
+    hasProcessedBatch.current = true
+    setTabValue(0)
+    const pendingDebtors = (batch.site_allocations ?? []).filter(
+      (a: any) => !a.is_payer && a.settlement_status === 'pending'
+    )
+    if (pendingDebtors.length === 1) {
+      const d = pendingDebtors[0]
+      handleSettleUsage(
+        batch.ref_code,
+        batch.payment_source_site_id,
+        batch.paying_site?.name || batch.payment_source_site_name || 'Paying Site',
+        d.site_id,
+        d.site_name,
+        Number(d.amount)
+      )
+    }
+    // Multiple (or zero) pending debtors: leave the user on the focused tab to
+    // pick which site to settle.
+  }, [batchParam, batchesLoading, batchesWithUsage])
 
   // Not in a group - show message
   if (!membershipLoading && !groupMembership?.isInGroup) {

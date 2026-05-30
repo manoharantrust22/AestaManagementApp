@@ -20,6 +20,7 @@
  */
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Box, Collapse, Tooltip, Typography } from "@mui/material";
 import CheckIcon from "@mui/icons-material/Check";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
@@ -37,6 +38,8 @@ import {
   useBatchSettlementSummary,
   useBatchVariantSummary,
 } from "@/hooks/queries/useBatchUsage";
+import { useInterSiteBalances } from "@/hooks/queries/useInterSiteSettlements";
+import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 import { useAuth } from "@/contexts/AuthContext";
 import { hasEditPermission } from "@/lib/permissions";
 import UsageLogList from "@/components/inventory/UsageLogList";
@@ -270,6 +273,7 @@ export interface MaterialThreadExpandedProps {
 
 export default function MaterialThreadExpanded({ thread }: MaterialThreadExpandedProps) {
   const t = thread;
+  const router = useRouter();
   const isOwn = t.kind === "own";
   const isSpot = t.purchase_type === "spot";
 
@@ -288,6 +292,33 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
       : undefined;
   const { data: batchSummary } = useBatchSettlementSummary(groupBatchRefCode);
   const { data: variantSummary = [] } = useBatchVariantSummary(groupBatchRefCode);
+
+  // Group-wide pairwise net between the batch's paying site and each site that
+  // still owes on THIS batch — so the card explains that the per-row figures
+  // are per-batch while the real balance is netted across all shared batches.
+  const membership = useSiteGroupMembership(t.site_id);
+  const { data: interSiteBalances = [] } = useInterSiteBalances(
+    membership.data?.groupId ?? undefined
+  );
+  const payerSiteId = batchSummary?.paying_site_id ?? null;
+  const pendingDebtors = (batchSummary?.site_allocations ?? []).filter(
+    (a) => !a.is_payer && a.settlement_status === "pending"
+  );
+  /** Net ₹ between payer and debtor across ALL unsettled batches. Positive →
+   *  debtor owes payer net; negative → payer owes debtor net. */
+  const pairwiseNet = (debtorId: string): number => {
+    if (!payerSiteId) return 0;
+    let debtorOwesPayer = 0;
+    let payerOwesDebtor = 0;
+    for (const b of interSiteBalances) {
+      if (b.is_settled) continue;
+      if (b.creditor_site_id === payerSiteId && b.debtor_site_id === debtorId)
+        debtorOwesPayer += Number(b.total_amount_owed ?? 0);
+      if (b.creditor_site_id === debtorId && b.debtor_site_id === payerSiteId)
+        payerOwesDebtor += Number(b.total_amount_owed ?? 0);
+    }
+    return debtorOwesPayer - payerOwesDebtor;
+  };
 
   // Usage-log item: a group thread keys on its batch ref_code (one row per
   // event); an own/pooled thread keys on (site, material) — brand is left null
@@ -1232,7 +1263,8 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
             // payer flag, and per-site amounts. The legacy t.inter_site_usage
             // only had truncated UUIDs, so we render from batchSummary whenever
             // it's available (it is, once the batch has any logged usage).
-            <Box sx={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: "5px" }}>
               {batchSummary.site_allocations.map((a) => {
                 const settled = a.settlement_status === "settled";
                 return (
@@ -1269,6 +1301,92 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                   </Box>
                 );
               })}
+              </Box>
+
+              {t.is_group_self_used ? (
+                <Box
+                  sx={{
+                    padding: "6px 8px",
+                    borderRadius: "6px",
+                    background: hubTokens.successSoft,
+                    color: hubTokens.success,
+                    fontSize: 11,
+                    fontWeight: 600,
+                  }}
+                >
+                  Used fully by own site — originally a group purchase.
+                </Box>
+              ) : pendingDebtors.length > 0 ? (
+                <Box
+                  sx={{
+                    borderTop: `1px solid ${hubTokens.hairline}`,
+                    paddingTop: "8px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
+                  <Typography sx={{ fontSize: 10, color: hubTokens.subtle, fontStyle: "italic" }}>
+                    Amounts above are for this batch only. Net balance is reconciled across all
+                    shared batches:
+                  </Typography>
+                  {pendingDebtors.map((d) => {
+                    const net = pairwiseNet(d.site_id);
+                    const payerName = batchSummary?.paying_site_name ?? "payer";
+                    const ower = net >= 0 ? d.site_name : payerName;
+                    const owed = net >= 0 ? payerName : d.site_name;
+                    return (
+                      <Box
+                        key={d.site_id}
+                        sx={{ fontSize: 11.5, color: hubTokens.text }}
+                      >
+                        Net with <strong>{d.site_name}</strong>:{" "}
+                        {Math.abs(net) < 1 ? (
+                          "settled up"
+                        ) : (
+                          <>
+                            {ower} owes {owed}{" "}
+                            <Box component="span" sx={{ fontFamily: hubTokens.mono, fontWeight: 700 }}>
+                              {inr(Math.abs(net))}
+                            </Box>
+                          </>
+                        )}
+                      </Box>
+                    );
+                  })}
+                  {groupBatchRefCode && (
+                    <Box
+                      component="button"
+                      type="button"
+                      onClick={() =>
+                        router.push(
+                          `/site/inter-site-settlement?batch=${encodeURIComponent(
+                            groupBatchRefCode
+                          )}`
+                        )
+                      }
+                      sx={{
+                        alignSelf: "flex-start",
+                        marginTop: "2px",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        padding: "5px 10px",
+                        border: "none",
+                        cursor: "pointer",
+                        borderRadius: "6px",
+                        background: hubTokens.primary,
+                        color: "#fff",
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                      }}
+                    >
+                      Settle this batch
+                      <ArrowForwardIcon sx={{ fontSize: 13 }} />
+                    </Box>
+                  )}
+                </Box>
+              ) : null}
             </Box>
           ) : (
             <Typography sx={{ fontSize: 12, color: hubTokens.subtle, fontStyle: "italic" }}>
