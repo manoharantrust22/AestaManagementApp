@@ -8,7 +8,7 @@
  * (docs/MaterialHub_Redesign/proto-screens.jsx).
  */
 
-import { Box, Typography } from "@mui/material";
+import { Box } from "@mui/material";
 import LinkIcon from "@mui/icons-material/Link";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { inr, inrK } from "@/lib/material-hub/formatters";
@@ -16,13 +16,20 @@ import type { InterSiteDebt } from "@/lib/material-hub/nextAction";
 
 export interface InterSiteBalanceCardProps {
   debt: InterSiteDebt;
+  /** # of unsettled records where this site owes others (the "You owe" side). */
+  youOweCount?: number;
+  /** # of unsettled records where others owe this site (the "Others owe you" side). */
+  owedToYouCount?: number;
 }
 
-export default function InterSiteBalanceCard({ debt }: InterSiteBalanceCardProps) {
+export default function InterSiteBalanceCard({
+  debt,
+  youOweCount,
+  owedToYouCount,
+}: InterSiteBalanceCardProps) {
   const owesNet = debt.net < 0;
-  const owedToMeCount = debt.detail.filter((d) => d.to_site !== d.from_site && d.from_site !== "")
-    .filter((d) => d.value > 0 && debt.othersOwe > 0).length;
-  const owedByMeCount = debt.detail.length - owedToMeCount;
+  const recordLabel = (n: number | undefined) =>
+    n == null ? null : `${n} record${n === 1 ? "" : "s"} · `;
 
   return (
     <Box
@@ -64,7 +71,7 @@ export default function InterSiteBalanceCard({ debt }: InterSiteBalanceCardProps
           {inr(debt.iOwe)}
         </Box>
         <Box sx={{ fontSize: 11, opacity: 0.7, marginTop: "3px" }}>
-          for using their batches
+          {recordLabel(youOweCount)}for using their batches
         </Box>
       </Box>
 
@@ -141,7 +148,7 @@ export default function InterSiteBalanceCard({ debt }: InterSiteBalanceCardProps
           {inr(debt.othersOwe)}
         </Box>
         <Box sx={{ fontSize: 11, opacity: 0.7, marginTop: "3px" }}>
-          for using your batches
+          {recordLabel(owedToYouCount)}for using your batches
         </Box>
       </Box>
     </Box>

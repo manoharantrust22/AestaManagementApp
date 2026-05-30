@@ -239,6 +239,10 @@ export function useCreateMaterialRequest() {
             purchase_type: data.purchase_type ?? 'own_site',
             delivery_type: data.delivery_type ?? 'one_time',
             site_group_id: resolvedSiteGroupId,
+            payment_source_site_id:
+              data.purchase_type === 'group_stock'
+                ? data.payment_source_site_id ?? null
+                : null,
           })
           .select()
           .single(),
@@ -403,6 +407,19 @@ export function useUpdateMaterialRequest() {
         }
       }
 
+      // Mirror the payer alongside purchase_type: clear it when flipped to
+      // own_site, set it from the input when group_stock (or when the payer is
+      // changed explicitly without touching purchase_type).
+      let resolvedPayer: string | null | undefined = undefined;
+      if (data.purchase_type !== undefined) {
+        resolvedPayer =
+          data.purchase_type === 'group_stock'
+            ? data.payment_source_site_id ?? null
+            : null;
+      } else if (data.payment_source_site_id !== undefined) {
+        resolvedPayer = data.payment_source_site_id;
+      }
+
       const updatePayload: Record<string, unknown> = {
         section_id: data.section_id,
         request_date: data.request_date,
@@ -415,6 +432,7 @@ export function useUpdateMaterialRequest() {
       if (data.delivery_type !== undefined) updatePayload.delivery_type = data.delivery_type;
       if (data.status !== undefined) updatePayload.status = data.status;
       if (resolvedSiteGroupId !== undefined) updatePayload.site_group_id = resolvedSiteGroupId;
+      if (resolvedPayer !== undefined) updatePayload.payment_source_site_id = resolvedPayer;
 
       const { data: result, error } = await withTimeout(
         supabase

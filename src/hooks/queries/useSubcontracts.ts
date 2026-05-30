@@ -6,7 +6,9 @@ export interface Subcontract {
   id: string;
   site_id: string;
   title: string;
+  laborer_id: string | null; // Head mestri (wage recipient); null = no mestri attached
   laborer_name: string | null; // From joined laborer
+  trade_category_id: string | null; // Trade (e.g. Civil) — used to suggest a mestri
   status: "draft" | "active" | "on_hold" | "completed" | "cancelled";
   total_value: number;
   created_at: string;
@@ -32,6 +34,8 @@ export function useSiteSubcontracts(siteId: string | undefined) {
           status,
           total_value,
           created_at,
+          laborer_id,
+          trade_category_id,
           laborer:laborers(name)
         `)
         .eq("site_id", siteId)
@@ -48,7 +52,9 @@ export function useSiteSubcontracts(siteId: string | undefined) {
         id: item.id,
         site_id: item.site_id,
         title: item.title,
+        laborer_id: item.laborer_id ?? null,
         laborer_name: item.laborer?.name || null,
+        trade_category_id: item.trade_category_id ?? null,
         status: item.status,
         total_value: item.total_value,
         created_at: item.created_at,

@@ -866,6 +866,11 @@ export interface MaterialRequest {
   notes: string | null;
   purchase_type: 'own_site' | 'group_stock';
   delivery_type: 'one_time' | 'bulk';
+  /** Cluster this group_stock request belongs to (null for own_site). */
+  site_group_id: string | null;
+  /** For group_stock requests: the payer site (whose money funds the buy).
+   *  The request's site_id stays the originating/debtor site. */
+  payment_source_site_id: string | null;
   approved_by: string | null;
   approved_at: string | null;
   rejection_reason: string | null;
@@ -1421,6 +1426,10 @@ export interface MaterialRequestFormData {
   notes?: string;
   purchase_type?: 'own_site' | 'group_stock';
   delivery_type?: 'one_time' | 'bulk';
+  /** For group_stock requests: the payer site (whose money funds the buy).
+   *  The request's site_id stays the originating/debtor site; this pre-fills
+   *  the PO dialog's paying site. */
+  payment_source_site_id?: string | null;
   items: MaterialRequestItemFormData[];
 }
 

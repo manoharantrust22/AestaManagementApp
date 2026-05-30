@@ -40,7 +40,13 @@ export interface ThreadPO {
   received_qty: number;
   expected: string | null;
   status: "ordered" | "partial" | "delivered" | string;
+  /** REAL payer — the site whose money funded the buy (group POs); falls back
+   *  to the PO's own site for non-group POs. May differ from debtor_site_id. */
   payer_site_id: string;
+  payer_site_name?: string;
+  /** Originating / requesting site that owes the payer (group POs). */
+  debtor_site_id?: string;
+  debtor_site_name?: string;
   /** "advance" = vendor paid upfront at PO creation; "on_delivery" = paid post-delivery. */
   payment_timing: "advance" | "on_delivery";
   /** Amount already paid against this PO (advance settlement). 0 if not yet paid. */
@@ -213,6 +219,9 @@ export interface MaterialThread {
    *  the originator. The Hub renders a "Shared from <site>" chip + disabled
    *  action button. */
   is_mirror?: boolean;
+  /** Raised on a different site than the viewer (covers both true mirrors AND
+   *  cluster group threads) — drives the "Requested by <site>" label. */
+  is_sibling_request?: boolean;
   mirrored_from_site_id?: string;
   mirrored_from_site_name?: string;
 

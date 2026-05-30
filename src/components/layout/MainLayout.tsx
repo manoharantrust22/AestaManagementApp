@@ -270,6 +270,11 @@ const siteNavCategories: NavCategory[] = [
         path: "/site/materials/inventory",
       },
       {
+        text: "Inter-site",
+        icon: <AccountBalanceIcon />,
+        path: "/site/materials/inter-site",
+      },
+      {
         text: "Rentals",
         icon: <RentalIcon />,
         path: "/site/rentals/v2",
@@ -304,6 +309,11 @@ const companyNavCategories: NavCategory[] = [
     items: [
       { text: "Laborers", icon: <PeopleIcon />, path: "/company/laborers" },
       { text: "Teams", icon: <GroupsIcon />, path: "/company/teams" },
+      {
+        text: "Concreting Teams",
+        icon: <GroupsIcon />,
+        path: "/company/concreting-teams",
+      },
       {
         text: "Market Laborer Rates",
         icon: <PaymentsIcon />,

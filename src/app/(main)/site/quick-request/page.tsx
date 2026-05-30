@@ -12,6 +12,7 @@ import {
   Chip,
   IconButton,
   InputAdornment,
+  MenuItem,
   Stack,
   SwipeableDrawer,
   TextField,
@@ -94,6 +95,7 @@ export default function QuickRequestPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [requestDate, setRequestDate] = useState<string>(todayIso());
   const [purchaseType, setPurchaseType] = useState<'own_site' | 'group_stock'>('own_site');
+  const [payingSiteId, setPayingSiteId] = useState<string>("");
   const [pickerMaterial, setPickerMaterial] = useState<MaterialWithDetails | null>(null);
   const [pickerQty, setPickerQty] = useState(1);
   const isSubmittingRef = useRef(false);
@@ -179,6 +181,8 @@ export default function QuickRequestPage() {
         requested_by: userProfile.id,
         request_date: requestDate,
         purchase_type: purchaseType,
+        payment_source_site_id:
+          purchaseType === "group_stock" ? payingSiteId || selectedSite.id : null,
         priority: "normal",
         items: cart.map((c) => ({
           material_id: c.material_id,
@@ -230,13 +234,38 @@ export default function QuickRequestPage() {
       <ToggleButtonGroup
         value={purchaseType}
         exclusive
-        onChange={(_, val) => { if (val) setPurchaseType(val); }}
+        onChange={(_, val) => {
+          if (!val) return;
+          setPurchaseType(val);
+          if (val === "group_stock" && !payingSiteId) setPayingSiteId(selectedSite?.id ?? "");
+        }}
         size="small"
         fullWidth
       >
         <ToggleButton value="own_site">This site only</ToggleButton>
         <ToggleButton value="group_stock">Group stock</ToggleButton>
       </ToggleButtonGroup>
+      {purchaseType === "group_stock" && (
+        <TextField
+          select
+          fullWidth
+          size="small"
+          label="Paying site (payer)"
+          value={payingSiteId || selectedSite?.id || ""}
+          onChange={(e) => setPayingSiteId(e.target.value)}
+          sx={{ mt: 1.5 }}
+          helperText={`Payer = whose money is used. Requested for ${
+            selectedSite?.name ?? "this site"
+          } (debtor).`}
+        >
+          {(groupMembership?.allSites ?? []).map((s) => (
+            <MenuItem key={s.id} value={s.id}>
+              {s.name}
+              {s.id === selectedSite?.id ? " (this site)" : ""}
+            </MenuItem>
+          ))}
+        </TextField>
+      )}
     </Box>
   ) : null;
 

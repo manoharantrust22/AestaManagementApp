@@ -132,7 +132,11 @@ export default function MaterialThreadRow({
             )}
             {isGroup && (
               <ThreadChip tone="pink">
-                <Dot color={hubTokens.pink} /> Group · cluster
+                <Dot color={hubTokens.pink} />{" "}
+                {thread.po?.payer_site_name &&
+                thread.po.payer_site_id !== thread.po.debtor_site_id
+                  ? `Group · Paid by ${thread.po.payer_site_name}`
+                  : "Group · cluster"}
               </ThreadChip>
             )}
             {isGroup && thread.is_group_self_used && (

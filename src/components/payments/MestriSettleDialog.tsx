@@ -26,6 +26,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSiteSubcontracts } from "@/hooks/queries/useSubcontracts";
 import { useWeekContractSubcontracts } from "@/hooks/queries/useWeekContractSubcontracts";
+import { useLaborers } from "@/hooks/queries/useLaborers";
 import { processContractPayment } from "@/lib/services/settlementService";
 import FileUploader, { type UploadedFile } from "@/components/common/FileUploader";
 import type {
@@ -36,6 +37,8 @@ import type { PayerSourceInput } from "@/types/settlement.types";
 import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
 import { validatePayerSourceInput } from "@/lib/settlement/payerSource";
 import { isSiteEngineerPayingFromWallet } from "@/components/expenses/walletPayerLock";
+import { hasEditPermission } from "@/lib/permissions";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 
 interface MestriSettleDialogProps {
   open: boolean;
@@ -100,6 +103,10 @@ export function MestriSettleDialog({
   const supabase = useMemo(() => createClient(), []);
   const { data: subcontracts, isLoading: subcontractsLoading } =
     useSiteSubcontracts(siteId);
+  // Active laborers, for the inline "assign a mestri" picker shown when the
+  // chosen subcontract has no head mestri attached yet.
+  const { data: laborers, isLoading: laborersLoading } = useLaborers();
+  const canEdit = hasEditPermission(userProfile?.role);
 
   // Auto-suggest the subcontract from contract-laborer attendance for this
   // week. Only meaningful in fill-week mode — date-only entries don't have
@@ -133,6 +140,12 @@ export function MestriSettleDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Inline mestri-assignment state — lets the user attach a head mestri to a
+  // subcontract right here instead of navigating to /site/subcontracts.
+  const [assignLaborerId, setAssignLaborerId] = useState<string | null>(null);
+  const [assigning, setAssigning] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+
   // Reset form when reopened
   useEffect(() => {
     if (open) {
@@ -146,6 +159,9 @@ export function MestriSettleDialog({
       setProofFile(null);
       setError(null);
       setSubmitting(false);
+      setAssignLaborerId(null);
+      setAssigning(false);
+      setAssignError(null);
     }
   }, [open, initialSubcontractId, suggestedAmount, isDateOnly]);
 
@@ -220,6 +236,62 @@ export function MestriSettleDialog({
   }, [open, subcontractId, isDateOnly, weekSubcontractIds]);
 
   const selectedSubcontract = subcontracts?.find((s) => s.id === subcontractId);
+
+  // Inline-assign picker options: laborers in the subcontract's trade category
+  // (e.g. Civil) float to the top under a "Suggested" group; everyone else
+  // follows. If the trade has no matching laborers, the whole active list shows
+  // — mirrors the subcontracts edit form's "pick any active laborer" fallback.
+  const tradeCategoryId = selectedSubcontract?.trade_category_id ?? null;
+  const mestriOptions = useMemo(() => {
+    const all = (laborers ?? []).slice();
+    all.sort((a, b) => {
+      const am = tradeCategoryId && a.category_id === tradeCategoryId ? 0 : 1;
+      const bm = tradeCategoryId && b.category_id === tradeCategoryId ? 0 : 1;
+      if (am !== bm) return am - bm;
+      return (a.name ?? "").localeCompare(b.name ?? "");
+    });
+    return all;
+  }, [laborers, tradeCategoryId]);
+
+  // Clear a stale mestri pick (and any error) when the subcontract changes.
+  useEffect(() => {
+    setAssignLaborerId(null);
+    setAssignError(null);
+  }, [subcontractId]);
+
+  // Attach the chosen laborer as this subcontract's head mestri, then refresh
+  // the subcontracts cache so laborer_name populates and the warning clears.
+  async function handleAssignMestri() {
+    if (!subcontractId || !assignLaborerId) return;
+    setAssignError(null);
+    setAssigning(true);
+    try {
+      const result = (await withTimeout(
+        (supabase.from("subcontracts") as any)
+          .update({ laborer_id: assignLaborerId })
+          .eq("id", subcontractId),
+        TIMEOUTS.DATABASE_OPERATION,
+        "Assigning the mestri timed out — check your connection and try again."
+      )) as { error: unknown };
+      if (result.error) throw result.error;
+
+      // Signal any open /site/subcontracts tab, then force this tab's cache to
+      // refetch immediately (bypassing the 5-min staleTime).
+      if (typeof BroadcastChannel !== "undefined") {
+        const bc = new BroadcastChannel("subcontracts-changed");
+        bc.postMessage({ siteId, at: Date.now() });
+        bc.close();
+      }
+      await queryClient.invalidateQueries({
+        queryKey: ["subcontracts", "site", siteId],
+      });
+      setAssignLaborerId(null);
+    } catch (e) {
+      setAssignError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAssigning(false);
+    }
+  }
 
   // Validate before allowing submit
   const amountNum = Number(amount);
@@ -409,28 +481,94 @@ export function MestriSettleDialog({
             )}
           />
 
-          {/* Warn when the chosen subcontract has no mestri attached — otherwise
-              the Record button stays disabled with no visible explanation. */}
+          {/* No mestri attached — the subcontract can't receive a salary payment
+              until a head mestri (the wage recipient) is linked. Editors get an
+              inline picker so they never have to leave the dialog; everyone else
+              falls back to the deep-link into the subcontracts edit page. */}
           {subcontractId && selectedSubcontract && !selectedSubcontract.laborer_name && (
             <Alert severity="warning" sx={{ mt: -1 }}>
-              This subcontract has no mestri attached, so it can&apos;t receive a
-              salary payment.{" "}
-              <Box
-                component="a"
-                // Deep-links to the subcontracts page with ?edit=<id> so the
-                // user lands directly on this subcontract's edit dialog and
-                // can pick a Head Mestri without hunting for the row.
-                href={`/site/subcontracts?edit=${subcontractId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                sx={{
-                  fontWeight: 600,
-                  color: "inherit",
-                  textDecoration: "underline",
-                }}
-              >
-                Assign one →
-              </Box>
+              {canEdit ? (
+                <Stack spacing={1}>
+                  <Typography variant="body2">
+                    No mestri attached yet — pick who receives this
+                    subcontract&apos;s wages.
+                  </Typography>
+                  <Autocomplete
+                    options={mestriOptions}
+                    loading={laborersLoading}
+                    value={
+                      mestriOptions.find((l) => l.id === assignLaborerId) ?? null
+                    }
+                    onChange={(_, v) => setAssignLaborerId(v?.id ?? null)}
+                    getOptionLabel={(opt) => opt.name ?? ""}
+                    groupBy={(opt) =>
+                      tradeCategoryId && opt.category_id === tradeCategoryId
+                        ? "Suggested for this trade"
+                        : "All laborers"
+                    }
+                    isOptionEqualToValue={(o, v) => o.id === v.id}
+                    slotProps={{ popper: { disablePortal: false } }}
+                    size="small"
+                    disabled={assigning}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Head mestri"
+                        placeholder="Select a laborer"
+                      />
+                    )}
+                  />
+                  <Box
+                    sx={{ display: "flex", alignItems: "center", gap: 1.5 }}
+                  >
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="warning"
+                      disabled={!assignLaborerId || assigning}
+                      onClick={handleAssignMestri}
+                    >
+                      {assigning ? "Assigning…" : "Assign mestri"}
+                    </Button>
+                    <Box
+                      component="a"
+                      href={`/site/subcontracts?edit=${subcontractId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      sx={{
+                        fontSize: "0.8125rem",
+                        color: "inherit",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      or edit on the subcontracts page →
+                    </Box>
+                  </Box>
+                  {assignError && (
+                    <Typography variant="caption" color="error.main">
+                      {assignError}
+                    </Typography>
+                  )}
+                </Stack>
+              ) : (
+                <>
+                  This subcontract has no mestri attached, so it can&apos;t
+                  receive a salary payment.{" "}
+                  <Box
+                    component="a"
+                    href={`/site/subcontracts?edit=${subcontractId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    sx={{
+                      fontWeight: 600,
+                      color: "inherit",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    Assign one →
+                  </Box>
+                </>
+              )}
             </Alert>
           )}
 

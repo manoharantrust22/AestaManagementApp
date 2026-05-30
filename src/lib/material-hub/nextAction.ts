@@ -121,11 +121,28 @@ export function threadCounts(threads: MaterialThread[]): ThreadCounts {
  * site (since the supervisor's wallet was funded by their site); standard
  * threads carry payer info on `po.payer_site_id`.
  */
+/**
+ * One contributing cross-site usage row. The thread-projection path
+ * (`interSiteDebt` below) populates `thread`; the balance-sourced adapter used
+ * by the v2 Inter-Site page populates `materialName`/`batchCode` directly (it
+ * has no MaterialThread to hand). UI reads the display fields, falling back to
+ * the thread when only that is present.
+ */
+export interface InterSiteDebtRecord {
+  from_site: string;
+  to_site: string;
+  used: number;
+  value: number;
+  materialName?: string;
+  batchCode?: string;
+  thread?: MaterialThread;
+}
+
 export interface InterSiteDebt {
   iOwe: number;
   othersOwe: number;
   net: number;
-  detail: { from_site: string; to_site: string; thread: MaterialThread; used: number; value: number }[];
+  detail: InterSiteDebtRecord[];
 }
 
 export function interSiteDebt(

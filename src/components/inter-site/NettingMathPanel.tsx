@@ -133,7 +133,11 @@ export default function NettingMathPanel({
             toShort={mySiteShort}
             toAccent={mySiteAccent}
             amount={totalOwedToMe}
-            records={owedToMe.map((d) => ({ thread: d.thread, value: d.value }))}
+            records={owedToMe.map((d) => ({
+              materialName: d.materialName ?? d.thread?.material_name ?? "—",
+              batchCode: d.batchCode ?? d.thread?.inventory?.batch,
+              value: d.value,
+            }))}
             color={hubTokens.success}
             reasonShort="used your batches"
             emptyReason="No batches you paid for that others used yet."
@@ -144,7 +148,11 @@ export default function NettingMathPanel({
             toShort={otherSiteShort}
             toAccent={otherSiteAccent}
             amount={totalOwedByMe}
-            records={owedByMe.map((d) => ({ thread: d.thread, value: d.value }))}
+            records={owedByMe.map((d) => ({
+              materialName: d.materialName ?? d.thread?.material_name ?? "—",
+              batchCode: d.batchCode ?? d.thread?.inventory?.batch,
+              value: d.value,
+            }))}
             color={hubTokens.danger}
             reasonShort="used their batches"
             emptyReason="No batches they paid for that you used yet."

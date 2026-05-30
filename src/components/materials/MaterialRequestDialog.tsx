@@ -167,6 +167,7 @@ export default function MaterialRequestDialog({
   const [requiredByDate, setRequiredByDate] = useState("");
   const [priority, setPriority] = useState<RequestPriority>("normal");
   const [purchaseType, setPurchaseType] = useState<'own_site' | 'group_stock'>('own_site');
+  const [payingSiteId, setPayingSiteId] = useState<string>("");
   const [deliveryType, setDeliveryType] = useState<'one_time' | 'bulk'>('one_time');
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<RequestItemRow[]>([]);
@@ -273,6 +274,7 @@ export default function MaterialRequestDialog({
       setRequiredByDate(request.required_by_date || "");
       setPriority(request.priority);
       setPurchaseType(request.purchase_type ?? 'own_site');
+      setPayingSiteId(request.payment_source_site_id ?? "");
       setDeliveryType(request.delivery_type ?? 'one_time');
       setNotes(request.notes || "");
 
@@ -295,6 +297,7 @@ export default function MaterialRequestDialog({
       setRequiredByDate("");
       setPriority("normal");
       setPurchaseType('own_site');
+      setPayingSiteId("");
       setDeliveryType('one_time');
       setNotes("");
       if (initialItems && initialItems.length > 0) {
@@ -516,6 +519,8 @@ export default function MaterialRequestDialog({
           status: targetStatus,
           purchase_type: purchaseType,
           delivery_type: deliveryType,
+          payment_source_site_id:
+            purchaseType === "group_stock" ? payingSiteId || siteId : null,
           notes: notes || undefined,
           items: items.map((item) => {
             const baseNotes = item.notes || '';
@@ -736,12 +741,49 @@ export default function MaterialRequestDialog({
                 <ToggleButtonGroup
                   value={purchaseType}
                   exclusive
-                  onChange={(_, val) => { if (val) setPurchaseType(val); }}
+                  onChange={(_, val) => {
+                    if (!val) return;
+                    setPurchaseType(val);
+                    // Default the payer to the current (originating) site so a
+                    // group buy starts as self-paid until changed.
+                    if (val === "group_stock" && !payingSiteId) {
+                      setPayingSiteId(siteId);
+                    }
+                  }}
                   size="small"
                 >
                   <ToggleButton value="own_site">This site only</ToggleButton>
                   <ToggleButton value="group_stock">Group stock</ToggleButton>
                 </ToggleButtonGroup>
+
+                {purchaseType === "group_stock" && (
+                  <Box sx={{ mt: 1.5 }}>
+                    <TextField
+                      select
+                      fullWidth
+                      size="small"
+                      label="Paying site (payer)"
+                      value={payingSiteId || siteId}
+                      onChange={(e) => setPayingSiteId(e.target.value)}
+                      helperText={
+                        `Payer = whose money is used. Requested for ${
+                          (groupMembership?.allSites ?? []).find((s) => s.id === siteId)
+                            ?.name ?? "this site"
+                        } (debtor)` +
+                        (payingSiteId && payingSiteId !== siteId
+                          ? `; the payer will be owed for what other sites use.`
+                          : `.`)
+                      }
+                    >
+                      {(groupMembership?.allSites ?? []).map((s) => (
+                        <MenuItem key={s.id} value={s.id}>
+                          {s.name}
+                          {s.id === siteId ? " (this site)" : ""}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </Box>
+                )}
               </Box>
             </Grid>
           )}

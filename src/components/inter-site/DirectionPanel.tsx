@@ -12,10 +12,12 @@ import { Box, Typography } from "@mui/material";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { inr } from "@/lib/material-hub/formatters";
-import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 
 export interface DirectionPanelRecord {
-  thread: MaterialThread;
+  /** Material name shown on the contributing row. */
+  materialName: string;
+  /** Batch ref-code (mono prefix); optional when not known. */
+  batchCode?: string;
   value: number;
 }
 
@@ -133,16 +135,18 @@ export default function DirectionPanel({
                 borderRadius: "6px",
               }}
             >
-              <Box
-                component="span"
-                sx={{
-                  fontFamily: hubTokens.mono,
-                  color: hubTokens.subtle,
-                  fontSize: 10,
-                }}
-              >
-                {r.thread.inventory?.batch ?? r.thread.id}
-              </Box>
+              {r.batchCode && (
+                <Box
+                  component="span"
+                  sx={{
+                    fontFamily: hubTokens.mono,
+                    color: hubTokens.subtle,
+                    fontSize: 10,
+                  }}
+                >
+                  {r.batchCode}
+                </Box>
+              )}
               <Box
                 component="span"
                 sx={{
@@ -153,7 +157,7 @@ export default function DirectionPanel({
                   whiteSpace: "nowrap",
                 }}
               >
-                {r.thread.material_name}
+                {r.materialName}
               </Box>
               <Box
                 component="span"

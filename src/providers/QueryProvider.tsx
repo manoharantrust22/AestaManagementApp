@@ -409,12 +409,20 @@ export default function QueryProvider({
               return;
             }
 
-            // Mutation timeout: same pool-recovery dance as the query side
-            // (cancel in-flight + invalidate active), so the user's NEXT
-            // attempt opens fresh sockets instead of queuing behind the
-            // dead ones that just timed out. Debounced via the same
-            // _lastTimeoutRecoveryAt window as query timeouts so a burst
-            // of mutation+query timeouts only runs recovery once.
+            // Mutation timeout: pool-recovery dance — invalidate active
+            // queries so the user's NEXT attempt opens fresh sockets instead
+            // of queuing behind the dead ones that just timed out. Debounced
+            // via the same _lastTimeoutRecoveryAt window as query timeouts so
+            // a burst of mutation+query timeouts only runs recovery once.
+            //
+            // We deliberately do NOT cancelQueries() here. Same reasoning as
+            // the QueryCache timeout handler above (see lines 193-204): an
+            // unscoped cancelQueries aborts every innocent in-flight query
+            // app-wide, stranding the consuming page on its loading state
+            // (a cancelled query reverts to pending, never reaching isError).
+            // The timed-out mutation has already rejected; healing the pool
+            // first means its retry — or the next query — lands on a fresh
+            // socket. Mirrors the QueryCache.onError + sessionManager removals.
             if (isAbortOrTimeoutError(error) && clientRef.current) {
               const now = Date.now();
               if (now - _lastTimeoutRecoveryAt >= TIMEOUT_RECOVERY_DEBOUNCE_MS) {
@@ -422,14 +430,6 @@ export default function QueryProvider({
                 console.warn(
                   "[QueryClient] Mutation timeout — triggering connection-pool recovery",
                 );
-                try {
-                  await clientRef.current.cancelQueries();
-                } catch (err) {
-                  console.warn(
-                    "[QueryClient] cancelQueries threw during mutation-timeout recovery:",
-                    err,
-                  );
-                }
                 setTimeout(() => {
                   clientRef.current?.invalidateQueries({ refetchType: "active" });
                 }, 500);
@@ -683,11 +683,16 @@ function NetworkRecoveryHandler({ queryClient }: { queryClient: QueryClient }) {
 
       console.warn(`[NetworkRecovery] Recovering due to: ${reason}`);
 
-      try {
-        await queryClient.cancelQueries();
-      } catch (err) {
-        console.warn("[NetworkRecovery] cancelQueries threw:", err);
-      }
+      // No cancelQueries() here. Same reasoning as the QueryCache timeout
+      // handler (lines 193-204) and the mutation-timeout handler above:
+      // an unscoped cancel kills every in-flight query app-wide and reverts
+      // them to pending forever (no isError), so the user's current page
+      // gets stuck on its skeleton — which is exactly the "Connection lost"
+      // symptom we were producing on Material Hub after idle/visibility
+      // changes. Refresh the session, then invalidate active so the next
+      // fetch lands on a fresh socket. The Supabase SDK attaches the
+      // current token at request time, so in-flight queries either complete
+      // with the fresh token or get a 401 the QueryCache.onError retries.
 
       try {
         await Promise.race([

@@ -9687,12 +9687,75 @@ export type Database = {
           },
         ]
       }
+      concreting_teams: {
+        Row: {
+          area: string | null
+          brings_own_machine: boolean | null
+          contact_person: string | null
+          created_at: string | null
+          created_by: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          notes: string | null
+          phone: string | null
+          typical_rate: number | null
+          updated_at: string | null
+          whatsapp_number: string | null
+        }
+        Insert: {
+          area?: string | null
+          brings_own_machine?: boolean | null
+          contact_person?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          notes?: string | null
+          phone?: string | null
+          typical_rate?: number | null
+          updated_at?: string | null
+          whatsapp_number?: string | null
+        }
+        Update: {
+          area?: string | null
+          brings_own_machine?: boolean | null
+          contact_person?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          typical_rate?: number | null
+          updated_at?: string | null
+          whatsapp_number?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "concreting_teams_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subcontracts: {
         Row: {
           actual_end_date: string | null
           assigned_sections: string[] | null
           contract_number: string | null
           contract_type: Database["public"]["Enums"]["contract_type"]
+          breakdown_notes: string | null
+          concreting_team_id: string | null
+          contractor_name: string | null
+          female_count: number | null
+          machine_rental: number | null
+          male_count: number | null
+          transport_cost: number | null
           created_at: string
           created_by: string | null
           description: string | null
@@ -9726,6 +9789,13 @@ export type Database = {
           assigned_sections?: string[] | null
           contract_number?: string | null
           contract_type: Database["public"]["Enums"]["contract_type"]
+          breakdown_notes?: string | null
+          concreting_team_id?: string | null
+          contractor_name?: string | null
+          female_count?: number | null
+          machine_rental?: number | null
+          male_count?: number | null
+          transport_cost?: number | null
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -9759,6 +9829,13 @@ export type Database = {
           assigned_sections?: string[] | null
           contract_number?: string | null
           contract_type?: Database["public"]["Enums"]["contract_type"]
+          breakdown_notes?: string | null
+          concreting_team_id?: string | null
+          contractor_name?: string | null
+          female_count?: number | null
+          machine_rental?: number | null
+          male_count?: number | null
+          transport_cost?: number | null
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -14463,7 +14540,7 @@ export type Database = {
         | "on_hold"
         | "completed"
         | "cancelled"
-      contract_type: "mesthri" | "specialist"
+      contract_type: "mesthri" | "specialist" | "day_work"
       deduction_status: "pending" | "partial" | "deducted" | "written_off"
       deletion_request_status: "pending" | "approved" | "rejected"
       delivery_status:
@@ -14730,7 +14807,7 @@ export const Constants = {
         "final_settlement",
       ],
       contract_status: ["draft", "active", "on_hold", "completed", "cancelled"],
-      contract_type: ["mesthri", "specialist"],
+      contract_type: ["mesthri", "specialist", "day_work"],
       deduction_status: ["pending", "partial", "deducted", "written_off"],
       deletion_request_status: ["pending", "approved", "rejected"],
       delivery_status: [

@@ -558,7 +558,15 @@ export default function UnifiedPurchaseOrderDialog({
       if (request?.delivery_type === 'bulk') {
         setPaymentTiming('advance');
       }
-      setPayingSiteId(siteId);
+      // Inherit the payer the engineer chose at request creation (group_stock
+      // requests carry payment_source_site_id). Falls back to the current site
+      // for own-site requests or when no payer was recorded.
+      setPayingSiteId(
+        (request?.purchase_type === 'group_stock' &&
+          (request as { payment_source_site_id?: string | null })
+            ?.payment_source_site_id) ||
+          siteId
+      );
       setTransportCost("");
       setVendorBillUrl("");
     }

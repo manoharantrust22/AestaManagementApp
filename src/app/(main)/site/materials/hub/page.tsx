@@ -203,7 +203,7 @@ export default function MaterialHubPage() {
         counts={counts}
         settlementDueAmount={settlementDueAmount}
         debt={debt}
-        onClickInterSite={() => router.push("/site/inter-site-settlement")}
+        onClickInterSite={() => router.push("/site/materials/inter-site")}
       />
 
       <AllocationsQueue siteGroupId={siteGroupId} />

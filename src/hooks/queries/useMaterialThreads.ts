@@ -16,6 +16,7 @@ import type {
   ThreadDeliveryBatch,
   ThreadInventory,
 } from "@/lib/material-hub/threadTypes";
+import { parseGroupMeta } from "@/lib/material-hub/groupMeta";
 
 // ----------------------------------------------------------------------------
 // Deliveries per site (joined with delivery_items so we can group by PO + material)
@@ -103,18 +104,37 @@ export interface UsageTotalRow {
   total_used: number;
 }
 
-function useSiteStockInventory(siteId: string | undefined) {
+function useSiteStockInventory(
+  siteId: string | undefined,
+  siteGroupId: string | null | undefined
+) {
   const supabase = createClient();
   return useQuery({
-    queryKey: ["stock-inventory", "for-hub-site", siteId ?? null],
+    queryKey: ["stock-inventory", "for-hub-site", siteId ?? null, siteGroupId ?? null],
     enabled: !!siteId,
     queryFn: async () => {
+      // Fetch stock across the whole cluster (not just this site) so a group
+      // thread's shared batch — which physically lands at the originating
+      // (cluster-mate) site — resolves on any site that views the thread.
+      // stock_inventory has no site_group_id, so resolve sibling site IDs first
+      // then filter by site_id IN (...). Mirrors useSiteDeliveries above.
+      let siteIds: string[] = siteId ? [siteId] : [];
+      if (siteGroupId) {
+        const { data: sites, error: sitesErr } = await (supabase as any)
+          .from("sites")
+          .select("id")
+          .eq("site_group_id", siteGroupId);
+        if (sitesErr) throw sitesErr;
+        const ids = ((sites ?? []) as Array<{ id: string }>).map((s) => s.id);
+        if (ids.length > 0) siteIds = ids.includes(siteId!) ? ids : [...ids, siteId!];
+      }
+
       const { data: stock, error: stockErr } = await (supabase as any)
         .from("stock_inventory")
         .select(
           "id, site_id, material_id, current_qty, available_qty, batch_code, last_received_date"
         )
-        .eq("site_id", siteId);
+        .in("site_id", siteIds);
       if (stockErr) throw stockErr;
       const stockRows = (stock ?? []) as StockRow[];
 
@@ -462,6 +482,9 @@ interface StandardThreadDeps {
   /** The site currently being viewed — threads with mr.site_id ≠ this are
    *  marked as mirror (read-only) on the consumer side. */
   currentSiteId: string | undefined;
+  /** The viewer's cluster. A group thread whose site_group matches this is
+   *  editable everywhere in the cluster (full parity) — NOT a read-only mirror. */
+  currentSiteGroupId: string | null | undefined;
 }
 
 function makeStockKey(siteId: string, materialId: string) {
@@ -479,13 +502,29 @@ function mapStandardThread(
 ): MaterialThread {
   const po = poByRequestId.get(mr.id);
   const primaryItem = mr.items?.[0];
+  const threadKind = deriveKind(mr, po);
 
-  // Mirror = cluster-mate's group thread surfaced read-only on this site. The
-  // current site is NOT the originator, so the lifecycle actions (Approve,
-  // Create PO, Record delivery, Settle) belong to the other site. We still
-  // render the thread so engineers can see what shared stock is coming in.
-  const isMirror = !!deps.currentSiteId && mr.site_id !== deps.currentSiteId;
-  const mirroredFromSiteName = isMirror
+  // A thread raised on a different site than the one being viewed.
+  const isSiblingRequest =
+    !!deps.currentSiteId && mr.site_id !== deps.currentSiteId;
+
+  // A GROUP thread that belongs to the viewer's cluster gets FULL PARITY —
+  // every cluster site can approve, PO, deliver, and settle it. We tell it
+  // apart from a payer/debtor standpoint via labels, not by locking it.
+  const isGroupThread = threadKind === "group";
+  const inCluster =
+    isGroupThread &&
+    !!deps.currentSiteGroupId &&
+    ((mr.site_group_id ?? undefined) === deps.currentSiteGroupId ||
+      ((po as any)?.site_group_id ?? undefined) === deps.currentSiteGroupId);
+
+  // Mirror = a NON-cluster cross-site thread (e.g. another site's own-stock
+  // request that surfaced here). Those stay read-only — corrections belong to
+  // the originating site. Cluster group threads are NOT mirrors.
+  const isMirror = isSiblingRequest && !inCluster;
+  // Origin-site name for the "Requested by <site>" / "Shared from <site>"
+  // labels — populated whenever the request came from a sibling site.
+  const mirroredFromSiteName = isSiblingRequest
     ? deps.siteNameById.get(mr.site_id) ?? null
     : null;
 
@@ -560,8 +599,6 @@ function mapStandardThread(
   const hasPendingInterSite =
     !!batchRefForUsage && (deps.pendingInterSiteByBatch.get(batchRefForUsage) ?? 0) > 0;
 
-  const threadKind = deriveKind(mr, po);
-
   // A group buy that was fully consumed by the paying site itself, with no
   // cross-site usage at all (distinct from shared-and-settled). Drives the
   // "used fully by own site" badge on the Hub.
@@ -583,6 +620,13 @@ function mapStandardThread(
 
   let threadPO: MaterialThread["po"] | undefined;
   if (po) {
+    // Real payer (whose money funded the buy) lives in internal_notes for group
+    // POs; it can differ from the PO's site_id (the originating/debtor site).
+    const groupMeta = parseGroupMeta((po as any).internal_notes ?? null);
+    const payerSiteId =
+      groupMeta?.payment_source_site_id ?? (po as any).site_id ?? mr.site_id;
+    const debtorSiteId = mr.site_id;
+
     const orderedQty = (po.items ?? []).reduce(
       (sum, it) => sum + Number(it.quantity ?? 0),
       0
@@ -634,7 +678,10 @@ function mapStandardThread(
           : po.status === "delivered"
             ? "delivered"
             : "ordered",
-      payer_site_id: (po as any).site_id ?? mr.site_id,
+      payer_site_id: payerSiteId,
+      payer_site_name: deps.siteNameById.get(payerSiteId) ?? undefined,
+      debtor_site_id: debtorSiteId,
+      debtor_site_name: deps.siteNameById.get(debtorSiteId) ?? undefined,
       payment_timing: ((po as any).payment_timing ?? "on_delivery") as
         | "advance"
         | "on_delivery",
@@ -695,7 +742,8 @@ function mapStandardThread(
     approved_at: mr.approved_at ?? null,
     rejected_reason: mr.rejection_reason ?? null,
     is_mirror: isMirror || undefined,
-    mirrored_from_site_id: isMirror ? mr.site_id : undefined,
+    is_sibling_request: isSiblingRequest || undefined,
+    mirrored_from_site_id: isSiblingRequest ? mr.site_id : undefined,
     mirrored_from_site_name: mirroredFromSiteName ?? undefined,
     po: threadPO,
     inventory: threadInventory,
@@ -868,7 +916,7 @@ export function useMaterialThreads(
   });
   const sp = useSiteSpotPurchases(siteId, siteGroupId);
   const deliveries = useSiteDeliveries(siteId, siteGroupId);
-  const stock = useSiteStockInventory(siteId);
+  const stock = useSiteStockInventory(siteId, siteGroupId);
   const settlements = useSiteSettlements(siteId, siteGroupId);
   const groupSiteNames = useGroupSiteNames(siteGroupId);
   const batchUsage = useGroupBatchUsageSummary(siteGroupId);
@@ -936,6 +984,7 @@ export function useMaterialThreads(
       }
     }
     const deps: StandardThreadDeps = {
+      currentSiteGroupId: siteGroupId,
       deliveriesByPo,
       stockBySiteMaterial,
       stockBySiteBatch,

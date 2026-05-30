@@ -97,3 +97,6 @@ dev-server.log
 
 # Playwright/MCP accessibility snapshots dumped at repo root
 /*-snapshot.yml
+
+# Playwright MCP test artifacts
+.playwright-mcp/

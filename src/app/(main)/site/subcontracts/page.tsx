@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import {
+  Autocomplete,
   Box,
   Button,
   Typography,
@@ -61,6 +62,8 @@ import { calculateSubcontractTotals } from "@/lib/services/subcontractService";
 import { recordSpend } from "@/lib/services/engineerWalletV2";
 import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 import dayjs from "dayjs";
+import { useConcretingTeams } from "@/hooks/queries/useConcretingTeams";
+import ConcretingTeamDialog from "@/components/concreting/ConcretingTeamDialog";
 
 interface SubcontractWithDetails extends Subcontract {
   team_name?: string;
@@ -108,6 +111,14 @@ export default function SiteSubcontractsPage() {
     contract_type: "mesthri" as ContractType,
     team_id: "",
     laborer_id: "",
+    // Day-work (external concreting gang) fields
+    concreting_team_id: "",
+    contractor_name: "",
+    male_count: 0,
+    female_count: 0,
+    machine_rental: 0,
+    transport_cost: 0,
+    breakdown_notes: "",
     title: "",
     description: "",
     scope_of_work: "",
@@ -121,6 +132,10 @@ export default function SiteSubcontractsPage() {
     status: "draft" as ContractStatus,
     is_rate_based: true,
   });
+
+  // Concreting-team catalog (for the day_work picker) + inline quick-add dialog
+  const { data: concretingTeams = [] } = useConcretingTeams();
+  const [teamDialogOpen, setTeamDialogOpen] = useState(false);
 
   // Payment form - Enhanced with payment channel and period tracking
   const [paymentForm, setPaymentForm] = useState({
@@ -274,6 +289,13 @@ export default function SiteSubcontractsPage() {
         contract_type: subcontract.contract_type,
         team_id: subcontract.team_id || "",
         laborer_id: subcontract.laborer_id || "",
+        concreting_team_id: subcontract.concreting_team_id || "",
+        contractor_name: subcontract.contractor_name || "",
+        male_count: subcontract.male_count || 0,
+        female_count: subcontract.female_count || 0,
+        machine_rental: subcontract.machine_rental || 0,
+        transport_cost: subcontract.transport_cost || 0,
+        breakdown_notes: subcontract.breakdown_notes || "",
         title: subcontract.title,
         description: subcontract.description || "",
         scope_of_work: subcontract.scope_of_work || "",
@@ -293,6 +315,13 @@ export default function SiteSubcontractsPage() {
         contract_type: "mesthri",
         team_id: "",
         laborer_id: "",
+        concreting_team_id: "",
+        contractor_name: "",
+        male_count: 0,
+        female_count: 0,
+        machine_rental: 0,
+        transport_cost: 0,
+        breakdown_notes: "",
         title: "",
         description: "",
         scope_of_work: "",
@@ -333,6 +362,11 @@ export default function SiteSubcontractsPage() {
       return;
     }
 
+    if (form.contract_type === "day_work" && !form.concreting_team_id) {
+      setError("Please select a concreting team for the day-work job");
+      return;
+    }
+
     if (form.is_rate_based && (form.rate_per_unit <= 0 || form.total_units <= 0)) {
       setError("Please enter valid rate per unit and total units for rate-based contracts");
       return;
@@ -348,8 +382,24 @@ export default function SiteSubcontractsPage() {
         // For mesthri contracts, laborer_id (when set) is the head mestri who
         // receives team-wage settlements via the salary waterfall RPC. The
         // schema CHECK constraint requires team_id for mesthri contracts but
-        // allows laborer_id alongside it.
-        laborer_id: form.laborer_id || null,
+        // allows laborer_id alongside it. Day-work jobs use no laborer.
+        laborer_id: form.contract_type === "day_work" ? null : form.laborer_id || null,
+        // Day-work (external concreting gang) fields — null for other types.
+        // Breakdown figures are reference-only and need not sum to total_value.
+        concreting_team_id:
+          form.contract_type === "day_work" ? form.concreting_team_id : null,
+        contractor_name:
+          form.contract_type === "day_work" ? form.contractor_name || null : null,
+        male_count:
+          form.contract_type === "day_work" ? form.male_count || null : null,
+        female_count:
+          form.contract_type === "day_work" ? form.female_count || null : null,
+        machine_rental:
+          form.contract_type === "day_work" ? form.machine_rental || null : null,
+        transport_cost:
+          form.contract_type === "day_work" ? form.transport_cost || null : null,
+        breakdown_notes:
+          form.contract_type === "day_work" ? form.breakdown_notes || null : null,
         title: form.title,
         description: form.description || null,
         scope_of_work: form.scope_of_work || null,
@@ -521,13 +571,17 @@ export default function SiteSubcontractsPage() {
       // Record the payment with enhanced fields
       const paymentResult = await withTimeout(
         (supabase.from("subcontract_payments") as any).insert({
-          subcontract_id: selectedSubcontract.id,
+          // Column is contract_id (NOT subcontract_id) on subcontract_payments.
+          contract_id: selectedSubcontract.id,
           payment_type: paymentForm.payment_type,
           amount: paymentForm.amount,
           payment_date: paymentForm.payment_date,
           payment_mode: paymentForm.payment_mode,
           payment_channel: paymentForm.payment_channel,
-          paid_by: paidByName,
+          // paid_by is a uuid FK to users — keep the actual user id in
+          // paid_by_user_id and put the human-readable payer label in comments
+          // (there is no text payer-name column on this table).
+          paid_by: null,
           paid_by_user_id: paymentForm.payment_channel === "via_site_engineer" ? selectedSiteEngineer : userProfile.id,
           period_from_date: paymentForm.period_from_date,
           period_to_date: paymentForm.period_to_date,
@@ -535,7 +589,10 @@ export default function SiteSubcontractsPage() {
           site_engineer_transaction_id: siteEngineerTransactionId,
           recorded_by: userProfile.name || userProfile.email,
           recorded_by_user_id: userProfile.id,
-          notes: paymentForm.notes || null,
+          // Column is comments (NOT notes) on subcontract_payments.
+          comments: paymentForm.notes
+            ? `${paymentForm.notes} (paid by ${paidByName})`
+            : `Paid by ${paidByName}`,
         }),
         TIMEOUTS.DATABASE_OPERATION,
         "Payment recording timed out. Please check your connection and try again."
@@ -593,6 +650,8 @@ export default function SiteSubcontractsPage() {
             <Typography variant="caption" color="text.secondary" sx={{ fontSize: isMobile ? '0.6rem' : 'inherit' }}>
               {row.original.contract_type === "mesthri"
                 ? row.original.team_name
+                : row.original.contract_type === "day_work"
+                ? row.original.contractor_name
                 : row.original.laborer_name}
             </Typography>
           </Box>
@@ -604,10 +663,24 @@ export default function SiteSubcontractsPage() {
         size: isMobile ? 55 : 110,
         Cell: ({ cell }) => (
           <Chip
-            label={isMobile ? (cell.getValue<string>() === "mesthri" ? "M" : "S") : cell.getValue<string>().toUpperCase()}
+            label={
+              isMobile
+                ? cell.getValue<string>() === "mesthri"
+                  ? "M"
+                  : cell.getValue<string>() === "day_work"
+                  ? "D"
+                  : "S"
+                : cell.getValue<string>() === "day_work"
+                ? "DAY WORK"
+                : cell.getValue<string>().toUpperCase()
+            }
             size="small"
             color={
-              cell.getValue<string>() === "mesthri" ? "primary" : "secondary"
+              cell.getValue<string>() === "mesthri"
+                ? "primary"
+                : cell.getValue<string>() === "day_work"
+                ? "info"
+                : "secondary"
             }
           />
         ),
@@ -932,23 +1005,63 @@ export default function SiteSubcontractsPage() {
                   <InputLabel>Subcontract Type</InputLabel>
                   <Select
                     value={form.contract_type}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const next = e.target.value as ContractType;
                       setForm({
                         ...form,
-                        contract_type: e.target.value as ContractType,
-                      })
-                    }
+                        contract_type: next,
+                        // Day-work concreting jobs are always a single bargained
+                        // lump sum — never rate-based.
+                        is_rate_based:
+                          next === "day_work" ? false : form.is_rate_based,
+                      });
+                    }}
                     label="Subcontract Type"
                   >
                     <MenuItem value="mesthri">Mesthri (Team Based)</MenuItem>
                     <MenuItem value="specialist">
                       Specialist (Individual)
                     </MenuItem>
+                    <MenuItem value="day_work">
+                      Day-work / Concreting (External gang)
+                    </MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
-                {form.contract_type === "mesthri" ? (
+                {form.contract_type === "day_work" ? (
+                  <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                    <Autocomplete
+                      fullWidth
+                      options={concretingTeams}
+                      getOptionLabel={(o) => o.name}
+                      value={
+                        concretingTeams.find(
+                          (t) => t.id === form.concreting_team_id
+                        ) || null
+                      }
+                      onChange={(_e, val) =>
+                        setForm({
+                          ...form,
+                          concreting_team_id: val?.id || "",
+                          contractor_name: val?.name || "",
+                        })
+                      }
+                      isOptionEqualToValue={(o, v) => o.id === v.id}
+                      slotProps={{ popper: { disablePortal: false } }}
+                      renderInput={(params) => (
+                        <TextField {...params} label="Concreting Team" required />
+                      )}
+                    />
+                    <Button
+                      size="small"
+                      onClick={() => setTeamDialogOpen(true)}
+                      sx={{ whiteSpace: "nowrap", flexShrink: 0 }}
+                    >
+                      + Add
+                    </Button>
+                  </Box>
+                ) : form.contract_type === "mesthri" ? (
                   <FormControl fullWidth required>
                     <InputLabel>Team</InputLabel>
                     <Select
@@ -1075,7 +1188,8 @@ export default function SiteSubcontractsPage() {
 
             <Divider sx={{ my: 2 }} />
 
-            {/* Contract Value Type Toggle */}
+            {/* Contract Value Type Toggle — hidden for day-work (always lump sum) */}
+            {form.contract_type !== "day_work" && (
             <Box>
               <Typography
                 variant="subtitle2"
@@ -1125,6 +1239,7 @@ export default function SiteSubcontractsPage() {
                 </ToggleButton>
               </ToggleButtonGroup>
             </Box>
+            )}
 
             {/* Rate-Based Contract Fields */}
             {form.is_rate_based ? (
@@ -1242,7 +1357,11 @@ export default function SiteSubcontractsPage() {
               /* Lump Sum Contract Fields */
               <TextField
                 fullWidth
-                label="Total Subcontract Value"
+                label={
+                  form.contract_type === "day_work"
+                    ? "Total Agreed Amount (lump sum)"
+                    : "Total Subcontract Value"
+                }
                 type="number"
                 value={form.total_value || ""}
                 onChange={(e) =>
@@ -1254,8 +1373,101 @@ export default function SiteSubcontractsPage() {
                     startAdornment: "₹",
                   },
                 }}
-                helperText="Enter the fixed subcontract amount"
+                helperText={
+                  form.contract_type === "day_work"
+                    ? "The single bargained amount you pay the gang on completion"
+                    : "Enter the fixed subcontract amount"
+                }
               />
+            )}
+
+            {/* Day-work bargaining breakdown (reference figures only) */}
+            {form.contract_type === "day_work" && (
+              <Box
+                sx={{
+                  p: 2,
+                  border: "1px dashed",
+                  borderColor: "divider",
+                  borderRadius: 2,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 2,
+                }}
+              >
+                <Typography variant="subtitle2" color="text.secondary">
+                  Bargaining breakdown
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <TextField
+                      fullWidth
+                      label="Male laborers"
+                      type="number"
+                      value={form.male_count || ""}
+                      onChange={(e) =>
+                        setForm({ ...form, male_count: Number(e.target.value) })
+                      }
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <TextField
+                      fullWidth
+                      label="Female laborers"
+                      type="number"
+                      value={form.female_count || ""}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          female_count: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <TextField
+                      fullWidth
+                      label="Machine rental"
+                      type="number"
+                      value={form.machine_rental || ""}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          machine_rental: Number(e.target.value),
+                        })
+                      }
+                      slotProps={{ input: { startAdornment: "₹" } }}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <TextField
+                      fullWidth
+                      label="Transport"
+                      type="number"
+                      value={form.transport_cost || ""}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          transport_cost: Number(e.target.value),
+                        })
+                      }
+                      slotProps={{ input: { startAdornment: "₹" } }}
+                    />
+                  </Grid>
+                </Grid>
+                <TextField
+                  fullWidth
+                  label="Other factors / notes"
+                  value={form.breakdown_notes}
+                  onChange={(e) =>
+                    setForm({ ...form, breakdown_notes: e.target.value })
+                  }
+                  multiline
+                  rows={2}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  Reference figures — they need not add up to the agreed total.
+                </Typography>
+              </Box>
             )}
 
             <Divider sx={{ my: 2 }} />
@@ -1264,7 +1476,9 @@ export default function SiteSubcontractsPage() {
               <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   fullWidth
-                  label="Start Date"
+                  label={
+                    form.contract_type === "day_work" ? "Work Date" : "Start Date"
+                  }
                   type="date"
                   value={form.start_date}
                   onChange={(e) =>
@@ -1274,18 +1488,20 @@ export default function SiteSubcontractsPage() {
                   required
                 />
               </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
-                  fullWidth
-                  label="Expected End Date"
-                  type="date"
-                  value={form.expected_end_date}
-                  onChange={(e) =>
-                    setForm({ ...form, expected_end_date: e.target.value })
-                  }
-                  slotProps={{ inputLabel: { shrink: true } }}
-                />
-              </Grid>
+              {form.contract_type !== "day_work" && (
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField
+                    fullWidth
+                    label="Expected End Date"
+                    type="date"
+                    value={form.expected_end_date}
+                    onChange={(e) =>
+                      setForm({ ...form, expected_end_date: e.target.value })
+                    }
+                    slotProps={{ inputLabel: { shrink: true } }}
+                  />
+                </Grid>
+              )}
             </Grid>
 
             <FormControl fullWidth>
@@ -1319,6 +1535,19 @@ export default function SiteSubcontractsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Inline quick-add for a concreting team (from the day-work picker) */}
+      <ConcretingTeamDialog
+        open={teamDialogOpen}
+        onClose={() => setTeamDialogOpen(false)}
+        onSaved={(team) =>
+          setForm((prev) => ({
+            ...prev,
+            concreting_team_id: team.id,
+            contractor_name: team.name,
+          }))
+        }
+      />
 
       {/* View Subcontract Dialog */}
       <Dialog
@@ -1362,11 +1591,15 @@ export default function SiteSubcontractsPage() {
                   <Typography variant="caption" color="text.secondary">
                     {selectedSubcontract.contract_type === "mesthri"
                       ? "Team"
+                      : selectedSubcontract.contract_type === "day_work"
+                      ? "Concreting Team"
                       : "Laborer"}
                   </Typography>
                   <Typography variant="body1" fontWeight={600}>
                     {selectedSubcontract.contract_type === "mesthri"
                       ? selectedSubcontract.team_name
+                      : selectedSubcontract.contract_type === "day_work"
+                      ? selectedSubcontract.contractor_name
                       : selectedSubcontract.laborer_name}
                   </Typography>
                 </Grid>
@@ -1379,6 +1612,69 @@ export default function SiteSubcontractsPage() {
                   </Typography>
                   <Typography variant="body2">
                     {selectedSubcontract.description}
+                  </Typography>
+                </Box>
+              )}
+
+              {selectedSubcontract.contract_type === "day_work" && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Bargaining breakdown
+                  </Typography>
+                  <Grid container spacing={2} sx={{ mt: 0.5 }}>
+                    <Grid size={{ xs: 6, sm: 3 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Male
+                      </Typography>
+                      <Typography variant="body1" fontWeight={600}>
+                        {selectedSubcontract.male_count ?? "—"}
+                      </Typography>
+                    </Grid>
+                    <Grid size={{ xs: 6, sm: 3 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Female
+                      </Typography>
+                      <Typography variant="body1" fontWeight={600}>
+                        {selectedSubcontract.female_count ?? "—"}
+                      </Typography>
+                    </Grid>
+                    <Grid size={{ xs: 6, sm: 3 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Machine rental
+                      </Typography>
+                      <Typography variant="body1" fontWeight={600}>
+                        {selectedSubcontract.machine_rental != null
+                          ? `₹${selectedSubcontract.machine_rental.toLocaleString(
+                              "en-IN"
+                            )}`
+                          : "—"}
+                      </Typography>
+                    </Grid>
+                    <Grid size={{ xs: 6, sm: 3 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Transport
+                      </Typography>
+                      <Typography variant="body1" fontWeight={600}>
+                        {selectedSubcontract.transport_cost != null
+                          ? `₹${selectedSubcontract.transport_cost.toLocaleString(
+                              "en-IN"
+                            )}`
+                          : "—"}
+                      </Typography>
+                    </Grid>
+                  </Grid>
+                  {selectedSubcontract.breakdown_notes && (
+                    <Typography variant="body2" sx={{ mt: 1 }}>
+                      {selectedSubcontract.breakdown_notes}
+                    </Typography>
+                  )}
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    component="div"
+                    sx={{ mt: 1 }}
+                  >
+                    Reference figures — they need not add up to the agreed total.
                   </Typography>
                 </Box>
               )}
@@ -1455,7 +1751,7 @@ export default function SiteSubcontractsPage() {
         fullWidth
         fullScreen={isMobile}
       >
-        <DialogTitle>Record Payment to Mesthri</DialogTitle>
+        <DialogTitle>Record Payment</DialogTitle>
         <DialogContent>
           {selectedSubcontract && (
             <Box
@@ -1464,8 +1760,13 @@ export default function SiteSubcontractsPage() {
               <Alert severity="info">
                 <Typography variant="body2">
                   <strong>{selectedSubcontract.title}</strong>
-                  {selectedSubcontract.team_name && (
-                    <> - {selectedSubcontract.team_name}</>
+                  {(selectedSubcontract.team_name ||
+                    selectedSubcontract.contractor_name) && (
+                    <>
+                      {" - "}
+                      {selectedSubcontract.team_name ||
+                        selectedSubcontract.contractor_name}
+                    </>
                   )}
                 </Typography>
                 <Typography variant="caption">

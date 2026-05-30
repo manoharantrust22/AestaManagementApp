@@ -397,13 +397,15 @@ export default function CompanyContractsPage() {
       const { error } = await (
         supabase.from("subcontract_payments") as any
       ).insert({
-        subcontract_id: selectedSubcontract.id,
+        // Column is contract_id (NOT subcontract_id) on subcontract_payments.
+        contract_id: selectedSubcontract.id,
         payment_type: paymentForm.payment_type,
         amount: paymentForm.amount,
         payment_date: paymentForm.payment_date,
         payment_mode: paymentForm.payment_mode,
         paid_by: userProfile.id,
-        notes: paymentForm.notes || null,
+        // Column is comments (NOT notes) on subcontract_payments.
+        comments: paymentForm.notes || null,
       });
 
       if (error) throw error;
@@ -453,6 +455,8 @@ export default function CompanyContractsPage() {
             <Typography variant="caption" color="text.secondary">
               {row.original.contract_type === "mesthri"
                 ? row.original.team_name
+                : row.original.contract_type === "day_work"
+                ? row.original.contractor_name
                 : row.original.laborer_name}
             </Typography>
           </Box>
@@ -1141,11 +1145,15 @@ export default function CompanyContractsPage() {
                   <Typography variant="caption" color="text.secondary">
                     {selectedSubcontract.contract_type === "mesthri"
                       ? "Team"
+                      : selectedSubcontract.contract_type === "day_work"
+                      ? "Concreting Team"
                       : "Laborer"}
                   </Typography>
                   <Typography variant="body1" fontWeight={600}>
                     {selectedSubcontract.contract_type === "mesthri"
                       ? selectedSubcontract.team_name
+                      : selectedSubcontract.contract_type === "day_work"
+                      ? selectedSubcontract.contractor_name
                       : selectedSubcontract.laborer_name}
                   </Typography>
                 </Grid>

@@ -402,6 +402,46 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
           </Box>
         </Box>
       )}
+      {t.kind === "group" && !t.is_mirror && (
+        <Box
+          sx={{
+            gridColumn: { xs: "1", md: "1 / -1" },
+            background: hubTokens.pinkSoft ?? hubTokens.chip,
+            border: `1px solid ${hubTokens.pink ?? hubTokens.border}`,
+            borderRadius: "8px",
+            padding: "8px 12px",
+            display: "flex",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "6px",
+            fontSize: 11.5,
+            color: hubTokens.muted,
+          }}
+        >
+          <Box component="span" sx={{ fontWeight: 700, color: hubTokens.text }}>
+            Group purchase
+          </Box>
+          {t.po?.payer_site_name &&
+          t.po?.debtor_site_name &&
+          t.po.payer_site_id !== t.po.debtor_site_id ? (
+            <Box component="span">
+              · Paid by{" "}
+              <Box component="span" sx={{ fontWeight: 700, color: hubTokens.pink ?? hubTokens.text }}>
+                {t.po.payer_site_name}
+              </Box>{" "}
+              · For{" "}
+              <Box component="span" sx={{ fontWeight: 700, color: hubTokens.text }}>
+                {t.po.debtor_site_name}
+              </Box>
+            </Box>
+          ) : (
+            <Box component="span">· Shared across the cluster — any site can act</Box>
+          )}
+          {t.is_sibling_request && t.mirrored_from_site_name && (
+            <Box component="span">· Requested by {t.mirrored_from_site_name}</Box>
+          )}
+        </Box>
+      )}
       {/* 1. Request */}
       <Box>
         <BlockHeader
