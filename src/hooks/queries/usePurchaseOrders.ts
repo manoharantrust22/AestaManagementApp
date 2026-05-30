@@ -2018,6 +2018,36 @@ export function useRecordDelivery() {
         notes: data.notes || null,
       };
 
+      // OVER-RECEIPT GUARD — runs BEFORE any insert so a fully/over-delivered PO
+      // is rejected with ZERO side effects. received_qty (and stock) are owned by
+      // the DB trigger `update_stock_on_verified_delivery`, which increments them
+      // on the delivery_items INSERT below. Checking AFTER the insert double-counts
+      // the trigger's own increment and throws a false error on the final
+      // legitimate delivery — the bug that turned one 3-unit delivery into 4 GRNs.
+      if (data.po_id) {
+        for (const item of data.items) {
+          if (!item.po_item_id) continue;
+          const { data: poItem } = await supabase
+            .from("purchase_order_items")
+            .select("quantity, received_qty")
+            .eq("id", item.po_item_id)
+            .single();
+          if (poItem) {
+            const ordered = Number(poItem.quantity ?? 0);
+            const alreadyReceived = Number(poItem.received_qty ?? 0);
+            const incoming = Number(item.accepted_qty ?? item.received_qty ?? 0);
+            const pending = Math.max(0, ordered - alreadyReceived);
+            if (incoming > pending + 0.001) {
+              throw new Error(
+                pending <= 0
+                  ? `This PO is already fully delivered (${alreadyReceived}/${ordered} received). It looks like the delivery was already recorded — refresh the list before recording again.`
+                  : `Cannot receive ${incoming} — only ${pending} of ${ordered} still pending. Adjust the delivery qty or amend the PO.`
+              );
+            }
+          }
+        }
+      }
+
       // Insert with retry logic for GRN collision (409 conflict)
       const MAX_RETRIES = 3;
       let delivery = null;
@@ -2085,43 +2115,13 @@ export function useRecordDelivery() {
         throw itemsError;
       }
 
-      // Update PO item received quantities. Two safeguards here to prevent the
-      // historical "received_qty inflated to 2× ordered" drift:
-      //   1. CAP the new running total at `ordered` (poItem.quantity) — even if
-      //      this mutation accidentally fires twice (network retry, dialog
-      //      double-submit), we never push past ordered.
-      //   2. REJECT the save when the incoming qty itself would push past
-      //      pending — the engineer probably mistyped (e.g. ordered 10, already
-      //      received 8, typed "+10" — should be capped at 2).
+      // NOTE: purchase_order_items.received_qty is incremented by the DB trigger
+      // `update_stock_on_verified_delivery` (fires on the delivery_items INSERT
+      // above). We deliberately do NOT update received_qty here — the over-receipt
+      // capacity check already ran before the insert. Touching received_qty again
+      // would double-count the trigger's increment (the historical "2× ordered" drift).
       if (data.po_id) {
-        for (const item of data.items) {
-          if (item.po_item_id) {
-            const { data: poItem } = await supabase
-              .from("purchase_order_items")
-              .select("quantity, received_qty")
-              .eq("id", item.po_item_id)
-              .single();
-
-            if (poItem) {
-              const ordered = Number(poItem.quantity ?? 0);
-              const alreadyReceived = Number(poItem.received_qty ?? 0);
-              const incoming = Number(item.accepted_qty ?? item.received_qty ?? 0);
-              const pending = Math.max(0, ordered - alreadyReceived);
-              if (incoming > pending + 0.001) {
-                throw new Error(
-                  `Cannot receive ${incoming} — only ${pending} pending against ordered ${ordered}. Adjust the delivery qty or amend the PO.`
-                );
-              }
-              const newReceived = Math.min(ordered, alreadyReceived + incoming);
-              await supabase
-                .from("purchase_order_items")
-                .update({ received_qty: newReceived })
-                .eq("id", item.po_item_id);
-            }
-          }
-        }
-
-        // Check if PO is fully delivered
+        // Check if PO is fully delivered (re-read reflects the trigger's update)
         const { data: poItems } = await supabase
           .from("purchase_order_items")
           .select("quantity, received_qty")
@@ -2593,6 +2593,42 @@ export function useRecordAndVerifyDelivery() {
         notes: data.notes || null,
       };
 
+      // OVER-RECEIPT GUARD — runs BEFORE any insert so a fully/over-delivered PO
+      // is rejected with ZERO side effects.
+      //
+      // WHY THIS MUST BE BEFORE THE INSERT: the DB trigger
+      // `update_stock_on_verified_delivery` is the SOLE owner of
+      // purchase_order_items.received_qty — it increments received_qty (and stock)
+      // on the delivery_items INSERT below. The old code re-checked received_qty
+      // AFTER inserting, so it saw the trigger's own increment, computed
+      // "0 pending", and threw a FALSE error on the final legitimate delivery.
+      // Engineers read that as "save failed" and retried, and each retry committed
+      // another full delivery before throwing again — that is exactly how a single
+      // 3-unit delivery became 4 GRNs / 12 units of phantom stock.
+      if (data.po_id) {
+        for (const item of data.items) {
+          if (!item.po_item_id) continue;
+          const { data: poItem } = await supabase
+            .from("purchase_order_items")
+            .select("quantity, received_qty")
+            .eq("id", item.po_item_id)
+            .single();
+          if (poItem) {
+            const ordered = Number(poItem.quantity ?? 0);
+            const alreadyReceived = Number(poItem.received_qty ?? 0);
+            const incoming = Number(item.accepted_qty ?? item.received_qty ?? 0);
+            const pending = Math.max(0, ordered - alreadyReceived);
+            if (incoming > pending + 0.001) {
+              throw new Error(
+                pending <= 0
+                  ? `This PO is already fully delivered (${alreadyReceived}/${ordered} received). It looks like the delivery was already recorded — refresh the list before recording again.`
+                  : `Cannot receive ${incoming} — only ${pending} of ${ordered} still pending. Adjust the delivery qty or amend the PO.`
+              );
+            }
+          }
+        }
+      }
+
       console.log("[useRecordAndVerifyDelivery] Inserting delivery with payload:", deliveryPayload);
 
       // Insert with retry logic for GRN collision (409 conflict)
@@ -2662,37 +2698,13 @@ export function useRecordAndVerifyDelivery() {
         throw itemsError;
       }
 
-      // Update PO item received quantities (same as useRecordDelivery — see
-      // the comment block there for why we cap + validate).
+      // NOTE: purchase_order_items.received_qty is incremented by the DB trigger
+      // `update_stock_on_verified_delivery` (fires on the delivery_items INSERT
+      // above). We deliberately do NOT update received_qty here — the over-receipt
+      // capacity check already ran before the insert. Touching received_qty again
+      // would double-count the trigger's increment.
       if (data.po_id) {
-        for (const item of data.items) {
-          if (item.po_item_id) {
-            const { data: poItem } = await supabase
-              .from("purchase_order_items")
-              .select("quantity, received_qty")
-              .eq("id", item.po_item_id)
-              .single();
-
-            if (poItem) {
-              const ordered = Number(poItem.quantity ?? 0);
-              const alreadyReceived = Number(poItem.received_qty ?? 0);
-              const incoming = Number(item.accepted_qty ?? item.received_qty ?? 0);
-              const pending = Math.max(0, ordered - alreadyReceived);
-              if (incoming > pending + 0.001) {
-                throw new Error(
-                  `Cannot receive ${incoming} — only ${pending} pending against ordered ${ordered}. Adjust the delivery qty or amend the PO.`
-                );
-              }
-              const newReceived = Math.min(ordered, alreadyReceived + incoming);
-              await supabase
-                .from("purchase_order_items")
-                .update({ received_qty: newReceived })
-                .eq("id", item.po_item_id);
-            }
-          }
-        }
-
-        // Check if PO is fully delivered
+        // Check if PO is fully delivered (re-read reflects the trigger's update)
         const { data: poItems } = await supabase
           .from("purchase_order_items")
           .select("quantity, received_qty")

@@ -26,6 +26,17 @@ export interface HistoricalRecord {
   purchase_date: string; // YYYY-MM-DD; server validates 2025-11-09 <= d <= 2026-05-09
   vendor: { id?: string; name?: string };
   items: HistoricalRecordItem[];
+  /**
+   * Grand total actually paid in INR = Σ item.amount + transport_cost (or an
+   * editable override). Server stores this in material_purchase_expenses.total_amount.
+   * When omitted, the server derives it from the item amounts + transport_cost.
+   */
+  amount?: number;
+  /**
+   * Record-level transportation/delivery charge in INR for the whole entry.
+   * Stored in material_purchase_expenses.transport_cost; NOT folded into per-item rates.
+   */
+  transport_cost?: number;
   kind: HistoricalKind;
   /** Required when kind='group'. Must sum to 100. */
   group_split?: { site_id: string; pct: number }[];

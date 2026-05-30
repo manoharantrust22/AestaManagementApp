@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -285,8 +285,15 @@ export default function RecordAndVerifyDeliveryDialog({
     setPhotos((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  // Re-entrancy lock: blocks a second submission while one is in flight, even in
+  // the brief window before the disabled button state re-renders (mobile double-tap,
+  // slow network). Combined with the over-receipt guard in the mutation, this is
+  // what prevents one physical delivery from being recorded as multiple GRNs.
+  const submitInFlightRef = useRef(false);
+
   const handleSubmit = async (flagIssues: boolean = false) => {
     if (!purchaseOrder) return;
+    if (submitInFlightRef.current || recordAndVerify.isPending) return;
 
     // Validate photos (optional in dev mode for testing)
     if (photos.length === 0 && process.env.NODE_ENV === "production") {
@@ -367,6 +374,7 @@ export default function RecordAndVerifyDeliveryDialog({
         deliveryData
       );
 
+      submitInFlightRef.current = true;
       await recordAndVerify.mutateAsync(deliveryData);
       onClose();
     } catch (err: unknown) {
@@ -375,6 +383,8 @@ export default function RecordAndVerifyDeliveryDialog({
           ? err.message
           : "Failed to record and verify delivery";
       setError(message);
+    } finally {
+      submitInFlightRef.current = false;
     }
   };
 

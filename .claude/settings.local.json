@@ -417,7 +417,10 @@
       "Bash(sed -n '461,466p' src/hooks/queries/useMaterialThreads.ts)",
       "Bash(sed -n '896,896p' src/hooks/queries/useMaterialThreads.ts)",
       "Bash(sed -n '970,976p' src/hooks/queries/useMaterialThreads.ts)",
-      "Bash(sed -n '106,106p' src/hooks/queries/useMaterialThreads.ts)"
+      "Bash(sed -n '106,106p' src/hooks/queries/useMaterialThreads.ts)",
+      "Bash(printf '\\\\n# Playwright MCP test artifacts\\\\n.playwright-mcp/\\\\n')",
+      "Bash(git diff *)",
+      "PowerShell(try { Stop-Process -Id 24632 -Force -ErrorAction Stop; \"killed 24632\" } catch { \"could not kill 24632: $\\($_.Exception.Message\\)\" }; Start-Sleep -Seconds 1; $p = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($p\\) { \"3000 still held by PID $\\($p.OwningProcess\\)\" } else { \"port 3000 now free\" })"
     ],
     "deny": [],
     "ask": [],

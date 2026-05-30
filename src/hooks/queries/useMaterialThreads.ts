@@ -264,6 +264,9 @@ export interface SettlementSnapshot {
   status: string | null;
   payment_channel: string | null;
   total_amount: number | string;
+  /** Actual cash paid to the vendor (incl. transport/extra). May exceed
+      total_amount when transport is recorded only here. Null until paid. */
+  amount_paid: number | string | null;
   payment_screenshot_url: string | null;
   bill_url: string | null;
   payment_mode: string | null;
@@ -348,7 +351,7 @@ function useSiteSettlements(
       let query = (supabase as any)
         .from("material_purchase_expenses")
         .select(
-          "id, ref_code, purchase_order_id, site_id, is_paid, paid_date, status, payment_channel, total_amount, payment_screenshot_url, bill_url, payment_mode"
+          "id, ref_code, purchase_order_id, site_id, is_paid, paid_date, status, payment_channel, total_amount, amount_paid, payment_screenshot_url, bill_url, payment_mode"
         )
         .not("purchase_order_id", "is", null);
 
@@ -761,7 +764,11 @@ function mapStandardThread(
     settlement: settlement
       ? {
           status: settlement.is_paid ? "settled" : "pending",
-          amount: Number(settlement.total_amount ?? 0),
+          // Actual cash paid to the vendor (incl. transport/extra), falling back
+          // to the item-line total when not yet recorded. Keeps the SETTLEMENT
+          // block consistent with inter-site usage, which splits the same paid
+          // amount by usage %.
+          amount: Number(settlement.amount_paid ?? settlement.total_amount ?? 0),
           paid_by:
             settlement.payment_channel === "engineer_wallet"
               ? "wallet"

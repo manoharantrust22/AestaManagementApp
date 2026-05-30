@@ -37,6 +37,7 @@ import {
   type POAwaitingDelivery,
 } from "@/hooks/queries/useDeliveryVerification";
 import RecordAndVerifyDeliveryDialog from "@/components/materials/RecordAndVerifyDeliveryDialog";
+import DeliveryAuditDialog from "@/components/materials/DeliveryAuditDialog";
 import type { DeliveryVerificationStatus, PurchaseOrderWithDetails } from "@/types/material.types";
 
 // Format currency
@@ -145,6 +146,7 @@ export default function DeliveryVerificationPage() {
   const [selectedPO, setSelectedPO] = useState<POAwaitingDelivery | null>(null);
   const [activeTab, setActiveTab] = useState<"awaiting" | "disputed" | "all">("awaiting");
   const [highlightedGrn, setHighlightedGrn] = useState<string | null>(null);
+  const [auditDeliveryId, setAuditDeliveryId] = useState<string | null>(null);
   const hasProcessedGrn = useRef(false);
 
   const { selectedSite } = useSite();
@@ -438,7 +440,16 @@ export default function DeliveryVerificationPage() {
               const config = statusConfig.disputed;
               return (
                 <Grid key={delivery.id} size={{ xs: 12, sm: 6, md: 4 }}>
-                  <Card variant="outlined" sx={{ borderColor: "warning.main" }}>
+                  <Card
+                    variant="outlined"
+                    onClick={() => setAuditDeliveryId(delivery.id)}
+                    sx={{
+                      borderColor: "warning.main",
+                      cursor: "pointer",
+                      transition: "all 0.2s",
+                      "&:hover": { boxShadow: 2 },
+                    }}
+                  >
                     <CardContent>
                       <Stack spacing={1}>
                         <Box
@@ -526,7 +537,15 @@ export default function DeliveryVerificationPage() {
                 <Grid key={delivery.id} size={{ xs: 12, sm: 6, md: 4 }}>
                   <Card
                     variant="outlined"
-                    sx={isHighlighted ? { borderColor: "primary.main", boxShadow: 3 } : undefined}
+                    onClick={() => setAuditDeliveryId(delivery.id)}
+                    sx={{
+                      cursor: "pointer",
+                      transition: "all 0.2s",
+                      "&:hover": { borderColor: "primary.main", boxShadow: 1 },
+                      ...(isHighlighted
+                        ? { borderColor: "primary.main", boxShadow: 3 }
+                        : {}),
+                    }}
                   >
                     <CardContent>
                       <Stack spacing={1}>
@@ -537,9 +556,16 @@ export default function DeliveryVerificationPage() {
                             alignItems: "center",
                           }}
                         >
-                          <Typography variant="subtitle2">
-                            {delivery.grn_number || "GRN"}
-                          </Typography>
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="subtitle2" noWrap>
+                              {delivery.grn_number || "GRN"}
+                            </Typography>
+                            {delivery.po_number && (
+                              <Typography variant="caption" color="text.secondary">
+                                {delivery.po_number}
+                              </Typography>
+                            )}
+                          </Box>
                           <Chip
                             icon={config.icon as React.ReactElement}
                             label={config.label}
@@ -600,6 +626,13 @@ export default function DeliveryVerificationPage() {
           siteId={selectedSite?.id || ""}
         />
       )}
+
+      {/* Delivery Audit Dialog - full trail (PO#, MR#, recorded time, photos, items) */}
+      <DeliveryAuditDialog
+        open={auditDeliveryId != null}
+        onClose={() => setAuditDeliveryId(null)}
+        deliveryId={auditDeliveryId}
+      />
     </Box>
   );
 }

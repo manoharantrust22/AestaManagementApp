@@ -1,13 +1,16 @@
 "use client";
 
 /**
- * Manual single-record backfill form. Mirrors the layout/state pattern in
- * docs/Historical_Material_Backfill/proto-backfill.jsx → BackfillManualModal.
+ * Manual multi-line backfill form. One vendor + one date + one payment block,
+ * with N material lines each carrying an auto-filled, editable unit price, plus
+ * a record-level transport charge and a derived (editable) grand total.
  *
- * Production wiring: uses useRecordHistoricalBatch (records:[oneRecord]) RPC.
- * Vendor + material autocomplete supports inline "Create as draft" — passes
- * vendor.name / new_material.{name,unit} to the RPC which mints is_draft=true
- * rows server-side.
+ * Production wiring: uses useRecordHistoricalBatch (records:[oneRecord]) RPC,
+ * which already loops over record.items[] (multi-material) and now also stores
+ * the record-level transport_cost. Vendor + material autocomplete support inline
+ * "Create as draft" — passing vendor.name / new_material.{name,unit} mints
+ * is_draft=true rows server-side. Auto-fill (per line) reads the vendor's last
+ * quote via useVendorMaterialPrice; drafts have no id => no auto-fill.
  */
 
 import { useMemo, useState } from "react";
@@ -22,30 +25,48 @@ import {
   Button,
   TextField,
   Autocomplete,
-  MenuItem,
   Alert,
   CircularProgress,
   RadioGroup,
   FormControlLabel,
   Radio,
+  Link,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
+import AddIcon from "@mui/icons-material/Add";
 import { hubTokens } from "@/lib/material-hub/tokens";
+import { inr } from "@/lib/material-hub/formatters";
 import { useVendors } from "@/hooks/queries/useVendors";
 import { useMaterials } from "@/hooks/queries/useMaterials";
 import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 import {
   useRecordHistoricalBatch,
   type HistoricalRecord,
+  type HistoricalRecordItem,
   type HistoricalPaidBy,
 } from "@/hooks/queries/useRecordHistoricalBatch";
 import GroupSplitInput, { type GroupSite, type GroupSplitRow } from "./GroupSplitInput";
+import BackfillLineRow, { type BackfillLine } from "./BackfillLineRow";
 
 const HIST_MIN = "2025-11-09";
 const HIST_MAX = "2026-05-09";
 
 const UNITS = ["bag", "kg", "cft", "tonne", "nos", "piece", "unit", "m", "liter"];
+
+function makeLine(): BackfillLine {
+  return {
+    key:
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Math.round(performance.now() * 1000)}`,
+    material: null,
+    unit: "bag",
+    qty: "",
+    unitPrice: "",
+    priceTouched: false,
+  };
+}
 
 export interface BackfillManualDialogProps {
   open: boolean;
@@ -69,14 +90,8 @@ export default function BackfillManualDialog({
 
   const mutation = useRecordHistoricalBatch();
 
-  // Form state
+  // Form state — record-level
   const [vendor, setVendor] = useState<{ id?: string; name: string } | null>(null);
-  const [material, setMaterial] = useState<
-    { id?: string; name: string; unit: string } | null
-  >(null);
-  const [unit, setUnit] = useState<string>("bag");
-  const [qty, setQty] = useState<string>("");
-  const [amount, setAmount] = useState<string>("");
   const [date, setDate] = useState<string>(HIST_MIN.slice(0, 10));
   const [section, setSection] = useState<string>("");
   const [kind, setKind] = useState<"own" | "group">("own");
@@ -86,6 +101,11 @@ export default function BackfillManualDialog({
   const [paidBy, setPaidBy] = useState<HistoricalPaidBy>("office");
   const [usedQty, setUsedQty] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
+
+  // Material lines + record-level transport + editable total override
+  const [lines, setLines] = useState<BackfillLine[]>([makeLine()]);
+  const [transport, setTransport] = useState<string>("");
+  const [totalOverride, setTotalOverride] = useState<string>("");
 
   // Cluster sites (current + others). Default split: even.
   const clusterSites: GroupSite[] = useMemo(() => {
@@ -116,35 +136,77 @@ export default function BackfillManualDialog({
     kind === "own" ||
     Math.abs(split.reduce((a, s) => a + (s.pct || 0), 0) - 100) < 0.01;
 
-  const amountNum = parseFloat(amount) || 0;
-  const qtyNum = parseFloat(qty) || 0;
+  // Derived totals
+  const subtotal = lines.reduce(
+    (a, l) => a + (parseFloat(l.qty) || 0) * (parseFloat(l.unitPrice) || 0),
+    0
+  );
+  const transportNum = parseFloat(transport) || 0;
+  const calcTotal = subtotal + transportNum;
+  const overrideNum = parseFloat(totalOverride) || 0;
+  const hasOverride = totalOverride.trim() !== "";
+  const effectiveTotal = hasOverride ? overrideNum : calcTotal;
+
   const usedNum = parseFloat(usedQty) || 0;
 
   const dateOk = !!date && date >= HIST_MIN && date <= HIST_MAX;
+  const linesOk =
+    lines.length > 0 &&
+    lines.every(
+      (l) =>
+        !!l.material &&
+        !!l.material.name &&
+        (parseFloat(l.qty) || 0) > 0 &&
+        (parseFloat(l.unitPrice) || 0) > 0
+    );
   const valid =
-    !!vendor &&
-    !!material &&
-    !!material.name &&
-    qtyNum > 0 &&
-    amountNum > 0 &&
-    dateOk &&
-    splitOk;
+    !!vendor && linesOk && effectiveTotal > 0 && dateOk && splitOk;
+
+  // Line mutators
+  const addLine = () => setLines((ls) => [...ls, makeLine()]);
+  const removeLine = (key: string) =>
+    setLines((ls) => (ls.length > 1 ? ls.filter((l) => l.key !== key) : ls));
+  const patchLine = (key: string, patch: Partial<BackfillLine>) =>
+    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+
+  const resetForm = () => {
+    setVendor(null);
+    setLines([makeLine()]);
+    setTransport("");
+    setTotalOverride("");
+    setSection("");
+    setUsedQty("");
+    setNotes("");
+    setPaymentStatus("settled");
+    setPaidBy("office");
+    setKind("own");
+    setSplit([]);
+  };
 
   const submit = async () => {
-    if (!siteId || !valid || !vendor || !material) return;
+    if (!siteId || !valid || !vendor) return;
+
+    const items: HistoricalRecordItem[] = lines.map((l) => {
+      const qtyN = parseFloat(l.qty) || 0;
+      const amount = qtyN * (parseFloat(l.unitPrice) || 0);
+      return l.material!.id
+        ? { material_id: l.material!.id, qty: qtyN, amount }
+        : {
+            new_material: {
+              name: l.material!.name,
+              unit: l.material!.unit || l.unit,
+            },
+            qty: qtyN,
+            amount,
+          };
+    });
 
     const record: HistoricalRecord = {
       purchase_date: date,
       vendor: vendor.id ? { id: vendor.id } : { name: vendor.name },
-      items: [
-        material.id
-          ? { material_id: material.id, qty: qtyNum, amount: amountNum }
-          : {
-              new_material: { name: material.name, unit: material.unit || unit },
-              qty: qtyNum,
-              amount: amountNum,
-            },
-      ],
+      items,
+      amount: effectiveTotal,
+      transport_cost: transportNum,
       kind,
       group_split:
         kind === "group"
@@ -161,18 +223,7 @@ export default function BackfillManualDialog({
       await mutation.mutateAsync({ site_id: siteId, records: [record] });
       onSaved?.();
       onClose();
-      // Reset form
-      setVendor(null);
-      setMaterial(null);
-      setQty("");
-      setAmount("");
-      setSection("");
-      setUsedQty("");
-      setNotes("");
-      setPaymentStatus("settled");
-      setPaidBy("office");
-      setKind("own");
-      setSplit([]);
+      resetForm();
     } catch (e) {
       // Mutation surfaces via mutation.error below
     }
@@ -233,7 +284,7 @@ export default function BackfillManualDialog({
         </Box>
 
         <Box sx={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-          {/* Vendor */}
+          {/* Vendor + date */}
           <Autocomplete
             freeSolo
             options={vendors as any[]}
@@ -292,130 +343,144 @@ export default function BackfillManualDialog({
             )}
           />
 
-          {/* Material + qty/unit */}
-          <Box sx={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "12px" }}>
-            <Autocomplete
-              freeSolo
-              options={materials as any[]}
-              getOptionLabel={(opt) =>
-                typeof opt === "string" ? opt : opt.name ?? ""
-              }
-              value={material}
-              onChange={(_, val) => {
-                if (typeof val === "string") {
-                  setMaterial({ name: val, unit });
-                } else if (val) {
-                  setMaterial({ id: val.id, name: val.name, unit: val.unit ?? "piece" });
-                  setUnit(val.unit ?? "piece");
-                } else {
-                  setMaterial(null);
-                }
+          <TextField
+            label="Purchase date"
+            size="small"
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            inputProps={{ min: HIST_MIN, max: HIST_MAX }}
+            InputLabelProps={{ shrink: true }}
+            error={!!date && !dateOk}
+            helperText={!!date && !dateOk ? `Must be ${HIST_MIN} … ${HIST_MAX}` : undefined}
+            sx={{ maxWidth: 220 }}
+          />
+
+          {/* Materials — multi-line */}
+          <Box>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "8px",
               }}
-              onInputChange={(_, val, reason) => {
-                if (reason === "input")
-                  setMaterial((m) =>
-                    m && m.id
-                      ? { ...m, name: val }
-                      : { name: val, unit: m?.unit ?? unit }
-                  );
-              }}
-              slotProps={{ popper: { disablePortal: false } }}
-              renderOption={(props, opt: any) => (
-                <Box component="li" {...props} key={opt.id}>
-                  <Box>
-                    <Typography sx={{ fontSize: 13, fontWeight: 600 }}>
-                      {opt.name}
-                      {opt.is_draft ? (
-                        <Box
-                          component="span"
-                          sx={{
-                            marginLeft: "6px",
-                            padding: "1px 5px",
-                            background: hubTokens.warnSoft,
-                            color: hubTokens.warn,
-                            fontSize: 9,
-                            fontWeight: 800,
-                            borderRadius: "3px",
-                          }}
-                        >
-                          DRAFT
-                        </Box>
-                      ) : null}
-                    </Typography>
-                    <Typography sx={{ fontSize: 11, color: hubTokens.muted }}>
-                      {opt.description || opt.code || "—"} · {opt.unit ?? "piece"}
-                    </Typography>
-                  </Box>
-                </Box>
-              )}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Material"
-                  size="small"
-                  helperText={
-                    material && !material.id && material.name
-                      ? `Will create new material "${material.name}" as a draft`
-                      : undefined
-                  }
-                  FormHelperTextProps={{ sx: { color: hubTokens.warn } }}
-                />
-              )}
-            />
-            <Box sx={{ display: "flex", gap: "6px" }}>
-              <TextField
-                label={`Qty${material?.unit ? ` (${material.unit})` : ""}`}
-                size="small"
-                type="number"
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-                sx={{ flex: 1 }}
-              />
-              {!material?.id && (
-                <TextField
-                  select
-                  size="small"
-                  label="Unit"
-                  value={material?.unit ?? unit}
-                  onChange={(e) => {
-                    setUnit(e.target.value);
-                    setMaterial((m) =>
-                      m ? { ...m, unit: e.target.value } : m
-                    );
-                  }}
-                  sx={{ width: 90 }}
-                >
-                  {UNITS.map((u) => (
-                    <MenuItem key={u} value={u}>
-                      {u}
-                    </MenuItem>
-                  ))}
-                </TextField>
+            >
+              <Typography sx={{ fontSize: 11.5, color: hubTokens.muted }}>
+                Materials — one vendor, add every item from this buy
+              </Typography>
+              {!vendor?.id && vendor && (
+                <Typography sx={{ fontSize: 10.5, color: hubTokens.warn }}>
+                  Draft vendor · prices won&apos;t auto-fill
+                </Typography>
               )}
             </Box>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              {lines.map((l) => (
+                <BackfillLineRow
+                  key={l.key}
+                  line={l}
+                  vendorId={vendor?.id}
+                  materials={materials}
+                  units={UNITS}
+                  canRemove={lines.length > 1}
+                  onChange={(patch) => patchLine(l.key, patch)}
+                  onRemove={() => removeLine(l.key)}
+                />
+              ))}
+            </Box>
+            <Button
+              onClick={addLine}
+              size="small"
+              startIcon={<AddIcon />}
+              sx={{ mt: "10px", textTransform: "none", color: hubTokens.primary }}
+            >
+              Add material
+            </Button>
           </Box>
 
-          {/* Amount + date */}
-          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-            <TextField
-              label="Total paid (₹)"
-              size="small"
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              InputProps={{ startAdornment: <Box component="span" sx={{ marginRight: "4px", color: hubTokens.muted }}>₹</Box> }}
-            />
-            <TextField
-              label="Purchase date"
-              size="small"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              inputProps={{ min: HIST_MIN, max: HIST_MAX }}
-              InputLabelProps={{ shrink: true }}
-              error={!!date && !dateOk}
-              helperText={!!date && !dateOk ? `Must be ${HIST_MIN} … ${HIST_MAX}` : undefined}
-            />
+          {/* Transport + totals summary */}
+          <Box
+            sx={{
+              background: hubTokens.bg,
+              border: `1px solid ${hubTokens.hairline}`,
+              borderRadius: "10px",
+              padding: "12px 14px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "10px",
+            }}
+          >
+            <Box sx={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <TextField
+                label="Transportation charge (₹)"
+                size="small"
+                type="number"
+                value={transport}
+                onChange={(e) => setTransport(e.target.value)}
+                placeholder="0"
+                InputProps={{
+                  startAdornment: (
+                    <Box component="span" sx={{ mr: "4px", color: hubTokens.muted }}>
+                      ₹
+                    </Box>
+                  ),
+                }}
+                sx={{ width: 200 }}
+                helperText="One charge for the whole load (optional)"
+              />
+              <Box sx={{ flex: 1, textAlign: "right" }}>
+                <Typography sx={{ fontSize: 11, color: hubTokens.muted }}>
+                  Subtotal {inr(subtotal)} · Transport {inr(transportNum)}
+                </Typography>
+              </Box>
+            </Box>
+
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                gap: "12px",
+                paddingTop: "8px",
+                borderTop: `1px dashed ${hubTokens.border}`,
+              }}
+            >
+              <Box>
+                <Typography
+                  sx={{ fontSize: 11.5, color: hubTokens.muted, marginBottom: "2px" }}
+                >
+                  Total paid (₹) — auto-calculated, editable to match the bill
+                </Typography>
+                {hasOverride && Math.abs(overrideNum - calcTotal) > 0.01 && (
+                  <Typography sx={{ fontSize: 10.5, color: hubTokens.warn }}>
+                    Differs from calculated {inr(calcTotal)}.{" "}
+                    <Link
+                      component="button"
+                      type="button"
+                      onClick={() => setTotalOverride("")}
+                      sx={{ fontSize: 10.5 }}
+                    >
+                      Reset
+                    </Link>
+                  </Typography>
+                )}
+              </Box>
+              <TextField
+                size="small"
+                type="number"
+                value={hasOverride ? totalOverride : calcTotal ? String(calcTotal) : ""}
+                onChange={(e) => setTotalOverride(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <Box component="span" sx={{ mr: "4px", color: hubTokens.muted }}>
+                      ₹
+                    </Box>
+                  ),
+                }}
+                sx={{ width: 160 }}
+              />
+            </Box>
           </Box>
 
           {/* Section */}
@@ -451,7 +516,7 @@ export default function BackfillManualDialog({
               <GroupSplitInput
                 sites={clusterSites}
                 split={split}
-                amount={amountNum}
+                amount={effectiveTotal}
                 onChange={setSplit}
               />
             </Box>
@@ -465,7 +530,7 @@ export default function BackfillManualDialog({
             value={usedQty}
             onChange={(e) => setUsedQty(e.target.value)}
             placeholder="0"
-            helperText={`How much of the ${qtyNum || "?"} ${material?.unit ?? unit} was consumed before today.`}
+            helperText="Total units consumed before today across these materials."
           />
 
           {/* Payment */}

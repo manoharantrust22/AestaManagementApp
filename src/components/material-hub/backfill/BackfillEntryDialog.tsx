@@ -2,7 +2,7 @@
 
 /**
  * Method picker for the Historical Backfill flow. Two choices:
- *   - Manual entry (one record at a time, ~30 sec/row, best for 1–20 items)
+ *   - Manual entry (one vendor + many materials per record, price auto-fill + transport)
  *   - AI-assisted ingest (3-step wizard, best for batches of 20+)
  *
  * Mirrors `BackfillMethodModal` in docs/Historical_Material_Backfill/proto-backfill.jsx.
@@ -53,8 +53,8 @@ export default function BackfillEntryDialog({
       icon: <ReceiptIcon />,
       tone: "primary",
       title: "Manual entry",
-      sub: "One material at a time. Quick form with vendor, qty, amount, date, payment status, and group split.",
-      tag: "~30 sec per record · best for 1–20 items",
+      sub: "One vendor, many materials in a single buy. Auto-fills each material's last price, adds transport, and collapses it into one record.",
+      tag: "~30 sec per buy · best for a few items",
     },
     {
       method: "ai",
