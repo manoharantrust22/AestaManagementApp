@@ -987,10 +987,13 @@ export default function ExpensesPageV2() {
     whiteSpace: "normal" as const,
     lineHeight: 1.2,
     position: "sticky" as const,
-    // Sits right below the records-bar (which is sticky at top:64, ~48px tall).
-    // Previously used top:96 which left a ~16px exposed strip where scrolling
-    // data rows peeked through between records-bar and header.
-    top: 112,
+    // top:0, NOT 112. The TableContainer below has `overflow-x: auto`, which the
+    // browser resolves to `overflow-y: auto` too — making the TableContainer the
+    // sticky containing block instead of the page scroll container. With top:112
+    // the header was pinned 112px *into* the table body, so the first data row
+    // rendered ABOVE the column labels (the "collapsed header" bug). Anchoring at
+    // top:0 keeps the label row flush at the top of the table, under the toolbars.
+    top: 0,
     zIndex: 1,
   };
 
@@ -1001,7 +1004,10 @@ export default function ExpensesPageV2() {
     py: 0.5,
     px: { xs: 0.5, md: 1 },
     position: "sticky" as const,
-    top: dense ? 144 : 147,
+    // Sits directly under the label row (top:0 + label-row height ≈ 31/35px).
+    // Paired with the headerCellSx top:0 change above so the two header rows
+    // stack correctly instead of being shoved down into the data rows.
+    top: dense ? 31 : 35,
     zIndex: 1,
     borderBottom: 1,
     borderBottomColor: "divider",
