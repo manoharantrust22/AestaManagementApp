@@ -5,6 +5,11 @@ import imageCompression from "browser-image-compression";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { hardenedUpload } from "@/lib/storage/uploadHelpers";
 
+// Hard ceiling on client-side image compression. Main-thread compression of a
+// proof screenshot finishes in well under a second; this only exists so a
+// pathological image (or a future regression) can never hang the spinner.
+const COMPRESS_TIMEOUT_MS = 20_000;
+
 export interface UploadedImage {
   url: string;
   name: string;
@@ -49,12 +54,30 @@ export function useImageUpload({
 
   const compressImage = useCallback(
     async (file: File | Blob): Promise<File> => {
+      // useWebWorker:false on purpose. With the worker enabled,
+      // browser-image-compression spins up a Web Worker that synchronously
+      // `importScripts()` the library from a hard-coded jsdelivr CDN URL
+      // (cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/...). On the
+      // networks this app runs on — the same India ISPs that forced the
+      // Supabase Cloudflare proxy — jsdelivr is intermittently slow/blocked.
+      // importScripts has no timeout, so a blocked fetch leaves the worker
+      // never posting back: imageCompression() neither resolves nor rejects,
+      // the catch below never runs, isUploading stays true, and the
+      // "Upload screenshot" button spins forever. Main-thread compression
+      // uses the already-bundled module (no external fetch) and finishes in
+      // well under a second for a 400px / 0.5MB proof shot.
+      //
+      // The AbortSignal.timeout is a belt-and-suspenders ceiling: if anything
+      // (decode of an exotic format, a huge image) stalls past it, the library
+      // aborts, we fall into the catch, and upload proceeds with the original
+      // file instead of hanging.
       const options = {
         maxSizeMB,
         maxWidthOrHeight,
-        useWebWorker: true,
+        useWebWorker: false,
         fileType: "image/jpeg" as const,
         initialQuality: quality,
+        signal: AbortSignal.timeout(COMPRESS_TIMEOUT_MS),
       };
 
       setProgress(10);
@@ -70,8 +93,10 @@ export function useImageUpload({
         setProgress(40);
         return compressedFile;
       } catch (err) {
-        console.error("Compression error:", err);
-        // Return original if compression fails
+        console.error("Compression error (falling back to original file):", err);
+        // Return original if compression fails or times out — a slightly larger
+        // upload is far better than an infinite spinner. The XHR upload path has
+        // its own watchdog + timeout, so an uncompressed file is still bounded.
         return file instanceof File
           ? file
           : new File([file], "image.jpg", { type: file.type || "image/jpeg" });
