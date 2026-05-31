@@ -10,9 +10,10 @@ export type SpendKind = "misc" | "salary" | "contract" | "other";
  */
 export function classifySpend(description: string | null | undefined): SpendKind {
   if (!description) return "other";
-  if (/MISC-\d{6}/.test(description)) return "misc";
+  if (/MISC-\d{6}-/.test(description)) return "misc";
   if (/^Contract payment/i.test(description)) return "contract";
   if (/Salary settlement|SET-\d{6}/.test(description)) return "salary";
+  // Free-text / material / rental / group-stock spends fall through to the universal view.
   return "other";
 }
 

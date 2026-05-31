@@ -22,6 +22,7 @@ describe("classifySpend", () => {
     expect(classifySpend("Group stock advance payment")).toBe("other");
     expect(classifySpend(null)).toBe("other");
     expect(classifySpend(undefined)).toBe("other");
+    expect(classifySpend("Custom free-text note for Ravi")).toBe("other");
   });
 });
 
@@ -73,13 +74,26 @@ describe("mapMiscExpenseRow", () => {
       category_name: null,
     });
   });
+  it("handles a null row (no linked misc_expense found)", () => {
+    expect(mapMiscExpenseRow(null)).toEqual({
+      bill_url: null,
+      vendor_name: null,
+      description: null,
+      notes: null,
+      amount: null,
+      payer_source: null,
+      payer_name: null,
+      category_name: null,
+    });
+  });
 });
 
 describe("buildSpendPhotos", () => {
   const row = { proof_url: "https://x/proof.jpg", transaction_date: "2026-05-30" } as WalletLedgerEntry;
   it("lists the vendor bill first, then the payment proof", () => {
-    const photos = buildSpendPhotos(row, { bill_url: "https://x/bill.jpg" } as any);
+    const photos = buildSpendPhotos(row, { bill_url: "https://x/bill.jpg" });
     expect(photos.map((p) => p.id)).toEqual(["bill", "proof"]);
+    expect(photos[0].url).toBe("https://x/bill.jpg");
     expect(photos[0].description).toBe("Vendor bill");
     expect(photos[1].url).toBe("https://x/proof.jpg");
   });
