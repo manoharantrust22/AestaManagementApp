@@ -72,6 +72,7 @@ interface WalletLedgerListProps {
   hasNextPage: boolean;
   isFetchingNextPage: boolean;
   onLoadMore: () => void;
+  /** Called when a deposit row is tapped. Opens the deposit edit dialog. */
   onRowClick?: (entry: WalletLedgerEntry) => void;
   /** Called when a spend or return row is tapped. Opens the read-only
    *  Spend details verification dialog. Separate from onRowClick (deposits)
