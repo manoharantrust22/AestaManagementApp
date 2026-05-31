@@ -638,6 +638,7 @@ export default function PaymentDialog({
               onSelect={setSubcontractId}
               paymentAmount={paymentAmount}
               disabled={processing}
+              autoSelectDefault
             />
           </Box>
         )}

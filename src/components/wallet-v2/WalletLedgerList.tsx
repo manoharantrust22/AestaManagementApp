@@ -28,6 +28,34 @@ import type { WalletLedgerEntry } from "@/types/engineer-wallet-v2.types";
 const fmt = (n: number) =>
   new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(Math.round(n));
 
+// Salary-settlement spends are stamped with the day they were RECORDED (transaction_date),
+// not the attendance day they actually pay for. The settlement reference encodes that real
+// date (SET-YYMMDD-NNN), so we surface it as the headline date — otherwise settling several
+// past dates in one sitting looks like "two settlements on the same day". Returns null when
+// the description has no parseable settlement reference (e.g. material/rental spends).
+export function settlementDateFromDescription(description?: string | null): dayjs.Dayjs | null {
+  if (!description) return null;
+  const m = description.match(/SET-(\d{2})(\d{2})(\d{2})-\d+/);
+  if (!m) return null;
+  const [, yy, mm, dd] = m;
+  const d = dayjs(`20${yy}-${mm}-${dd}`);
+  return d.isValid() ? d : null;
+}
+
+// The date a row is shown and sorted by: the real settlement date for salary/
+// contract spends (parsed from the SET-ref), otherwise the recorded transaction_date.
+// Sorting by this — rather than the keying-in date the server orders by — lets the
+// feed read top-to-bottom in settlement-date order so it lines up 1:1 with the
+// Salary Settlements page for cross-verification. Deposits/returns have no SET-ref,
+// so they keep their transaction_date and their relative order is unchanged.
+export function headlineDateOf(row: WalletLedgerEntry): dayjs.Dayjs {
+  const settlementDate =
+    row.transaction_type === "spend"
+      ? settlementDateFromDescription(row.description)
+      : null;
+  return settlementDate ?? dayjs(row.transaction_date);
+}
+
 const TYPE_META: Record<
   WalletLedgerEntry["transaction_type"],
   { label: string; color: "success" | "warning" | "info"; sign: "+" | "-"; icon: React.ReactNode }
@@ -62,7 +90,15 @@ export default function WalletLedgerList({
   engineerNameByUserId,
   siteNameBySiteId,
 }: WalletLedgerListProps) {
-  const rows = pages.flatMap((p) => p.rows);
+  // Server returns rows in transaction_date (keyed-in) order. Re-sort the loaded
+  // rows by their settlement date so the feed reads sequentially for reconciliation.
+  // Array.prototype.sort is stable, so same-day rows keep the server's tiebreak order.
+  // Note: this only reorders rows already loaded — "Load older entries" pulls the next
+  // transaction_date page (the cursor is unaffected) and the full set re-sorts on render.
+  const rows = pages
+    .flatMap((p) => p.rows)
+    .slice()
+    .sort((a, b) => headlineDateOf(b).valueOf() - headlineDateOf(a).valueOf());
 
   if (isLoading && rows.length === 0) {
     return (
@@ -87,6 +123,15 @@ export default function WalletLedgerList({
         {rows.map((row, idx) => {
           const meta = TYPE_META[row.transaction_type];
           const isLast = idx === rows.length - 1;
+          // For salary-settlement spends, show the date the work was actually for
+          // (parsed from the SET-ref) rather than the day it was keyed in.
+          const settlementDate =
+            row.transaction_type === "spend"
+              ? settlementDateFromDescription(row.description)
+              : null;
+          const headlineDate = settlementDate ?? dayjs(row.transaction_date);
+          const showRecordedHint =
+            !!settlementDate && !settlementDate.isSame(dayjs(row.transaction_date), "day");
           // Only deposits are editable today — keep the click affordance off other rows
           // so the cursor + hover don't suggest something that won't happen.
           const isClickable = !!onRowClick && row.transaction_type === "deposit";
@@ -194,7 +239,7 @@ export default function WalletLedgerList({
                     <Stack direction="column" spacing={0} sx={{ mt: 0.25 }}>
                       <Stack direction="row" spacing={1} alignItems="center">
                         <Typography variant="caption" color="text.secondary">
-                          {dayjs(row.transaction_date).format("D MMM YYYY")}
+                          {headlineDate.format("D MMM YYYY")}
                         </Typography>
                         {row.description && (
                           <Typography variant="caption" color="text.secondary" noWrap>
@@ -202,6 +247,11 @@ export default function WalletLedgerList({
                           </Typography>
                         )}
                       </Stack>
+                      {showRecordedHint && (
+                        <Typography variant="caption" color="text.disabled" noWrap>
+                          recorded {dayjs(row.transaction_date).format("D MMM YYYY")}
+                        </Typography>
+                      )}
                       {row.notes && (
                         <Typography variant="caption" color="text.secondary" noWrap>
                           {row.notes}

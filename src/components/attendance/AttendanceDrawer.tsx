@@ -1268,6 +1268,49 @@ export default function AttendanceDrawer({
 
       console.log("[AttendanceDrawer] Starting save process...");
 
+      // GUARD: never destroy attendance rows that are already settled/paid.
+      // The save below hard-deletes ALL rows for this site+date and re-inserts them as
+      // unpaid. If an existing row is linked to a settlement (settlement_group_id set) or
+      // marked paid, deleting it orphans the settlement_group and its engineer-wallet debit
+      // WITHOUT reversing the money — the date then re-surfaces as "unsettled" and gets
+      // settled (and charged) a second time. Require the user to reverse the settlement
+      // first (Delete settlement dialog), which resets is_paid/settlement_group_id and
+      // unlinks the wallet transaction, after which editing is safe.
+      try {
+        const [{ data: settledDaily, error: settledDailyErr }, { data: settledMarket, error: settledMarketErr }] =
+          await Promise.all([
+            supabase
+              .from("daily_attendance")
+              .select("id")
+              .eq("site_id", siteId)
+              .eq("date", selectedDate)
+              .or("is_paid.eq.true,settlement_group_id.not.is.null")
+              .limit(1),
+            supabase
+              .from("market_laborer_attendance")
+              .select("id")
+              .eq("site_id", siteId)
+              .eq("date", selectedDate)
+              .or("is_paid.eq.true,settlement_group_id.not.is.null")
+              .limit(1),
+          ]);
+        if (settledDailyErr || settledMarketErr) {
+          console.error("[AttendanceDrawer] Settled-attendance guard check failed:", settledDailyErr || settledMarketErr);
+          setError("Couldn't verify whether this date is already settled. Please try again.");
+          return;
+        }
+        if ((settledDaily && settledDaily.length > 0) || (settledMarket && settledMarket.length > 0)) {
+          setError(
+            "This date already has a settled (paid) attendance entry, so it can't be edited here. Reverse the settlement first (Payments → Salary Settlements → open the settlement → Delete settlement), then edit this date."
+          );
+          return;
+        }
+      } catch (guardErr) {
+        console.error("[AttendanceDrawer] Settled-attendance guard threw:", guardErr);
+        setError("Couldn't verify whether this date is already settled. Please try again.");
+        return;
+      }
+
       // Helper to convert empty strings to null for time fields
       const timeOrNull = (val: string | undefined | null): string | null =>
         val && val.trim() !== "" ? val : null;

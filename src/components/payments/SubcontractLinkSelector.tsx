@@ -28,6 +28,11 @@ interface SubcontractLinkSelectorProps {
   paymentAmount?: number; // To show balance after this payment
   disabled?: boolean;
   showBalanceAfterPayment?: boolean;
+  /** When true, auto-selects a sensible default subcontract (the active one with the largest
+   *  outstanding balance) ONCE after options load, if nothing is selected yet. The user can
+   *  still change it or unlink. Used at settlement creation so payments link to a subcontract
+   *  by default instead of silently becoming unlinked site expenses. */
+  autoSelectDefault?: boolean;
 }
 
 export default function SubcontractLinkSelector({
@@ -36,6 +41,7 @@ export default function SubcontractLinkSelector({
   paymentAmount = 0,
   disabled = false,
   showBalanceAfterPayment = true,
+  autoSelectDefault = false,
 }: SubcontractLinkSelectorProps) {
   const { selectedSite } = useSite();
   const supabase = createClient();
@@ -47,6 +53,9 @@ export default function SubcontractLinkSelector({
 
   // Track component mount state to prevent state updates after unmount
   const isMountedRef = useRef(true);
+  // Ensures the default subcontract is auto-selected at most once, so an explicit
+  // user unlink is never immediately re-filled.
+  const autoSelectedRef = useRef(false);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -186,6 +195,26 @@ export default function SubcontractLinkSelector({
   useEffect(() => {
     fetchSubcontracts();
   }, [fetchSubcontracts]);
+
+  // Default-link at settlement creation: once options load, if the caller opted in and
+  // nothing is selected yet, pick the active subcontract with the largest outstanding
+  // balance. Fires at most once (autoSelectedRef) so a deliberate unlink stays unlinked.
+  useEffect(() => {
+    if (
+      autoSelectDefault &&
+      !autoSelectedRef.current &&
+      !loading &&
+      !selectedSubcontractId &&
+      subcontracts.length > 0
+    ) {
+      autoSelectedRef.current = true;
+      const def = subcontracts.reduce(
+        (best, sc) => (sc.balanceDue > best.balanceDue ? sc : best),
+        subcontracts[0]
+      );
+      onSelect(def.id);
+    }
+  }, [autoSelectDefault, loading, selectedSubcontractId, subcontracts, onSelect]);
 
   const selectedSubcontract = subcontracts.find(
     (sc) => sc.id === selectedSubcontractId

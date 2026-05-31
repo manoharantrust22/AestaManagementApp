@@ -78,6 +78,40 @@ export default function DeleteDailySettlementDialog({
         throw cancelError;
       }
 
+      // 1b. Reverse the engineer-wallet debit tied to this settlement, if any.
+      // Without this, cancelling the settlement leaves the ₹ spend live — re-settling the
+      // same date would double-charge the wallet (the exact bug this dialog is the recovery
+      // path for). Cancelling the transaction excludes it from the balance/pools views (which
+      // filter cancelled_at IS NULL); clearing its allocations keeps the pool math clean.
+      const { data: sgRow } = await (supabase as any)
+        .from("settlement_groups")
+        .select("engineer_transaction_id")
+        .eq("id", settlement.settlementGroupId)
+        .maybeSingle();
+      const walletTxnId: string | null = sgRow?.engineer_transaction_id ?? null;
+      if (walletTxnId) {
+        const { error: txnError } = await (supabase as any)
+          .from("site_engineer_transactions")
+          .update({
+            cancelled_at: new Date().toISOString(),
+            cancelled_by: userProfile?.name || "Unknown",
+            cancelled_by_user_id: userProfile?.id,
+            cancellation_reason: `Reversed with settlement ${settlement.settlementReference}`,
+          })
+          .eq("id", walletTxnId)
+          .is("cancelled_at", null);
+        if (txnError) {
+          console.warn("Error reversing engineer wallet debit:", txnError);
+        }
+        const { error: allocError } = await (supabase as any)
+          .from("engineer_wallet_spend_allocations")
+          .delete()
+          .eq("spend_id", walletTxnId);
+        if (allocError) {
+          console.warn("Error clearing wallet spend allocations:", allocError);
+        }
+      }
+
       // 2. Reset daily_attendance records linked to this settlement
       const { error: dailyError } = await supabase
         .from("daily_attendance")
@@ -183,7 +217,7 @@ export default function DeleteDailySettlementDialog({
             This action cannot be undone!
           </Typography>
           <Typography variant="body2">
-            Deleting this settlement will reverse all payment records and mark attendance as unpaid.
+            Deleting this settlement will reverse all payment records, mark attendance as unpaid, and refund any engineer-wallet charge.
           </Typography>
         </Alert>
 
