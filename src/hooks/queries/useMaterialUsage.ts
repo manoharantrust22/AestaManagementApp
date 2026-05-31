@@ -1076,6 +1076,11 @@ export function useUpdateMaterialUsage() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.interSiteSettlements.all,
       });
+      // Hub surfaces (usage-log list, stock block, group usage summary).
+      queryClient.invalidateQueries({ queryKey: ["usage-history"] });
+      queryClient.invalidateQueries({ queryKey: ["stock-inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-variant-summary"] });
     },
   });
 }
@@ -1397,6 +1402,11 @@ export function useDeleteMaterialUsage() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.interSiteSettlements.all,
       });
+      // Hub surfaces (usage-log list, stock block, group usage summary).
+      queryClient.invalidateQueries({ queryKey: ["usage-history"] });
+      queryClient.invalidateQueries({ queryKey: ["stock-inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-variant-summary"] });
     },
   });
 }
