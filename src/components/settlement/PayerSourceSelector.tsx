@@ -1,8 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import {
   Box,
+  Button,
+  CircularProgress,
+  Stack,
   Typography,
   ToggleButtonGroup,
   ToggleButton,
@@ -18,9 +21,11 @@ import {
   Edit as CustomIcon,
   LocationOn as SiteIcon,
   Savings as TrustIcon,
+  Add as AddIcon,
 } from "@mui/icons-material";
 import type { PayerSource } from "@/types/settlement.types";
-import { usePayerSources } from "@/hooks/queries/usePayerSources";
+import { usePayerSources, usePayerSourceMutations } from "@/hooks/queries/usePayerSources";
+import { useOptionalAuth } from "@/contexts/AuthContext";
 
 const ICON_BY_NAME: Record<string, React.ReactNode> = {
   AccountBalance: <OwnMoneyIcon fontSize="small" />,
@@ -85,6 +90,40 @@ export default function PayerSourceSelector({
         }))
       : PAYER_OPTIONS;
 
+  // Inline quick-add: admin/office can add a source to this site without
+  // leaving the dialog. Only shown when a site is in scope (registry mode)
+  // and the registry has loaded, so the new row dedupes correctly.
+  const auth = useOptionalAuth();
+  const canManage =
+    !!siteId &&
+    (auth?.userProfile?.role === "admin" || auth?.userProfile?.role === "office");
+  const mutations = usePayerSourceMutations(siteId);
+  const [showAddField, setShowAddField] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const handleQuickAdd = async () => {
+    const label = newLabel.trim();
+    if (!label) return;
+    setAdding(true);
+    setAddError(null);
+    try {
+      const created = await mutations.addCustomSource({
+        label,
+        requiresName: false,
+        existingRows: registryRows ?? [],
+      });
+      setNewLabel("");
+      setShowAddField(false);
+      onChange(created.key as PayerSource);
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : "Could not add source");
+    } finally {
+      setAdding(false);
+    }
+  };
+
   return (
     <Box sx={{ mb: compact ? 1.5 : 2 }}>
       <Typography
@@ -142,6 +181,65 @@ export default function PayerSourceSelector({
           </ToggleButton>
         ))}
       </ToggleButtonGroup>
+
+      {canManage && (
+        <Box sx={{ mt: 1 }}>
+          {!showAddField ? (
+            <Button
+              size="small"
+              startIcon={<AddIcon fontSize="small" />}
+              onClick={() => setShowAddField(true)}
+              disabled={disabled}
+              sx={{ textTransform: "none" }}
+            >
+              Add source
+            </Button>
+          ) : (
+            <Stack direction="row" spacing={1} alignItems="center">
+              <TextField
+                size="small"
+                autoFocus
+                placeholder="New source name"
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleQuickAdd();
+                  }
+                }}
+                disabled={adding}
+              />
+              <Button
+                size="small"
+                variant="contained"
+                onClick={handleQuickAdd}
+                disabled={!newLabel.trim() || adding}
+                sx={{ textTransform: "none" }}
+              >
+                {adding ? <CircularProgress size={16} /> : "Add"}
+              </Button>
+              <Button
+                size="small"
+                onClick={() => {
+                  setShowAddField(false);
+                  setNewLabel("");
+                  setAddError(null);
+                }}
+                disabled={adding}
+                sx={{ textTransform: "none" }}
+              >
+                Cancel
+              </Button>
+            </Stack>
+          )}
+          {addError && (
+            <Typography variant="caption" color="error.main" sx={{ display: "block", mt: 0.5 }}>
+              {addError}
+            </Typography>
+          )}
+        </Box>
+      )}
 
       <Collapse in={value === "custom" || value === "other_site_money"}>
         <TextField

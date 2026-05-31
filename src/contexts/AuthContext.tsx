@@ -345,3 +345,13 @@ export function useAuth() {
   }
   return context;
 }
+
+/**
+ * Non-throwing variant of useAuth. Returns undefined when no AuthProvider
+ * is mounted — for leaf components (e.g. PayerSourceSelector) that may be
+ * rendered in isolation (unit tests) or in trees without the provider, and
+ * only need auth for optional, additive behaviour.
+ */
+export function useOptionalAuth() {
+  return useContext(AuthContext);
+}

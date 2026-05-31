@@ -5,6 +5,9 @@ import MiscExpenseDialog from "./MiscExpenseDialog";
 
 vi.mock("@/contexts/AuthContext", () => ({
   useAuth: vi.fn(),
+  // PayerSourceSelector (rendered inside the dialog) reads auth via the
+  // non-throwing useOptionalAuth; undefined → no inline "+ Add" (not asserted here).
+  useOptionalAuth: vi.fn(),
 }));
 vi.mock("@/contexts/SiteContext", () => ({
   useSite: vi.fn(() => ({
@@ -25,6 +28,15 @@ vi.mock("@/hooks/queries/useLaborers", () => ({
 }));
 vi.mock("@/hooks/queries/usePayerSources", () => ({
   usePayerSources: () => ({ data: [] }),
+  // PayerSourceSelector also calls usePayerSourceMutations; the inline "+ Add"
+  // is gated off here (no auth role), so the fns are never invoked.
+  usePayerSourceMutations: () => ({
+    addCustomSource: vi.fn(),
+    updateSource: vi.fn(),
+    setHidden: vi.fn(),
+    moveSource: vi.fn(),
+    deleteSource: vi.fn(),
+  }),
 }));
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => {

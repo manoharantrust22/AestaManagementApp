@@ -13,12 +13,14 @@ import {
 import {
   Construction as ConstructionIcon,
   People as PeopleIcon,
+  AccountBalanceWallet as PaymentSourcesIcon,
 } from "@mui/icons-material";
 import { useSite } from "@/contexts/SiteContext";
 import { useAuth } from "@/contexts/AuthContext";
 import PageHeader from "@/components/layout/PageHeader";
 import SiteSectionsManager from "@/components/site-settings/SiteSectionsManager";
 import SitePayersManager from "@/components/site-settings/SitePayersManager";
+import SitePaymentSourcesManager from "@/components/site-settings/SitePaymentSourcesManager";
 import { createClient } from "@/lib/supabase/client";
 
 interface TabPanelProps {
@@ -135,6 +137,11 @@ export default function SiteSettingsPage() {
             iconPosition="start"
             label="Payers"
           />
+          <Tab
+            icon={<PaymentSourcesIcon sx={{ fontSize: 20 }} />}
+            iconPosition="start"
+            label="Payment Sources"
+          />
         </Tabs>
 
         {/* Work Sections Tab */}
@@ -176,6 +183,19 @@ export default function SiteSettingsPage() {
                 await refreshSites();
               }}
             />
+          </Box>
+        </TabPanel>
+
+        {/* Payment Sources Tab */}
+        <TabPanel value={tabValue} index={2}>
+          <Box sx={{ px: { xs: 1, sm: 2 }, pb: 2 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Manage the funding-source chips (Own Money, Client Money, Site Cash…) shown when
+              recording money for this site. Add custom sources, hide ones you don&apos;t use,
+              rename, or reorder them.
+            </Typography>
+
+            <SitePaymentSourcesManager siteId={siteId || ""} />
           </Box>
         </TabPanel>
       </Paper>

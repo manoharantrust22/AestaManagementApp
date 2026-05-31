@@ -2,6 +2,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { wrapQueryFn } from "@/lib/utils/timeout";
+import {
+  buildCustomSourceRow,
+  reorderVisible,
+} from "@/lib/settlement/payerSourceAdmin";
 
 export interface PayerSourceRow {
   id: string;
@@ -115,4 +119,145 @@ export function useResolvePayerSource(
     color: null,
     requires_name: false,
   };
+}
+
+/**
+ * Post on the cross-tab channel that picker hooks listen to, so an edit
+ * in the settings tab (or the inline +Add) refreshes open dialogs without
+ * a hard reload. No-op where BroadcastChannel is unavailable (SSR/tests).
+ */
+export function broadcastPayerSourcesChanged(): void {
+  if (typeof BroadcastChannel === "undefined") return;
+  const bc = new BroadcastChannel("payer-sources-changed");
+  bc.postMessage({ type: "changed" });
+  bc.close();
+}
+
+/**
+ * Manager-only read: returns ALL of a site's payer sources, including
+ * hidden ones, ordered by sort_order. The picker hook (usePayerSources)
+ * filters out hidden rows; the settings editor needs to see them to be
+ * able to un-hide. Separate query key so the two caches don't collide.
+ */
+export function usePayerSourcesAdmin(siteId: string | undefined) {
+  const queryClient = useQueryClient();
+  const supabase = createClient();
+
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return;
+    const bc = new BroadcastChannel("payer-sources-changed");
+    bc.onmessage = () => {
+      queryClient.invalidateQueries({ queryKey: ["payer-sources-admin"] });
+    };
+    return () => bc.close();
+  }, [queryClient]);
+
+  return useQuery<PayerSourceRow[]>({
+    queryKey: ["payer-sources-admin", siteId],
+    enabled: Boolean(siteId),
+    staleTime: 60_000,
+    queryFn: wrapQueryFn(
+      async () => {
+        const { data, error } = await (supabase as any)
+          .from("payer_sources")
+          .select("*")
+          .eq("site_id", siteId as string)
+          .order("sort_order", { ascending: true });
+        if (error) throw error as Error;
+        return (data ?? []) as PayerSourceRow[];
+      },
+      { operationName: "usePayerSourcesAdmin" },
+    ),
+  });
+}
+
+/**
+ * Write operations on a site's payer sources (admin/office only — the
+ * authorization gate lives in the UI, mirroring the rest of the app).
+ * Every mutation invalidates both the picker and admin caches and posts
+ * the cross-tab refresh. Pure decisions (key derivation, sort_order,
+ * reorder) come from @/lib/settlement/payerSourceAdmin so they stay unit
+ * tested; this hook is the thin Supabase wiring around them.
+ */
+export function usePayerSourceMutations(siteId: string | undefined) {
+  const queryClient = useQueryClient();
+  const supabase = createClient();
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["payer-sources"] });
+    queryClient.invalidateQueries({ queryKey: ["payer-sources-admin"] });
+    broadcastPayerSourcesChanged();
+  };
+
+  async function addCustomSource(args: {
+    label: string;
+    requiresName?: boolean;
+    existingRows: PayerSourceRow[];
+  }): Promise<PayerSourceRow> {
+    if (!siteId) throw new Error("siteId is required to add a source");
+    const payload = buildCustomSourceRow({
+      siteId,
+      label: args.label,
+      requiresName: args.requiresName,
+      existingRows: args.existingRows,
+    });
+    const { data, error } = await (supabase as any)
+      .from("payer_sources")
+      .insert(payload)
+      .select()
+      .single();
+    if (error) throw error as Error;
+    invalidate();
+    return data as PayerSourceRow;
+  }
+
+  async function updateSource(
+    id: string,
+    patch: { label?: string; requires_name?: boolean },
+  ): Promise<void> {
+    const { error } = await (supabase as any)
+      .from("payer_sources")
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw error as Error;
+    invalidate();
+  }
+
+  async function setHidden(id: string, hidden: boolean): Promise<void> {
+    const { error } = await (supabase as any)
+      .from("payer_sources")
+      .update({ is_hidden: hidden, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) throw error as Error;
+    invalidate();
+  }
+
+  async function moveSource(
+    rows: PayerSourceRow[],
+    id: string,
+    direction: "up" | "down",
+  ): Promise<void> {
+    const updates = reorderVisible(rows, id, direction);
+    if (!updates || updates.length === 0) return;
+    const stamp = new Date().toISOString();
+    for (const u of updates) {
+      const { error } = await (supabase as any)
+        .from("payer_sources")
+        .update({ sort_order: u.sort_order, updated_at: stamp })
+        .eq("id", u.id);
+      if (error) throw error as Error;
+    }
+    invalidate();
+  }
+
+  async function deleteSource(id: string): Promise<void> {
+    const { error } = await (supabase as any)
+      .from("payer_sources")
+      .delete()
+      .eq("id", id);
+    if (error) throw error as Error;
+    invalidate();
+  }
+
+  return { addCustomSource, updateSource, setHidden, moveSource, deleteSource };
 }
