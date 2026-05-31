@@ -37,6 +37,7 @@ import { M_STAGES, stageIndex } from "@/lib/material-hub/stageHelpers";
 import {
   useBatchSettlementSummary,
   useBatchVariantSummary,
+  usePushSelfUseExpense,
 } from "@/hooks/queries/useBatchUsage";
 import { useInterSiteBalances } from "@/hooks/queries/useInterSiteSettlements";
 import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
@@ -293,6 +294,10 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
   const { data: batchSummary } = useBatchSettlementSummary(groupBatchRefCode);
   const { data: variantSummary = [] } = useBatchVariantSummary(groupBatchRefCode);
 
+  // Manual "push self-use to material expense" for a fully-own-used group batch
+  // (the silent auto-trigger was dropped — see migration 20260601130000).
+  const pushSelfUse = usePushSelfUseExpense();
+
   // Group-wide pairwise net between the batch's paying site and each site that
   // still owes on THIS batch — so the card explains that the per-row figures
   // are per-batch while the real balance is netted across all shared batches.
@@ -364,7 +369,10 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
   const hasInventory = !!t.inventory || inUseOrBeyond || receivedQty > 0;
   const hasUsage =
     (t.inter_site_usage && t.inter_site_usage.length > 0) ||
-    (isOwn && hasSettlement);
+    (isOwn && hasSettlement) ||
+    // A self-used group batch's "Expenses" step is complete only once its cost
+    // has actually been posted to all-site expenses (pending push → incomplete).
+    !!t.self_use_expense;
 
   return (
     <Box
@@ -1264,7 +1272,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                       <Box component="span">Ref:</Box>
                       <Box
                         component="a"
-                        href={`/site/expenses?q=${encodeURIComponent(
+                        href={`/site/expenses?c_ref=${encodeURIComponent(
                           t.settlement.expense_ref
                         )}&fromHub=${encodeURIComponent(t.id)}`}
                         sx={{
@@ -1344,18 +1352,108 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               </Box>
 
               {t.is_group_self_used ? (
-                <Box
-                  sx={{
-                    padding: "6px 8px",
-                    borderRadius: "6px",
-                    background: hubTokens.successSoft,
-                    color: hubTokens.success,
-                    fontSize: 11,
-                    fontWeight: 600,
-                  }}
-                >
-                  Used fully by own site — originally a group purchase.
-                </Box>
+                t.self_use_expense ? (
+                  // Already posted → show a clickable ref that deep-links into
+                  // all-site expenses filtered to exactly this one expense.
+                  <Box
+                    sx={{
+                      padding: "6px 8px",
+                      borderRadius: "6px",
+                      background: hubTokens.successSoft,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "3px",
+                    }}
+                  >
+                    <Typography
+                      sx={{ fontSize: 11, color: hubTokens.success, fontWeight: 600 }}
+                    >
+                      Recorded as material expense · {inr(t.self_use_expense.amount)}
+                    </Typography>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        fontSize: 11,
+                        color: hubTokens.muted,
+                      }}
+                    >
+                      <Box component="span">Ref:</Box>
+                      <Box
+                        component="a"
+                        href={`/site/expenses?c_ref=${encodeURIComponent(
+                          t.self_use_expense.ref_code
+                        )}&fromHub=${encodeURIComponent(t.id)}`}
+                        sx={{
+                          fontFamily: hubTokens.mono,
+                          color: hubTokens.primary,
+                          textDecoration: "none",
+                          "&:hover": { textDecoration: "underline" },
+                        }}
+                      >
+                        {t.self_use_expense.ref_code}
+                      </Box>
+                    </Box>
+                  </Box>
+                ) : (
+                  // Not posted yet → amber pending + the manual push action. The
+                  // spend isn't in all-site expenses until this is clicked.
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <Box
+                      sx={{
+                        padding: "6px 8px",
+                        borderRadius: "6px",
+                        background: hubTokens.warnSoft,
+                        color: hubTokens.warn,
+                        fontSize: 11,
+                        fontWeight: 600,
+                      }}
+                    >
+                      Used fully by own site — not yet posted to material expenses.
+                    </Box>
+                    <Box
+                      component="button"
+                      type="button"
+                      disabled={pushSelfUse.isPending || !groupBatchRefCode}
+                      onClick={() => {
+                        if (!groupBatchRefCode) return;
+                        pushSelfUse.mutate({
+                          batchRefCode: groupBatchRefCode,
+                          siteId: t.site_id,
+                        });
+                      }}
+                      sx={{
+                        alignSelf: "flex-start",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        padding: "6px 12px",
+                        border: "none",
+                        cursor: pushSelfUse.isPending ? "default" : "pointer",
+                        borderRadius: "6px",
+                        background: hubTokens.primary,
+                        color: "#fff",
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        opacity: pushSelfUse.isPending ? 0.7 : 1,
+                      }}
+                    >
+                      {pushSelfUse.isPending
+                        ? "Posting…"
+                        : "Push to material expense"}
+                      {!pushSelfUse.isPending && (
+                        <ArrowForwardIcon sx={{ fontSize: 13 }} />
+                      )}
+                    </Box>
+                    {pushSelfUse.isError && (
+                      <Typography sx={{ fontSize: 10.5, color: hubTokens.danger }}>
+                        {(pushSelfUse.error as Error)?.message ??
+                          "Couldn't post — try again."}
+                      </Typography>
+                    )}
+                  </Box>
+                )
               ) : pendingDebtors.length > 0 ? (
                 <Box
                   sx={{

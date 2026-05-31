@@ -20,6 +20,7 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Snackbar,
   Stack,
   Typography,
   ToggleButtonGroup,
@@ -31,6 +32,8 @@ import ViewListIcon from "@mui/icons-material/ViewList";
 import { useSelectedSite } from "@/contexts/SiteContext";
 import PageHeader from "@/components/layout/PageHeader";
 import { useMaterialThreads } from "@/hooks/queries/useMaterialThreads";
+import { usePushSelfUseExpense } from "@/hooks/queries/useBatchUsage";
+import { inr } from "@/lib/material-hub/formatters";
 import MaterialHubKpiStrip from "@/components/material-hub/MaterialHubKpiStrip";
 import MaterialHubFilterChips, {
   type HubFilterKey,
@@ -82,6 +85,11 @@ export default function MaterialHubPage() {
 
   const dialogRouterRef = useRef<HubDialogRouterHandle>(null);
 
+  const pushSelfUse = usePushSelfUseExpense();
+  const [pushSnack, setPushSnack] = useState<
+    { severity: "success" | "error"; message: string; ref?: string } | null
+  >(null);
+
   const handleAction = (thread: MaterialThread) => {
     // Fully-consumed batch with an unsettled cross-site portion → route to the
     // inter-site settlement page (same destination as the expanded card's
@@ -98,6 +106,38 @@ export default function MaterialHubPage() {
         return;
       }
     }
+
+    // Group batch fully self-used but not yet posted to all-site expenses →
+    // the row's "Push to expense" action. Post it here (the deliberate
+    // replacement for the dropped silent auto-trigger), then surface a snackbar
+    // with a "View" deep-link into the filtered expenses ledger.
+    if (thread.is_group_self_used && !thread.self_use_expense) {
+      const batchRef =
+        thread.inventory?.batch && thread.inventory.batch !== "—"
+          ? thread.inventory.batch
+          : undefined;
+      if (batchRef && siteId && !pushSelfUse.isPending) {
+        pushSelfUse.mutate(
+          { batchRefCode: batchRef, siteId },
+          {
+            onSuccess: (row) =>
+              setPushSnack({
+                severity: "success",
+                message: `Posted ${inr(row.amount)} to material expenses`,
+                ref: row.ref_code,
+              }),
+            onError: (e) =>
+              setPushSnack({
+                severity: "error",
+                message:
+                  (e as Error)?.message ?? "Couldn't post — please try again.",
+              }),
+          }
+        );
+      }
+      return;
+    }
+
     dialogRouterRef.current?.openForThread(thread);
   };
 
@@ -307,6 +347,37 @@ export default function MaterialHubPage() {
         siteId={siteId}
         siteName={selectedSite?.name}
       />
+
+      <Snackbar
+        open={!!pushSnack}
+        autoHideDuration={6000}
+        onClose={() => setPushSnack(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert
+          severity={pushSnack?.severity ?? "success"}
+          variant="filled"
+          onClose={() => setPushSnack(null)}
+          action={
+            pushSnack?.ref ? (
+              <Button
+                color="inherit"
+                size="small"
+                onClick={() => {
+                  router.push(
+                    `/site/expenses?c_ref=${encodeURIComponent(pushSnack.ref!)}`
+                  );
+                  setPushSnack(null);
+                }}
+              >
+                View
+              </Button>
+            ) : undefined
+          }
+        >
+          {pushSnack?.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

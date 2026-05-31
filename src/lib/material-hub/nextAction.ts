@@ -75,6 +75,15 @@ export function nextAction(t: MaterialThread): NextAction | null {
     return { who: "office", label: "Settle inter-site →", verb: "Settle inter-site" };
   }
 
+  // A group buy fully consumed by its OWN paying site, whose cost has NOT yet
+  // been posted to all-site expenses. "All clear" would be a lie — the ₹ spent
+  // here was never recorded as a Material expense for the site. Surface a manual
+  // push instead (replaces the dropped silent auto-trigger). Once posted
+  // (t.self_use_expense present) the row legitimately reads "All clear".
+  if (t.is_group_self_used && !t.self_use_expense) {
+    return { who: "office", label: "Push to expense →", verb: "Push to expense" };
+  }
+
   return null;
 }
 

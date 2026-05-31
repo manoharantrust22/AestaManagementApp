@@ -339,6 +339,63 @@ function useGroupBatchUsageSummary(siteGroupId: string | null | undefined) {
   });
 }
 
+interface SelfUseExpenseInfo {
+  ref_code: string;
+  amount: number;
+}
+
+/**
+ * Posted SELF-USE material expenses keyed by their source group batch
+ * (original_batch_code → { ref_code, amount }). Drives the Hub's "Recorded ·
+ * <ref>" deep-link vs the "Push to material expense" action for a group batch
+ * that was fully consumed by its own paying site.
+ *
+ * These rows carry site_id = the paying (creditor) site and a NULL
+ * site_group_id (create_self_use_expense_if_needed doesn't stamp the group), so
+ * the `.or(site_id, site_group_id)` scope effectively matches the viewer's own
+ * site — exactly the case where the Hub offers the push. A sibling-paid batch's
+ * self-use expense won't surface here for a different cluster site, which is the
+ * acceptable v1 limitation (the push RPC is idempotent if it ever double-fires).
+ */
+function useSelfUseExpenses(
+  siteId: string | undefined,
+  siteGroupId: string | null | undefined
+) {
+  const supabase = createClient();
+  return useQuery({
+    queryKey: ["material-purchases", "self-use-for-hub", siteId ?? null, siteGroupId ?? null],
+    enabled: !!siteId,
+    queryFn: async (): Promise<Map<string, SelfUseExpenseInfo>> => {
+      let query = (supabase as any)
+        .from("material_purchase_expenses")
+        .select("ref_code, original_batch_code, total_amount, site_id, site_group_id")
+        .eq("settlement_reference", "SELF-USE")
+        .not("original_batch_code", "is", null);
+      if (siteGroupId) {
+        query = query.or(`site_id.eq.${siteId},site_group_id.eq.${siteGroupId}`);
+      } else {
+        query = query.eq("site_id", siteId);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      const map = new Map<string, SelfUseExpenseInfo>();
+      for (const r of (data ?? []) as Array<{
+        ref_code: string;
+        original_batch_code: string | null;
+        total_amount: number | string;
+      }>) {
+        if (!r.original_batch_code) continue;
+        map.set(r.original_batch_code, {
+          ref_code: r.ref_code,
+          amount: Number(r.total_amount ?? 0),
+        });
+      }
+      return map;
+    },
+    staleTime: 60000,
+  });
+}
+
 function useSiteSettlements(
   siteId: string | undefined,
   siteGroupId: string | null | undefined
@@ -481,6 +538,10 @@ interface StandardThreadDeps {
   /** Batches that have ANY cross-site (non-self) usage row, settled or not —
    *  distinguishes a truly own-used group buy from shared-and-settled. */
   hasCrossSiteByBatch: Set<string>;
+  /** batch_ref_code → posted SELF-USE expense ({ ref_code, amount }) for a
+   *  fully-self-used group batch. Present → Hub shows a "Recorded · <ref>"
+   *  deep-link; absent → Hub shows the "Push to material expense" action. */
+  selfUseExpenseByBatch: Map<string, { ref_code: string; amount: number }>;
   /** Site name lookup for "Shared from <site>" mirror chips. */
   siteNameById: Map<string, string>;
   /** The site currently being viewed — threads with mr.site_id ≠ this are
@@ -613,6 +674,13 @@ function mapStandardThread(
     invUsed > 0 &&
     invRemaining <= 0;
 
+  // For a fully-self-used group batch: the SELF-USE material expense already
+  // posted for it, if any. Drives the Hub "Recorded · <ref>" link vs the
+  // manual "Push to material expense" action.
+  const selfUseExpense = batchRefForUsage
+    ? deps.selfUseExpenseByBatch.get(batchRefForUsage) ?? null
+    : null;
+
   // A group thread that has ANY cross-site usage on its batch (settled or not).
   // Drives whether the synthetic "INTER-SITE" pipeline step renders.
   const interSiteApplicable =
@@ -731,6 +799,7 @@ function mapStandardThread(
     stage,
     kind: threadKind,
     is_group_self_used: isGroupSelfUsed || undefined,
+    self_use_expense: selfUseExpense,
     inter_site_applicable: interSiteApplicable || undefined,
     inter_site_pending: hasPendingInterSite || undefined,
     advance: po?.payment_timing === "advance",
@@ -930,6 +999,7 @@ export function useMaterialThreads(
   const settlements = useSiteSettlements(siteId, siteGroupId);
   const groupSiteNames = useGroupSiteNames(siteGroupId);
   const batchUsage = useGroupBatchUsageSummary(siteGroupId);
+  const selfUseExpenses = useSelfUseExpenses(siteId, siteGroupId);
 
   const { threads, materialRequestById, purchaseOrderById, spotBatchById } = useMemo(() => {
     const mrMap = new Map<string, MaterialRequestWithDetails>();
@@ -1003,6 +1073,8 @@ export function useMaterialThreads(
         batchUsage.data?.pendingCrossSiteByBatch ?? new Map<string, number>(),
       hasCrossSiteByBatch:
         batchUsage.data?.hasCrossSiteByBatch ?? new Set<string>(),
+      selfUseExpenseByBatch:
+        selfUseExpenses.data ?? new Map<string, { ref_code: string; amount: number }>(),
       siteNameById: groupSiteNames.data ?? new Map(),
       currentSiteId: siteId,
     };
@@ -1036,6 +1108,7 @@ export function useMaterialThreads(
     settlements.data,
     groupSiteNames.data,
     batchUsage.data,
+    selfUseExpenses.data,
     siteId,
   ]);
 

@@ -872,6 +872,69 @@ export function useUpdateBatchUsage() {
 }
 
 // ============================================
+// PUSH GROUP SELF-USE EXPENSE (MANUAL)
+// ============================================
+
+/**
+ * Manually post a fully-self-used group batch's cost as the paying site's own
+ * material expense (settlement_reference='SELF-USE').
+ *
+ * WHY MANUAL: the silent DB trigger that used to auto-post this on batch
+ * completion (trigger_auto_self_use_on_batch_complete) was dropped in migration
+ * 20260601130000 — auto-posting was hard to unwind during the hand-entered
+ * historical-backfill workflow. This hook drives the deliberate, user-initiated
+ * replacement from the Material Hub. The RPC is a thin SECURITY DEFINER wrapper
+ * around the idempotent create_self_use_expense_if_needed() engine (same checks:
+ * group_stock, fully consumed, no pending cross-site usage, self_used_amount>0,
+ * idempotent) and returns the resulting expense so the Hub can deep-link to it.
+ */
+export function usePushSelfUseExpense() {
+  const queryClient = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    // Idempotent server-side, but a hard error shouldn't auto-retry behind the
+    // user's back — surface it in place instead (preserve-form-state guidance).
+    retry: false,
+    mutationFn: async (data: { batchRefCode: string; siteId: string }) => {
+      const { data: result, error } = await (supabase as any).rpc(
+        "push_group_self_use_expense",
+        { p_batch_ref_code: data.batchRefCode }
+      );
+      if (error) throw new Error(error.message);
+      // RPC RETURNS TABLE → array of rows; take the single (latest) row.
+      const row = Array.isArray(result) ? result[0] : result;
+      if (!row?.ref_code) {
+        throw new Error(
+          "This batch isn't eligible to post as a self-use expense yet (it must be fully consumed by its own site with no pending inter-site usage)."
+        );
+      }
+      return row as { expense_id: string; ref_code: string; amount: number };
+    },
+    onSuccess: (_, variables) => {
+      // The new own_site expense changes the all-expenses ledger + the batch's
+      // Hub state. Invalidate the REAL composing keys — note ["material-threads"]
+      // is a dead no-op (the Hub thread is built from granular sub-queries), so
+      // we hit usage-history / batch-usage-summary / stock-inventory / expenses
+      // directly, mirroring useRecordBatchUsage / useDeleteBatchUsage.
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.batchUsage.summary(variables.batchRefCode),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.materialPurchases.byRefCode(variables.batchRefCode),
+      });
+      queryClient.invalidateQueries({ queryKey: ["material-purchases"] });
+      queryClient.invalidateQueries({ queryKey: ["all-expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["usage-history"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["stock-inventory"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.materialStock.all });
+    },
+  });
+}
+
+// ============================================
 // FETCH BATCHES WITH USAGE FOR GROUP
 // ============================================
 

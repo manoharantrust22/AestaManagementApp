@@ -232,6 +232,12 @@ export interface MaterialThread {
    *  itself — no cross-site usage at all. Drives the "used fully by own site"
    *  badge so the user knows it was ordered as a group but never shared. */
   is_group_self_used?: boolean;
+  /** For an `is_group_self_used` batch: the own_site SELF-USE material expense
+   *  that has been posted for it, if any. Null/undefined → not yet posted, so
+   *  the Hub shows a "Push to material expense" action; present → the Hub shows
+   *  a clickable "Recorded · <ref>" deep-link into /site/expenses. Posting is
+   *  manual (the silent auto-trigger was dropped in migration 20260601130000). */
+  self_use_expense?: { ref_code: string; amount: number } | null;
   advance: boolean;
 
   // Material (primary, when multi-line)
