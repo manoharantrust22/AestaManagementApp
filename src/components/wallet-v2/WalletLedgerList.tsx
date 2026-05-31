@@ -24,6 +24,7 @@ import {
 } from "@mui/icons-material";
 import dayjs from "dayjs";
 import type { WalletLedgerEntry } from "@/types/engineer-wallet-v2.types";
+import { prettyPayerSource } from "./spendDetailHelpers";
 
 const fmt = (n: number) =>
   new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(Math.round(n));
@@ -72,6 +73,10 @@ interface WalletLedgerListProps {
   isFetchingNextPage: boolean;
   onLoadMore: () => void;
   onRowClick?: (entry: WalletLedgerEntry) => void;
+  /** Called when a spend or return row is tapped. Opens the read-only
+   *  Spend details verification dialog. Separate from onRowClick (deposits)
+   *  so a row is only clickable when its specific handler is provided. */
+  onSpendClick?: (entry: WalletLedgerEntry) => void;
   /** When provided, renders an engineer chip on each row. Used in the company
    *  All Engineers ledger to disambiguate which engineer the transaction belongs to. */
   engineerNameByUserId?: Map<string, string>;
@@ -87,6 +92,7 @@ export default function WalletLedgerList({
   isFetchingNextPage,
   onLoadMore,
   onRowClick,
+  onSpendClick,
   engineerNameByUserId,
   siteNameBySiteId,
 }: WalletLedgerListProps) {
@@ -132,13 +138,22 @@ export default function WalletLedgerList({
           const headlineDate = settlementDate ?? dayjs(row.transaction_date);
           const showRecordedHint =
             !!settlementDate && !settlementDate.isSame(dayjs(row.transaction_date), "day");
-          // Only deposits are editable today — keep the click affordance off other rows
-          // so the cursor + hover don't suggest something that won't happen.
-          const isClickable = !!onRowClick && row.transaction_type === "deposit";
+          // Deposits open the edit dialog (onRowClick); spends/returns open the
+          // read-only Spend details dialog (onSpendClick). A row is clickable only
+          // when its own handler is wired, so there are no dead click affordances.
+          const handleRowClick =
+            row.transaction_type === "deposit"
+              ? onRowClick
+                ? () => onRowClick(row)
+                : undefined
+              : onSpendClick
+              ? () => onSpendClick(row)
+              : undefined;
+          const isClickable = !!handleRowClick;
           return (
             <React.Fragment key={row.id}>
               <ListItem
-                onClick={isClickable ? () => onRowClick!(row) : undefined}
+                onClick={handleRowClick}
                 sx={{
                   cursor: isClickable ? "pointer" : "default",
                   py: 1.5,
@@ -283,17 +298,4 @@ export default function WalletLedgerList({
       )}
     </Box>
   );
-}
-
-function prettyPayerSource(key: string, name: string | null): string {
-  const map: Record<string, string> = {
-    own_money: "Own Money",
-    amma_money: "Amma Money",
-    mothers_money: "Amma Money",
-    client_money: "Client Money",
-    trust_account: "Trust Account",
-    other_site_money: name ?? "Other Site",
-    custom: name ?? "Other",
-  };
-  return map[key] ?? key;
 }
