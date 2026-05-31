@@ -114,6 +114,9 @@ describe("prettyPayerSource", () => {
   it("uses the custom name for other_site/custom", () => {
     expect(prettyPayerSource("custom", "Friend")).toBe("Friend");
   });
+  it("labels a multi-source split", () => {
+    expect(prettyPayerSource("split", null)).toBe("Multiple sources");
+  });
   it("falls back to the raw key when unknown", () => {
     expect(prettyPayerSource("site_cash", null)).toBe("site_cash");
   });

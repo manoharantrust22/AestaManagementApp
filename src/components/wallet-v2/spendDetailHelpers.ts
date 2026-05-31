@@ -80,6 +80,7 @@ export function prettyPayerSource(key: string, name: string | null): string {
     mothers_money: "Amma Money",
     client_money: "Client Money",
     trust_account: "Trust Account",
+    split: "Multiple sources",
     other_site_money: name ?? "Other Site",
     custom: name ?? "Other",
   };
