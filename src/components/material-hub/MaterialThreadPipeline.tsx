@@ -12,7 +12,7 @@ import { Box } from "@mui/material";
 import CheckIcon from "@mui/icons-material/Check";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { fmtQty } from "@/lib/formatters";
-import { M_STAGES, VISIBLE_STAGES, stageIndex } from "@/lib/material-hub/stageHelpers";
+import { M_STAGES, VISIBLE_STAGES, stageIndex, type VisibleStageKey } from "@/lib/material-hub/stageHelpers";
 import type { MaterialThread, ThreadStage } from "@/lib/material-hub/threadTypes";
 
 const PULSE_KEYFRAMES = `
@@ -242,18 +242,33 @@ export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelin
   const inventoryDone =
     (!!inv && inv.received > 0) || hasReceivedQty || hasBatches;
 
+  // Inter-site step state (synthetic, not a real ThreadStage). Appended AFTER
+  // IN USE only for group threads that have cross-site usage. Amber while the
+  // cross-site debt is pending; green check once it's reconciled. Settlement is
+  // independent of consumption, so this never blocks the IN USE → DONE state.
+  const interSiteSettled =
+    !!thread.inter_site_applicable && !thread.inter_site_pending;
+  const renderStages: { key: VisibleStageKey; label: string }[] =
+    thread.inter_site_applicable
+      ? [...VISIBLE_STAGES, { key: "inter-site", label: "INTER-SITE" }]
+      : VISIBLE_STAGES;
+
+  // Whether a given visible step counts as "done" for connector coloring.
+  const stageDone = (key: VisibleStageKey): boolean => {
+    if (key === "inventory") return inventoryDone;
+    if (key === "inter-site") return interSiteSettled;
+    return M_STAGES.indexOf(key as ThreadStage) <= idx;
+  };
+
   return (
     <Box sx={{ display: "flex", alignItems: "center", height: 30 }}>
       <style>{PULSE_KEYFRAMES}</style>
-      {VISIBLE_STAGES.map((s, i) => {
+      {renderStages.map((s, i) => {
         // Synthetic "inventory" step: not in M_STAGES; derive done from thread.inventory.
         if (s.key === "inventory") {
-          const isLast = i === VISIBLE_STAGES.length - 1;
-          const nextStageKey = VISIBLE_STAGES[i + 1]?.key;
-          const nextDone =
-            nextStageKey && nextStageKey !== "inventory"
-              ? M_STAGES.indexOf(nextStageKey as ThreadStage) <= idx
-              : false;
+          const isLast = i === renderStages.length - 1;
+          const nextStageKey = renderStages[i + 1]?.key;
+          const nextDone = !isLast && !!nextStageKey && stageDone(nextStageKey);
           return (
             <Box key={s.key} sx={{ display: "contents" }}>
               <Box
@@ -301,6 +316,44 @@ export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelin
           );
         }
 
+        // Synthetic "inter-site" step: amber while cross-site debt is pending,
+        // green check once it's settled. Always the last visible step (no
+        // trailing connector). Independent of the consumption lifecycle.
+        if (s.key === "inter-site") {
+          const pending = !!thread.inter_site_pending;
+          return (
+            <Box key={s.key} sx={{ display: "contents" }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: "3px",
+                  flexShrink: 0,
+                }}
+              >
+                <StageDot
+                  // Pending → amber pulsing dot; settled → green check.
+                  done={false}
+                  current={pending}
+                  completedSuccess={!pending}
+                  accent={hubTokens.warn}
+                  softAccent={hubTokens.warnSoft}
+                />
+                <StageLabel
+                  text="INTER-SITE"
+                  // done+current both true for pending so the label takes the
+                  // amber accent (StageLabel only colors with accent when both
+                  // are set); settled reads as a muted completed step.
+                  done
+                  current={pending}
+                  accent={pending ? hubTokens.warn : hubTokens.success}
+                />
+              </Box>
+            </Box>
+          );
+        }
+
         const stageKey = s.key as ThreadStage;
         let done = M_STAGES.indexOf(stageKey) <= idx;
         let current = stageKey === nextKey;
@@ -333,14 +386,9 @@ export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelin
           if (stageKey === nextKey) current = false;
         }
 
-        const isLast = i === VISIBLE_STAGES.length - 1;
-        const nextVisibleKey = VISIBLE_STAGES[i + 1]?.key;
-        const nextDone =
-          !isLast && nextVisibleKey !== "inventory"
-            ? M_STAGES.indexOf(nextVisibleKey as ThreadStage) <= idx
-            : !isLast && nextVisibleKey === "inventory"
-              ? inventoryDone
-              : false;
+        const isLast = i === renderStages.length - 1;
+        const nextVisibleKey = renderStages[i + 1]?.key;
+        const nextDone = !isLast && !!nextVisibleKey && stageDone(nextVisibleKey);
         return (
           <Box key={s.key} sx={{ display: "contents" }}>
             <Box

@@ -68,6 +68,13 @@ export function nextAction(t: MaterialThread): NextAction | null {
 
   if (t.stage === "in-use") return { who: "engineer", label: "Log usage →", verb: "Log usage" };
 
+  // Consumption is done (exhausted), but a group batch's cross-site portion is
+  // still owed. Settling is independent of usage — surface it as the next step
+  // so the row stays actionable instead of showing a dead "Log usage" button.
+  if (t.stage === "exhausted" && t.inter_site_pending) {
+    return { who: "office", label: "Settle inter-site →", verb: "Settle inter-site" };
+  }
+
   return null;
 }
 

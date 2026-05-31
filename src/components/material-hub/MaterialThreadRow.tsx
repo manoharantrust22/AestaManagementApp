@@ -20,7 +20,7 @@ import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import { hubTokens, HUB_BREAKPOINT_PX } from "@/lib/material-hub/tokens";
 import { inr, fmtDateShort } from "@/lib/material-hub/formatters";
 import { fmtQty } from "@/lib/formatters";
-import { M_STAGES, VISIBLE_STAGES, stageIndex, stageLabel } from "@/lib/material-hub/stageHelpers";
+import { M_STAGES, VISIBLE_STAGES, stageIndex, stageLabel, type VisibleStageKey } from "@/lib/material-hub/stageHelpers";
 import MaterialThreadPipeline from "./MaterialThreadPipeline";
 import MaterialThreadExpanded from "./MaterialThreadExpanded";
 import ThreadActionButton from "./ThreadActionButton";
@@ -48,6 +48,13 @@ export default function MaterialThreadRow({
   // dimmed band so the visual hierarchy makes ownership obvious at a glance.
   const bandOpacity = thread.is_mirror ? 0.22 : isGroup ? 1 : 0.35;
   const idx = stageIndex(thread.stage);
+
+  // Mobile compact pipeline: same steps as the desktop pipeline, appending the
+  // synthetic INTER-SITE bar for group threads with cross-site usage.
+  const mobileStages: { key: VisibleStageKey; label: string }[] =
+    thread.inter_site_applicable
+      ? [...VISIBLE_STAGES, { key: "inter-site", label: "INTER-SITE" }]
+      : VISIBLE_STAGES;
 
   const handleAction = (t: MaterialThread) => {
     if (onAction) onAction(t);
@@ -346,11 +353,20 @@ export default function MaterialThreadRow({
           /* Mobile compact: flat-bar pipeline + price inline */
           <>
             <Box sx={{ display: "flex", gap: "3px", marginTop: "4px" }}>
-              {VISIBLE_STAGES.map((s) => {
-                const done =
-                  s.key === "inventory"
-                    ? !!thread.inventory && thread.inventory.received > 0
-                    : M_STAGES.indexOf(s.key) <= idx;
+              {mobileStages.map((s) => {
+                let done: boolean;
+                let barColor: string = accent;
+                if (s.key === "inventory") {
+                  done = !!thread.inventory && thread.inventory.received > 0;
+                } else if (s.key === "inter-site") {
+                  // Always a colored bar — amber while owed, green once settled.
+                  done = true;
+                  barColor = thread.inter_site_pending
+                    ? hubTokens.warn
+                    : hubTokens.success;
+                } else {
+                  done = M_STAGES.indexOf(s.key) <= idx;
+                }
                 return (
                   <Box
                     key={s.key}
@@ -358,7 +374,7 @@ export default function MaterialThreadRow({
                       flex: 1,
                       height: 4,
                       borderRadius: "2px",
-                      background: done ? accent : hubTokens.hairline,
+                      background: done ? barColor : hubTokens.hairline,
                     }}
                   />
                 );

@@ -25,8 +25,15 @@ export const M_STAGES: ThreadStage[] = [
  * the moment any delivery batch lands at site). It sits between SETTLE and
  * IN USE so the engineer can see "yes, the received stock is in the
  * inventory tracker."
+ *
+ * The synthetic "inter-site" key is likewise NOT a real `ThreadStage`. It's
+ * appended AFTER IN USE only for group threads with cross-site usage
+ * (`thread.inter_site_applicable`) to show whether the cross-site debt is
+ * reconciled — amber while pending, green check once settled. It is NOT part
+ * of the global `VISIBLE_STAGES` list (own-site threads never show it); the
+ * pipeline appends it on a per-thread basis.
  */
-export type VisibleStageKey = ThreadStage | "inventory";
+export type VisibleStageKey = ThreadStage | "inventory" | "inter-site";
 
 export const VISIBLE_STAGES: { key: VisibleStageKey; label: string }[] = [
   { key: "requested", label: "REQ" },

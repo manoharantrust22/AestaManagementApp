@@ -378,8 +378,7 @@ function deriveStandardStage(
   po: PurchaseOrderWithDetails | undefined,
   settlement: SettlementSnapshot | undefined,
   inventoryUsed: number,
-  inventoryRemaining: number,
-  hasPendingInterSite: boolean
+  inventoryRemaining: number
 ): ThreadStage {
   if (mr.status === "rejected") return "rejected";
   if (mr.status === "cancelled") return "rejected";
@@ -426,13 +425,15 @@ function deriveStandardStage(
   }
 
   // Once settled AND the stock is exhausted (nothing remaining + some used),
-  // mark as "exhausted" — but only if there's no unsettled cross-site debt on
-  // this batch. A group batch whose other-site portion is still owed stays
-  // "in-use" (the lifecycle isn't truly DONE until it's reconciled too).
+  // mark as "exhausted" — the CONSUMPTION lifecycle is done the moment stock
+  // runs out. Inter-site settlement is a separate, independent concern (tracked
+  // on batch_usage_records.settlement_status and surfaced as its own pipeline
+  // step + "Settle inter-site" action), so a still-owed cross-site portion no
+  // longer forces the batch back to "in-use". `hasPendingInterSite` is kept as
+  // a parameter only so callers can read it onto the thread.
   if (base === "settled") {
-    if (inventoryUsed > 0 && inventoryRemaining <= 0 && !hasPendingInterSite)
-      return "exhausted";
-    if (inventoryUsed > 0 || hasPendingInterSite) return "in-use";
+    if (inventoryUsed > 0 && inventoryRemaining <= 0) return "exhausted";
+    if (inventoryUsed > 0) return "in-use";
   }
 
   return base;
@@ -612,14 +613,14 @@ function mapStandardThread(
     invUsed > 0 &&
     invRemaining <= 0;
 
-  const stage = deriveStandardStage(
-    mr,
-    po,
-    settlement,
-    invUsed,
-    invRemaining,
-    hasPendingInterSite
-  );
+  // A group thread that has ANY cross-site usage on its batch (settled or not).
+  // Drives whether the synthetic "INTER-SITE" pipeline step renders.
+  const interSiteApplicable =
+    threadKind === "group" &&
+    !!batchRefForUsage &&
+    deps.hasCrossSiteByBatch.has(batchRefForUsage);
+
+  const stage = deriveStandardStage(mr, po, settlement, invUsed, invRemaining);
 
   let threadPO: MaterialThread["po"] | undefined;
   if (po) {
@@ -730,6 +731,8 @@ function mapStandardThread(
     stage,
     kind: threadKind,
     is_group_self_used: isGroupSelfUsed || undefined,
+    inter_site_applicable: interSiteApplicable || undefined,
+    inter_site_pending: hasPendingInterSite || undefined,
     advance: po?.payment_timing === "advance",
     material_id: primaryItem?.material_id ?? "",
     material_name: (primaryItem as any)?.material?.name ?? "—",

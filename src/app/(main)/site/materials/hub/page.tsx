@@ -83,6 +83,21 @@ export default function MaterialHubPage() {
   const dialogRouterRef = useRef<HubDialogRouterHandle>(null);
 
   const handleAction = (thread: MaterialThread) => {
+    // Fully-consumed batch with an unsettled cross-site portion → route to the
+    // inter-site settlement page (same destination as the expanded card's
+    // "Settle this batch"). There's no usage dialog to open here.
+    if (thread.stage === "exhausted" && thread.inter_site_pending) {
+      const batchRef =
+        thread.inventory?.batch && thread.inventory.batch !== "—"
+          ? thread.inventory.batch
+          : thread.settlement?.expense_ref ?? undefined;
+      if (batchRef) {
+        router.push(
+          `/site/inter-site-settlement?batch=${encodeURIComponent(batchRef)}`
+        );
+        return;
+      }
+    }
     dialogRouterRef.current?.openForThread(thread);
   };
 

@@ -263,6 +263,12 @@ export interface MaterialThread {
    *  completion signal (e.g. "Pool exhausted") without faking per-PO numbers. */
   pool?: ThreadPoolState;
   inter_site_usage?: ThreadInterSiteUsage[];
+  /** Group thread that has ANY cross-site usage on its batch (settled or not).
+   *  Drives whether the synthetic "INTER-SITE" pipeline step renders. */
+  inter_site_applicable?: boolean;
+  /** Cross-site debt on this batch is still unsettled (batch_usage_records
+   *  with settlement_status='pending'). Drives the amber step + settle action. */
+  inter_site_pending?: boolean;
 
   // Spot-only
   bought_at?: string;
