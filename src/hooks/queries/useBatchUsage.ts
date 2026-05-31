@@ -487,6 +487,55 @@ export function useDeleteBatchUsage() {
 
       if (deleteError) throw new Error(deleteError.message);
 
+      // ── Reverse the stock side ──────────────────────────────────────────
+      // Recording usage from the inventory page writes THREE places: the
+      // batch_usage_records row (whose AFTER-DELETE trigger above already
+      // fixed the material_purchase_expenses roll-up), a manual
+      // stock_inventory.current_qty decrement, and a stock_transactions
+      // 'usage' audit row (reference_type='batch_usage_records'). The trigger
+      // does NOT touch stock_inventory/stock_transactions, so without this the
+      // Hub INVENTORY·STOCK block — which reads current_qty (Remaining) and the
+      // sum of usage transactions (Used) — stays stuck on "used / 0 remaining"
+      // even after a refresh. Reverse exactly what the audit row recorded,
+      // keyed by reference_id, so a usage recorded via the record_batch_usage
+      // RPC (which never touched stock) is left untouched — no over-restore.
+      const { data: usageTxs } = await (supabase as any)
+        .from("stock_transactions")
+        .select("id, inventory_id, quantity")
+        .eq("reference_type", "batch_usage_records")
+        .eq("reference_id", data.usageId);
+
+      for (const tx of (usageTxs ?? []) as Array<{
+        id: string;
+        inventory_id: string | null;
+        quantity: number | string;
+      }>) {
+        const restoreQty = Math.abs(Number(tx.quantity ?? 0));
+        if (restoreQty > 0 && tx.inventory_id) {
+          const { data: inv } = await (supabase as any)
+            .from("stock_inventory")
+            .select("id, current_qty")
+            .eq("id", tx.inventory_id)
+            .maybeSingle();
+          if (inv) {
+            // available_qty is a GENERATED column derived from current_qty — it
+            // must not be written directly; it re-derives on this update.
+            await (supabase as any)
+              .from("stock_inventory")
+              .update({
+                current_qty: Number(inv.current_qty ?? 0) + restoreQty,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", inv.id);
+          }
+        }
+        // Drop the orphaned audit row so "Used" (Σ usage tx) reflects reality.
+        await (supabase as any)
+          .from("stock_transactions")
+          .delete()
+          .eq("id", tx.id);
+      }
+
       // If batch was completed and now the trigger has re-opened it,
       // clean up auto-created self-use expenses
       if (wasCompleted) {
@@ -561,6 +610,17 @@ export function useDeleteBatchUsage() {
       queryClient.invalidateQueries({
         queryKey: ["inter-site-settlements"],
       });
+      // Hub surfaces — the usage-log list, the variant chips, and the
+      // INVENTORY·STOCK block (driven by stock_inventory + batch_usage_summary)
+      // all read state this delete just changed. Without these the Hub stays
+      // stale until a manual reload.
+      queryClient.invalidateQueries({ queryKey: ["usage-history"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-variant-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["stock-inventory"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.batchUsage.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.materialStock.all });
+      queryClient.invalidateQueries({ queryKey: ["material-usage"] });
     },
   });
 }
@@ -583,18 +643,52 @@ export function useUpdateBatchUsage() {
       usageId: string;
       batchRefCode: string;
       siteId: string;
-      updates: { quantity?: number; work_description?: string };
+      updates: {
+        quantity?: number;
+        work_description?: string;
+        usage_site_id?: string;
+      };
     }) => {
       // 1. Fetch the current record
       const { data: record, error: fetchError } = await (supabase as any)
         .from("batch_usage_records")
-        .select("quantity, unit_cost, settlement_status, is_self_use")
+        .select(
+          "quantity, unit_cost, settlement_status, is_self_use, usage_site_id"
+        )
         .eq("id", data.usageId)
         .single();
 
       if (fetchError) throw new Error(fetchError.message);
       if (record.settlement_status === "settled") {
         throw new Error("Cannot edit settled usage record");
+      }
+      if (record.settlement_status === "in_settlement") {
+        throw new Error(
+          "Cannot edit a usage record that is part of a settlement. Reverse the settlement first."
+        );
+      }
+
+      // 1b. If the consuming site is changing, route through the SECURITY DEFINER
+      //     RPC. It bypasses the RLS WITH CHECK that blocks moving a row to a
+      //     sibling site the caller isn't directly assigned to, and recomputes
+      //     is_self_use / settlement_status atomically (the AFTER UPDATE trigger
+      //     then recomputes the batch self_used totals). It also handles quantity
+      //     and work_description in the same call, so we return early.
+      const siteChanged =
+        data.updates.usage_site_id !== undefined &&
+        data.updates.usage_site_id !== record.usage_site_id;
+
+      if (siteChanged) {
+        const { data: rpcResult, error: rpcError } = await (
+          supabase as any
+        ).rpc("reassign_batch_usage", {
+          p_usage_id: data.usageId,
+          p_new_usage_site_id: data.updates.usage_site_id,
+          p_new_quantity: data.updates.quantity ?? null,
+          p_work_description: data.updates.work_description ?? null,
+        });
+        if (rpcError) throw new Error(rpcError.message);
+        return { success: true, result: rpcResult };
       }
 
       // 2. Build update payload
@@ -762,6 +856,10 @@ export function useUpdateBatchUsage() {
       queryClient.invalidateQueries({
         queryKey: ["material-usage"],
       });
+      // Hub surfaces (usage-log list, variant chips, group usage summary).
+      queryClient.invalidateQueries({ queryKey: ["usage-history"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-variant-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
     },
   });
 }

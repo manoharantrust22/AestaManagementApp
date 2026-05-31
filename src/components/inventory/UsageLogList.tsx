@@ -150,6 +150,7 @@ export default function UsageLogList({
   const handleBatchEditSave = async (updates: {
     quantity?: number;
     work_description?: string;
+    usage_site_id?: string;
   }) => {
     if (!editRow || !editRow.batch_ref_code || !siteId) return;
     try {
@@ -428,6 +429,7 @@ export default function UsageLogList({
                 usage_date: editRow.usage_date,
                 work_description: editRow.work_description,
                 settlement_status: editRow.settlement_status,
+                usage_site_id: editRow.usage_site_id ?? "",
                 material: { name: editRow.material_name, unit: editRow.unit } as any,
                 brand: editRow.brand_name ? ({ brand_name: editRow.brand_name } as any) : null,
                 usage_site: editRow.usage_site_name

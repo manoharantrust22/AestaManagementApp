@@ -104,7 +104,11 @@ export default function BatchUsageHistoryTab({
 
   // Handlers
   const handleEdit = useCallback(
-    async (data: { quantity?: number; work_description?: string }) => {
+    async (data: {
+      quantity?: number;
+      work_description?: string;
+      usage_site_id?: string;
+    }) => {
       if (!editDialog.record) return;
       try {
         await updateMutation.mutateAsync({
