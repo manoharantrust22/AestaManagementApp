@@ -13,16 +13,18 @@ import {
  * Spend details verification dialog. Linked by engineer_transaction_id (the
  * robust link — not by parsing the description). Returns null when no live
  * misc_expenses row points at this transaction (legacy / cancelled spends).
+ *
+ * Pass `null` to keep the query dormant (e.g. while the dialog is closed or the
+ * row is not a misc expense). The id alone is the gate, so callers don't manage
+ * a separate enabled flag.
  */
-export function useMiscExpenseForTransaction(
-  transactionId: string | null,
-  enabled: boolean
-) {
+export function useMiscExpenseForTransaction(transactionId: string | null) {
   const supabase = createClient();
-  const isEnabled = enabled && !!transactionId;
   return useQuery<MiscExpenseVerification | null>({
-    queryKey: ["misc-expense-by-transaction", transactionId],
-    enabled: isEnabled,
+    queryKey: transactionId
+      ? ["misc-expense-by-transaction", transactionId]
+      : ["misc-expense-by-transaction", "_disabled"],
+    enabled: !!transactionId,
     staleTime: 60_000,
     queryFn: wrapQueryFn(
       async () => {
