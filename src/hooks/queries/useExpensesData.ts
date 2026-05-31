@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { supabaseQueryWithTimeout } from "@/lib/utils/supabaseQuery";
-import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
+import { withTimeout, wrapQueryFn, TIMEOUTS } from "@/lib/utils/timeout";
 
 export type ExpenseGroup = "all" | "labor" | "building";
 export type ExpenseStatus = "all" | "cleared" | "pending";
@@ -399,7 +399,7 @@ export function useExpenseTradeSummary(
   return useQuery<ExpenseTradeSummaryRow[]>({
     queryKey: ["expense-trade-summary", siteId, dateFrom, dateTo],
     enabled: !!siteId,
-    queryFn: async () => {
+    queryFn: wrapQueryFn(async () => {
       const { data, error } = await (supabase as any).rpc(
         "get_expense_trade_summary",
         {
@@ -410,7 +410,7 @@ export function useExpenseTradeSummary(
       );
       if (error) throw error;
       return (data ?? []) as ExpenseTradeSummaryRow[];
-    },
+    }, { operationName: "useExpenseTradeSummary" }),
     staleTime: 30_000,
   });
 }

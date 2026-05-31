@@ -352,6 +352,13 @@ export function useRecordBatchUsage() {
       queryClient.invalidateQueries({
         queryKey: ["material-threads"],
       });
+      // Hub thread is composed of granular sub-queries — invalidate the ones a
+      // usage record changes so the INVENTORY·STOCK, INTER-SITE and usage-log
+      // blocks refresh immediately (mirrors useDeleteBatchUsage / useUpdateBatchUsage).
+      queryClient.invalidateQueries({ queryKey: ["usage-history"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["stock-inventory"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.materialStock.all });
     },
   });
 }

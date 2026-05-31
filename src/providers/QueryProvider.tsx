@@ -277,6 +277,19 @@ export default function QueryProvider({
                 return false;
               }
             }
+            // Don't retry on timeouts/aborts. The fetch already hit its 25s
+            // timeoutFetch ceiling — three more retries would push the
+            // consumer's skeleton wait past 75s before isError flips. Surface
+            // immediately so the UI can render its error state and the user
+            // can decide. NetworkRecoveryHandler still re-invalidates on
+            // visibility/online events, so transient hangs recover naturally
+            // on next focus. Mirrors the mutation retry behavior below.
+            if (isAbortOrTimeoutError(error)) {
+              console.warn(
+                "[QueryClient] Query timed out/aborted — not retrying"
+              );
+              return false;
+            }
             // Allow ONE retry on 401/403 (or 400 invalid_grant) - session may
             // have been refreshed by SessionManager's idle-recovery or
             // QueryCache.onError handler. If retry also fails, QueryCache.onError

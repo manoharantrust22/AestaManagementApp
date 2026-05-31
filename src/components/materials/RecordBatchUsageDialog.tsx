@@ -281,11 +281,43 @@ export default function RecordBatchUsageDialog({
     return usageSiteId === selectedBatch.paying_site_id;
   }, [selectedBatch, usageSiteId]);
 
-  // Calculate estimated cost
+  // Landed unit cost: scale the variant's product unit price up to the actual
+  // amount paid for the whole batch (which folds in transport/loading), keeping
+  // per-variant proportions. Mirrors the record_batch_usage RPC exactly
+  //   ratio        = COALESCE(amount_paid, total_amount) / SUM(item.total_price)
+  //   landed_unit  = variant.unit_price * ratio
+  // so the preview equals what actually gets stored on the usage row.
+  const landed = useMemo(() => {
+    const productUnit = batchInfo?.unitCost ?? 0;
+    if (!selectedBatch || !productUnit) {
+      return { unitCost: productUnit, ratio: 1, hasTransport: false };
+    }
+    const items = (selectedBatch.items ?? []) as Array<any>;
+    const itemsTotal = items.reduce((sum, it) => {
+      const tp =
+        it?.total_price != null
+          ? Number(it.total_price)
+          : Number(it?.quantity ?? 0) * Number(it?.unit_price ?? 0);
+      return sum + (Number.isFinite(tp) ? tp : 0);
+    }, 0);
+    const finalPayment =
+      Number((selectedBatch as any).amount_paid ?? selectedBatch.total_amount ?? 0) || 0;
+    if (itemsTotal <= 0 || finalPayment <= 0) {
+      return { unitCost: productUnit, ratio: 1, hasTransport: false };
+    }
+    const ratio = finalPayment / itemsTotal;
+    return {
+      unitCost: productUnit * ratio,
+      ratio,
+      hasTransport: Math.abs(ratio - 1) > 0.0001,
+    };
+  }, [selectedBatch, batchInfo]);
+
+  // Calculate estimated cost (landed — incl. proportional transport/loading)
   const estimatedCost = useMemo(() => {
-    if (!batchInfo || !quantity) return 0;
-    return quantity * batchInfo.unitCost;
-  }, [batchInfo, quantity]);
+    if (!landed.unitCost || !quantity) return 0;
+    return quantity * landed.unitCost;
+  }, [landed, quantity]);
 
   return (
     <Dialog
@@ -515,8 +547,14 @@ export default function RecordBatchUsageDialog({
                     {formatCurrency(estimatedCost)}
                   </Typography>
                 </Box>
+                {landed.hasTransport && (
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Incl. proportional transport — {formatCurrency(landed.unitCost)}/{batchInfo?.unit} landed
+                    {" "}(product {formatCurrency(batchInfo?.unitCost ?? 0)}/{batchInfo?.unit})
+                  </Typography>
+                )}
                 {!isSelfUse && (
-                  <Typography variant="caption" color="text.secondary">
+                  <Typography variant="caption" color="text.secondary" display="block">
                     This amount will need to be settled with the paying site.
                   </Typography>
                 )}

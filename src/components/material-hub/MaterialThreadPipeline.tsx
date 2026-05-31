@@ -368,6 +368,23 @@ export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelin
           done = true;
           current = false;
           labelText = "DONE";
+        } else if (stageKey === "in-use" && thread.stage === "in-use") {
+          // Settled and being consumed, but stock STILL remains. Show IN USE as
+          // the ACTIVE (pulsing) step — the same treatment the INTER-SITE step
+          // gets while pending — NOT a finished check. The engineer's next
+          // action is still "Log usage" and the STOCK step still shows units
+          // left, so a check here reads as "done" when it isn't. Only the
+          // `exhausted` stage (remaining hits 0) earns the green DONE check.
+          done = false;
+          current = true; // pulsing accent dot, exactly like INTER-SITE pending
+          const recv = inv?.received ?? 0;
+          const usedQty = inv?.used ?? 0;
+          // Add a used/received count to the label when we have batch-exact
+          // numbers. A shared-pool fallback row (inv.batch === "—") describes
+          // the whole site bucket, not this thread, so skip the count there.
+          if (inv && recv > 0 && usedQty > 0 && usedQty < recv && inv.batch !== "—") {
+            labelText = `${s.label} ${fmtQty(usedQty)}/${fmtQty(recv)}`;
+          }
         }
 
         // DELIVER: show partial-progress arc + fraction label
