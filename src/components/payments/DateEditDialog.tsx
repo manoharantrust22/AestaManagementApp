@@ -211,6 +211,7 @@ export default function DateEditDialog({
             customName={customPayerName}
             onChange={setPayerSource}
             onCustomNameChange={setCustomPayerName}
+            siteId={selectedSite?.id}
             disabled={processing}
           />
         </Box>
