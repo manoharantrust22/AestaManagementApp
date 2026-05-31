@@ -25,7 +25,8 @@ import WalletBalanceCard from "@/components/wallet-v2/WalletBalanceCard";
 import WalletLedgerList from "@/components/wallet-v2/WalletLedgerList";
 import WalletSourcePoolsCard from "@/components/wallet-v2/WalletSourcePoolsCard";
 import AddFundsDialog from "@/components/wallet-v2/AddFundsDialog";
-import type { WalletLedgerFilters } from "@/types/engineer-wallet-v2.types";
+import SpendDetailDialog from "@/components/wallet-v2/SpendDetailDialog";
+import type { WalletLedgerEntry, WalletLedgerFilters } from "@/types/engineer-wallet-v2.types";
 
 type LedgerTab = "all" | "deposit" | "spend" | "return";
 
@@ -34,6 +35,7 @@ export default function MyWalletPage() {
   const { selectedSite } = useSelectedSite();
   const [tab, setTab] = useState<LedgerTab>("all");
   const [returnOpen, setReturnOpen] = useState(false);
+  const [detailRow, setDetailRow] = useState<WalletLedgerEntry | null>(null);
 
   const filters: Omit<WalletLedgerFilters, "cursor"> = {
     type: tab === "all" ? "all" : tab,
@@ -132,6 +134,7 @@ export default function MyWalletPage() {
           hasNextPage={!!ledgerQuery.hasNextPage}
           isFetchingNextPage={ledgerQuery.isFetchingNextPage}
           onLoadMore={() => ledgerQuery.fetchNextPage()}
+          onSpendClick={(row) => setDetailRow(row)}
         />
       </Stack>
 
@@ -144,6 +147,11 @@ export default function MyWalletPage() {
         recordedBy={userProfile.name ?? "Engineer"}
         recordedByUserId={userProfile.id}
         lockedSiteId={selectedSite.id}
+      />
+      <SpendDetailDialog
+        open={detailRow !== null}
+        onClose={() => setDetailRow(null)}
+        row={detailRow}
       />
     </Container>
   );

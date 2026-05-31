@@ -35,6 +35,7 @@ import WalletLedgerList from "@/components/wallet-v2/WalletLedgerList";
 import WalletSourcePoolsCard from "@/components/wallet-v2/WalletSourcePoolsCard";
 import AddFundsDialog from "@/components/wallet-v2/AddFundsDialog";
 import EditDepositDialog from "@/components/wallet-v2/EditDepositDialog";
+import SpendDetailDialog from "@/components/wallet-v2/SpendDetailDialog";
 import type {
   EngineerSiteBalance,
   WalletEnabledEngineer,
@@ -103,6 +104,7 @@ export default function CompanyEngineerWalletPage() {
     engineerId: string;
   }>({ open: false, siteId: "", engineerId: "" });
   const [editingDeposit, setEditingDeposit] = useState<WalletLedgerEntry | null>(null);
+  const [detailRow, setDetailRow] = useState<WalletLedgerEntry | null>(null);
 
   const canEditDeposits = userProfile?.role !== "site_engineer";
 
@@ -199,6 +201,7 @@ export default function CompanyEngineerWalletPage() {
             setReturnState({ open: true, siteId: s, engineerId: selectedEngineer.user_id })
           }
           onEditDeposit={canEditDeposits ? (row) => setEditingDeposit(row) : undefined}
+          onViewSpend={(row) => setDetailRow(row)}
         />
       ) : (
         <AllEngineersOverview
@@ -211,6 +214,7 @@ export default function CompanyEngineerWalletPage() {
           onSelectSite={(s) => setParam({ siteId: s })}
           onChangeTab={(t) => setParam({ type: t === "all" ? null : t })}
           onEditDeposit={canEditDeposits ? (row) => setEditingDeposit(row) : undefined}
+          onViewSpend={(row) => setDetailRow(row)}
         />
       )}
 
@@ -253,6 +257,11 @@ export default function CompanyEngineerWalletPage() {
         editorName={userProfile.name ?? "Office"}
         editorUserId={userProfile.id}
       />
+      <SpendDetailDialog
+        open={detailRow !== null}
+        onClose={() => setDetailRow(null)}
+        row={detailRow}
+      />
     </Container>
   );
 }
@@ -271,6 +280,7 @@ function AllEngineersOverview({
   onSelectSite,
   onChangeTab,
   onEditDeposit,
+  onViewSpend,
 }: {
   engineers: WalletEnabledEngineer[];
   engineersLoading: boolean;
@@ -281,6 +291,7 @@ function AllEngineersOverview({
   onSelectSite: (siteId: string | null) => void;
   onChangeTab: (t: LedgerTab) => void;
   onEditDeposit?: (row: WalletLedgerEntry) => void;
+  onViewSpend: (row: WalletLedgerEntry) => void;
 }) {
   const dateRange = useMemo(() => dateRangePreset(range), [range]);
   const userIds = useMemo(() => engineers.map((e) => e.user_id), [engineers]);
@@ -449,6 +460,7 @@ function AllEngineersOverview({
                 }
               : undefined
           }
+          onSpendClick={onViewSpend}
         />
       </Box>
 
@@ -473,6 +485,7 @@ function EngineerDetailPanel({
   onAdd,
   onReturn,
   onEditDeposit,
+  onViewSpend,
 }: {
   engineer: WalletEnabledEngineer;
   companyId: string;
@@ -486,6 +499,7 @@ function EngineerDetailPanel({
   onAdd: (siteId: string) => void;
   onReturn: (siteId: string) => void;
   onEditDeposit?: (row: WalletLedgerEntry) => void;
+  onViewSpend: (row: WalletLedgerEntry) => void;
 }) {
   const engineerId = engineer.user_id;
   const engineerName = engineer.name;
@@ -688,6 +702,7 @@ function EngineerDetailPanel({
                 }
               : undefined
           }
+          onSpendClick={onViewSpend}
         />
       </Box>
     </Box>
