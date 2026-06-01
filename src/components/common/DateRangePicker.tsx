@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
+  Badge,
   Box,
   Button,
   Chip,
@@ -73,6 +74,21 @@ interface DateRangePickerProps {
    * Lets the parent reset `forceOpen` flags.
    */
   onPopoverClose?: () => void;
+  /**
+   * Standalone mode decouples the picker from the global `DateRangeContext`.
+   * When true, `isAllTime`/`days` are derived from the `startDate`/`endDate`
+   * props and the prev/next arrows step the *prop* range (via `computeStep` +
+   * `onChange`) instead of the page-wide range. Use this when the picker drives
+   * a local filter (e.g. a table column) rather than the top-bar scope.
+   */
+  standalone?: boolean;
+  /**
+   * Compact mode renders an icon-only trigger (~36px) on every viewport and
+   * hides the prev/next arrows, so the control fits in a narrow space such as a
+   * table column header. The full preset + calendar popover is unchanged. An
+   * active indicator dot shows when a range is set.
+   */
+  compact?: boolean;
 }
 
 type PresetGroup = "quick" | "rolling" | "previous" | "special";
@@ -242,6 +258,8 @@ export default function DateRangePicker({
   maxDate = new Date(),
   forceOpen,
   onPopoverClose,
+  standalone = false,
+  compact = false,
 }: DateRangePickerProps) {
   const isMobile = useIsMobile();
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
@@ -448,16 +466,35 @@ export default function DateRangePicker({
   // Current label: spec §5.3 requires the pill and ScopeChip to read identically,
   // so we use the shared formatScopeLabel helper here (NOT context.label, which
   // returns preset names like "Custom range" / "Mar 2026" that diverge from the chip).
-  const {
-    isAllTime,
-    days,
-    stepBackward,
-    stepForward,
-    pickerContainer,
-  } = useDateRange();
+  //
+  // Standalone mode derives isAllTime/days from the props (the local range this
+  // picker drives) and steps that range directly, so it never reads or mutates
+  // the global scope. The context is still read for `pickerContainer` only —
+  // a harmless read that keeps the popover anchored correctly when a page is
+  // fullscreened.
+  const ctx = useDateRange();
+  const pickerContainer = ctx.pickerContainer;
+  const isAllTime = standalone ? !startDate || !endDate : ctx.isAllTime;
+  const days = standalone
+    ? startDate && endDate
+      ? dayjs(endDate).diff(dayjs(startDate), "day") + 1
+      : null
+    : ctx.days;
   const currentLabel = isAllTime
     ? "All Time"
     : formatScopeLabel(startDate, endDate, days);
+  const hasActiveRange = Boolean(startDate || endDate);
+
+  const handleStep = (direction: "backward" | "forward") => {
+    if (standalone) {
+      const step = computeStep(startDate, endDate, direction, minDate ?? null);
+      if (step) onChange(step.start, step.end);
+    } else if (direction === "backward") {
+      ctx.stepBackward(minDate ?? null);
+    } else {
+      ctx.stepForward(minDate ?? null);
+    }
+  };
 
   const isPrevDisabled = useMemo(() => {
     // null result from computeStep means out of bounds
@@ -475,9 +512,9 @@ export default function DateRangePicker({
         {/* Prev arrow - Hidden on mobile */}
         <IconButton
           size="small"
-          onClick={() => stepBackward(minDate ?? null)}
+          onClick={() => handleStep("backward")}
           disabled={isPrevDisabled}
-          sx={{ p: 0.5, display: { xs: "none", sm: "flex" } }}
+          sx={{ p: 0.5, display: compact ? "none" : { xs: "none", sm: "flex" } }}
         >
           <ChevronLeftIcon fontSize="small" />
         </IconButton>
@@ -487,59 +524,75 @@ export default function DateRangePicker({
             top-bar space — the popover that opens has its own full mobile UI
             (preset chips + calendar + Apply). Desktop (sm+): full labelled
             button showing the current range. */}
-        <Button
-          ref={triggerRef}
-          variant="outlined"
-          size="small"
-          onClick={handleOpen}
-          aria-label={`Change date range (current: ${currentLabel})`}
-          endIcon={<ArrowDownIcon sx={{ fontSize: { xs: 16, sm: 20 } }} />}
-          sx={{
-            textTransform: "none",
-            minWidth: { xs: 0, sm: 240 },
-            width: { xs: 40, sm: "auto" },
-            height: { xs: 40, sm: "auto" },
-            justifyContent: { xs: "center", sm: "space-between" },
-            px: { xs: 0, sm: 1.5 },
-            py: { xs: 0, sm: 0.5 },
-            bgcolor: "background.paper",
-            borderColor: "divider",
-            color: "text.primary",
-            fontSize: { xs: "0.7rem", sm: "0.875rem" },
-            // Hide the dropdown arrow on mobile (icon-only trigger)
-            "& .MuiButton-endIcon": {
-              ml: { xs: 0, sm: 1 },
-              display: { xs: "none", sm: "inline-flex" },
-            },
-            "&:hover": {
-              bgcolor: "action.hover",
-              borderColor: "divider",
-            },
-          }}
+        <Badge
+          color="primary"
+          variant="dot"
+          overlap="circular"
+          invisible={!compact || !hasActiveRange}
+          sx={{ "& .MuiBadge-dot": { top: 5, right: 5 } }}
         >
-          {/* Mobile: calendar icon only */}
-          <CalendarMonthIcon
-            sx={{ display: { xs: "inline-flex", sm: "none" }, fontSize: 20 }}
-          />
-          {/* Desktop: current range label */}
-          <Typography
-            variant="body2"
-            noWrap
+          <Button
+            ref={triggerRef}
+            variant="outlined"
+            size="small"
+            onClick={handleOpen}
+            aria-label={`Change date range (current: ${currentLabel})`}
+            endIcon={<ArrowDownIcon sx={{ fontSize: { xs: 16, sm: 20 } }} />}
             sx={{
-              display: { xs: "none", sm: "block" },
-              fontSize: { sm: "0.875rem" },
+              textTransform: "none",
+              // Compact forces the icon-only trigger on every viewport so the
+              // control fits a narrow table-column header.
+              minWidth: compact ? 0 : { xs: 0, sm: 240 },
+              width: compact ? 36 : { xs: 40, sm: "auto" },
+              height: compact ? 36 : { xs: 40, sm: "auto" },
+              justifyContent: compact ? "center" : { xs: "center", sm: "space-between" },
+              px: compact ? 0 : { xs: 0, sm: 1.5 },
+              py: compact ? 0 : { xs: 0, sm: 0.5 },
+              bgcolor: "background.paper",
+              borderColor: compact && hasActiveRange ? "primary.main" : "divider",
+              color: "text.primary",
+              fontSize: { xs: "0.7rem", sm: "0.875rem" },
+              // Hide the dropdown arrow on mobile (icon-only trigger) and always
+              // in compact mode.
+              "& .MuiButton-endIcon": {
+                ml: { xs: 0, sm: 1 },
+                display: compact ? "none" : { xs: "none", sm: "inline-flex" },
+              },
+              "&:hover": {
+                bgcolor: "action.hover",
+                borderColor: compact && hasActiveRange ? "primary.main" : "divider",
+              },
             }}
           >
-            {currentLabel}
-          </Typography>
-        </Button>
+            {/* Mobile (and compact on every viewport): calendar icon only */}
+            <CalendarMonthIcon
+              sx={{
+                display: compact ? "inline-flex" : { xs: "inline-flex", sm: "none" },
+                fontSize: 20,
+              }}
+            />
+            {/* Desktop: current range label (suppressed in compact mode) */}
+            {!compact && (
+              <Typography
+                variant="body2"
+                noWrap
+                sx={{
+                  display: { xs: "none", sm: "block" },
+                  fontSize: { sm: "0.875rem" },
+                }}
+              >
+                {currentLabel}
+              </Typography>
+            )}
+          </Button>
+        </Badge>
 
         {/* Next arrow - Hidden on mobile */}
         <IconButton
           size="small"
-          onClick={() => stepForward(minDate ?? null)}
+          onClick={() => handleStep("forward")}
           disabled={isNextDisabled}
-          sx={{ p: 0.5, display: { xs: "none", sm: "flex" } }}
+          sx={{ p: 0.5, display: compact ? "none" : { xs: "none", sm: "flex" } }}
         >
           <ChevronRightIcon fontSize="small" />
         </IconButton>

@@ -68,6 +68,7 @@ import { useInspectPane } from "@/hooks/useInspectPane";
 import { LegacyAuditBanner } from "@/components/audit";
 import PageHeader from "@/components/layout/PageHeader";
 import ScopeChip from "@/components/common/ScopeChip";
+import DateRangePicker from "@/components/common/DateRangePicker";
 import RedirectConfirmDialog from "@/components/common/RedirectConfirmDialog";
 import { InspectPane } from "@/components/common/InspectPane";
 import { entitySettlementRef } from "@/components/common/InspectPane/types";
@@ -128,9 +129,9 @@ const BUILDING_SET = new Set(BUILDING_TYPES as readonly string[]);
 // body cells. Without these, MUI Table distributes width by content alone and
 // chip-heavy cells (Status/Kind) squeeze the text columns until labels truncate.
 const COL_MIN_WIDTHS = {
-  settlement: 110,
+  settlement: 88,
   ref: 130,
-  vendorDesc: 220,
+  vendorDesc: 240,
   tradeSub: 180,
   kind: 110,
   status: 90,
@@ -176,6 +177,38 @@ function isAnyColFilterActive(c: ColFilters): boolean {
 
 function formatINR(n: number): string {
   return "₹" + new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(Math.abs(n));
+}
+
+// Funding chip for a Material Purchase row, derived from the raw
+// settlement_payer_source surfaced by v_all_expenses. Handles both the generic
+// payer-source vocabulary the rows actually store (own_money / client_money /
+// amma_money / trust_account / other_site_money / custom) and the legacy
+// material-specific tokens (own / client / …), so it stays correct either way.
+// other_site_money / site marks a portion funded by another site (inter-site).
+function materialFundingChip(
+  payerSource: string | null | undefined,
+): { label: string; color: "default" | "warning" | "info" } {
+  switch (payerSource) {
+    case "other_site_money":
+    case "site":
+      return { label: "Inter-site split", color: "warning" };
+    case "amma_money":
+    case "amma":
+      return { label: "Amma", color: "info" };
+    case "client_money":
+    case "client":
+      return { label: "Client", color: "info" };
+    case "trust_account":
+    case "trust":
+      return { label: "Trust", color: "info" };
+    case "custom":
+    case "other":
+      return { label: "Other", color: "default" };
+    case "own_money":
+    case "own":
+    default:
+      return { label: "Own money", color: "default" };
+  }
 }
 
 function formatCompact(n: number): string {
@@ -1245,6 +1278,7 @@ export default function ExpensesPageV2() {
                   py: { xs: 0.5, md: dense ? 1 : 1.25 },
                   px: { xs: 1, md: 2 },
                   minWidth: COL_MIN_WIDTHS.settlement,
+                  whiteSpace: "nowrap",
                 }}
               >
                 Settlement
@@ -1288,28 +1322,33 @@ export default function ExpensesPageV2() {
                   minWidth: COL_MIN_WIDTHS.settlement,
                 }}
               >
-                <Box sx={{ display: "flex", gap: 0.5 }}>
-                  <TextField
-                    type="date"
-                    size="small"
-                    value={colFilters.settlement.from}
-                    onChange={(e) =>
-                      setColFilters((c) => ({ ...c, settlement: { ...c.settlement, from: e.target.value } }))
-                    }
-                    slotProps={{ inputLabel: { shrink: true } }}
-                    sx={{ "& .MuiInputBase-input": { fontSize: 11, py: 0.5, px: 0.5 }, minWidth: 0 }}
-                  />
-                  <TextField
-                    type="date"
-                    size="small"
-                    value={colFilters.settlement.to}
-                    onChange={(e) =>
-                      setColFilters((c) => ({ ...c, settlement: { ...c.settlement, to: e.target.value } }))
-                    }
-                    slotProps={{ inputLabel: { shrink: true } }}
-                    sx={{ "& .MuiInputBase-input": { fontSize: 11, py: 0.5, px: 0.5 }, minWidth: 0 }}
-                  />
-                </Box>
+                {/* Compact reuse of the top-bar date picker (presets + calendar)
+                    as a single icon trigger, so the column stays narrow. Drives
+                    the same from/to strings (YYYY-MM-DD) the column filter and
+                    URL sync already expect; "All Time"/clear → empty → no filter. */}
+                <DateRangePicker
+                  standalone
+                  compact
+                  startDate={
+                    colFilters.settlement.from
+                      ? dayjs(colFilters.settlement.from).toDate()
+                      : null
+                  }
+                  endDate={
+                    colFilters.settlement.to
+                      ? dayjs(colFilters.settlement.to).toDate()
+                      : null
+                  }
+                  onChange={(start, end) =>
+                    setColFilters((c) => ({
+                      ...c,
+                      settlement: {
+                        from: start ? dayjs(start).format("YYYY-MM-DD") : "",
+                        to: end ? dayjs(end).format("YYYY-MM-DD") : "",
+                      },
+                    }))
+                  }
+                />
               </TableCell>
 
               {/* Ref */}
@@ -1535,13 +1574,55 @@ export default function ExpensesPageV2() {
 
                     {/* Vendor / Description */}
                     <TableCell sx={{ py: dense ? 0.5 : 1, maxWidth: 260, ...hideOnMobileSx }}>
-                      <Typography variant="body2" fontWeight={600} noWrap>
-                        {row.vendor_name || row.description || "—"}
-                      </Typography>
-                      {!dense && row.vendor_name && row.description && (
-                        <Typography variant="caption" color="text.secondary" noWrap display="block">
-                          {row.description}
-                        </Typography>
+                      {row.source_type === "material_purchase" ? (
+                        <>
+                          {/* Line 1: material(s) + qty (falls back to vendor) */}
+                          <Typography
+                            variant="body2"
+                            fontWeight={600}
+                            noWrap
+                            title={row.material_summary || row.vendor_name || "Material Purchase"}
+                          >
+                            {row.material_summary || row.vendor_name || "Material Purchase"}
+                          </Typography>
+                          {/* Line 2: scope (own-site vs group/cluster) + funding */}
+                          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 0.25 }}>
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              color={row.material_purchase_type === "group_stock" ? "primary" : "default"}
+                              label={
+                                row.material_purchase_type === "group_stock"
+                                  ? `Group${row.material_cluster_name ? ` · ${row.material_cluster_name}` : ""}`
+                                  : "Own-site"
+                              }
+                              sx={{ height: 18, fontSize: 10, "& .MuiChip-label": { px: 0.75 } }}
+                            />
+                            {(() => {
+                              const f = materialFundingChip(row.material_payer_source);
+                              return (
+                                <Chip
+                                  size="small"
+                                  variant="outlined"
+                                  color={f.color}
+                                  label={f.label}
+                                  sx={{ height: 18, fontSize: 10, "& .MuiChip-label": { px: 0.75 } }}
+                                />
+                              );
+                            })()}
+                          </Box>
+                        </>
+                      ) : (
+                        <>
+                          <Typography variant="body2" fontWeight={600} noWrap>
+                            {row.vendor_name || row.description || "—"}
+                          </Typography>
+                          {!dense && row.vendor_name && row.description && (
+                            <Typography variant="caption" color="text.secondary" noWrap display="block">
+                              {row.description}
+                            </Typography>
+                          )}
+                        </>
                       )}
                     </TableCell>
 

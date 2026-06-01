@@ -48,6 +48,13 @@ export interface ExpenseRow {
   source_id: string;
   created_at: string;
   is_deleted: boolean;
+  // Material-purchase rows only (surfaced by v_all_expenses, NULL otherwise).
+  // Let the /site/expenses table describe what a "Material Purchase" row is —
+  // material(s) + qty, own-site vs group/cluster, and direct vs inter-site split.
+  material_summary?: string | null;
+  material_purchase_type?: "own_site" | "group_stock" | null;
+  material_cluster_name?: string | null;
+  material_payer_source?: string | null;
 }
 
 export interface BreakdownEntry {
