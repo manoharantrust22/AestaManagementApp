@@ -9,6 +9,7 @@ import {
   Alert,
 } from "@mui/material";
 import { Refresh as RefreshIcon } from "@mui/icons-material";
+import { useQueryClient } from "@tanstack/react-query";
 import { manualRefresh, getLastSyncTime } from "@/lib/cache/sync";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
@@ -22,6 +23,7 @@ export default function ManualRefreshButton() {
   const [lastSync, setLastSync] = useState<number | null>(null);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const queryClient = useQueryClient();
 
   // Update last sync timestamp
   useEffect(() => {
@@ -45,26 +47,39 @@ export default function ManualRefreshButton() {
     setState("loading");
 
     try {
-      const success = await manualRefresh();
+      // Primary: refetch every query that is actually mounted on the current
+      // page. This is what a "refresh" should do — reload whatever the user is
+      // looking at. The old behaviour only re-validated a hardcoded set of
+      // queries (sites/dashboard/reference), so on most pages tapping refresh
+      // did nothing visible.
+      await queryClient.refetchQueries({ type: "active" });
 
-      if (success) {
-        setState("success");
-        setLastSync(Date.now());
-        setSnackbarOpen(true);
-
-        // Reset to idle after animation
-        setTimeout(() => {
-          setState("idle");
-        }, 2000);
-      } else {
-        setState("error");
-        setErrorMessage("Some data failed to refresh. Please try again.");
-        setSnackbarOpen(true);
-
-        setTimeout(() => {
-          setState("idle");
-        }, 3000);
+      // Best-effort: also nudge the background sync orchestrator so it can
+      // broadcast cache invalidation to other tabs and refresh its
+      // reference/dashboard tiers. This MUST never surface its
+      // "Sync orchestrator not initialized" throw to the user — that fires on
+      // follower tabs and before the app finishes loading, and the active
+      // refetch above has already covered the visible page.
+      try {
+        await manualRefresh();
+      } catch {
+        /* orchestrator not ready (follower tab / still loading) — ignore */
       }
+
+      setState("success");
+      const now = Date.now();
+      setLastSync(now);
+      try {
+        localStorage.setItem("sync_last", now.toString());
+      } catch {
+        /* localStorage unavailable (private mode) — non-fatal */
+      }
+      setSnackbarOpen(true);
+
+      // Reset to idle after animation
+      setTimeout(() => {
+        setState("idle");
+      }, 2000);
     } catch (error) {
       console.error("Manual refresh failed:", error);
       setState("error");
@@ -79,7 +94,7 @@ export default function ManualRefreshButton() {
         setState("idle");
       }, 3000);
     }
-  }, [state]);
+  }, [state, queryClient]);
 
   // Keyboard shortcut: Ctrl/Cmd + R
   useEffect(() => {
@@ -116,25 +131,30 @@ export default function ManualRefreshButton() {
   return (
     <>
       <Tooltip title={getTooltipText()} arrow>
-        <IconButton
-          onClick={handleRefresh}
-          disabled={state === "loading"}
-          color={getButtonColor()}
-          size="small"
-          sx={{
-            transition: "transform 0.3s ease",
-            transform: state === "loading" ? "rotate(360deg)" : "rotate(0deg)",
-            "&:hover": {
-              transform: state === "loading" ? "rotate(360deg)" : "rotate(180deg)",
-            },
-          }}
-        >
-          {state === "loading" ? (
-            <CircularProgress size={20} />
-          ) : (
-            <RefreshIcon />
-          )}
-        </IconButton>
+        {/* span wrapper: the IconButton is disabled while loading, and a
+            disabled element doesn't fire the events the Tooltip listens for —
+            MUI warns unless we wrap it. */}
+        <span style={{ display: "inline-flex" }}>
+          <IconButton
+            onClick={handleRefresh}
+            disabled={state === "loading"}
+            color={getButtonColor()}
+            size="small"
+            sx={{
+              transition: "transform 0.3s ease",
+              transform: state === "loading" ? "rotate(360deg)" : "rotate(0deg)",
+              "&:hover": {
+                transform: state === "loading" ? "rotate(360deg)" : "rotate(180deg)",
+              },
+            }}
+          >
+            {state === "loading" ? (
+              <CircularProgress size={20} />
+            ) : (
+              <RefreshIcon />
+            )}
+          </IconButton>
+        </span>
       </Tooltip>
 
       <Snackbar

@@ -18,6 +18,7 @@ import {
   ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
   KeyboardArrowDown as ArrowDownIcon,
+  CalendarMonth as CalendarMonthIcon,
 } from "@mui/icons-material";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useDateRange, formatScopeLabel } from "@/contexts/DateRangeContext";
@@ -481,25 +482,34 @@ export default function DateRangePicker({
           <ChevronLeftIcon fontSize="small" />
         </IconButton>
 
-        {/* Date range button */}
+        {/* Date range button.
+            Mobile (xs): collapses to a compact square calendar icon to save
+            top-bar space — the popover that opens has its own full mobile UI
+            (preset chips + calendar + Apply). Desktop (sm+): full labelled
+            button showing the current range. */}
         <Button
           ref={triggerRef}
           variant="outlined"
           size="small"
           onClick={handleOpen}
+          aria-label={`Change date range (current: ${currentLabel})`}
           endIcon={<ArrowDownIcon sx={{ fontSize: { xs: 16, sm: 20 } }} />}
           sx={{
             textTransform: "none",
-            minWidth: { xs: 80, sm: 240 },
-            justifyContent: "space-between",
-            px: { xs: 0.75, sm: 1.5 },
-            py: { xs: 0.25, sm: 0.5 },
+            minWidth: { xs: 0, sm: 240 },
+            width: { xs: 40, sm: "auto" },
+            height: { xs: 40, sm: "auto" },
+            justifyContent: { xs: "center", sm: "space-between" },
+            px: { xs: 0, sm: 1.5 },
+            py: { xs: 0, sm: 0.5 },
             bgcolor: "background.paper",
             borderColor: "divider",
             color: "text.primary",
             fontSize: { xs: "0.7rem", sm: "0.875rem" },
+            // Hide the dropdown arrow on mobile (icon-only trigger)
             "& .MuiButton-endIcon": {
-              ml: { xs: 0.25, sm: 1 },
+              ml: { xs: 0, sm: 1 },
+              display: { xs: "none", sm: "inline-flex" },
             },
             "&:hover": {
               bgcolor: "action.hover",
@@ -507,10 +517,18 @@ export default function DateRangePicker({
             },
           }}
         >
+          {/* Mobile: calendar icon only */}
+          <CalendarMonthIcon
+            sx={{ display: { xs: "inline-flex", sm: "none" }, fontSize: 20 }}
+          />
+          {/* Desktop: current range label */}
           <Typography
             variant="body2"
             noWrap
-            sx={{ fontSize: { xs: "0.7rem", sm: "0.875rem" } }}
+            sx={{
+              display: { xs: "none", sm: "block" },
+              fontSize: { sm: "0.875rem" },
+            }}
           >
             {currentLabel}
           </Typography>
