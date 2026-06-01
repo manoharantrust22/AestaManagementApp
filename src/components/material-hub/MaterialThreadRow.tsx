@@ -19,6 +19,7 @@ import { Box, Typography, useMediaQuery } from "@mui/material";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import { hubTokens, HUB_BREAKPOINT_PX } from "@/lib/material-hub/tokens";
 import { inr, fmtDateShort } from "@/lib/material-hub/formatters";
+import { threadVariantCategory } from "@/lib/material-hub/threadTitle";
 import { fmtQty } from "@/lib/formatters";
 import { M_STAGES, VISIBLE_STAGES, stageIndex, stageLabel, type VisibleStageKey } from "@/lib/material-hub/stageHelpers";
 import MaterialThreadPipeline from "./MaterialThreadPipeline";
@@ -454,32 +455,6 @@ export default function MaterialThreadRow({
 // ----------------------------------------------------------------------------
 // Variant title helpers
 // ----------------------------------------------------------------------------
-
-/**
- * Longest common prefix of variant names, trimmed to word boundary. Falls
- * back to `fallback` (the thread's primary material name) when the prefix
- * collapses to almost nothing (e.g. unrelated materials).
- */
-function threadVariantCategory(
-  variants: Array<{ material_name: string }>,
-  fallback: string
-): string {
-  if (variants.length === 0) return fallback;
-  const names = variants.map((v) => v.material_name || "").filter(Boolean);
-  if (names.length <= 1) return names[0] || fallback;
-  let prefix = names[0];
-  for (let i = 1; i < names.length; i++) {
-    let j = 0;
-    while (j < prefix.length && j < names[i].length && prefix[j] === names[i][j]) {
-      j++;
-    }
-    prefix = prefix.slice(0, j);
-    if (!prefix) break;
-  }
-  prefix = prefix.replace(/[\s\-_/]+$/, "").trim();
-  if (prefix.length < 3) return fallback;
-  return prefix;
-}
 
 /**
  * Short label for a variant chip — the bit AFTER the common category prefix.
