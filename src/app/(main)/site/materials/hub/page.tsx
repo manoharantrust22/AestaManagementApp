@@ -23,6 +23,7 @@ import {
   Snackbar,
   Stack,
   Typography,
+  useMediaQuery,
   ToggleButtonGroup,
   ToggleButton,
 } from "@mui/material";
@@ -39,6 +40,7 @@ import MaterialHubFilterChips, {
   type HubFilterKey,
 } from "@/components/material-hub/MaterialHubFilterChips";
 import MaterialThreadRow from "@/components/material-hub/MaterialThreadRow";
+import MaterialThreadDetailSheet from "@/components/material-hub/MaterialThreadDetailSheet";
 import MaterialHubTable from "@/components/material-hub/MaterialHubTable";
 import NewEntryMenu from "@/components/material-hub/NewEntryMenu";
 import AllocationsQueue from "@/components/material-hub/AllocationsQueue";
@@ -56,7 +58,7 @@ import {
   threadCounts,
   interSiteDebt,
 } from "@/lib/material-hub/nextAction";
-import { hubTokens } from "@/lib/material-hub/tokens";
+import { hubTokens, HUB_BREAKPOINT_PX } from "@/lib/material-hub/tokens";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 
 type HubLayout = "cards" | "table";
@@ -169,6 +171,13 @@ export default function MaterialHubPage() {
       return threads.filter((t) => !!t.is_historical);
     return threads;
   }, [threads, filter]);
+
+  const isMobile = useMediaQuery(`(max-width:${HUB_BREAKPOINT_PX - 1}px)`);
+
+  const expandedThread = useMemo(
+    () => filteredThreads.find((t) => t.source_row_id === expandedId) ?? null,
+    [filteredThreads, expandedId]
+  );
 
   if (!selectedSite) {
     return (
@@ -378,6 +387,12 @@ export default function MaterialHubPage() {
           {pushSnack?.message}
         </Alert>
       </Snackbar>
+
+      <MaterialThreadDetailSheet
+        open={isMobile && !!expandedThread}
+        thread={expandedThread}
+        onClose={() => setExpandedId(null)}
+      />
     </Box>
   );
 }
