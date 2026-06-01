@@ -43,7 +43,7 @@ describe("threadVariantCategory", () => {
   it("returns the trimmed common prefix for related variants", () => {
     expect(
       threadVariantCategory(
-        [{ material_name: "TMT Rods 16mm" }, { material_name: "TMT Rods 12mm" }],
+        [{ material_name: "TMT Rods 16mm" }, { material_name: "TMT Rods 20mm" }],
         "TMT Rods 16mm"
       )
     ).toBe("TMT Rods");
@@ -76,7 +76,7 @@ describe("threadDisplayName", () => {
         material_name: "TMT Rods 16mm",
         variants: [
           { material_name: "TMT Rods 16mm" },
-          { material_name: "TMT Rods 12mm" },
+          { material_name: "TMT Rods 20mm" },
         ],
       } as never)
     ).toBe("TMT Rods");
