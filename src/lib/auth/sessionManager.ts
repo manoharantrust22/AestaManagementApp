@@ -484,11 +484,16 @@ class SessionManager {
    * is fine — leave realtime alone. If it fails, force-disconnect the WS
    * (which evicts its socket from the pool) and re-subscribe channels.
    */
-  private async healConnectionPool(): Promise<void> {
+  private async healConnectionPool(): Promise<boolean> {
     const canaryOk = await this.runPoolCanary();
     if (canaryOk) {
+      // The pool is provably alive — a cheap GET round-tripped. If a query
+      // still timed out, the cause is that ONE slow/large response stalling
+      // mid-transfer (e.g. the Material Hub's heavy PO fetch on a flaky
+      // proxy), NOT a poisoned socket pool. Report healthy so callers refetch
+      // that query instead of declaring "connection lost" and forcing a reload.
       console.log("[SessionManager] Pool canary OK — no heal needed");
-      return;
+      return true;
     }
 
     console.warn(
@@ -499,7 +504,7 @@ class SessionManager {
       forceRealtimeReconnect();
     } catch (err) {
       console.error("[SessionManager] forceRealtimeReconnect failed:", err);
-      return;
+      return false;
     }
 
     // Cycle the REST socket pool too. Evicting only the WS socket above is not
@@ -513,10 +518,13 @@ class SessionManager {
     const recoveredOk = await this.runPoolCanary();
     if (recoveredOk) {
       console.log("[SessionManager] Pool healed after realtime reconnect");
-    } else if (typeof window !== "undefined") {
+      return true;
+    }
+    if (typeof window !== "undefined") {
       console.error("[SessionManager] Pool still degraded after heal");
       window.dispatchEvent(new CustomEvent("connection-degraded"));
     }
+    return false;
   }
 
   /**
@@ -601,7 +609,7 @@ class SessionManager {
    * query-error path escalate to a real pool heal (canary + WS eviction + REST
    * warm-up) before blindly refetching onto a dead pool.
    */
-  async healConnectionPoolNow(): Promise<void> {
+  async healConnectionPoolNow(): Promise<boolean> {
     return this.healConnectionPool();
   }
 

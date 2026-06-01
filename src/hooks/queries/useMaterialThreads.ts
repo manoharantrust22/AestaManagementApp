@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useMaterialRequests } from "@/hooks/queries/useMaterialRequests";
-import { usePurchaseOrders } from "@/hooks/queries/usePurchaseOrders";
+import { usePurchaseOrdersForHub } from "@/hooks/queries/usePurchaseOrders";
 import type {
   MaterialRequestWithDetails,
   PurchaseOrderWithDetails,
@@ -964,8 +964,14 @@ function mapSpotThread(sp: SpotPurchaseExpense): MaterialThread {
 export interface UseMaterialThreadsResult {
   threads: MaterialThread[];
   isLoading: boolean;
+  /** Any of the composed sub-queries is refetching in the background. Lets the
+   *  page show a non-blocking "Reconnecting…" hint while keeping data on screen. */
+  isFetching: boolean;
   isError: boolean;
   error: unknown;
+  /** Refetch every composed sub-query. Stable identity — safe to use in effect
+   *  deps for transparent auto-retry. */
+  refetch: () => void;
   /** MR id → original MaterialRequestWithDetails (for dialog handoff). */
   materialRequestById: Map<string, MaterialRequestWithDetails>;
   /** PO id → original PurchaseOrderWithDetails. */
@@ -990,7 +996,7 @@ export function useMaterialThreads(
   siteGroupId: string | null | undefined
 ): UseMaterialThreadsResult {
   const mr = useMaterialRequests(siteId, undefined, { siteGroupId });
-  const po = usePurchaseOrders(siteId, undefined, {
+  const po = usePurchaseOrdersForHub(siteId, {
     siteGroupId: siteGroupId ?? undefined,
   });
   const sp = useSiteSpotPurchases(siteId, siteGroupId);
@@ -1112,6 +1118,39 @@ export function useMaterialThreads(
     siteId,
   ]);
 
+  // Stable refetch across all composed sub-queries — drives the page's
+  // transparent auto-retry. Each query.refetch is referentially stable, so this
+  // callback's identity only changes if a query instance is swapped (rare).
+  const refetch = useCallback(() => {
+    void Promise.allSettled([
+      mr.refetch(),
+      po.refetch(),
+      sp.refetch(),
+      deliveries.refetch(),
+      stock.refetch(),
+      settlements.refetch(),
+      groupSiteNames.refetch(),
+      batchUsage.refetch(),
+      selfUseExpenses.refetch(),
+    ]);
+    // Intentionally depend on the stable `.refetch` fns, NOT the full query
+    // objects. Each query.refetch is referentially stable, so this keeps the
+    // callback identity stable across data changes — depending on the objects
+    // would re-create `refetch` on every refetch and make the page's auto-retry
+    // effect (which lists refetch in its deps) re-run on a hot loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    mr.refetch,
+    po.refetch,
+    sp.refetch,
+    deliveries.refetch,
+    stock.refetch,
+    settlements.refetch,
+    groupSiteNames.refetch,
+    batchUsage.refetch,
+    selfUseExpenses.refetch,
+  ]);
+
   return {
     threads,
     isLoading:
@@ -1121,6 +1160,16 @@ export function useMaterialThreads(
       deliveries.isLoading ||
       stock.isLoading ||
       settlements.isLoading,
+    isFetching:
+      mr.isFetching ||
+      po.isFetching ||
+      sp.isFetching ||
+      deliveries.isFetching ||
+      stock.isFetching ||
+      settlements.isFetching ||
+      groupSiteNames.isFetching ||
+      batchUsage.isFetching ||
+      selfUseExpenses.isFetching,
     isError:
       mr.isError ||
       po.isError ||
@@ -1138,5 +1187,6 @@ export function useMaterialThreads(
     materialRequestById,
     purchaseOrderById,
     spotBatchById,
+    refetch,
   };
 }

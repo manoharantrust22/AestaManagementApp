@@ -208,40 +208,52 @@ export default function QueryProvider({
             return;
           }
           _lastTimeoutRecoveryAt = now;
-          _timeoutRecoveryStreak += 1;
-
-          // Circuit breaker: if repeated recovery cycles have not yielded a
-          // single successful query, the proxy origin itself is unreachable —
-          // refetching again would just re-stall on the same dead pool and keep
-          // the skeleton spinning forever. Stop the loop and let the UI surface
-          // its error/Retry fallback (InspectPane) + a Reconnect banner.
-          if (_timeoutRecoveryStreak > MAX_TIMEOUT_RECOVERY_CYCLES) {
-            console.error(
-              `[QueryCache] Timeout recovery gave up after ${MAX_TIMEOUT_RECOVERY_CYCLES} cycles — connection degraded, not refetching`
-            );
-            if (typeof window !== "undefined") {
-              window.dispatchEvent(new CustomEvent("connection-degraded"));
-            }
-            return;
-          }
 
           console.warn(
             "[QueryCache] Query timeout detected on",
             JSON.stringify(query.queryKey).substring(0, 100),
-            `— recovery cycle ${_timeoutRecoveryStreak}/${MAX_TIMEOUT_RECOVERY_CYCLES}`
+            "— probing connection pool before refetch"
           );
 
           // Heal the pool (canary + realtime WS eviction + REST warm-up)
           // BEFORE refetching, so a genuinely dead pool gets cycled instead of
-          // re-hammered. A bare invalidate cannot evict the browser's half-open
-          // sockets; this can. (No cancelQueries — see the note above.)
+          // re-hammered. The canary result tells us WHICH failure mode we're in:
+          // a poisoned socket pool, or a single slow response on a live pool.
+          let poolHealthy = false;
           try {
-            await healConnectionPoolNow();
+            poolHealthy = await healConnectionPoolNow();
           } catch (err) {
             console.warn("[QueryCache] healConnectionPoolNow threw:", err);
           }
-          // Small delay so the heal's fresh sockets are established before the
-          // refetch fires onto them.
+
+          if (poolHealthy) {
+            // The pool is provably alive — a cheap canary GET round-tripped.
+            // The timeout was one slow/large response stalling mid-transfer
+            // (e.g. the Material Hub's heavy PO fetch on a flaky proxy), NOT a
+            // dead pool. Silently refetch the active queries — the retry lands
+            // on the healthy pool and usually succeeds, exactly like the user
+            // hitting refresh. Crucially we do NOT escalate to the
+            // "Reload to reconnect" banner here: that would be a false alarm
+            // contradicting a working connection. Reset the give-up streak.
+            _timeoutRecoveryStreak = 0;
+            setTimeout(() => {
+              clientRef.current?.invalidateQueries({ refetchType: "active" });
+            }, 500);
+            return;
+          }
+
+          // Pool genuinely degraded (canary failed even after heal —
+          // healConnectionPool already dispatched connection-degraded). Apply
+          // the circuit breaker: after MAX cycles with no intervening success,
+          // stop auto-refetching onto a dead pool (streak resets on the next
+          // QueryCache.onSuccess once the pool is proven alive again).
+          _timeoutRecoveryStreak += 1;
+          if (_timeoutRecoveryStreak > MAX_TIMEOUT_RECOVERY_CYCLES) {
+            console.error(
+              `[QueryCache] Timeout recovery gave up after ${MAX_TIMEOUT_RECOVERY_CYCLES} cycles — connection degraded, not refetching`
+            );
+            return;
+          }
           setTimeout(() => {
             clientRef.current?.invalidateQueries({ refetchType: "active" });
           }, 500);

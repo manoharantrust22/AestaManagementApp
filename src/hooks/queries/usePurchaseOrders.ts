@@ -88,6 +88,76 @@ export function usePurchaseOrders(
 }
 
 /**
+ * Lightweight PO list for the Material Hub.
+ *
+ * The Hub renders a derived thread list — it never needs the full PO row. The
+ * shared `usePurchaseOrders` above pulls `purchase_orders.*` plus a deep
+ * `items → material(10 cols) + brand(3 cols)` embed for the WHOLE cluster, which
+ * makes it the single largest response on the page (~10× the other Hub queries).
+ * On the production proxy that big payload is the one most likely to stall
+ * mid-transfer and trip the 30s timeout — even though the server returns the
+ * rows in <1ms (verified: 67 POs, 0.3ms). This projection selects ONLY the
+ * columns `useMaterialThreads` actually reads, shrinking the payload to a small
+ * fraction so it transfers fast and rarely stalls.
+ *
+ * The full PO (for the settle / record-delivery dialogs) is fetched fresh by id
+ * via `usePurchaseOrder` when a dialog opens — so trimming this list cannot
+ * starve a dialog of fields.
+ *
+ * Key note: `[...bySite(siteId), "hub-light", siteGroupId]` sits under the
+ * `purchaseOrders.bySite` prefix, so every existing PO mutation invalidation
+ * (create / approve / deliver / settle — all target that prefix) refreshes it
+ * automatically, while the distinct "hub-light" segment avoids colliding with
+ * the heavy `usePurchaseOrders` cache used by /site/purchase-orders.
+ */
+export function usePurchaseOrdersForHub(
+  siteId: string | undefined,
+  options?: { siteGroupId?: string }
+) {
+  const supabase = createClient() as any;
+  const siteGroupId = options?.siteGroupId;
+
+  return useQuery({
+    queryKey: siteId
+      ? [...queryKeys.purchaseOrders.bySite(siteId), "hub-light", siteGroupId ?? null]
+      : ["purchase-orders", "hub-light", "unknown"],
+    queryFn: wrapQueryFn(async () => {
+      if (!siteId) return [];
+
+      let query = supabase
+        .from("purchase_orders")
+        .select(
+          `
+          id, po_number, site_id, site_group_id, source_request_id, vendor_id,
+          status, order_date, expected_delivery_date, total_amount,
+          payment_timing, advance_paid, vendor_bill_url, quotation_url,
+          notes, internal_notes,
+          vendor:vendors(id, name),
+          items:purchase_order_items(
+            id, material_id, brand_id, quantity, received_qty, unit_price,
+            pricing_mode, calculated_weight, actual_weight, tax_rate,
+            material:materials(id, name, unit)
+          )
+        `
+        )
+        .order("created_at", { ascending: false });
+
+      if (siteGroupId) {
+        query = query.or(`site_id.eq.${siteId},site_group_id.eq.${siteGroupId}`);
+      } else {
+        query = query.eq("site_id", siteId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data as PurchaseOrderWithDetails[];
+    }, { operationName: "usePurchaseOrdersForHub" }),
+    enabled: !!siteId,
+    staleTime: 60000,
+  });
+}
+
+/**
  * Fetch a single purchase order by ID
  */
 export function usePurchaseOrder(id: string | undefined) {

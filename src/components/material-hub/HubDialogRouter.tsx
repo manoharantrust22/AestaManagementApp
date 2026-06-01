@@ -18,23 +18,27 @@
  */
 
 import { forwardRef, useImperativeHandle, useState } from "react";
+import { Backdrop, CircularProgress, Snackbar, Alert, Button } from "@mui/material";
 import RequestApprovalDialog from "@/components/materials/RequestApprovalDialog";
 import UnifiedPurchaseOrderDialog from "@/components/materials/UnifiedPurchaseOrderDialog";
 import RecordAndVerifyDeliveryDialog from "@/components/materials/RecordAndVerifyDeliveryDialog";
 import MaterialSettlementDialog from "@/components/materials/MaterialSettlementDialog";
 import RecordBatchUsageDialog from "@/components/materials/RecordBatchUsageDialog";
 import { SpotPurchaseAllocatorDialog } from "@/components/materials/SpotPurchaseAllocatorDialog";
+import { usePurchaseOrder } from "@/hooks/queries/usePurchaseOrders";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
-import type {
-  MaterialRequestWithDetails,
-  PurchaseOrderWithDetails,
-} from "@/types/material.types";
+import type { MaterialRequestWithDetails } from "@/types/material.types";
 
 type OpenDialog =
   | { kind: "approve"; mr: MaterialRequestWithDetails }
   | { kind: "create-po"; mr: MaterialRequestWithDetails }
-  | { kind: "record-delivery"; po: PurchaseOrderWithDetails }
-  | { kind: "settle"; po: PurchaseOrderWithDetails }
+  // record-delivery / settle carry only the PO id — the FULL PurchaseOrder is
+  // fetched fresh by id (usePurchaseOrder) when the dialog opens. The Hub's
+  // thread list now uses a lightweight PO projection that omits columns these
+  // money-flow dialogs need, so we must never hand them a list row; a fresh
+  // by-id fetch also guards against acting on a stale cached PO.
+  | { kind: "record-delivery"; poId: string }
+  | { kind: "settle"; poId: string }
   | { kind: "log-usage"; batchRefCode?: string }
   | { kind: "finalize-spot"; batchId: string; refCode: string; totalAmount: number };
 
@@ -47,17 +51,27 @@ export interface HubDialogRouterProps {
   siteId: string;
   siteGroupId: string | null;
   materialRequestById: Map<string, MaterialRequestWithDetails>;
-  purchaseOrderById: Map<string, PurchaseOrderWithDetails>;
 }
 
 export const HubDialogRouter = forwardRef<
   HubDialogRouterHandle,
   HubDialogRouterProps
 >(function HubDialogRouter(
-  { siteId, siteGroupId, materialRequestById, purchaseOrderById },
+  { siteId, siteGroupId, materialRequestById },
   ref
 ) {
   const [dialog, setDialog] = useState<OpenDialog | null>(null);
+
+  // Fetch the full PO on demand for the two dialogs that need it. Disabled
+  // (id undefined) for every other dialog kind, so no extra request fires.
+  const activePoId =
+    dialog?.kind === "record-delivery" || dialog?.kind === "settle"
+      ? dialog.poId
+      : undefined;
+  const fullPO = usePurchaseOrder(activePoId);
+  const poReady = !!fullPO.data;
+  const poLoading = !!activePoId && fullPO.isLoading;
+  const poError = !!activePoId && fullPO.isError;
 
   useImperativeHandle(ref, () => ({
     openForThread(thread) {
@@ -86,16 +100,14 @@ export const HubDialogRouter = forwardRef<
         return;
       }
       if (thread.stage === "ordered") {
-        const po = thread.po && purchaseOrderById.get(thread.po.id);
-        if (po) setDialog({ kind: "record-delivery", po });
+        if (thread.po?.id) setDialog({ kind: "record-delivery", poId: thread.po.id });
         return;
       }
       if (
         thread.stage === "delivered" &&
         (!thread.settlement || thread.settlement.status === "pending")
       ) {
-        const po = thread.po && purchaseOrderById.get(thread.po.id);
-        if (po) setDialog({ kind: "settle", po });
+        if (thread.po?.id) setDialog({ kind: "settle", poId: thread.po.id });
         return;
       }
       // Settled + in-use both route to usage logging. For OWN POs the
@@ -129,17 +141,50 @@ export const HubDialogRouter = forwardRef<
       />
 
       <RecordAndVerifyDeliveryDialog
-        open={dialog?.kind === "record-delivery"}
+        open={dialog?.kind === "record-delivery" && poReady}
         onClose={close}
         siteId={siteId}
-        purchaseOrder={dialog?.kind === "record-delivery" ? dialog.po : null}
+        purchaseOrder={
+          dialog?.kind === "record-delivery" ? fullPO.data ?? null : null
+        }
       />
 
       <MaterialSettlementDialog
-        open={dialog?.kind === "settle"}
+        open={dialog?.kind === "settle" && poReady}
         onClose={close}
-        purchaseOrder={dialog?.kind === "settle" ? dialog.po : null}
+        purchaseOrder={dialog?.kind === "settle" ? fullPO.data ?? null : null}
       />
+
+      {/* Brief spinner while the full PO loads for the settle / delivery
+          dialog — the by-id fetch is normally a few hundred ms, but on a slow
+          proxy this keeps the tap feeling responsive instead of "nothing
+          happened". */}
+      <Backdrop
+        open={poLoading}
+        sx={{ zIndex: (theme) => theme.zIndex.modal + 1, color: "#fff" }}
+      >
+        <CircularProgress color="inherit" />
+      </Backdrop>
+
+      {/* The PO fetch itself timed out/failed — offer a retry instead of
+          silently doing nothing. */}
+      <Snackbar
+        open={poError}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert
+          severity="error"
+          variant="filled"
+          action={
+            <Button color="inherit" size="small" onClick={() => fullPO.refetch()}>
+              Retry
+            </Button>
+          }
+          onClose={close}
+        >
+          Couldn&apos;t load order details. Check your connection.
+        </Alert>
+      </Snackbar>
 
       <RecordBatchUsageDialog
         open={dialog?.kind === "log-usage"}

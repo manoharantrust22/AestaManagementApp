@@ -12,7 +12,7 @@
  * Mirrors `ProtoHub` in docs/MaterialHub_Redesign/proto-screens.jsx.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Alert,
@@ -79,11 +79,35 @@ export default function MaterialHubPage() {
   const {
     threads,
     isLoading,
+    isFetching,
     isError,
-    error,
     materialRequestById,
-    purchaseOrderById,
+    refetch,
   } = useMaterialThreads(siteId, siteGroupId);
+
+  // Transparent auto-retry. When a composed query errors (almost always the
+  // heavy PO fetch stalling on the proxy — the DB returns in <1ms), keep the
+  // page populated and quietly refetch with capped backoff instead of stranding
+  // the user on a full-screen error that only a manual browser refresh clears.
+  // Since the connection pool is healthy in this failure mode, a plain refetch
+  // lands on a fresh request and succeeds — exactly what hitting refresh did,
+  // now automatic. The heartbeat caps at 15s so it self-heals whenever the
+  // network recovers (Gmail-style), without hammering.
+  const [autoRetryTick, setAutoRetryTick] = useState(0);
+  useEffect(() => {
+    if (!isError) {
+      if (autoRetryTick !== 0) setAutoRetryTick(0);
+      return;
+    }
+    // A fetch is already in flight — wait for it to settle before scheduling.
+    if (isFetching) return;
+    const delay = Math.min(2000 * 2 ** Math.min(autoRetryTick, 3), 15000);
+    const t = setTimeout(() => {
+      setAutoRetryTick((n) => n + 1);
+      refetch();
+    }, delay);
+    return () => clearTimeout(t);
+  }, [isError, isFetching, autoRetryTick, refetch]);
 
   const dialogRouterRef = useRef<HubDialogRouterHandle>(null);
 
@@ -280,15 +304,91 @@ export default function MaterialHubPage() {
         />
       </Box>
 
-      {isLoading ? (
+      {threads.length > 0 ? (
+        // We have data — ALWAYS show it. A failed background refresh (the heavy
+        // PO fetch stalling on the proxy) must never wipe the page back to an
+        // error screen that only a manual reload clears. Surface a quiet,
+        // non-blocking "reconnecting" hint instead; auto-retry refreshes it.
+        <>
+          {isError && (
+            <Box sx={{ mb: 1.5 }}>
+              <Alert
+                severity="warning"
+                icon={<CircularProgress size={16} />}
+                sx={{ alignItems: "center", py: 0.25 }}
+                action={
+                  <Button color="inherit" size="small" onClick={() => refetch()}>
+                    Retry now
+                  </Button>
+                }
+              >
+                Showing saved data — reconnecting…
+              </Alert>
+            </Box>
+          )}
+          {filteredThreads.length === 0 ? (
+            <Box
+              sx={{
+                padding: "40px 20px",
+                textAlign: "center",
+                background: hubTokens.card,
+                border: `1px dashed ${hubTokens.border}`,
+                borderRadius: "12px",
+              }}
+            >
+              <Typography sx={{ fontSize: 13, color: hubTokens.muted }}>
+                No threads match this filter.
+              </Typography>
+            </Box>
+          ) : layout === "table" ? (
+            <MaterialHubTable threads={filteredThreads} onAction={handleAction} />
+          ) : (
+            <Stack spacing={1.25}>
+              {filteredThreads.map((t) => (
+                <MaterialThreadRow
+                  key={t.source_row_id}
+                  thread={t}
+                  selected={expandedId === t.source_row_id}
+                  onSelect={() =>
+                    setExpandedId(expandedId === t.source_row_id ? null : t.source_row_id)
+                  }
+                  onAction={handleAction}
+                />
+              ))}
+            </Stack>
+          )}
+        </>
+      ) : isLoading || isFetching ? (
         <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
           <CircularProgress size={28} />
         </Box>
       ) : isError ? (
-        <Alert severity="error">
-          Failed to load threads: {(error as Error)?.message || "Unknown error"}
-        </Alert>
-      ) : filteredThreads.length === 0 ? (
+        // Cold load with no cached data AND the fetch failed. Don't demand a
+        // browser refresh — keep auto-retrying (the effect above) and offer a
+        // manual nudge. The connection pool is healthy in this failure mode, so
+        // a retry usually lands within seconds.
+        <Box
+          sx={{
+            padding: "40px 20px",
+            textAlign: "center",
+            background: hubTokens.card,
+            border: `1px dashed ${hubTokens.border}`,
+            borderRadius: "12px",
+          }}
+        >
+          <CircularProgress size={22} sx={{ mb: 1.5 }} />
+          <Typography sx={{ fontSize: 14, fontWeight: 600, mb: 0.5 }}>
+            Taking longer than usual…
+          </Typography>
+          <Typography sx={{ fontSize: 12.5, color: hubTokens.muted, mb: 2 }}>
+            The connection is slow right now. Retrying automatically — no need to
+            refresh the page.
+          </Typography>
+          <Button variant="outlined" size="small" onClick={() => refetch()}>
+            Retry now
+          </Button>
+        </Box>
+      ) : (
         <Box
           sx={{
             padding: "40px 20px",
@@ -299,25 +399,9 @@ export default function MaterialHubPage() {
           }}
         >
           <Typography sx={{ fontSize: 13, color: hubTokens.muted }}>
-            No threads match this filter.
+            No material threads yet.
           </Typography>
         </Box>
-      ) : layout === "table" ? (
-        <MaterialHubTable threads={filteredThreads} onAction={handleAction} />
-      ) : (
-        <Stack spacing={1.25}>
-          {filteredThreads.map((t) => (
-            <MaterialThreadRow
-              key={t.source_row_id}
-              thread={t}
-              selected={expandedId === t.source_row_id}
-              onSelect={() =>
-                setExpandedId(expandedId === t.source_row_id ? null : t.source_row_id)
-              }
-              onAction={handleAction}
-            />
-          ))}
-        </Stack>
       )}
 
       <HubDialogRouter
@@ -325,7 +409,6 @@ export default function MaterialHubPage() {
         siteId={siteId ?? ""}
         siteGroupId={siteGroupId}
         materialRequestById={materialRequestById}
-        purchaseOrderById={purchaseOrderById}
       />
 
       <NewEntryMenu
