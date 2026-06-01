@@ -1072,9 +1072,12 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                   >
                     By variant
                   </Typography>
-                  {variantSummary.map((v) => (
+                  {/* Index guards against duplicate (material_id, brand_id)
+                      rows — same reason as the variant chips in
+                      MaterialThreadRow. */}
+                  {variantSummary.map((v, i) => (
                     <Box
-                      key={`${v.material_id}::${v.brand_id ?? ""}`}
+                      key={`${v.material_id}::${v.brand_id ?? ""}::${i}`}
                       sx={{
                         display: "flex",
                         justifyContent: "space-between",

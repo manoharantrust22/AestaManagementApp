@@ -190,8 +190,11 @@ export default function MaterialThreadRow({
           </Typography>
           {thread.variants && thread.variants.length > 1 && (
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: "4px", mt: "2px" }}>
-              {thread.variants.map((v) => (
-                <ThreadChip key={`${v.material_id}::${v.brand_id ?? ""}`} tone="neutral">
+              {/* Index in the key: one request can carry several line items for
+                  the same (material_id, brand_id) — e.g. "Teak wood · 5 sizes"
+                  with no brand — so material_id::brand_id alone collides. */}
+              {thread.variants.map((v, i) => (
+                <ThreadChip key={`${v.material_id}::${v.brand_id ?? ""}::${i}`} tone="neutral">
                   {variantShortLabel(v.material_name, threadVariantCategory(thread.variants ?? [], thread.material_name))} · {v.requested_qty}
                   {v.unit ? ` ${v.unit}` : ""}
                 </ThreadChip>
