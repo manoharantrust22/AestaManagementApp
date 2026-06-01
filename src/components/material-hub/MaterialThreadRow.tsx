@@ -17,6 +17,7 @@
 
 import { Box, Typography, useMediaQuery } from "@mui/material";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
+import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import { hubTokens, HUB_BREAKPOINT_PX } from "@/lib/material-hub/tokens";
 import { inr, fmtDateShort } from "@/lib/material-hub/formatters";
 import { threadVariantCategory } from "@/lib/material-hub/threadTitle";
@@ -404,19 +405,36 @@ export default function MaterialThreadRow({
                   </Box>
                 )}
               </Typography>
-              <Box
-                sx={{
-                  padding: "2px 7px",
-                  borderRadius: "5px",
-                  background: hubTokens.bg,
-                  color: hubTokens.muted,
-                  fontSize: 10,
-                  fontWeight: 800,
-                  letterSpacing: "0.4px",
-                  textTransform: "uppercase",
-                }}
-              >
-                {stageLabel(thread.stage)}
+              <Box sx={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <Box
+                  component="span"
+                  sx={{
+                    padding: "2px 7px",
+                    borderRadius: "5px",
+                    background: hubTokens.bg,
+                    color: hubTokens.muted,
+                    fontSize: 10,
+                    fontWeight: 800,
+                    letterSpacing: "0.4px",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {stageLabel(thread.stage)}
+                </Box>
+                <Box
+                  component="span"
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "1px",
+                    color: hubTokens.primary,
+                    fontSize: 10,
+                    fontWeight: 700,
+                  }}
+                >
+                  Details
+                  <KeyboardArrowRightIcon sx={{ fontSize: 14 }} />
+                </Box>
               </Box>
             </Box>
           </>
