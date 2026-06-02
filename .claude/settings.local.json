@@ -434,7 +434,8 @@
       "PowerShell($f='c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\src\\\\lib\\\\material-hub\\\\threadTypes.ts'; Get-Content -LiteralPath $f -Encoding UTF8 | Select-Object -Skip 185 -First 60 | ForEach-Object {$i=0} {$global:i++; '{0}: {1}' -f \\($global:i+185\\), $_})",
       "PowerShell($f='c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\src\\\\hooks\\\\queries\\\\useBatchUsage.ts'; $lines=\\(Get-Content -LiteralPath $f\\); Write-Output \\(\"TOTAL=\" + $lines.Count\\); Select-String -LiteralPath $f -Pattern '^export function' | ForEach-Object { Write-Output \\(\"EXP \" + $_.LineNumber + \" \" + $_.Line\\) })",
       "Bash(find / -name \"expenses-material-after.png\" 2>/dev/null | head -5)",
-      "Bash([ -s \"$f\" ])"
+      "Bash([ -s \"$f\" ])",
+      "PowerShell($conn = Get-NetTCPConnection -State Listen -LocalPort 3000 -ErrorAction SilentlyContinue; if \\($conn\\) { \"DEV SERVER RUNNING on :3000 \\(PID $\\($conn.OwningProcess | Select-Object -First 1\\)\\)\" } else { \"no listener on :3000\" })"
     ],
     "deny": [],
     "ask": [],

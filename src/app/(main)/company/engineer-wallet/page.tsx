@@ -108,10 +108,17 @@ export default function CompanyEngineerWalletPage() {
 
   const engineersQuery = useWalletEnabledEngineers(companyId);
   const engineers = engineersQuery.data ?? [];
-  const selectedEngineer = engineers.find((e) => e.user_id === engineerId) ?? null;
+
+  // With exactly one wallet-enabled engineer, the "all engineers" overview is
+  // just that engineer's data behind an extra click — so default straight into
+  // their wallet. An explicit ?engineerId in the URL always wins.
+  const soleEngineerId = engineers.length === 1 ? engineers[0].user_id : null;
+  const effectiveEngineerId = engineerId ?? soleEngineerId;
+  const selectedEngineer =
+    engineers.find((e) => e.user_id === effectiveEngineerId) ?? null;
 
   // Mode: A = all engineers overview, B = per-engineer drill.
-  const isModeB = !!engineerId && !!selectedEngineer;
+  const isModeB = !!selectedEngineer;
 
   if (!userProfile) {
     return (
@@ -153,13 +160,15 @@ export default function CompanyEngineerWalletPage() {
         />
       </Stack>
 
-      {/* Engineer rail: always visible on desktop, hidden in Mode B on mobile to save space. */}
-      {(!isMobile || !isModeB) && (
+      {/* Engineer rail: a chooser across engineers. Hidden entirely when there's
+          only one engineer (nothing to choose — they're auto-selected), and
+          hidden in Mode B on mobile to save space. */}
+      {!soleEngineerId && (!isMobile || !isModeB) && (
         <Box sx={{ mb: 2 }}>
           <EngineerRail
             engineers={engineers}
             isLoading={engineersQuery.isLoading}
-            selectedId={engineerId}
+            selectedId={effectiveEngineerId}
             onSelect={(id) =>
               setParam({
                 engineerId: id,
@@ -179,6 +188,7 @@ export default function CompanyEngineerWalletPage() {
           siteId={siteId}
           range={range}
           tab={tab}
+          hideBack={!!soleEngineerId}
           onBack={() => setParam({ engineerId: null, siteId: null })}
           onSelectSite={(s) => setParam({ siteId: s })}
           onChangeTab={(t) => setParam({ type: t === "all" ? null : t })}
@@ -456,6 +466,7 @@ function EngineerDetailPanel({
   siteId,
   range,
   tab,
+  hideBack,
   onBack,
   onSelectSite,
   onChangeTab,
@@ -468,6 +479,7 @@ function EngineerDetailPanel({
   siteId: string | null;
   range: DateRangePreset;
   tab: LedgerTab;
+  hideBack?: boolean;
   onBack: () => void;
   onSelectSite: (siteId: string | null) => void;
   onChangeTab: (t: LedgerTab) => void;
@@ -528,9 +540,11 @@ function EngineerDetailPanel({
 
   return (
     <Box>
-      <Button startIcon={<ArrowBack />} onClick={onBack} sx={{ mb: 1 }} size="small">
-        All engineers
-      </Button>
+      {!hideBack && (
+        <Button startIcon={<ArrowBack />} onClick={onBack} sx={{ mb: 1 }} size="small">
+          All engineers
+        </Button>
+      )}
 
       <Card
         elevation={0}
