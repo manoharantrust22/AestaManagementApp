@@ -13,7 +13,7 @@
  *   create-po            → UnifiedPurchaseOrderDialog (request mode)
  *   record-delivery      → RecordAndVerifyDeliveryDialog
  *   settle-vendor        → MaterialSettlementDialog
- *   log-usage            → RecordBatchUsageDialog
+ *   log-usage            → WaterfallUsageDialog (material-scoped, oldest→newest)
  *   finalize-allocation  → SpotPurchaseAllocatorDialog
  */
 
@@ -23,7 +23,7 @@ import RequestApprovalDialog from "@/components/materials/RequestApprovalDialog"
 import UnifiedPurchaseOrderDialog from "@/components/materials/UnifiedPurchaseOrderDialog";
 import RecordAndVerifyDeliveryDialog from "@/components/materials/RecordAndVerifyDeliveryDialog";
 import MaterialSettlementDialog from "@/components/materials/MaterialSettlementDialog";
-import RecordBatchUsageDialog from "@/components/materials/RecordBatchUsageDialog";
+import WaterfallUsageDialog from "@/components/materials/WaterfallUsageDialog";
 import { SpotPurchaseAllocatorDialog } from "@/components/materials/SpotPurchaseAllocatorDialog";
 import { usePurchaseOrder } from "@/hooks/queries/usePurchaseOrders";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
@@ -39,7 +39,17 @@ type OpenDialog =
   // by-id fetch also guards against acting on a stale cached PO.
   | { kind: "record-delivery"; poId: string }
   | { kind: "settle"; poId: string }
-  | { kind: "log-usage"; batchRefCode?: string }
+  // log-usage is now material-scoped: the waterfall dialog gathers ALL group
+  // batches of this material and distributes a total across them oldest→newest.
+  // batchRefCode is just a highlight hint for the originating batch.
+  | {
+      kind: "log-usage";
+      materialId: string;
+      brandId?: string | null;
+      materialName?: string;
+      materialUnit?: string;
+      batchRefCode?: string;
+    }
   | { kind: "finalize-spot"; batchId: string; refCode: string; totalAmount: number };
 
 export interface HubDialogRouterHandle {
@@ -110,15 +120,27 @@ export const HubDialogRouter = forwardRef<
         if (thread.po?.id) setDialog({ kind: "settle", poId: thread.po.id });
         return;
       }
-      // Settled + in-use both route to usage logging. For OWN POs the
-      // inventory pool isn't per-batch — we still pass the expense ref so the
-      // dialog can pre-fill where possible; the dialog falls back to the
-      // shared (site, material, brand) bucket if no batch_code matches.
+      // Settled + in-use both route to usage logging. The waterfall dialog is
+      // material-scoped: it gathers every group batch of this material and
+      // distributes the entered total oldest→newest. A single-variant thread
+      // pre-selects its variant; a multi-variant thread (e.g. TMT 3 sizes) lets
+      // the engineer pick the size. batchRef just highlights the originating row.
       if (thread.stage === "settled" || thread.stage === "in-use") {
         const batchRef = thread.inventory?.batch && thread.inventory.batch !== "—"
           ? thread.inventory.batch
           : thread.settlement?.expense_ref ?? undefined;
-        setDialog({ kind: "log-usage", batchRefCode: batchRef });
+        const singleVariantBrand =
+          thread.variants && thread.variants.length === 1
+            ? thread.variants[0].brand_id ?? null
+            : undefined;
+        setDialog({
+          kind: "log-usage",
+          materialId: thread.material_id,
+          brandId: singleVariantBrand,
+          materialName: thread.material_name,
+          materialUnit: thread.material_unit,
+          batchRefCode: batchRef,
+        });
       }
     },
   }));
@@ -186,10 +208,15 @@ export const HubDialogRouter = forwardRef<
         </Alert>
       </Snackbar>
 
-      <RecordBatchUsageDialog
+      <WaterfallUsageDialog
         open={dialog?.kind === "log-usage"}
         onClose={close}
         siteId={siteId}
+        siteGroupId={siteGroupId}
+        materialId={dialog?.kind === "log-usage" ? dialog.materialId : ""}
+        brandId={dialog?.kind === "log-usage" ? dialog.brandId : undefined}
+        materialName={dialog?.kind === "log-usage" ? dialog.materialName : undefined}
+        materialUnit={dialog?.kind === "log-usage" ? dialog.materialUnit : undefined}
         preselectedBatchRefCode={
           dialog?.kind === "log-usage" ? dialog.batchRefCode : undefined
         }

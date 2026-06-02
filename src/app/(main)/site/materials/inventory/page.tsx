@@ -45,7 +45,7 @@ import {
   usePurchasedBatches,
   type PurchasedBatchView,
 } from "@/hooks/queries/usePurchasedBatches";
-import RecordBatchUsageDialog from "@/components/materials/RecordBatchUsageDialog";
+import WaterfallUsageDialog from "@/components/materials/WaterfallUsageDialog";
 import UsageEntryDrawer from "@/components/inventory/UsageEntryDrawer";
 import UsageHistoryDialog, {
   type UsageHistoryItem,
@@ -175,8 +175,9 @@ export default function InventoryPage() {
   // currently get merged into the site's shared bucket.
   const [viewMode, setViewMode] = useState<ViewMode>("batch");
   // Two usage dialogs depending on the card's source:
-  //   - Group / batch-exact rows → RecordBatchUsageDialog (writes to
-  //     batch_usage_records, drives group settlement).
+  //   - Group / batch-exact rows → WaterfallUsageDialog (material-scoped:
+  //     distributes a total across the material's group batches oldest→newest,
+  //     writes batch_usage_records, drives group settlement).
   //   - Own / pooled rows → UsageEntryDrawer (writes to daily_material_usage,
   //     trigger decrements stock_inventory.current_qty).
   const [usageBatchRefCode, setUsageBatchRefCode] = useState<string | undefined>(
@@ -184,6 +185,8 @@ export default function InventoryPage() {
   );
   const [usageMaterialId, setUsageMaterialId] = useState<string | undefined>(undefined);
   const [usageBrandId, setUsageBrandId] = useState<string | null | undefined>(undefined);
+  const [usageMaterialName, setUsageMaterialName] = useState<string | undefined>(undefined);
+  const [usageMaterialUnit, setUsageMaterialUnit] = useState<string | undefined>(undefined);
   const [usageDialogOpen, setUsageDialogOpen] = useState(false);
   const [ownUsageStockRow, setOwnUsageStockRow] =
     useState<ExtendedStockInventory | null>(null);
@@ -511,13 +514,16 @@ export default function InventoryPage() {
                   setOwnUsageOpen(true);
                   return;
                 }
-                // Group / batch-exact rows: existing batch usage flow.
-                // Pass the variant (material_id, brand_id) so the dialog
-                // scopes Used/Remaining to this row and writes the correct
-                // material on the RPC call (no more LIMIT 1 mis-attribution).
+                // Group / batch-exact rows: the waterfall usage dialog.
+                // Material-scoped — it gathers ALL group batches of this
+                // material and distributes a total oldest→newest. The variant
+                // (material_id, brand_id) scopes which size; batch_code just
+                // highlights the originating batch.
                 setUsageBatchRefCode(it.batch_code ?? undefined);
                 setUsageMaterialId(it.material_id ?? undefined);
                 setUsageBrandId(it.brand_id ?? null);
+                setUsageMaterialName(it.material_name ?? undefined);
+                setUsageMaterialUnit(it.material_unit ?? undefined);
                 setUsageDialogOpen(true);
               }}
               onViewHistory={(it) => {
@@ -537,17 +543,22 @@ export default function InventoryPage() {
 
       {siteId && (
         <>
-          <RecordBatchUsageDialog
-            open={usageDialogOpen}
+          <WaterfallUsageDialog
+            open={usageDialogOpen && !!usageMaterialId}
             onClose={() => {
               setUsageDialogOpen(false);
               setUsageMaterialId(undefined);
               setUsageBrandId(undefined);
+              setUsageMaterialName(undefined);
+              setUsageMaterialUnit(undefined);
             }}
             siteId={siteId}
+            siteGroupId={siteGroupId}
+            materialId={usageMaterialId ?? ""}
+            brandId={usageBrandId}
+            materialName={usageMaterialName}
+            materialUnit={usageMaterialUnit}
             preselectedBatchRefCode={usageBatchRefCode}
-            preselectedMaterialId={usageMaterialId}
-            preselectedBrandId={usageBrandId}
           />
           <UsageEntryDrawer
             open={ownUsageOpen}

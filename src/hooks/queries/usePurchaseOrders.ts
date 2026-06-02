@@ -313,6 +313,23 @@ export function useCreatePurchaseOrder() {
         throw poError;
       }
 
+      // PROBLEM-A FIX (going forward): a GROUP PO created from an own_site
+      // request must stamp the source material_request with the same group.
+      // The Hub fetches threads via .or(site_id, site_group_id); without the
+      // stamp the thread only surfaces on the requesting site and never on
+      // sibling cluster sites. The backfill migration 20260602110000 repairs
+      // historical rows — this keeps newly-created ones correct.
+      if ((po as any)?.site_group_id && data.source_request_id) {
+        await (supabase as any)
+          .from("material_requests")
+          .update({
+            site_group_id: (po as any).site_group_id,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", data.source_request_id)
+          .is("site_group_id", null);
+      }
+
       // Insert PO items
       const poItems = itemsWithTotals.map((item: any) => {
         // Calculate actual weight per piece for brand weight learning
@@ -538,6 +555,13 @@ export function useCreatePurchaseOrder() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.priceHistory.byVendor(variables.vendor_id),
       });
+      // A group PO may have just stamped the source MR's site_group_id — refresh
+      // the requests list so the thread surfaces on sibling cluster sites too.
+      if ((variables as any).site_group_id) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.materialRequests.bySite(variables.site_id),
+        });
+      }
     },
     // Note: Removed duplicate onSettled invalidation - onSuccess already handles this
   });

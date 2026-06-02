@@ -1140,9 +1140,13 @@ export function useBatchesWithUsage(groupId: string | undefined) {
 // ============================================
 
 /**
- * Record usage across multiple group stock batches using FIFO allocation.
- * Calls record_batch_usage RPC sequentially for each allocation (oldest first).
- * Each RPC handles auto-complete + self-use expense creation when a batch is fully consumed.
+ * @deprecated Use {@link useRecordBatchUsageWaterfall} instead.
+ *
+ * Records usage across multiple group stock batches by calling record_batch_usage
+ * sequentially from the client — NON-ATOMIC (a mid-loop failure leaves earlier
+ * batches decremented with no rollback) AND it calls a dead 6-arg record_batch_usage
+ * signature (no material_id/brand_id), so it silently mis-attributes / fails on
+ * variant batches. Kept only until all callers migrate to the atomic waterfall RPC.
  */
 export function useRecordGroupStockUsageFIFO() {
   const queryClient = useQueryClient();
@@ -1206,6 +1210,95 @@ export function useRecordGroupStockUsageFIFO() {
       // Invalidate stock inventory - record_batch_usage now decrements stock_inventory.current_qty
       queryClient.invalidateQueries({ queryKey: queryKeys.materialStock.all });
       queryClient.invalidateQueries({ queryKey: ["stock-inventory"] });
+    },
+  });
+}
+
+/**
+ * Atomically record usage across MANY group-stock batches in ONE transaction —
+ * the engine behind the smart waterfall "Log usage" dialog. Calls the
+ * record_batch_usage_waterfall RPC, which loops server-side with the EXACT
+ * per-variant + landed-cost + stock-sync semantics of record_batch_usage, so it
+ * is all-or-nothing: any per-batch failure (oversubscribed remaining, concurrent
+ * edit) aborts the whole submission with nothing written.
+ *
+ * Replaces the non-atomic {@link useRecordGroupStockUsageFIFO}.
+ */
+export function useRecordBatchUsageWaterfall() {
+  const queryClient = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    retry: false, // not idempotent — modifies stock + usage records
+    mutationFn: async (data: {
+      usage_site_id: string;
+      material_id: string;
+      brand_id?: string | null;
+      usage_date: string;
+      work_description?: string;
+      created_by?: string;
+      allocations: Array<{ batch_ref_code: string; quantity: number }>;
+    }) => {
+      if (!data.material_id) {
+        throw new Error("material_id is required to record waterfall usage");
+      }
+      const positive = data.allocations.filter((a) => a.quantity > 0);
+      if (positive.length === 0) {
+        throw new Error("Enter a quantity to record");
+      }
+
+      const { data: result, error } = await (supabase as any).rpc(
+        "record_batch_usage_waterfall",
+        {
+          p_usage_site_id: data.usage_site_id,
+          p_material_id: data.material_id,
+          p_brand_id: data.brand_id ?? null,
+          p_usage_date: data.usage_date,
+          p_work_description: data.work_description || null,
+          p_created_by: data.created_by || null,
+          p_allocations: positive,
+        }
+      );
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      return result as string[]; // array of usage ids
+    },
+    onSuccess: (_result, variables) => {
+      // Per affected batch — mirror the granular set useRecordBatchUsage fires so
+      // the Hub INVENTORY·STOCK / INTER-SITE / usage-log blocks + Inventory cards
+      // all refresh.
+      for (const a of variables.allocations) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.batchUsage.byBatch(a.batch_ref_code),
+        });
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.batchUsage.summary(a.batch_ref_code),
+        });
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.materialPurchases.byRefCode(a.batch_ref_code),
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["batch-variant-summary", a.batch_ref_code],
+        });
+      }
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.batchUsage.bySite(variables.usage_site_id),
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.batchUsage.all });
+      queryClient.invalidateQueries({ queryKey: ["material-purchases", "batches"] });
+      queryClient.invalidateQueries({ queryKey: ["material-purchases"] });
+      queryClient.invalidateQueries({ queryKey: ["all-expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["material-threads"] });
+      queryClient.invalidateQueries({ queryKey: ["usage-history"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["stock-inventory"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.materialStock.all });
+      queryClient.invalidateQueries({ queryKey: ["inter-site-settlements"] });
+      queryClient.invalidateQueries({ queryKey: ["material-usage"] });
     },
   });
 }
