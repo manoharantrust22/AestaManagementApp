@@ -16,6 +16,10 @@ export interface LedgerRow {
   usage_date: string;
   work_description: string | null;
   source: "batch" | "own";
+  // Flat columns from the view (UNION views don't support PostgREST FK embeds)
+  material_name: string | null;
+  section_name: string | null;
+  // Convenience accessors shaped like embedded joins (derived from flat cols)
   material: { id: string; name: string } | null;
   section: { id: string; name: string } | null;
 }
@@ -165,15 +169,15 @@ export function useMaterialUsageLedger(filters: LedgerFilters) {
     queryKey: ["material-usage-ledger", site_id, site_group_id, from_date, to_date, all],
     enabled: !!(site_id || site_group_id || all),
     queryFn: wrapQueryFn(async () => {
-      // v_material_usage_ledger view is not yet in the generated TypeScript types
+      // v_material_usage_ledger is a UNION view — PostgREST can't resolve FK
+      // embeds on UNION views, so we select flat columns and shape them here.
       // eslint-disable-next-line -- supabase client cast; view not yet in generated types
       let query = (supabase as any)
         .from("v_material_usage_ledger")
         .select(
           `id, site_id, site_group_id, material_id, brand_id, section_id,
            quantity, unit, unit_cost, total_cost, usage_date, work_description, source,
-           material:materials(id, name),
-           section:building_sections(id, name)`
+           material_name, section_name`
         )
         .order("usage_date", { ascending: false });
 
@@ -184,7 +188,13 @@ export function useMaterialUsageLedger(filters: LedgerFilters) {
 
       const { data, error } = await query;
       if (error) throw error;
-      return (data ?? []) as LedgerRow[];
+
+      // Shape flat columns into the expected nested accessors
+      return ((data ?? []) as any[]).map((row) => ({
+        ...row,
+        material: row.material_name ? { id: row.material_id, name: row.material_name } : null,
+        section: row.section_name ? { id: row.section_id, name: row.section_name } : null,
+      })) as LedgerRow[];
     }, { timeoutMs: 25000, operationName: "useMaterialUsageLedger" }),
   });
 }

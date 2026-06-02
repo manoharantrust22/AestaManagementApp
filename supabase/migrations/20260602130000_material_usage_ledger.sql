@@ -3,6 +3,8 @@ ALTER TABLE batch_usage_records
   ADD COLUMN IF NOT EXISTS section_id uuid REFERENCES building_sections(id);
 
 -- 2. Create v_material_usage_ledger view
+-- NOTE: UNION-based views don't expose FK relationships to PostgREST, so
+-- material_name and section_name are embedded directly as flat columns.
 CREATE OR REPLACE VIEW v_material_usage_ledger AS
   SELECT
     bur.id,
@@ -17,9 +19,13 @@ CREATE OR REPLACE VIEW v_material_usage_ledger AS
     bur.total_cost,
     bur.usage_date,
     bur.work_description,
-    'batch'::text           AS source
+    'batch'::text           AS source,
+    mat.name                AS material_name,
+    sec.name                AS section_name
   FROM batch_usage_records bur
-  JOIN sites s ON s.id = bur.usage_site_id
+  JOIN sites s   ON s.id   = bur.usage_site_id
+  JOIN materials mat ON mat.id = bur.material_id
+  LEFT JOIN building_sections sec ON sec.id = bur.section_id
   UNION ALL
   SELECT
     dmu.id,
@@ -29,15 +35,18 @@ CREATE OR REPLACE VIEW v_material_usage_ledger AS
     dmu.brand_id,
     dmu.section_id,
     dmu.quantity,
-    m.unit,
+    m.unit::text,
     dmu.unit_cost,
     COALESCE(dmu.total_cost, dmu.quantity * dmu.unit_cost) AS total_cost,
     dmu.usage_date,
     dmu.work_description,
-    'own'::text             AS source
+    'own'::text             AS source,
+    m.name                  AS material_name,
+    sec.name                AS section_name
   FROM daily_material_usage dmu
-  JOIN sites s ON s.id = dmu.site_id
-  JOIN materials m ON m.id = dmu.material_id;
+  JOIN sites s   ON s.id   = dmu.site_id
+  JOIN materials m ON m.id = dmu.material_id
+  LEFT JOIN building_sections sec ON sec.id = dmu.section_id;
 
 -- 3. Update record_batch_usage_waterfall RPC to accept p_section_id
 -- Exact body from 20260602120000_record_batch_usage_waterfall.sql — only
