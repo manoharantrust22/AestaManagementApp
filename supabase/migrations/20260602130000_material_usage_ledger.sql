@@ -232,3 +232,8 @@ $function$;
 GRANT EXECUTE ON FUNCTION public.record_batch_usage_waterfall(
   uuid, uuid, uuid, date, text, uuid, jsonb, uuid
 ) TO authenticated;
+
+GRANT SELECT ON public.v_material_usage_ledger TO authenticated;
+
+CREATE INDEX IF NOT EXISTS idx_batch_usage_records_section_id
+  ON batch_usage_records(section_id);
