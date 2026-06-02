@@ -1237,6 +1237,7 @@ export function useRecordBatchUsageWaterfall() {
       usage_date: string;
       work_description?: string;
       created_by?: string;
+      section_id?: string | null;
       allocations: Array<{ batch_ref_code: string; quantity: number }>;
     }) => {
       if (!data.material_id) {
@@ -1256,6 +1257,7 @@ export function useRecordBatchUsageWaterfall() {
           p_usage_date: data.usage_date,
           p_work_description: data.work_description || null,
           p_created_by: data.created_by || null,
+          p_section_id: data.section_id ?? null,
           p_allocations: positive,
         }
       );
