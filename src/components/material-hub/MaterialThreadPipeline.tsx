@@ -316,11 +316,22 @@ export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelin
           );
         }
 
-        // Synthetic "inter-site" step: amber while cross-site debt is pending,
-        // green check once it's settled. Always the last visible step (no
-        // trailing connector). Independent of the consumption lifecycle.
+        // Synthetic "inter-site" step. Three states:
+        //   • settled            → green check (debt reconciled).
+        //   • pending + exhausted → amber pulse: the material is fully used, so
+        //                           settling the cross-site debt is now the
+        //                           engineer's NEXT action (mirrors nextAction).
+        //   • pending + in use    → DORMANT future stage (outlined, subtle). The
+        //                           debt exists but isn't due yet — settlement
+        //                           normally happens only after the material is
+        //                           over, so pulsing here is premature and reads
+        //                           as "act now" when the real next step is still
+        //                           "Log usage". Always the last visible step.
         if (s.key === "inter-site") {
           const pending = !!thread.inter_site_pending;
+          // Pulse only once consumption is done — the same `exhausted` signal
+          // that turns the IN USE step green. While stock remains, stay dormant.
+          const activePending = pending && thread.stage === "exhausted";
           return (
             <Box key={s.key} sx={{ display: "contents" }}>
               <Box
@@ -333,21 +344,22 @@ export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelin
                 }}
               >
                 <StageDot
-                  // Pending → amber pulsing dot; settled → green check.
+                  // active pending → amber pulse; settled → green check;
+                  // dormant pending → outlined future dot (all flags false).
                   done={false}
-                  current={pending}
+                  current={activePending}
                   completedSuccess={!pending}
                   accent={hubTokens.warn}
                   softAccent={hubTokens.warnSoft}
                 />
                 <StageLabel
                   text="INTER-SITE"
-                  // done+current both true for pending so the label takes the
-                  // amber accent (StageLabel only colors with accent when both
-                  // are set); settled reads as a muted completed step.
-                  done
-                  current={pending}
-                  accent={pending ? hubTokens.warn : hubTokens.success}
+                  // settled/active → done so the label colors (muted vs amber);
+                  // dormant pending → done=false so it reads as a faint future
+                  // step. current drives the bold amber accent.
+                  done={!pending || activePending}
+                  current={activePending}
+                  accent={activePending ? hubTokens.warn : hubTokens.success}
                 />
               </Box>
             </Box>

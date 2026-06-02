@@ -435,7 +435,8 @@
       "PowerShell($f='c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\src\\\\hooks\\\\queries\\\\useBatchUsage.ts'; $lines=\\(Get-Content -LiteralPath $f\\); Write-Output \\(\"TOTAL=\" + $lines.Count\\); Select-String -LiteralPath $f -Pattern '^export function' | ForEach-Object { Write-Output \\(\"EXP \" + $_.LineNumber + \" \" + $_.Line\\) })",
       "Bash(find / -name \"expenses-material-after.png\" 2>/dev/null | head -5)",
       "Bash([ -s \"$f\" ])",
-      "PowerShell($conn = Get-NetTCPConnection -State Listen -LocalPort 3000 -ErrorAction SilentlyContinue; if \\($conn\\) { \"DEV SERVER RUNNING on :3000 \\(PID $\\($conn.OwningProcess | Select-Object -First 1\\)\\)\" } else { \"no listener on :3000\" })"
+      "PowerShell($conn = Get-NetTCPConnection -State Listen -LocalPort 3000 -ErrorAction SilentlyContinue; if \\($conn\\) { \"DEV SERVER RUNNING on :3000 \\(PID $\\($conn.OwningProcess | Select-Object -First 1\\)\\)\" } else { \"no listener on :3000\" })",
+      "Bash(awk '/CREATE TABLE.*daily_material_usage/,/^;/' supabase/migrations/00000000000000_initial_schema.sql)"
     ],
     "deny": [],
     "ask": [],
