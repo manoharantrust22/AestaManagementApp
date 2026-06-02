@@ -86,3 +86,12 @@ describe("groupBySection", () => {
     expect(untagged.material_breakdown[0].material_id).toBe("m2");
   });
 });
+
+describe("empty input", () => {
+  it("groupByMaterial returns [] for empty input", () => {
+    expect(groupByMaterial([])).toEqual([]);
+  });
+  it("groupBySection returns [] for empty input", () => {
+    expect(groupBySection([])).toEqual([]);
+  });
+});

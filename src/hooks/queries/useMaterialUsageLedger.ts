@@ -11,8 +11,8 @@ export interface LedgerRow {
   section_id: string | null;
   quantity: number;
   unit: string;
-  unit_cost: number;
-  total_cost: number;
+  unit_cost: number | null;
+  total_cost: number | null;
   usage_date: string;
   work_description: string | null;
   source: "batch" | "own";
@@ -42,6 +42,7 @@ export interface SectionGroup {
   section_id: string | null;
   section_name: string;
   total_cost: number;
+  total_qty: number;
   material_breakdown: MaterialBreakdown[];
 }
 
@@ -76,7 +77,7 @@ export function groupByMaterial(rows: LedgerRow[]): MaterialGroup[] {
 
   return Array.from(map.entries()).map(([material_id, { rows: mRows, material_name, unit }]) => {
     const total_qty = mRows.reduce((s, r) => s + r.quantity, 0);
-    const total_cost = mRows.reduce((s, r) => s + r.total_cost, 0);
+    const total_cost = mRows.reduce((s, r) => s + (r.total_cost ?? 0), 0);
     const avg_unit_cost = total_qty > 0 ? total_cost / total_qty : 0;
     const untagged_count = mRows.filter((r) => r.section_id === null).length;
 
@@ -88,7 +89,7 @@ export function groupByMaterial(rows: LedgerRow[]): MaterialGroup[] {
       }
       const s = sectionMap.get(key)!;
       s.qty += r.quantity;
-      s.cost += r.total_cost;
+      s.cost += r.total_cost ?? 0;
     }
 
     const section_breakdown: SectionBreakdown[] = Array.from(sectionMap.entries()).map(
@@ -124,7 +125,8 @@ export function groupBySection(rows: LedgerRow[]): SectionGroup[] {
   }
 
   return Array.from(map.entries()).map(([section_id, { rows: sRows, section_name }]) => {
-    const total_cost = sRows.reduce((s, r) => s + r.total_cost, 0);
+    const total_cost = sRows.reduce((s, r) => s + (r.total_cost ?? 0), 0);
+    const total_qty = sRows.reduce((s, r) => s + r.quantity, 0);
 
     const matMap = new Map<string, { qty: number; cost: number; name: string; unit: string }>();
     for (const r of sRows) {
@@ -138,7 +140,7 @@ export function groupBySection(rows: LedgerRow[]): SectionGroup[] {
       }
       const m = matMap.get(r.material_id)!;
       m.qty += r.quantity;
-      m.cost += r.total_cost;
+      m.cost += r.total_cost ?? 0;
     }
 
     const material_breakdown: MaterialBreakdown[] = Array.from(matMap.entries()).map(
@@ -151,7 +153,7 @@ export function groupBySection(rows: LedgerRow[]): SectionGroup[] {
       })
     );
 
-    return { section_id, section_name, total_cost, material_breakdown };
+    return { section_id, section_name, total_cost, total_qty, material_breakdown };
   });
 }
 
@@ -164,7 +166,7 @@ export function useMaterialUsageLedger(filters: LedgerFilters) {
     enabled: !!(site_id || site_group_id || all),
     queryFn: wrapQueryFn(async () => {
       // v_material_usage_ledger view is not yet in the generated TypeScript types
-      // eslint-disable-next-line
+      // eslint-disable-next-line -- supabase client cast; view not yet in generated types
       let query = (supabase as any)
         .from("v_material_usage_ledger")
         .select(

@@ -276,6 +276,14 @@ export const queryKeys = {
     allocations: (settlementId: string) => ['batch-usage', 'allocations', settlementId] as const,
   },
 
+  // ==================== MATERIAL USAGE LEDGER ====================
+
+  materialUsageLedger: {
+    all: ['material-usage-ledger'] as const,
+    bySite: (siteId: string) => ['material-usage-ledger', 'site', siteId] as const,
+    byGroup: (groupId: string) => ['material-usage-ledger', 'group', groupId] as const,
+  },
+
   // ==================== VENDOR INVENTORY & PRICE HISTORY ====================
 
   vendorInventory: {
