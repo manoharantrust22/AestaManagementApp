@@ -275,6 +275,11 @@ const siteNavCategories: NavCategory[] = [
         path: "/site/materials/inter-site",
       },
       {
+        text: "Usage Ledger",
+        icon: <AssessmentIcon />,
+        path: "/site/materials/usage-ledger",
+      },
+      {
         text: "Rentals",
         icon: <RentalIcon />,
         path: "/site/rentals/v2",
@@ -362,6 +367,11 @@ const companyNavCategories: NavCategory[] = [
         text: "Material Catalog",
         icon: <CategoryIcon />,
         path: "/company/materials",
+      },
+      {
+        text: "Material Usage",
+        icon: <AssessmentIcon />,
+        path: "/company/materials/usage",
       },
       {
         text: "Categories",
