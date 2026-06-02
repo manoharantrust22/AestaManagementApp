@@ -19,11 +19,16 @@ import {
   Paper,
   Divider,
   Tooltip,
+  ToggleButtonGroup,
+  ToggleButton,
+  Collapse,
 } from "@mui/material";
 import {
   Close as CloseIcon,
   Inventory2 as BatchIcon,
   Replay as ResetIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
 } from "@mui/icons-material";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
@@ -34,7 +39,9 @@ import {
 } from "@/hooks/queries/useBatchUsage";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatCurrency } from "@/lib/formatters";
-import type { MaterialPurchaseExpenseWithDetails } from "@/types/material.types";
+import DateRangePicker from "@/components/common/DateRangePicker";
+
+type Scope = "batch" | "all" | "range";
 
 interface WaterfallUsageDialogProps {
   open: boolean;
@@ -47,10 +54,16 @@ interface WaterfallUsageDialogProps {
   materialId: string;
   /** Narrows to one variant when known. `undefined` = let the user pick. */
   brandId?: string | null;
-  /** Highlight a specific batch row when opened from its card/thread. */
+  /** Highlight (and, in "This batch" scope, restrict to) a specific batch. */
   preselectedBatchRefCode?: string;
   materialName?: string;
   materialUnit?: string;
+  /**
+   * Which scope to open in. Hub threads pass "batch" (log against the clicked
+   * batch); Inventory material cards pass "all" (waterfall the whole material).
+   * Falls back to "all" if "batch" is requested without a preselected batch.
+   */
+  defaultScope?: "batch" | "all";
 }
 
 const NO_BRAND = "__none__";
@@ -64,27 +77,36 @@ function round3(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
 
+/** Local YYYY-MM-DD (no UTC shift) for string-comparing against purchase_date. */
+function toYMD(d: Date | null): string | null {
+  if (!d) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 interface BatchRowState {
   refCode: string;
   purchaseDate: string;
+  vendorName: string | null;
   payingSiteId: string | null;
   payingSiteName: string | null;
   unit: string;
-  /** product unit price (pre-transport) */
-  unitCost: number;
-  /** landed unit cost incl. proportional transport — matches the RPC */
-  landedUnitCost: number;
+  unitCost: number; // product unit price (pre-transport)
+  landedUnitCost: number; // incl. proportional transport — matches the RPC
   hasTransport: boolean;
+  original: number;
+  used: number;
   remaining: number;
   assigned: number;
   locked: boolean;
 }
 
 /**
- * Distribute `total` across `rows` oldest→newest (rows must already be sorted
- * ascending by purchase date), filling each unlocked batch up to its remaining
- * before moving to the next. Locked rows keep their assigned value; the pool is
- * `total − Σ(locked)`. Returns a new array (does not mutate).
+ * Distribute `total` across `rows` oldest→newest (rows sorted ascending by
+ * purchase date), filling each unlocked batch to its remaining before the next.
+ * Locked rows keep their value; the pool is `total − Σ(locked)`.
  */
 function distributeWaterfall(rows: BatchRowState[], total: number): BatchRowState[] {
   const lockedSum = rows.reduce((s, r) => (r.locked ? s + r.assigned : s), 0);
@@ -98,11 +120,8 @@ function distributeWaterfall(rows: BatchRowState[], total: number): BatchRowStat
 }
 
 /** Landed-cost ratio for a batch: amount actually paid / Σ item line totals. */
-function batchLanded(batch: MaterialPurchaseExpenseWithDetails): {
-  ratio: number;
-  hasTransport: boolean;
-} {
-  const items = ((batch as any).items ?? []) as Array<any>;
+function batchLanded(batch: any): { ratio: number; hasTransport: boolean } {
+  const items = (batch?.items ?? []) as Array<any>;
   const itemsTotal = items.reduce((sum, it) => {
     const tp =
       it?.total_price != null
@@ -110,11 +129,8 @@ function batchLanded(batch: MaterialPurchaseExpenseWithDetails): {
         : Number(it?.quantity ?? 0) * Number(it?.unit_price ?? 0);
     return sum + (Number.isFinite(tp) ? tp : 0);
   }, 0);
-  const finalPayment =
-    Number((batch as any).amount_paid ?? batch.total_amount ?? 0) || 0;
-  if (itemsTotal <= 0 || finalPayment <= 0) {
-    return { ratio: 1, hasTransport: false };
-  }
+  const finalPayment = Number(batch?.amount_paid ?? batch?.total_amount ?? 0) || 0;
+  if (itemsTotal <= 0 || finalPayment <= 0) return { ratio: 1, hasTransport: false };
   const ratio = finalPayment / itemsTotal;
   return { ratio, hasTransport: Math.abs(ratio - 1) > 0.0001 };
 }
@@ -129,6 +145,7 @@ export default function WaterfallUsageDialog({
   preselectedBatchRefCode,
   materialName,
   materialUnit,
+  defaultScope = "all",
 }: WaterfallUsageDialogProps) {
   const isMobile = useIsMobile();
   const { user } = useAuth();
@@ -142,6 +159,7 @@ export default function WaterfallUsageDialog({
   const recordWaterfall = useRecordBatchUsageWaterfall();
 
   // ── Form state ─────────────────────────────────────────────────────────────
+  const [scope, setScope] = useState<Scope>("all");
   const [consumingSiteId, setConsumingSiteId] = useState<string>(siteId);
   const [selectedBrandKey, setSelectedBrandKey] = useState<string>("");
   const [totalQty, setTotalQty] = useState<number>(0);
@@ -149,19 +167,18 @@ export default function WaterfallUsageDialog({
     new Date().toISOString().split("T")[0]
   );
   const [workDescription, setWorkDescription] = useState<string>("");
+  const [rangeStart, setRangeStart] = useState<Date | null>(null);
+  const [rangeEnd, setRangeEnd] = useState<Date | null>(null);
   const [rows, setRows] = useState<BatchRowState[]>([]);
+  const [expandedLog, setExpandedLog] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string>("");
 
-  // Only open, non-converted group batches are candidates.
   const activeBatches = useMemo(
-    () =>
-      batches.filter(
-        (b) => b.status !== "completed" && b.status !== "converted"
-      ),
+    () => batches.filter((b) => b.status !== "completed" && b.status !== "converted"),
     [batches]
   );
 
-  // Σ usage per (batch, variant) for THIS material — to derive per-variant remaining.
+  // Σ usage per (batch, variant) for THIS material → per-variant remaining.
   const usedByBatchVariant = useMemo(() => {
     const m = new Map<string, number>();
     for (const r of usageRecords as Array<any>) {
@@ -172,12 +189,28 @@ export default function WaterfallUsageDialog({
     return m;
   }, [usageRecords, materialId]);
 
-  // Distinct variants (by brand) of this material across the candidate batches.
+  // Prior usage ENTRIES per batch for the selected variant (the collapsible log).
+  const usageEntriesByBatch = useMemo(() => {
+    const m = new Map<string, Array<{ date: string; site: string; qty: number }>>();
+    if (!selectedBrandKey) return m;
+    for (const r of usageRecords as Array<any>) {
+      if (r.material_id !== materialId) continue;
+      if (brandKey(r.brand_id) !== selectedBrandKey) continue;
+      const arr = m.get(r.batch_ref_code) ?? [];
+      arr.push({
+        date: r.usage_date,
+        site: r.usage_site?.name ?? "—",
+        qty: Number(r.quantity || 0),
+      });
+      m.set(r.batch_ref_code, arr);
+    }
+    for (const arr of m.values()) arr.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    return m;
+  }, [usageRecords, materialId, selectedBrandKey]);
+
+  // Distinct variants of this material across the candidate batches.
   const variants = useMemo(() => {
-    const map = new Map<
-      string,
-      { brandId: string | null; brandName: string | null; unit: string }
-    >();
+    const map = new Map<string, { brandId: string | null; brandName: string | null; unit: string }>();
     for (const b of activeBatches) {
       for (const it of ((b as any).items ?? []) as Array<any>) {
         const mId = it.material_id ?? it.material?.id;
@@ -196,11 +229,21 @@ export default function WaterfallUsageDialog({
     return Array.from(map.values());
   }, [activeBatches, materialId, materialUnit]);
 
-  // The candidate batch rows for the selected variant, oldest→newest, remaining>0.
+  // Candidate batch rows for the selected variant + scope, oldest→newest.
   const candidateRows = useMemo<BatchRowState[]>(() => {
     if (!selectedBrandKey) return [];
+    const rangeFrom = toYMD(rangeStart);
+    const rangeTo = toYMD(rangeEnd);
     const out: BatchRowState[] = [];
     for (const b of activeBatches) {
+      const ref = (b as any).ref_code as string;
+      const pd = ((b as any).purchase_date ?? "") as string;
+      // Scope filters.
+      if (scope === "batch" && ref !== preselectedBatchRefCode) continue;
+      if (scope === "range") {
+        if (rangeFrom && pd < rangeFrom) continue;
+        if (rangeTo && pd > rangeTo) continue;
+      }
       const landed = batchLanded(b);
       for (const it of ((b as any).items ?? []) as Array<any>) {
         const mId = it.material_id ?? it.material?.id;
@@ -208,20 +251,22 @@ export default function WaterfallUsageDialog({
         if (mId !== materialId) continue;
         if (brandKey(bId) !== selectedBrandKey) continue;
         const original = Number(it.quantity) || 0;
-        const used = usedByBatchVariant.get(`${b.ref_code}::${selectedBrandKey}`) ?? 0;
+        const used = usedByBatchVariant.get(`${ref}::${selectedBrandKey}`) ?? 0;
         const remaining = round3(Math.max(0, original - used));
         if (remaining <= 0) continue;
         const unitCost = Number(it.unit_price) || 0;
         out.push({
-          refCode: b.ref_code,
-          purchaseDate: (b as any).purchase_date ?? "",
+          refCode: ref,
+          purchaseDate: pd,
+          vendorName: (b as any).vendor?.name ?? (b as any).vendor_name ?? null,
           payingSiteId: (b as any).paying_site_id ?? null,
-          payingSiteName:
-            (b as any).paying_site?.name ?? (b as any).site?.name ?? null,
+          payingSiteName: (b as any).paying_site?.name ?? (b as any).site?.name ?? null,
           unit: it.material?.unit ?? materialUnit ?? "nos",
           unitCost,
           landedUnitCost: unitCost * landed.ratio,
           hasTransport: landed.hasTransport,
+          original,
+          used: round3(used),
           remaining,
           assigned: 0,
           locked: false,
@@ -230,10 +275,18 @@ export default function WaterfallUsageDialog({
     }
     out.sort((a, b) => (a.purchaseDate || "").localeCompare(b.purchaseDate || ""));
     return out;
-  }, [activeBatches, materialId, selectedBrandKey, usedByBatchVariant, materialUnit]);
+  }, [
+    activeBatches,
+    materialId,
+    selectedBrandKey,
+    usedByBatchVariant,
+    materialUnit,
+    scope,
+    preselectedBatchRefCode,
+    rangeStart,
+    rangeEnd,
+  ]);
 
-  // Stable signature so we only rebuild editable rows when the candidate set
-  // (or any batch's remaining) actually changes — not on every render.
   const candidateSig = useMemo(
     () => candidateRows.map((r) => `${r.refCode}:${r.remaining}`).join("|"),
     [candidateRows]
@@ -244,15 +297,15 @@ export default function WaterfallUsageDialog({
     [candidateRows]
   );
 
-  // ── Initialise on open / variant resolution ────────────────────────────────
+  const isMulti = scope !== "batch";
+
+  // ── Initialise on open ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!open) return;
     if (variants.length === 0) return;
-    // Prefer the caller-specified brand; else the single variant; else first.
     let initial: string;
     if (brandId !== undefined) {
       initial = brandKey(brandId);
-      // Fall back to the first variant if the requested one has no stock left.
       if (!variants.some((v) => brandKey(v.brandId) === initial)) {
         initial = brandKey(variants[0].brandId);
       }
@@ -262,77 +315,92 @@ export default function WaterfallUsageDialog({
     setSelectedBrandKey((prev) => (prev ? prev : initial));
   }, [open, variants, brandId]);
 
-  // Rebuild editable rows whenever the candidate set changes, then re-apply the
-  // current total via the waterfall.
+  // Set the initial scope once per open (Hub → batch, Inventory → all).
+  useEffect(() => {
+    if (!open) return;
+    setScope(defaultScope === "batch" && preselectedBatchRefCode ? "batch" : defaultScope);
+  }, [open, defaultScope, preselectedBatchRefCode]);
+
+  // Rebuild editable rows whenever the candidate set changes; re-apply the total
+  // via the waterfall (no-op total in "This batch" scope).
   useEffect(() => {
     setRows(distributeWaterfall(candidateRows, totalQty));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidateSig]);
 
-  // Reset everything when the dialog closes.
+  // Reset on close.
   useEffect(() => {
     if (open) return;
+    setScope("all");
     setConsumingSiteId(siteId);
     setSelectedBrandKey("");
     setTotalQty(0);
     setUsageDate(new Date().toISOString().split("T")[0]);
     setWorkDescription("");
+    setRangeStart(null);
+    setRangeEnd(null);
     setRows([]);
+    setExpandedLog(new Set());
     setError("");
   }, [open, siteId]);
 
   // ── Interactions ───────────────────────────────────────────────────────────
-  const applyTotal = useCallback(
-    (next: number) => {
-      const t = Number.isFinite(next) && next > 0 ? round3(next) : 0;
-      setTotalQty(t);
-      setRows((rs) => distributeWaterfall(rs, t));
-    },
-    []
-  );
+  const applyTotal = useCallback((next: number) => {
+    const t = Number.isFinite(next) && next > 0 ? round3(next) : 0;
+    setTotalQty(t);
+    setRows((rs) => distributeWaterfall(rs, t));
+  }, []);
 
   const onRowChange = useCallback(
     (refCode: string, value: number) => {
       setRows((rs) => {
         const next = rs.map((r) =>
           r.refCode === refCode
-            ? {
-                ...r,
-                assigned: round3(Math.max(0, Math.min(value, r.remaining))),
-                locked: true,
-              }
+            ? { ...r, assigned: round3(Math.max(0, Math.min(value, r.remaining))), locked: true }
             : r
         );
-        return distributeWaterfall(next, totalQty);
+        // In "This batch" scope there's no total to balance against — just set it.
+        return scope === "batch" ? next : distributeWaterfall(next, totalQty);
       });
     },
-    [totalQty]
+    [totalQty, scope]
   );
 
   const onResetRow = useCallback(
     (refCode: string) => {
       setRows((rs) => {
-        const next = rs.map((r) =>
-          r.refCode === refCode ? { ...r, locked: false } : r
-        );
+        const next = rs.map((r) => (r.refCode === refCode ? { ...r, locked: false } : r));
         return distributeWaterfall(next, totalQty);
       });
     },
     [totalQty]
   );
 
+  const onScopeChange = useCallback((_e: unknown, val: Scope | null) => {
+    if (!val) return;
+    setScope(val);
+    setTotalQty(0); // rows rebuild via candidateSig effect
+    setError("");
+  }, []);
+
+  const toggleLog = useCallback((refCode: string) => {
+    setExpandedLog((prev) => {
+      const n = new Set(prev);
+      if (n.has(refCode)) n.delete(refCode);
+      else n.add(refCode);
+      return n;
+    });
+  }, []);
+
   // ── Derived / reconciliation ───────────────────────────────────────────────
-  const allocated = useMemo(
-    () => round3(rows.reduce((s, r) => s + r.assigned, 0)),
-    [rows]
-  );
+  const allocated = useMemo(() => round3(rows.reduce((s, r) => s + r.assigned, 0)), [rows]);
   const leftToAssign = round3(totalQty - allocated);
   const isBalanced = Math.abs(leftToAssign) < QTY_EPS && totalQty > 0;
   const overLocked =
     rows.reduce((s, r) => (r.locked ? s + r.assigned : s), 0) - totalQty > QTY_EPS;
 
-  const unit = variants.find((v) => brandKey(v.brandId) === selectedBrandKey)?.unit ??
-    materialUnit ?? "nos";
+  const unit =
+    variants.find((v) => brandKey(v.brandId) === selectedBrandKey)?.unit ?? materialUnit ?? "nos";
 
   const costSummary = useMemo(() => {
     let selfUse = 0;
@@ -341,9 +409,8 @@ export default function WaterfallUsageDialog({
     for (const r of rows) {
       if (r.assigned <= 0) continue;
       const cost = r.assigned * r.landedUnitCost;
-      if (r.payingSiteId && r.payingSiteId === consumingSiteId) {
-        selfUse += cost;
-      } else {
+      if (r.payingSiteId && r.payingSiteId === consumingSiteId) selfUse += cost;
+      else {
         interSite += cost;
         if (r.payingSiteName) owedSites.add(r.payingSiteName);
       }
@@ -351,40 +418,34 @@ export default function WaterfallUsageDialog({
     return { selfUse, interSite, owedCount: owedSites.size };
   }, [rows, consumingSiteId]);
 
-  const selectedBrandName = variants.find(
-    (v) => brandKey(v.brandId) === selectedBrandKey
-  )?.brandName;
+  const selectedBrandName = variants.find((v) => brandKey(v.brandId) === selectedBrandKey)?.brandName;
+
+  const noBatches = candidateRows.length === 0;
+  const canSubmit = isMulti
+    ? !noBatches && isBalanced && !overLocked
+    : !noBatches && allocated > QTY_EPS;
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     setError("");
-    if (!materialId) {
-      setError("Missing material");
-      return;
-    }
-    if (!consumingSiteId) {
-      setError("Select which site used the material");
-      return;
-    }
-    if (totalQty <= 0) {
-      setError("Enter the total quantity to record");
-      return;
-    }
-    if (overLocked) {
-      setError("Pinned rows already exceed the total — lower a pinned batch or raise the total");
-      return;
-    }
-    if (!isBalanced) {
-      setError(
-        leftToAssign > 0
-          ? `${leftToAssign} ${unit} still unassigned (only ${totalAvailable} ${unit} available across these batches)`
-          : `Allocated ${allocated} ${unit} exceeds the total of ${totalQty} ${unit}`
-      );
-      return;
+    if (!materialId) return setError("Missing material");
+    if (!consumingSiteId) return setError("Select which site used the material");
+
+    if (isMulti) {
+      if (totalQty <= 0) return setError("Enter the total quantity to record");
+      if (overLocked)
+        return setError("Pinned rows already exceed the total — lower a pinned batch or raise the total");
+      if (!isBalanced)
+        return setError(
+          leftToAssign > 0
+            ? `${leftToAssign} ${unit} still unassigned (only ${totalAvailable} ${unit} available)`
+            : `Allocated ${allocated} ${unit} exceeds the total of ${totalQty} ${unit}`
+        );
+    } else if (allocated <= 0) {
+      return setError("Enter how much of this batch was used");
     }
 
-    const selectedBrandId =
-      selectedBrandKey === NO_BRAND ? null : selectedBrandKey;
+    const selectedBrandId = selectedBrandKey === NO_BRAND ? null : selectedBrandKey;
     const allocations = rows
       .filter((r) => r.assigned > 0)
       .map((r) => ({ batch_ref_code: r.refCode, quantity: r.assigned }));
@@ -405,7 +466,7 @@ export default function WaterfallUsageDialog({
     }
   };
 
-  const noBatches = candidateRows.length === 0;
+  const shortMaterial = (materialName ?? "material").split(" ")[0];
 
   return (
     <Dialog
@@ -426,7 +487,8 @@ export default function WaterfallUsageDialog({
             </Typography>
             <Typography variant="caption" color="text.secondary">
               {materialName ?? "Material"}
-              {selectedBrandName ? ` · ${selectedBrandName}` : ""} — fills oldest batch first
+              {selectedBrandName ? ` · ${selectedBrandName}` : ""}
+              {scope === "batch" ? " — this batch" : " — fills oldest batch first"}
             </Typography>
           </Box>
         </Box>
@@ -444,6 +506,24 @@ export default function WaterfallUsageDialog({
               </Alert>
             </Grid>
           )}
+
+          {/* Scope selector */}
+          <Grid size={12}>
+            <ToggleButtonGroup
+              value={scope}
+              exclusive
+              onChange={onScopeChange}
+              size="small"
+              fullWidth
+              color="primary"
+            >
+              <ToggleButton value="batch" disabled={!preselectedBatchRefCode}>
+                This batch
+              </ToggleButton>
+              <ToggleButton value="all">All {shortMaterial}</ToggleButton>
+              <ToggleButton value="range">By date</ToggleButton>
+            </ToggleButtonGroup>
+          </Grid>
 
           {/* Consuming site */}
           <Grid size={{ xs: 12, sm: 6 }}>
@@ -498,79 +578,113 @@ export default function WaterfallUsageDialog({
             </Grid>
           )}
 
-          {/* Total to record */}
-          <Grid size={12}>
-            <TextField
-              fullWidth
-              label={`Total to record (${unit})`}
-              type="number"
-              value={totalQty === 0 ? "" : totalQty}
-              onChange={(e) => applyTotal(Number(e.target.value))}
-              disabled={noBatches}
-              inputProps={{ min: 0, step: "any" }}
-              helperText={
-                noBatches
-                  ? "No batches with remaining stock for this material."
-                  : `Available across ${candidateRows.length} batch${
-                      candidateRows.length === 1 ? "" : "es"
-                    }: ${totalAvailable} ${unit}`
-              }
-            />
-            {!noBatches && (
-              <Box sx={{ mt: 0.5 }}>
-                <Chip
-                  label={`Use all ${totalAvailable} ${unit}`}
-                  size="small"
-                  variant="outlined"
-                  onClick={() => applyTotal(totalAvailable)}
+          {/* Date range picker (By date scope) */}
+          {scope === "range" && (
+            <Grid size={12}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                <Typography variant="body2" color="text.secondary">
+                  Batches bought in:
+                </Typography>
+                <DateRangePicker
+                  standalone
+                  startDate={rangeStart}
+                  endDate={rangeEnd}
+                  onChange={(s, e) => {
+                    setRangeStart(s);
+                    setRangeEnd(e);
+                    setTotalQty(0);
+                  }}
                 />
               </Box>
-            )}
-          </Grid>
+            </Grid>
+          )}
 
-          {/* Reconciler */}
-          {!noBatches && (
-            <Grid size={12}>
-              <Paper
-                variant="outlined"
-                sx={{
-                  px: 1.5,
-                  py: 1,
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  borderColor: isBalanced
-                    ? "success.main"
-                    : overLocked || leftToAssign < 0
-                    ? "error.main"
-                    : "warning.main",
-                  bgcolor: isBalanced
-                    ? "success.50"
-                    : overLocked || leftToAssign < 0
-                    ? "error.50"
-                    : "warning.50",
-                }}
-              >
-                <Typography variant="body2" fontWeight={600}>
-                  Allocated {allocated} / {totalQty || 0} {unit}
-                </Typography>
-                <Typography
-                  variant="body2"
-                  color={
-                    isBalanced
-                      ? "success.main"
-                      : leftToAssign < 0 || overLocked
-                      ? "error.main"
-                      : "warning.main"
+          {/* Total to record + reconciler (multi-batch scopes only) */}
+          {isMulti && (
+            <>
+              <Grid size={12}>
+                <TextField
+                  fullWidth
+                  label={`Total to record (${unit})`}
+                  type="number"
+                  value={totalQty === 0 ? "" : totalQty}
+                  onChange={(e) => applyTotal(Number(e.target.value))}
+                  disabled={noBatches}
+                  inputProps={{ min: 0, step: "any" }}
+                  helperText={
+                    noBatches
+                      ? "No batches with remaining stock for this selection."
+                      : `Available across ${candidateRows.length} batch${
+                          candidateRows.length === 1 ? "" : "es"
+                        }: ${totalAvailable} ${unit}`
                   }
-                >
-                  {isBalanced
-                    ? "Balanced ✓"
-                    : leftToAssign > 0
-                    ? `${leftToAssign} ${unit} left to assign`
-                    : `${Math.abs(leftToAssign)} ${unit} over`}
-                </Typography>
-              </Paper>
+                />
+                {!noBatches && (
+                  <Box sx={{ mt: 0.5 }}>
+                    <Chip
+                      label={`Use all ${totalAvailable} ${unit}`}
+                      size="small"
+                      variant="outlined"
+                      onClick={() => applyTotal(totalAvailable)}
+                    />
+                  </Box>
+                )}
+              </Grid>
+
+              {!noBatches && (
+                <Grid size={12}>
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      px: 1.5,
+                      py: 1,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      borderColor: isBalanced
+                        ? "success.main"
+                        : overLocked || leftToAssign < 0
+                        ? "error.main"
+                        : "warning.main",
+                      bgcolor: isBalanced
+                        ? "success.50"
+                        : overLocked || leftToAssign < 0
+                        ? "error.50"
+                        : "warning.50",
+                    }}
+                  >
+                    <Typography variant="body2" fontWeight={600}>
+                      Allocated {allocated} / {totalQty || 0} {unit}
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      color={
+                        isBalanced
+                          ? "success.main"
+                          : leftToAssign < 0 || overLocked
+                          ? "error.main"
+                          : "warning.main"
+                      }
+                    >
+                      {isBalanced
+                        ? "Balanced ✓"
+                        : leftToAssign > 0
+                        ? `${leftToAssign} ${unit} left to assign`
+                        : `${Math.abs(leftToAssign)} ${unit} over`}
+                    </Typography>
+                  </Paper>
+                </Grid>
+              )}
+            </>
+          )}
+
+          {/* Empty state for "This batch" with nothing left */}
+          {scope === "batch" && noBatches && (
+            <Grid size={12}>
+              <Alert severity="info">
+                This batch has no remaining stock. Switch to <strong>All {shortMaterial}</strong> to
+                log against other batches.
+              </Alert>
             </Grid>
           )}
 
@@ -578,8 +692,9 @@ export default function WaterfallUsageDialog({
           {rows.map((r, idx) => {
             const selfUse = !!r.payingSiteId && r.payingSiteId === consumingSiteId;
             const fillPct = r.remaining > 0 ? (r.assigned / r.remaining) * 100 : 0;
-            const isPreselected =
-              preselectedBatchRefCode && r.refCode === preselectedBatchRefCode;
+            const isPreselected = preselectedBatchRefCode && r.refCode === preselectedBatchRefCode;
+            const entries = usageEntriesByBatch.get(r.refCode) ?? [];
+            const logOpen = expandedLog.has(r.refCode);
             return (
               <Grid size={12} key={r.refCode}>
                 <Paper
@@ -592,13 +707,23 @@ export default function WaterfallUsageDialog({
                 >
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography variant="body2" fontWeight={600} noWrap>
-                        {idx + 1}. {r.refCode}
-                      </Typography>
+                      <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, flexWrap: "wrap" }}>
+                        <Typography variant="body2" fontWeight={600} noWrap>
+                          {isMulti ? `${idx + 1}. ` : ""}
+                          Bought {r.purchaseDate || "—"}
+                          {r.vendorName ? ` · ${r.vendorName}` : ""}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          sx={{ fontFamily: "monospace", color: "text.disabled" }}
+                        >
+                          {r.refCode}
+                        </Typography>
+                      </Box>
                       <Typography variant="caption" color="text.secondary" component="div">
-                        {r.purchaseDate || "—"} · {r.remaining} {r.unit} left
+                        {r.used} used / {r.original} {r.unit} · {r.remaining} left
                       </Typography>
-                      <Box sx={{ mt: 0.25, display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                      <Box sx={{ mt: 0.25, display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
                         <Chip
                           label={
                             selfUse
@@ -612,8 +737,16 @@ export default function WaterfallUsageDialog({
                           variant="outlined"
                           sx={{ height: 20 }}
                         />
-                        {r.locked && (
-                          <Chip label="Pinned" size="small" sx={{ height: 20 }} />
+                        {r.locked && <Chip label="Pinned" size="small" sx={{ height: 20 }} />}
+                        {entries.length > 0 && (
+                          <Button
+                            size="small"
+                            onClick={() => toggleLog(r.refCode)}
+                            endIcon={logOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                            sx={{ minWidth: 0, py: 0, px: 0.5, textTransform: "none" }}
+                          >
+                            {entries.length} prior
+                          </Button>
                         )}
                       </Box>
                     </Box>
@@ -628,7 +761,7 @@ export default function WaterfallUsageDialog({
                       sx={{ width: 96 }}
                     />
 
-                    {r.locked && (
+                    {isMulti && r.locked && (
                       <Tooltip title="Reset to auto">
                         <IconButton size="small" onClick={() => onResetRow(r.refCode)}>
                           <ResetIcon fontSize="small" />
@@ -642,6 +775,16 @@ export default function WaterfallUsageDialog({
                     value={Math.min(fillPct, 100)}
                     sx={{ height: 5, borderRadius: 1, mt: 0.75 }}
                   />
+
+                  <Collapse in={logOpen} unmountOnExit>
+                    <Box sx={{ mt: 1, pl: 1, borderLeft: "2px solid", borderColor: "divider" }}>
+                      {entries.map((e, i) => (
+                        <Typography key={i} variant="caption" color="text.secondary" component="div">
+                          {e.date} · {e.site} · {e.qty} {r.unit}
+                        </Typography>
+                      ))}
+                    </Box>
+                  </Collapse>
                 </Paper>
               </Grid>
             );
@@ -664,9 +807,7 @@ export default function WaterfallUsageDialog({
                   <Typography variant="caption" color="text.secondary">
                     Inter-site debt
                     {costSummary.owedCount > 0
-                      ? ` (${costSummary.owedCount} site${
-                          costSummary.owedCount === 1 ? "" : "s"
-                        })`
+                      ? ` (${costSummary.owedCount} site${costSummary.owedCount === 1 ? "" : "s"})`
                       : ""}
                   </Typography>
                   <Typography variant="body2" color="warning.main" fontWeight={600}>
@@ -704,7 +845,7 @@ export default function WaterfallUsageDialog({
         <Button
           variant="contained"
           onClick={handleSubmit}
-          disabled={recordWaterfall.isPending || noBatches || !isBalanced || overLocked}
+          disabled={recordWaterfall.isPending || !canSubmit}
         >
           {recordWaterfall.isPending ? "Recording…" : "Record usage"}
         </Button>

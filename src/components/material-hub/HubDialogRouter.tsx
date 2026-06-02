@@ -213,6 +213,7 @@ export const HubDialogRouter = forwardRef<
         onClose={close}
         siteId={siteId}
         siteGroupId={siteGroupId}
+        defaultScope="batch"
         materialId={dialog?.kind === "log-usage" ? dialog.materialId : ""}
         brandId={dialog?.kind === "log-usage" ? dialog.brandId : undefined}
         materialName={dialog?.kind === "log-usage" ? dialog.materialName : undefined}

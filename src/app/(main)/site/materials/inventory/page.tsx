@@ -554,6 +554,7 @@ export default function InventoryPage() {
             }}
             siteId={siteId}
             siteGroupId={siteGroupId}
+            defaultScope="all"
             materialId={usageMaterialId ?? ""}
             brandId={usageBrandId}
             materialName={usageMaterialName}
