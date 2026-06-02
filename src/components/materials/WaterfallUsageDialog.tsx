@@ -30,6 +30,7 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
 } from "@mui/icons-material";
+import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 import { useGroupMaterialPurchases } from "@/hooks/queries/useMaterialPurchases";
@@ -172,6 +173,19 @@ export default function WaterfallUsageDialog({
   const [rows, setRows] = useState<BatchRowState[]>([]);
   const [expandedLog, setExpandedLog] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string>("");
+  const [sectionId, setSectionId] = useState<string | null>(null);
+  const [buildingSections, setBuildingSections] = useState<{ id: string; name: string }[]>([]);
+
+  // Fetch building sections for the section picker.
+  useEffect(() => {
+    if (!siteId || !open) return;
+    createClient()
+      .from("building_sections")
+      .select("id, name")
+      .eq("site_id", siteId)
+      .order("name")
+      .then(({ data }) => setBuildingSections(data ?? []));
+  }, [siteId, open]);
 
   const activeBatches = useMemo(
     () => batches.filter((b) => b.status !== "completed" && b.status !== "converted"),
@@ -342,6 +356,7 @@ export default function WaterfallUsageDialog({
     setRows([]);
     setExpandedLog(new Set());
     setError("");
+    setSectionId(null);
   }, [open, siteId]);
 
   // ── Interactions ───────────────────────────────────────────────────────────
@@ -457,6 +472,7 @@ export default function WaterfallUsageDialog({
         brand_id: selectedBrandId,
         usage_date: usageDate,
         work_description: workDescription || undefined,
+        section_id: sectionId,
         created_by: user?.id,
         allocations,
       });
@@ -834,6 +850,31 @@ export default function WaterfallUsageDialog({
               rows={2}
               placeholder="e.g., Foundation work, Brick wall construction"
             />
+          </Grid>
+
+          {/* Construction section picker */}
+          <Grid size={12}>
+            <TextField
+              select
+              fullWidth
+              label="Construction section (optional)"
+              value={sectionId ?? ""}
+              onChange={(e) => setSectionId(e.target.value || null)}
+            >
+              <MenuItem value="">
+                <em>No section</em>
+              </MenuItem>
+              {buildingSections.map((s) => (
+                <MenuItem key={s.id} value={s.id}>
+                  {s.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            {sectionId === null && (
+              <Typography variant="caption" color="warning.main" sx={{ mt: 0.5, display: "block" }}>
+                No section selected — this entry won&apos;t appear in section breakdowns of the Usage Ledger
+              </Typography>
+            )}
           </Grid>
         </Grid>
       </DialogContent>
