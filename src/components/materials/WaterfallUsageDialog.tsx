@@ -41,6 +41,9 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { formatCurrency } from "@/lib/formatters";
 import DateRangePicker from "@/components/common/DateRangePicker";
+import { useMaterialUsageLedger } from "@/hooks/queries/useMaterialUsageLedger";
+import UsedSoFarStrip from "@/components/materials/UsedSoFarStrip";
+import UsageDetailDrawer from "@/components/materials/UsageDetailDrawer";
 
 type Scope = "batch" | "all" | "range";
 
@@ -158,6 +161,10 @@ export default function WaterfallUsageDialog({
   const { data: usageRecords = [] } = useGroupBatchUsageRecords(groupId);
 
   const recordWaterfall = useRecordBatchUsageWaterfall();
+
+  // ── Ledger data for "Used so far" strip + detail drawer ────────────────────
+  const { data: ledgerRows = [] } = useMaterialUsageLedger({ site_id: siteId });
+  const [detailOpen, setDetailOpen] = useState(false);
 
   // ── Form state ─────────────────────────────────────────────────────────────
   const [scope, setScope] = useState<Scope>("all");
@@ -357,6 +364,7 @@ export default function WaterfallUsageDialog({
     setExpandedLog(new Set());
     setError("");
     setSectionId(null);
+    setDetailOpen(false);
   }, [open, siteId]);
 
   // ── Interactions ───────────────────────────────────────────────────────────
@@ -485,6 +493,7 @@ export default function WaterfallUsageDialog({
   const shortMaterial = (materialName ?? "material").split(" ")[0];
 
   return (
+  <>
     <Dialog
       open={open}
       onClose={(_e, reason) => {
@@ -539,6 +548,17 @@ export default function WaterfallUsageDialog({
               <ToggleButton value="all">All {shortMaterial}</ToggleButton>
               <ToggleButton value="range">By date</ToggleButton>
             </ToggleButtonGroup>
+          </Grid>
+
+          {/* "Used so far" reference strip */}
+          <Grid size={12}>
+            <UsedSoFarStrip
+              siteId={siteId}
+              materialId={materialId}
+              materialName={materialName ?? "Material"}
+              unit={unit}
+              onViewDetails={() => setDetailOpen(true)}
+            />
           </Grid>
 
           {/* Consuming site */}
@@ -892,5 +912,17 @@ export default function WaterfallUsageDialog({
         </Button>
       </DialogActions>
     </Dialog>
+
+    <UsageDetailDrawer
+      open={detailOpen}
+      onClose={() => setDetailOpen(false)}
+      rows={ledgerRows}
+      materialId={materialId}
+      materialName={materialName ?? "Material"}
+      siteId={siteId}
+      scopeKey={`waterfall:${siteId}:${materialId}`}
+      canEdit={false}
+    />
+  </>
   );
 }
