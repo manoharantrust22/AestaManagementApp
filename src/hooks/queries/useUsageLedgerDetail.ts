@@ -146,12 +146,21 @@ export function useUsageLedgerDetail(
     };
   }, [rows, materialId]);
 
+  // Include the resolved id sets in the cache key so the name lookup re-runs
+  // when the rows (and therefore the recorder ids) arrive/change. Without this,
+  // a first render where `rows` is still empty would cache an empty user map
+  // under a stable key and recorder names would stay unresolved ("—").
+  const idKey = useMemo(
+    () => `${[...batchAuthIds].sort().join(",")}|${[...ownPublicIds].sort().join(",")}`,
+    [batchAuthIds, ownPublicIds],
+  );
+
   // Fetch public.users rows covering both auth-id and own-id lookups.
   // We use a single query with .or() to minimise round-trips.
   const { data: usersData, isLoading } = useQuery<
     Array<{ id: string; auth_id: string | null; name: string }>
   >({
-    queryKey: ["usage-ledger-detail", scopeKey, materialId],
+    queryKey: ["usage-ledger-detail", scopeKey, materialId, idKey],
     enabled: !!materialId,
     queryFn: wrapQueryFn(
       async () => {
