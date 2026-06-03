@@ -1081,6 +1081,9 @@ export function useUpdateMaterialUsage() {
       queryClient.invalidateQueries({ queryKey: ["stock-inventory"] });
       queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
       queryClient.invalidateQueries({ queryKey: ["batch-variant-summary"] });
+      // Usage Ledger pages and UsageDetailDrawer
+      queryClient.invalidateQueries({ queryKey: ["material-usage-ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["usage-ledger-detail"] });
     },
   });
 }
@@ -1407,6 +1410,9 @@ export function useDeleteMaterialUsage() {
       queryClient.invalidateQueries({ queryKey: ["stock-inventory"] });
       queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
       queryClient.invalidateQueries({ queryKey: ["batch-variant-summary"] });
+      // Usage Ledger pages and UsageDetailDrawer
+      queryClient.invalidateQueries({ queryKey: ["material-usage-ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["usage-ledger-detail"] });
     },
   });
 }

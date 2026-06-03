@@ -628,6 +628,9 @@ export function useDeleteBatchUsage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.batchUsage.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.materialStock.all });
       queryClient.invalidateQueries({ queryKey: ["material-usage"] });
+      // Usage Ledger pages and UsageDetailDrawer
+      queryClient.invalidateQueries({ queryKey: ["material-usage-ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["usage-ledger-detail"] });
     },
   });
 }
@@ -867,6 +870,9 @@ export function useUpdateBatchUsage() {
       queryClient.invalidateQueries({ queryKey: ["usage-history"] });
       queryClient.invalidateQueries({ queryKey: ["batch-variant-summary"] });
       queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
+      // Usage Ledger pages and UsageDetailDrawer
+      queryClient.invalidateQueries({ queryKey: ["material-usage-ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["usage-ledger-detail"] });
     },
   });
 }
