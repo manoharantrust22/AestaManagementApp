@@ -430,12 +430,17 @@ function useSiteSettlements(
 // Stage derivation
 // ----------------------------------------------------------------------------
 
-function deriveStandardStage(
+export function deriveStandardStage(
   mr: MaterialRequestWithDetails,
   po: PurchaseOrderWithDetails | undefined,
   settlement: SettlementSnapshot | undefined,
   inventoryUsed: number,
-  inventoryRemaining: number
+  inventoryRemaining: number,
+  /** True when the matched stock row is a specific delivery batch (it has a
+   *  batch_code), as opposed to the site's shared own-pool bucket. A batch row
+   *  exists only because that delivery landed, so an empty batch-scoped row
+   *  (remaining <= 0) proves the delivery was fully consumed. */
+  inventoryBatchScoped: boolean
 ): ThreadStage {
   if (mr.status === "rejected") return "rejected";
   if (mr.status === "cancelled") return "rejected";
@@ -481,16 +486,27 @@ function deriveStandardStage(
     base = "settled";
   }
 
-  // Once settled AND the stock is exhausted (nothing remaining + some used),
-  // mark as "exhausted" — the CONSUMPTION lifecycle is done the moment stock
-  // runs out. Inter-site settlement is a separate, independent concern (tracked
-  // on batch_usage_records.settlement_status and surfaced as its own pipeline
-  // step + "Settle inter-site" action), so a still-owed cross-site portion no
-  // longer forces the batch back to "in-use". `hasPendingInterSite` is kept as
-  // a parameter only so callers can read it onto the thread.
+  // Once settled, the CONSUMPTION lifecycle is driven purely by how much stock is
+  // left. Inter-site settlement is a separate, independent concern (tracked on
+  // batch_usage_records.settlement_status and surfaced as its own pipeline step +
+  // "Settle inter-site" action), so a still-owed cross-site portion no longer
+  // forces the batch back to "in-use".
   if (base === "settled") {
-    if (inventoryUsed > 0 && inventoryRemaining <= 0) return "exhausted";
-    if (inventoryUsed > 0) return "in-use";
+    // Exhausted = the batch is empty. For a batch-scoped row the row only exists
+    // because a delivery landed, so remaining <= 0 unambiguously means "fully
+    // consumed" — even when the consumption left NO usage stock_transactions.
+    // Legacy backfills, the pre-2026-05-31 record_batch_usage, and direct stock
+    // edits all drain current_qty without writing a usage row, so inventoryUsed
+    // reads 0. Requiring inventoryUsed > 0 here left those threads stuck at
+    // "settled", which renders IN USE as a pulsing "next" step while the row
+    // button reads "All clear" — a contradictory display. The shared own-pool
+    // fallback stays conservative (still needs inventoryUsed > 0) so a
+    // transiently-empty site bucket isn't mislabeled exhausted.
+    if (inventoryRemaining <= 0) {
+      if (inventoryBatchScoped || inventoryUsed > 0) return "exhausted";
+    } else if (inventoryUsed > 0) {
+      return "in-use";
+    }
   }
 
   return base;
@@ -688,7 +704,14 @@ function mapStandardThread(
     !!batchRefForUsage &&
     deps.hasCrossSiteByBatch.has(batchRefForUsage);
 
-  const stage = deriveStandardStage(mr, po, settlement, invUsed, invRemaining);
+  const stage = deriveStandardStage(
+    mr,
+    po,
+    settlement,
+    invUsed,
+    invRemaining,
+    !!(invMatch && invMatch.stock.batch_code)
+  );
 
   let threadPO: MaterialThread["po"] | undefined;
   if (po) {

@@ -436,7 +436,8 @@
       "Bash(find / -name \"expenses-material-after.png\" 2>/dev/null | head -5)",
       "Bash([ -s \"$f\" ])",
       "PowerShell($conn = Get-NetTCPConnection -State Listen -LocalPort 3000 -ErrorAction SilentlyContinue; if \\($conn\\) { \"DEV SERVER RUNNING on :3000 \\(PID $\\($conn.OwningProcess | Select-Object -First 1\\)\\)\" } else { \"no listener on :3000\" })",
-      "Bash(awk '/CREATE TABLE.*daily_material_usage/,/^;/' supabase/migrations/00000000000000_initial_schema.sql)"
+      "Bash(awk '/CREATE TABLE.*daily_material_usage/,/^;/' supabase/migrations/00000000000000_initial_schema.sql)",
+      "Bash(Select-String -Pattern \"useUsageLedgerDetail|useUsageLedgerDetail.test\")"
     ],
     "deny": [],
     "ask": [],
