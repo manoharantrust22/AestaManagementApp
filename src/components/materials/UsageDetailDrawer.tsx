@@ -17,7 +17,7 @@
  *     dedicated <BatchEntryDetail> child component
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -63,7 +63,9 @@ import {
   type LedgerDetailEntry,
 } from "@/hooks/queries/useUsageLedgerDetail";
 import BatchUsageEditDialog from "@/components/materials/BatchUsageEditDialog";
-import PoolUsageEditDialog from "@/components/materials/PoolUsageEditDialog";
+import PoolUsageEditDialog, {
+  type PoolUsageEditRow,
+} from "@/components/materials/PoolUsageEditDialog";
 import type { BatchUsageRecordWithDetails } from "@/types/material.types";
 import {
   BATCH_USAGE_SETTLEMENT_STATUS_LABELS,
@@ -735,6 +737,11 @@ export default function UsageDetailDrawer({
   const [actionError, setActionError] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
+  // Collapse any expanded rows when the drawer switches to a different material.
+  useEffect(() => {
+    setExpandedIds(new Set());
+  }, [materialId]);
+
   // ── Summary stats ─────────────────────────────────────────────────────────
   const unit = entries[0]?.unit ?? "";
 
@@ -838,6 +845,10 @@ export default function UsageDetailDrawer({
         usage_date: editBatchEntry.usage_date,
         work_description: editBatchEntry.work_description,
         settlement_status: editBatchEntry.settlement_status,
+        // The ledger view doesn't expose settlement_id; null is the safe
+        // fallback. Locked rows never reach this dialog (canEditEntry gates
+        // settled/in_settlement), so the status-string check is sufficient.
+        settlement_id: null,
         usage_site_id: editBatchEntry.consuming_site_id,
         material: { name: materialName, unit: editBatchEntry.unit } as any,
         brand: null,
@@ -848,14 +859,13 @@ export default function UsageDetailDrawer({
       } as unknown as BatchUsageRecordWithDetails)
     : null;
 
-  // The PoolUsageEditDialog reads row.quantity and row.work_description.
-  // Construct a minimal compatible object; cast as any to satisfy UsageLogRow typing.
-  const poolEditRow = editPoolEntry
-    ? ({
+  // PoolUsageEditDialog reads only id/quantity/work_description (PoolUsageEditRow).
+  const poolEditRow: PoolUsageEditRow | null = editPoolEntry
+    ? {
         id: editPoolEntry.id,
         quantity: editPoolEntry.quantity,
         work_description: editPoolEntry.work_description,
-      } as any)
+      }
     : null;
 
   // ── Render ────────────────────────────────────────────────────────────────

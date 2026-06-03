@@ -562,7 +562,7 @@ export default function CompanyMaterialUsagePage() {
         materialName={drawerMaterial?.name ?? ""}
         siteId={scopeMode === "site" ? selectedSiteId : undefined}
         scopeKey={`company:${scopeMode}:${scopeMode === "site" ? selectedSiteId : selectedGroupId ?? ""}:${fromDate ? fromDate.toISOString().split("T")[0] : ""}:${toDate ? toDate.toISOString().split("T")[0] : ""}`}
-        canEdit={scopeMode === "site"}
+        canEdit={scopeMode === "site" && !!selectedSiteId}
       />
     </Box>
   );

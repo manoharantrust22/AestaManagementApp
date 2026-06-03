@@ -12,9 +12,13 @@ import {
 } from "@mui/material";
 import type { UsageLogRow } from "@/hooks/queries/useUsageLog";
 
+/** Only the fields this dialog actually reads — lets callers pass any
+ *  structurally-compatible row (UsageLogRow satisfies this). */
+export type PoolUsageEditRow = Pick<UsageLogRow, "id" | "quantity" | "work_description">;
+
 export interface PoolUsageEditDialogProps {
   open: boolean;
-  row: UsageLogRow | null;
+  row: PoolUsageEditRow | null;
   unit: string;
   isSaving: boolean;
   onClose: () => void;
