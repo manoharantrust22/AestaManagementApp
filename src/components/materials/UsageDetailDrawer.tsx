@@ -18,6 +18,8 @@
  */
 
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { createClient } from "@/lib/supabase/client";
 import {
   Drawer,
   Box,
@@ -124,9 +126,29 @@ interface BatchEntryDetailProps {
 }
 
 function BatchEntryDetail({ entry }: BatchEntryDetailProps) {
-  const { data: summary, isLoading } = useBatchSettlementSummary(
-    entry.batch_ref_code ?? undefined,
-  );
+  const batchRefCode = entry.batch_ref_code ?? undefined;
+
+  const { data: summary, isLoading } = useBatchSettlementSummary(batchRefCode);
+
+  const { data: mpeInfo } = useQuery({
+    queryKey: ["mpe-by-ref", batchRefCode],
+    queryFn: async () => {
+      const supabase = createClient();
+      const { data, error } = await (supabase as any)
+        .from("material_purchase_expenses")
+        .select("vendor_name, purchase_date, purchase_type")
+        .eq("ref_code", batchRefCode!)
+        .maybeSingle();
+      if (error) return null;
+      return data as {
+        vendor_name: string | null;
+        purchase_date: string | null;
+        purchase_type: string | null;
+      } | null;
+    },
+    enabled: !!batchRefCode,
+    staleTime: 5 * 60 * 1000,
+  });
 
   if (isLoading) {
     return (
@@ -175,6 +197,30 @@ function BatchEntryDetail({ entry }: BatchEntryDetailProps) {
           </Typography>
           <Typography sx={{ fontSize: 12, color: hubTokens.text, fontFamily: hubTokens.mono }}>
             {summary.original_qty} / {summary.used_qty} / {summary.remaining_qty}
+          </Typography>
+        </Box>
+        <Box>
+          <Typography sx={{ fontSize: 10, color: hubTokens.subtle, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px" }}>
+            Vendor
+          </Typography>
+          <Typography sx={{ fontSize: 12, color: hubTokens.text }}>
+            {mpeInfo?.vendor_name ?? "—"}
+          </Typography>
+        </Box>
+        <Box>
+          <Typography sx={{ fontSize: 10, color: hubTokens.subtle, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px" }}>
+            Purchased
+          </Typography>
+          <Typography sx={{ fontSize: 12, color: hubTokens.text }}>
+            {mpeInfo?.purchase_date ? formatDate(mpeInfo.purchase_date) : "—"}
+          </Typography>
+        </Box>
+        <Box>
+          <Typography sx={{ fontSize: 10, color: hubTokens.subtle, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px" }}>
+            Purchase Type
+          </Typography>
+          <Typography sx={{ fontSize: 12, color: hubTokens.text }}>
+            {mpeInfo?.purchase_type === "group_stock" ? "Group stock" : mpeInfo?.purchase_type != null ? "Own site" : "—"}
           </Typography>
         </Box>
       </Box>
