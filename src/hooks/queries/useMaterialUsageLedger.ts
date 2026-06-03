@@ -19,6 +19,13 @@ export interface LedgerRow {
   // Flat columns from the view (UNION views don't support PostgREST FK embeds)
   material_name: string | null;
   section_name: string | null;
+  // Provenance columns added in migration 20260603090000
+  batch_ref_code: string | null;
+  created_by: string | null;
+  created_at: string | null;
+  is_self_use: boolean | null;
+  settlement_status: string | null;
+  is_verified: boolean | null;
   // Convenience accessors shaped like embedded joins (derived from flat cols)
   material: { id: string; name: string } | null;
   section: { id: string; name: string } | null;
@@ -177,7 +184,8 @@ export function useMaterialUsageLedger(filters: LedgerFilters) {
         .select(
           `id, site_id, site_group_id, material_id, brand_id, section_id,
            quantity, unit, unit_cost, total_cost, usage_date, work_description, source,
-           material_name, section_name`
+           material_name, section_name,
+           batch_ref_code, created_by, created_at, is_self_use, settlement_status, is_verified`
         )
         .order("usage_date", { ascending: false });
 
