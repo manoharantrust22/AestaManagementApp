@@ -20,10 +20,12 @@ import {
   TextField,
   InputAdornment,
   Alert,
+  Link,
 } from "@mui/material";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import SearchIcon from "@mui/icons-material/Search";
+import ReadMoreIcon from "@mui/icons-material/ReadMore";
 import { useSelectedSite } from "@/contexts/SiteContext";
 import DateRangePicker from "@/components/common/DateRangePicker";
 import { formatCurrency } from "@/lib/formatters";
@@ -34,11 +36,18 @@ import {
   type MaterialGroup,
   type SectionGroup,
 } from "@/hooks/queries/useMaterialUsageLedger";
+import UsageDetailDrawer from "@/components/materials/UsageDetailDrawer";
 
 type ViewMode = "material" | "section";
 
 // MaterialRow: expandable row showing material → section breakdown
-function MaterialRow({ group }: { group: MaterialGroup }) {
+function MaterialRow({
+  group,
+  onTrace,
+}: {
+  group: MaterialGroup;
+  onTrace?: (id: string, name: string) => void;
+}) {
   const [open, setOpen] = React.useState(false);
   return (
     <>
@@ -58,7 +67,30 @@ function MaterialRow({ group }: { group: MaterialGroup }) {
                 <KeyboardArrowRightIcon fontSize="small" />
               )}
             </IconButton>
-            {group.material_name}
+            {onTrace ? (
+              <Link
+                component="button"
+                underline="hover"
+                color="inherit"
+                onClick={(e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  onTrace(group.material_id, group.material_name);
+                }}
+                sx={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 0.5,
+                  cursor: "pointer",
+                  fontWeight: "inherit",
+                  fontSize: "inherit",
+                }}
+              >
+                {group.material_name}
+                <ReadMoreIcon fontSize="inherit" sx={{ opacity: 0.5, fontSize: "1rem" }} />
+              </Link>
+            ) : (
+              group.material_name
+            )}
             {group.untagged_count > 0 && (
               <Chip
                 label={`${group.untagged_count} untagged`}
@@ -187,6 +219,7 @@ export default function UsageLedgerPage() {
   const [fromDate, setFromDate] = React.useState<Date | null>(null);
   const [toDate, setToDate] = React.useState<Date | null>(null);
   const [search, setSearch] = React.useState("");
+  const [drawerMaterial, setDrawerMaterial] = React.useState<{ id: string; name: string } | null>(null);
 
   const { data: rows = [], isLoading } = useMaterialUsageLedger({
     site_id: selectedSite?.id,
@@ -378,7 +411,11 @@ export default function UsageLedgerPage() {
             <TableBody>
               {viewMode === "material"
                 ? materialGroups.map((g) => (
-                    <MaterialRow key={g.material_id} group={g} />
+                    <MaterialRow
+                      key={g.material_id}
+                      group={g}
+                      onTrace={(id, name) => setDrawerMaterial({ id, name })}
+                    />
                   ))
                 : sectionGroups.map((g) => (
                     <SectionRow key={g.section_id ?? "untagged"} group={g} />
@@ -387,6 +424,18 @@ export default function UsageLedgerPage() {
           </Table>
         </TableContainer>
       )}
+
+      {/* Drill-down drawer — opens when a material name is clicked */}
+      <UsageDetailDrawer
+        open={!!drawerMaterial}
+        onClose={() => setDrawerMaterial(null)}
+        rows={rows}
+        materialId={drawerMaterial?.id ?? null}
+        materialName={drawerMaterial?.name ?? ""}
+        siteId={selectedSite?.id}
+        scopeKey={`site:${selectedSite?.id ?? ""}:${fromDate ? fromDate.toISOString().split("T")[0] : ""}:${toDate ? toDate.toISOString().split("T")[0] : ""}`}
+        canEdit
+      />
     </Box>
   );
 }
