@@ -26,13 +26,19 @@ export interface LedgerRow {
   is_self_use: boolean | null;
   settlement_status: string | null;
   is_verified: boolean | null;
+  // Parent material (variant roll-up) columns added in migration 20260606130000.
+  // NULL when the material has no parent (i.e. it is its own group).
+  parent_material_id: string | null;
+  parent_material_name: string | null;
   // Convenience accessors shaped like embedded joins (derived from flat cols)
   material: { id: string; name: string } | null;
   section: { id: string; name: string } | null;
 }
 
 export interface MaterialGroup {
+  /** The parent material id (group key) — variants roll up under it. */
   material_id: string;
+  /** The parent material name. */
   material_name: string;
   unit: string;
   total_qty: number;
@@ -40,6 +46,18 @@ export interface MaterialGroup {
   avg_unit_cost: number;
   untagged_count: number;
   section_breakdown: SectionBreakdown[];
+  /** Per-variant split of this group's usage (>1 entry ⇒ the material has variants). */
+  variant_breakdown: VariantBreakdown[];
+}
+
+export interface VariantBreakdown {
+  material_id: string;
+  material_name: string;
+  unit: string;
+  total_qty: number;
+  total_cost: number;
+  /** True when this row is the parent material's own direct usage (not a sub-variant). */
+  is_base: boolean;
 }
 
 export interface SectionBreakdown {
@@ -73,17 +91,24 @@ export interface LedgerFilters {
   all?: boolean;
 }
 
+// Group key = the parent material when the row's material is a variant
+// (materials.parent_id), else the material itself. So "43 Grade" and the three
+// "TMT Rods Nmm" variants roll up under "PPC Cement" / "TMT Rods".
+function groupKeyOf(row: LedgerRow): { id: string; name: string } {
+  return {
+    id: row.parent_material_id ?? row.material_id,
+    name: row.parent_material_name ?? row.material?.name ?? row.material_id,
+  };
+}
+
 export function groupByMaterial(rows: LedgerRow[]): MaterialGroup[] {
   const map = new Map<string, { rows: LedgerRow[]; material_name: string; unit: string }>();
   for (const row of rows) {
-    if (!map.has(row.material_id)) {
-      map.set(row.material_id, {
-        rows: [],
-        material_name: row.material?.name ?? row.material_id,
-        unit: row.unit,
-      });
+    const key = groupKeyOf(row);
+    if (!map.has(key.id)) {
+      map.set(key.id, { rows: [], material_name: key.name, unit: row.unit });
     }
-    map.get(row.material_id)!.rows.push(row);
+    map.get(key.id)!.rows.push(row);
   }
 
   return Array.from(map.entries()).map(([material_id, { rows: mRows, material_name, unit }]) => {
@@ -112,6 +137,36 @@ export function groupByMaterial(rows: LedgerRow[]): MaterialGroup[] {
       })
     );
 
+    // Per-variant split — keyed on the raw material_id within this parent group.
+    const variantMap = new Map<
+      string,
+      { qty: number; cost: number; name: string; unit: string }
+    >();
+    for (const r of mRows) {
+      if (!variantMap.has(r.material_id)) {
+        variantMap.set(r.material_id, {
+          qty: 0,
+          cost: 0,
+          name: r.material?.name ?? r.material_id,
+          unit: r.unit,
+        });
+      }
+      const v = variantMap.get(r.material_id)!;
+      v.qty += r.quantity;
+      v.cost += r.total_cost ?? 0;
+    }
+
+    const variant_breakdown: VariantBreakdown[] = Array.from(variantMap.entries())
+      .map(([vid, { qty, cost, name, unit: vunit }]) => ({
+        material_id: vid,
+        material_name: name,
+        unit: vunit,
+        total_qty: qty,
+        total_cost: cost,
+        is_base: vid === material_id,
+      }))
+      .sort((a, b) => b.total_cost - a.total_cost);
+
     return {
       material_id,
       material_name,
@@ -121,6 +176,7 @@ export function groupByMaterial(rows: LedgerRow[]): MaterialGroup[] {
       avg_unit_cost,
       untagged_count,
       section_breakdown,
+      variant_breakdown,
     };
   });
 }
@@ -141,15 +197,11 @@ export function groupBySection(rows: LedgerRow[]): SectionGroup[] {
 
     const matMap = new Map<string, { qty: number; cost: number; name: string; unit: string }>();
     for (const r of sRows) {
-      if (!matMap.has(r.material_id)) {
-        matMap.set(r.material_id, {
-          qty: 0,
-          cost: 0,
-          name: r.material?.name ?? r.material_id,
-          unit: r.unit,
-        });
+      const key = groupKeyOf(r);
+      if (!matMap.has(key.id)) {
+        matMap.set(key.id, { qty: 0, cost: 0, name: key.name, unit: r.unit });
       }
-      const m = matMap.get(r.material_id)!;
+      const m = matMap.get(key.id)!;
       m.qty += r.quantity;
       m.cost += r.total_cost ?? 0;
     }
@@ -185,7 +237,8 @@ export function useMaterialUsageLedger(filters: LedgerFilters) {
           `id, site_id, site_group_id, material_id, brand_id, section_id,
            quantity, unit, unit_cost, total_cost, usage_date, work_description, source,
            material_name, section_name,
-           batch_ref_code, created_by, created_at, is_self_use, settlement_status, is_verified`
+           batch_ref_code, created_by, created_at, is_self_use, settlement_status, is_verified,
+           parent_material_id, parent_material_name`
         )
         .order("usage_date", { ascending: false });
 

@@ -376,6 +376,8 @@ function OwnEntryDetail({ entry }: OwnEntryDetailProps) {
 interface EntryRowProps {
   entry: LedgerDetailEntry;
   unit: string;
+  /** The parent material name the drawer was opened for — used to tag variant entries. */
+  parentName: string;
   siteId: string | undefined;
   canEdit: boolean;
   saving: boolean;
@@ -388,6 +390,7 @@ interface EntryRowProps {
 function EntryRow({
   entry,
   unit,
+  parentName,
   siteId,
   canEdit,
   saving,
@@ -398,6 +401,11 @@ function EntryRow({
 }: EntryRowProps) {
   const locked = entryIsLocked(entry);
   const editable = canEditEntry(entry, siteId, canEdit);
+  // Show the specific grade/size when this entry is a variant of the parent.
+  const variantLabel =
+    entry.material_name && entry.material_name !== parentName
+      ? entry.material_name
+      : null;
 
   const settlementLabel =
     entry.settlement_status != null
@@ -439,11 +447,30 @@ function EntryRow({
               gap: 1,
             }}
           >
-            <Typography
-              sx={{ fontSize: 13, fontWeight: 700, color: hubTokens.text }}
-            >
-              {fmtQty(entry.quantity, entry.unit || unit)}
-            </Typography>
+            <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, minWidth: 0 }}>
+              <Typography
+                sx={{ fontSize: 13, fontWeight: 700, color: hubTokens.text }}
+              >
+                {fmtQty(entry.quantity, entry.unit || unit)}
+              </Typography>
+              {variantLabel && (
+                <Box
+                  component="span"
+                  sx={{
+                    display: "inline-block",
+                    fontSize: 10.5,
+                    color: hubTokens.primary,
+                    bgcolor: hubTokens.primarySoft,
+                    px: 0.75,
+                    py: 0.25,
+                    borderRadius: "4px",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {variantLabel}
+                </Box>
+              )}
+            </Box>
             <Typography
               sx={{
                 fontSize: 11.5,
@@ -1019,6 +1046,7 @@ export default function UsageDetailDrawer({
                     key={entry.id}
                     entry={entry}
                     unit={unit}
+                    parentName={materialName}
                     siteId={siteId}
                     canEdit={canEdit}
                     saving={saving}

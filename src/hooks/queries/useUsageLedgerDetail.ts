@@ -27,6 +27,9 @@ export interface LedgerDetailEntry {
   usage_date: string;
   quantity: number;
   unit: string;
+  /** The raw material name of this entry — may be a variant (e.g. "43 Grade")
+   * distinct from the parent group the drawer was opened for. */
+  material_name: string | null;
   unit_cost: number | null;
   total_cost: number | null;
   work_description: string | null;
@@ -40,6 +43,13 @@ export interface LedgerDetailEntry {
   created_at: string | null;
   brand_id: string | null;
   section_id: string | null;
+}
+
+// A row belongs to the drilled-into material if it IS that material or rolls up
+// to it as a parent (variant materials carry parent_material_id → the parent).
+// So opening "PPC Cement" surfaces both its direct usage and its "43 Grade" variant.
+function matchesMaterial(row: LedgerRow, materialId: string): boolean {
+  return row.material_id === materialId || row.parent_material_id === materialId;
 }
 
 // ─── Pure builder (exported for unit-testing) ─────────────────────────────────
@@ -61,7 +71,7 @@ export function buildLedgerDetailEntries(
   usersById: Map<string, string>,
   sitesById: Map<string, string>,
 ): LedgerDetailEntry[] {
-  const filtered = rows.filter((r) => r.material_id === materialId);
+  const filtered = rows.filter((r) => matchesMaterial(r, materialId));
 
   const entries: LedgerDetailEntry[] = filtered.map((row) => {
     // Resolve recorder name based on source namespace
@@ -81,6 +91,7 @@ export function buildLedgerDetailEntries(
       usage_date: row.usage_date,
       quantity: Number(row.quantity),
       unit: row.unit,
+      material_name: row.material?.name ?? row.material_name ?? null,
       unit_cost: row.unit_cost,
       total_cost: row.total_cost,
       work_description: row.work_description ?? null,
@@ -132,7 +143,7 @@ export function useUsageLedgerDetail(
   // Collect distinct created_by ids from the filtered rows, split by source
   const { batchAuthIds, ownPublicIds } = useMemo(() => {
     if (!materialId) return { batchAuthIds: [], ownPublicIds: [] };
-    const filtered = rows.filter((r) => r.material_id === materialId);
+    const filtered = rows.filter((r) => matchesMaterial(r, materialId));
     const authSet = new Set<string>();
     const ownSet = new Set<string>();
     for (const r of filtered) {

@@ -25,6 +25,8 @@ function makeRow(overrides: Partial<LedgerRow> & { id: string }): LedgerRow {
     is_self_use: false,
     settlement_status: "pending",
     is_verified: null,
+    parent_material_id: null,
+    parent_material_name: null,
     material: { id: "mat-1", name: "Cement" },
     section: null,
     ...overrides,
@@ -235,5 +237,42 @@ describe("buildLedgerDetailEntries", () => {
       sitesById,
     );
     expect(result).toHaveLength(0);
+  });
+
+  it("carries each entry's material_name (may be a variant)", () => {
+    const [entry] = buildLedgerDetailEntries(
+      [batchRow],
+      "mat-1",
+      usersByAuthId,
+      usersById,
+      sitesById,
+    );
+    expect(entry.material_name).toBe("Cement");
+  });
+
+  it("includes variant rows when drilling into the parent material", () => {
+    // A "43 Grade" variant whose parent_material_id points at mat-1 (the parent).
+    const variantRow = makeRow({
+      id: "rv",
+      material_id: "mat-1-v43",
+      material_name: "43 Grade",
+      material: { id: "mat-1-v43", name: "43 Grade" },
+      parent_material_id: "mat-1",
+      parent_material_name: "Cement",
+      usage_date: "2026-05-01",
+    });
+    const result = buildLedgerDetailEntries(
+      [batchRow, variantRow, otherMaterialRow],
+      "mat-1",
+      usersByAuthId,
+      usersById,
+      sitesById,
+    );
+    const ids = result.map((r) => r.id);
+    expect(ids).toContain("rv"); // variant included via parent match
+    expect(ids).toContain("r1"); // direct parent usage included
+    expect(ids).not.toContain("r3"); // unrelated material excluded
+    const variantEntry = result.find((r) => r.id === "rv")!;
+    expect(variantEntry.material_name).toBe("43 Grade");
   });
 });

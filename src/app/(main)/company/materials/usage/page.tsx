@@ -120,6 +120,37 @@ function MaterialRow({
         <TableCell colSpan={5} sx={{ py: 0, border: 0 }}>
           <Collapse in={open} unmountOnExit>
             <Box sx={{ pl: 6, py: 1 }}>
+              {group.variant_breakdown.length > 1 && (
+                <Box sx={{ mb: 1.5 }}>
+                  <Typography
+                    variant="caption"
+                    component="div"
+                    color="text.secondary"
+                    sx={{ textTransform: "uppercase", letterSpacing: 1, mb: 0.5 }}
+                  >
+                    Grade / variant breakdown
+                  </Typography>
+                  {group.variant_breakdown.map((v) => (
+                    <Box key={v.material_id} sx={{ display: "flex", gap: 4, py: 0.25 }}>
+                      <Typography variant="body2" sx={{ width: 180 }}>
+                        {v.material_name}
+                        {v.is_base && (
+                          <Typography component="span" variant="caption" color="text.disabled">
+                            {" "}
+                            · base
+                          </Typography>
+                        )}
+                      </Typography>
+                      <Typography variant="body2">
+                        {v.total_qty.toLocaleString()} {v.unit}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {formatCurrency(v.total_cost)}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              )}
               <Typography
                 variant="caption"
                 component="div"
@@ -322,7 +353,9 @@ export default function CompanyMaterialUsagePage() {
   const sectionGroups = React.useMemo(() => groupBySection(rows), [rows]);
 
   const totalCost = rows.reduce((s, r) => s + (r.total_cost ?? 0), 0);
-  const distinctMaterials = new Set(rows.map((r) => r.material_id)).size;
+  const distinctMaterials = new Set(
+    rows.map((r) => r.parent_material_id ?? r.material_id)
+  ).size;
   const untaggedCount = rows.filter((r) => r.section_id === null).length;
 
   // Determine if we have enough info to show data
