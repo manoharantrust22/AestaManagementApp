@@ -107,19 +107,45 @@ const aiPurchaseItemSchema = z.object({
   unit_price: coerceNumber.refine((n) => n >= 0, "unit_price must be >= 0"),
   hsn_code: optionalTrimmedString,
   gst_rate: optionalCoerceNumber,
+  /** Standard pack/can size for packaged goods, e.g. "5L can", "20kg bag". */
+  pack_size: optionalTrimmedString,
 });
 
-export const aiPurchaseOutputSchema = z.object({
-  kind: z.literal("purchase"),
+/** Per-bill fields shared by the single-purchase and batch schemas. */
+const aiPurchaseBodyShape = {
   vendor: aiVendorSchema,
   invoice_no: optionalTrimmedString,
   purchase_date: isoDateOrNull,
   transport_cost: optionalCoerceNumber,
   total_amount: coerceNumber.refine((n) => n > 0, "total_amount must be > 0"),
   items: z.array(aiPurchaseItemSchema).min(1, "At least one item is required"),
+};
+
+export const aiPurchaseOutputSchema = z.object({
+  kind: z.literal("purchase"),
+  ...aiPurchaseBodyShape,
 });
 
 export type AiPurchaseOutput = z.infer<typeof aiPurchaseOutputSchema>;
+
+/**
+ * Multi-bill batch: an array of independent purchases — each its own vendor,
+ * date, items, and total (bills in a stack are routinely from different shops
+ * on different days). `kind` per item defaults to "purchase" so the AI may
+ * omit it; each item is shape-identical to AiPurchaseOutput so the batch mode
+ * can feed it straight into the single-bill resolver/commit.
+ */
+const aiPurchaseBatchItemSchema = z.object({
+  kind: z.literal("purchase").default("purchase"),
+  ...aiPurchaseBodyShape,
+});
+
+export const aiPurchaseBatchOutputSchema = z.object({
+  kind: z.literal("purchase_batch"),
+  purchases: z.array(aiPurchaseBatchItemSchema).min(1, "At least one bill is required"),
+});
+
+export type AiPurchaseBatchOutput = z.infer<typeof aiPurchaseBatchOutputSchema>;
 
 const aiQuotationItemSchema = aiPurchaseItemSchema.extend({
   quantity: optionalCoerceNumber,

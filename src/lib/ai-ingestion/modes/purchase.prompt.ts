@@ -40,7 +40,8 @@ Schema:
       "unit": "kg | g | ton | liter | ml | piece | bag | bundle | sqft | sqm | cft | cum | nos | rmt | box | set",
       "unit_price": 0,
       "hsn_code": "string|null",
-      "gst_rate": null
+      "gst_rate": null,
+      "pack_size": "string|null  ← for packaged goods sold by the can/bottle/bag, e.g. \\"5L can\\", \\"20kg bag\\"; else null"
     }
   ]
 }
@@ -51,6 +52,7 @@ Rules:
 - "unit" must be one of the 16 enum values exactly. If the bill says "no.s" or "pcs", use "nos". If it says "kgs" or "Kg", use "kg".
 - Numbers only — strip currency symbols (₹, INR) and commas. "1,500" → 1500.
 - If a bill line shows a brand prefix like "AN AMMAN 08 MM TMT", extract "8mm TMT Bar" as "name" and "AN AMMAN" as "brand".
+- For packaged goods sold by the can/bottle/bag (e.g. "Dr. Fixit LW+ 5L", paints, putty): set "pack_size" to that size ("5L can"), quantity = number of cans/bags, unit = "nos" or "box". Do NOT spread the litres/kg across quantity (a 5L can is quantity 1, not 5).
 - If the date is missing, return "purchase_date": null. ${dateLine}
 - "category_hint" should be a 2-level hint like "Steel & Metals > TMT Bars", "Electrical > Distribution Boxes", "Hardware > Pipes & Fittings".
 - Ignore quotation/estimate-only stamps; treat the document as a purchase bill regardless.

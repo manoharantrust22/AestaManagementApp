@@ -67,6 +67,11 @@ const AIIngestionDialog = dynamic(
   { ssr: false }
 );
 
+const CatalogImageFillDialog = dynamic(
+  () => import("@/components/materials/CatalogImageFillDialog"),
+  { ssr: false }
+);
+
 const SORT_OPTIONS: { value: MaterialSortOption; label: string }[] = [
   { value: "frequently_used", label: "Frequently used" },
   { value: "alphabetical", label: "Alphabetical" },
@@ -106,6 +111,7 @@ export default function MaterialsPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const [fillImagesOpen, setFillImagesOpen] = useState(false);
   const { sites: userSites } = useSitesData();
   const aiSites = useMemo(
     () => userSites.map((s) => ({ id: s.id, name: s.name })),
@@ -354,6 +360,13 @@ export default function MaterialsPage() {
         actions={
           !isMobile && canEdit ? (
             <Box sx={{ display: "flex", gap: 1 }}>
+              <Button
+                variant="outlined"
+                startIcon={<ImageIcon />}
+                onClick={() => setFillImagesOpen(true)}
+              >
+                Fill images
+              </Button>
               <Button
                 variant="outlined"
                 startIcon={<AIIcon />}
@@ -643,6 +656,10 @@ export default function MaterialsPage() {
           });
         }}
       />
+
+      {fillImagesOpen ? (
+        <CatalogImageFillDialog open={fillImagesOpen} onClose={() => setFillImagesOpen(false)} />
+      ) : null}
 
       <VendorQuoteDialog
         open={quoteCtx !== null}

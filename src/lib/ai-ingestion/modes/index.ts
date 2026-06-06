@@ -8,12 +8,16 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import type { AnyModeConfig, IngestionMode } from "@/lib/ai-ingestion/types";
 import { createPurchaseMode } from "./purchase";
+import { createPurchaseBatchMode } from "./purchase.batch";
 
 export type ModeRegistry = Partial<Record<IngestionMode, AnyModeConfig>>;
 
 export function buildModeRegistry(queryClient: QueryClient): ModeRegistry {
   return {
     purchase: createPurchaseMode(queryClient) as AnyModeConfig,
+    // Hidden mode (no ModeSelector card) — reached via the "Multiple bills"
+    // toggle in the Context step of the Purchase Bill flow.
+    purchase_batch: createPurchaseBatchMode(queryClient) as AnyModeConfig,
     // quotation: createQuotationMode(queryClient) as AnyModeConfig,   // Phase D
     // warranty:  createWarrantyMode(queryClient)  as AnyModeConfig,   // Phase E
   };

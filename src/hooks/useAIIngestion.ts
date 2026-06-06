@@ -17,7 +17,6 @@ import type {
   IngestionContext,
   IngestionMode,
   IngestionStep,
-  ResolvedPreview,
 } from "@/lib/ai-ingestion/types";
 import { ZodError } from "zod";
 
@@ -28,7 +27,9 @@ interface State {
   pasteText: string;
   parseError: string | null;
   parsed: unknown | null;
-  preview: ResolvedPreview | null;
+  // Mode-opaque: a single ResolvedPreview for the purchase mode, or a
+  // BatchResolvedPreview for purchase_batch. Each preview component casts it.
+  preview: unknown | null;
   commitState: CommitState | null;
   result: unknown | null;
   fatalError: string | null;
@@ -39,9 +40,9 @@ type Action =
   | { type: "GO_TO"; step: IngestionStep }
   | { type: "SET_CONTEXT"; ctx: Partial<IngestionContext> }
   | { type: "SET_PASTE"; text: string }
-  | { type: "PARSE_OK"; value: unknown; preview: ResolvedPreview }
+  | { type: "PARSE_OK"; value: unknown; preview: unknown }
   | { type: "PARSE_ERR"; error: string }
-  | { type: "PREVIEW_PATCH"; patch: (prev: ResolvedPreview) => ResolvedPreview }
+  | { type: "PREVIEW_PATCH"; patch: (prev: any) => any }
   | { type: "COMMIT_PHASE"; state: CommitState }
   | { type: "COMMIT_DONE"; result: unknown }
   | { type: "COMMIT_FAILED"; error: string }
@@ -147,7 +148,7 @@ export function useAIIngestion(opts: UseAIIngestionOptions) {
       }
       try {
         const parsed = config.schema.parse(extracted.value);
-        const preview = await config.resolvePreview(parsed);
+        const preview = await config.resolvePreview(parsed, state.ctx);
         dispatch({ type: "PARSE_OK", value: parsed, preview });
       } catch (err) {
         if (err instanceof ZodError) {
@@ -158,11 +159,11 @@ export function useAIIngestion(opts: UseAIIngestionOptions) {
         dispatch({ type: "PARSE_ERR", error: msg });
       }
     },
-    [state.pasteText],
+    [state.pasteText, state.ctx],
   );
 
   const patchPreview = useCallback(
-    (patch: (prev: ResolvedPreview) => ResolvedPreview) => {
+    (patch: (prev: any) => any) => {
       dispatch({ type: "PREVIEW_PATCH", patch });
     },
     [],

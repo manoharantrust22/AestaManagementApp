@@ -31,7 +31,14 @@ import {
 } from "@mui/icons-material";
 import { useQueryClient } from "@tanstack/react-query";
 
-import type { IngestionMode, IngestionStep } from "@/lib/ai-ingestion/types";
+import type {
+  BatchResolvedPreview,
+  IngestionMode,
+  IngestionStep,
+  ResolvedPreview,
+} from "@/lib/ai-ingestion/types";
+import type { AiPurchaseBatchOutput } from "@/lib/ai-ingestion/schemas";
+import type { BatchCommitResult } from "@/lib/ai-ingestion/modes/purchase.batch";
 import { useAIIngestion } from "@/hooks/useAIIngestion";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { buildModeRegistry } from "@/lib/ai-ingestion/modes";
@@ -46,6 +53,7 @@ import ContextPicker from "./ContextPicker";
 import PromptCopyPanel from "./PromptCopyPanel";
 import PasteAndParse from "./PasteAndParse";
 import PreviewTable from "./PreviewTable";
+import BatchPreviewTable from "./BatchPreviewTable";
 import CommitProgress from "./CommitProgress";
 
 interface SiteOption {
@@ -259,6 +267,7 @@ export default function AIIngestionDialog({
             mode={config.mode}
             ctx={ingest.state.ctx}
             onChange={ingest.setContext}
+            onModeChange={ingest.setMode}
             lockedSite={lockedSite}
             sites={sites ?? []}
           />
@@ -285,11 +294,23 @@ export default function AIIngestionDialog({
         config &&
         ingest.state.preview &&
         ingest.state.parsed ? (
-          <PreviewTable
-            preview={ingest.state.preview}
-            summary={config.summary(ingest.state.parsed)}
-            onPatch={ingest.patchPreview}
-          />
+          config.mode === "purchase_batch" ? (
+            <BatchPreviewTable
+              batch={ingest.state.preview as BatchResolvedPreview}
+              parsed={ingest.state.parsed as AiPurchaseBatchOutput}
+              billPhotos={ingest.state.ctx.billUrls}
+              selectedDate={ingest.state.ctx.defaultDate}
+              summary={config.summary(ingest.state.parsed)}
+              onPatch={ingest.patchPreview}
+            />
+          ) : (
+            <PreviewTable
+              preview={ingest.state.preview as ResolvedPreview}
+              summary={config.summary(ingest.state.parsed)}
+              onPatch={ingest.patchPreview}
+              selectedDate={ingest.state.ctx.defaultDate}
+            />
+          )
         ) : null}
 
         {ingest.state.step === "committing" && ingest.state.commitState ? (
@@ -297,18 +318,52 @@ export default function AIIngestionDialog({
         ) : null}
 
         {ingest.state.step === "done" ? (
-          <Box>
-            <Alert severity="success" sx={{ mb: 2 }}>
-              Saved successfully. Ref:{" "}
-              <strong>
-                {(ingest.state.result as { ref_code?: string } | null)?.ref_code ??
-                  "(see catalog)"}
-              </strong>
-            </Alert>
-            <Typography variant="body2">
-              You can ingest another bill or close the dialog.
-            </Typography>
-          </Box>
+          (() => {
+            const batch = ingest.state.result as BatchCommitResult | null;
+            if (batch && typeof batch.savedCount === "number" && typeof batch.total === "number") {
+              const allOk = batch.failedCount === 0;
+              return (
+                <Box>
+                  <Alert severity={allOk ? "success" : "warning"} sx={{ mb: 2 }}>
+                    {batch.savedCount} of {batch.total} bill{batch.total === 1 ? "" : "s"} saved
+                    {allOk
+                      ? "."
+                      : ` · ${batch.failedCount} need${
+                          batch.failedCount === 1 ? "s" : ""
+                        } attention.`}
+                  </Alert>
+                  {batch.failures.length > 0 ? (
+                    <Stack spacing={0.5} sx={{ mb: 2 }}>
+                      {batch.failures.map((f) => (
+                        <Typography key={f.index} variant="caption" color="error.main">
+                          • {f.label}: {f.error}
+                        </Typography>
+                      ))}
+                    </Stack>
+                  ) : null}
+                  <Typography variant="body2">
+                    {allOk
+                      ? "All bills are in the catalog."
+                      : "Re-ingest the failed bill(s) separately, or close."}
+                  </Typography>
+                </Box>
+              );
+            }
+            return (
+              <Box>
+                <Alert severity="success" sx={{ mb: 2 }}>
+                  Saved successfully. Ref:{" "}
+                  <strong>
+                    {(ingest.state.result as { ref_code?: string } | null)?.ref_code ??
+                      "(see catalog)"}
+                  </strong>
+                </Alert>
+                <Typography variant="body2">
+                  You can ingest another bill or close the dialog.
+                </Typography>
+              </Box>
+            );
+          })()
         ) : null}
 
         {ingest.state.step === "error" ? (
@@ -357,7 +412,7 @@ export default function AIIngestionDialog({
               // a site expense but hasn't picked a site yet. The default
               // (undefined) treats company-flow as catalog-only / allow continue,
               // matching ContextPicker's "default toggle off" UX.
-              config.mode === "purchase" &&
+              config.mode.startsWith("purchase") &&
               ingest.state.ctx.recordAsSiteExpense === true &&
               !ingest.state.ctx.siteId
             }

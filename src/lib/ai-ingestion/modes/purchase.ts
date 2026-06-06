@@ -53,7 +53,7 @@ export async function fetchMaterialsForMatch() {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("materials")
-    .select("id, name, local_name, category_id, unit")
+    .select("id, name, local_name, category_id, unit, parent_id")
     .eq("is_active", true)
     .order("name");
   if (error) throw new Error(`Material catalog fetch failed: ${error.message}`);
@@ -73,7 +73,7 @@ export function createPurchaseMode(
     buildPrompt: buildPurchasePrompt,
     schema: aiPurchaseOutputSchema,
 
-    async resolvePreview(parsed): Promise<ResolvedPreview> {
+    async resolvePreview(parsed, ctx): Promise<ResolvedPreview> {
       // fetchQuery is cache-aware: returns immediately if the prefetch (fired
       // at dialog-open time) has already completed, or joins the in-flight
       // request if it's still running. Uses JOIN-free selects so Supabase
@@ -115,10 +115,48 @@ export function createPurchaseMode(
         return { item, index, match };
       });
 
+      // Variant families: for each matched material, gather its size/pack
+      // siblings (same parent family) so the editor can offer "pick the 5L can"
+      // chips. A variant IS a material (child via parent_id), so this reuses
+      // the existing overrideMaterialId path — no schema change.
+      const materialsById = new Map<
+        string,
+        { id: string; name: string; unit: string | null; parent_id: string | null }
+      >();
+      const childrenByParent = new Map<string, string[]>();
+      for (const m of allMaterials as Array<{
+        id: string;
+        name: string;
+        unit: string | null;
+        parent_id: string | null;
+      }>) {
+        materialsById.set(m.id, { id: m.id, name: m.name, unit: m.unit, parent_id: m.parent_id });
+        if (m.parent_id) {
+          const arr = childrenByParent.get(m.parent_id) ?? [];
+          arr.push(m.id);
+          childrenByParent.set(m.parent_id, arr);
+        }
+      }
+      const familyMemberIds = (matchedId: string): string[] => {
+        const m = materialsById.get(matchedId);
+        if (!m) return [];
+        const rootId = m.parent_id ?? m.id;
+        return [rootId, ...(childrenByParent.get(rootId) ?? [])];
+      };
+      const familyByMatchedId = new Map<string, string[]>();
+      const allFamilyIds = new Set<string>();
+      for (const id of matchedMaterialIds) {
+        const fam = familyMemberIds(id);
+        if (fam.length > 1) {
+          familyByMatchedId.set(id, fam);
+          fam.forEach((fid) => allFamilyIds.add(fid));
+        }
+      }
+
       // Price intelligence (best-effort — failures degrade to null priceContext rather than blocking the preview)
       // Existing-image lookup: for matched rows, fetch the catalog's current
       // image_url so PreviewTable can warn before overwriting on commit.
-      const [priceCtxRes, vendorSummaryRes, existingImagesRes] = await Promise.all([
+      const [priceCtxRes, vendorSummaryRes, existingImagesRes, lastPriceRes] = await Promise.all([
         matchedMaterialIds.length > 0
           ? (supabase as any).rpc("get_purchase_price_context", {
               p_material_ids: matchedMaterialIds,
@@ -137,7 +175,29 @@ export function createPurchaseMode(
               .select("id, image_url")
               .in("id", matchedMaterialIds)
           : Promise.resolve({ data: [], error: null }),
+        // Last-paid price per variant-family member (direct query — does not
+        // depend on the get_purchase_price_context RPC, which is absent on prod).
+        allFamilyIds.size > 0
+          ? supabase
+              .from("price_history")
+              .select("material_id, price, recorded_date")
+              .in("material_id", Array.from(allFamilyIds))
+              .order("recorded_date", { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
       ]);
+
+      const lastPriceByMaterialId = new Map<string, number>();
+      if (!lastPriceRes.error && Array.isArray(lastPriceRes.data)) {
+        for (const r of lastPriceRes.data as Array<{
+          material_id: string;
+          price: number | null;
+          recorded_date: string | null;
+        }>) {
+          if (!lastPriceByMaterialId.has(r.material_id) && r.price != null) {
+            lastPriceByMaterialId.set(r.material_id, Number(r.price));
+          }
+        }
+      }
 
       const existingImageByMaterialId = new Map<string, string | null>();
       if (!existingImagesRes.error && Array.isArray(existingImagesRes.data)) {
@@ -218,6 +278,29 @@ export function createPurchaseMode(
             ? existingImageByMaterialId.get(match.entity.id) ?? null
             : null;
 
+        const variantOptions: Array<{
+          id: string;
+          name: string;
+          unit: string;
+          lastPrice: number | null;
+        }> = [];
+        if (match.status === "matched") {
+          const fam = familyByMatchedId.get(match.entity.id);
+          if (fam) {
+            for (const fid of fam) {
+              const m = materialsById.get(fid);
+              if (m) {
+                variantOptions.push({
+                  id: fid,
+                  name: m.name,
+                  unit: m.unit ?? "",
+                  lastPrice: lastPriceByMaterialId.get(fid) ?? null,
+                });
+              }
+            }
+          }
+        }
+
         return {
           index,
           rawName: item.name,
@@ -243,6 +326,8 @@ export function createPurchaseMode(
           priceContext,
           productPhotoUrl: null,
           existingImageUrl,
+          variantOptions,
+          rawPackSize: item.pack_size ?? null,
         };
       });
 
@@ -291,6 +376,11 @@ export function createPurchaseMode(
         overrideVendorId: null,
         rows,
         vendorSummary,
+        // Date reconciliation for the Preview step: surface what the AI read
+        // off the bill (billDate) and the date we'll actually commit
+        // (effectiveDate = bill date if present, else the user's Context date).
+        billDate: parsed.purchase_date ?? null,
+        effectiveDate: parsed.purchase_date ?? ctx.defaultDate,
       };
     },
 

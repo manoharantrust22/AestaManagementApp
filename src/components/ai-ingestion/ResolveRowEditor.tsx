@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import {
   Box,
   Button,
+  Chip,
   MenuItem,
   Popover,
   Stack,
@@ -16,6 +17,7 @@ import {
   Typography,
 } from "@mui/material";
 
+import { MATERIAL_UNITS } from "@/lib/ai-ingestion/schemas";
 import type { MaterialMatchCandidate } from "@/lib/ai-ingestion/fuzzyMatch";
 import type { ResolvedPreviewRow } from "@/lib/ai-ingestion/types";
 
@@ -26,6 +28,10 @@ interface ResolveRowEditorProps {
   onApply: (patch: {
     overrideMaterialId: string | null;
     overrideMaterialName: string | null;
+    quantity: number | null;
+    unit: string;
+    unitPrice: number;
+    brand: string | null;
   }) => void;
 }
 
@@ -37,11 +43,19 @@ export default function ResolveRowEditor({
 }: ResolveRowEditorProps) {
   const [overrideId, setOverrideId] = useState<string>("");
   const [overrideName, setOverrideName] = useState<string>("");
+  const [quantity, setQuantity] = useState<string>("");
+  const [unit, setUnit] = useState<string>("");
+  const [unitPrice, setUnitPrice] = useState<string>("");
+  const [brand, setBrand] = useState<string>("");
 
   useEffect(() => {
     if (!row) return;
     setOverrideId(row.overrideMaterialId ?? "");
     setOverrideName(row.overrideMaterialName ?? row.rawName);
+    setQuantity(row.quantity != null ? String(row.quantity) : "");
+    setUnit(row.unit);
+    setUnitPrice(String(row.unitPrice));
+    setBrand(row.rawBrand ?? "");
   }, [row]);
 
   const candidates: MaterialMatchCandidate[] = row
@@ -52,10 +66,25 @@ export default function ResolveRowEditor({
         : []
     : [];
 
+  // Size/pack variants of the matched material's family (e.g. 1L/5L/20L can),
+  // each with its last-paid price — picking a chip snaps the line to that
+  // exact variant via overrideMaterialId.
+  const variantOptions = row?.variantOptions ?? [];
+  const autoMatchedId =
+    row && row.materialMatch.kind === "matched" ? row.materialMatch.entity.id : null;
+  const selectedMaterialId = overrideId || autoMatchedId || "";
+
   const apply = () => {
+    if (!row) return;
+    const qtyNum = quantity.trim() === "" ? null : Number(quantity);
+    const priceNum = unitPrice.trim() === "" ? 0 : Number(unitPrice);
     onApply({
       overrideMaterialId: overrideId === "" ? null : overrideId,
       overrideMaterialName: overrideId === "" ? overrideName.trim() || null : null,
+      quantity: qtyNum != null && Number.isFinite(qtyNum) ? qtyNum : null,
+      unit: unit || row.unit,
+      unitPrice: Number.isFinite(priceNum) ? priceNum : row.unitPrice,
+      brand: brand.trim() === "" ? null : brand.trim(),
     });
     onClose();
   };
@@ -104,16 +133,108 @@ export default function ResolveRowEditor({
             </Typography>
           )}
 
+          {variantOptions.length > 1 ? (
+            <Box>
+              <Typography variant="caption" color="text.secondary" component="div" gutterBottom>
+                Pick the exact size / pack — price is the last you paid:
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {variantOptions.map((v) => (
+                  <Chip
+                    key={v.id}
+                    size="small"
+                    clickable
+                    onClick={() => setOverrideId(v.id)}
+                    color={selectedMaterialId === v.id ? "primary" : "default"}
+                    variant={selectedMaterialId === v.id ? "filled" : "outlined"}
+                    label={
+                      v.lastPrice != null ? `${v.name} · ₹${formatNumber(v.lastPrice)}` : v.name
+                    }
+                  />
+                ))}
+              </Stack>
+            </Box>
+          ) : null}
+
           {overrideId === "" ? (
+            <Box>
+              <TextField
+                size="small"
+                label="New material name"
+                value={overrideName}
+                onChange={(e) => setOverrideName(e.target.value)}
+                fullWidth
+                helperText={`AI extracted: "${row.rawName}"`}
+              />
+              {row.rawPackSize ? (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.75 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Pack size (AI): <strong>{row.rawPackSize}</strong>
+                  </Typography>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      const ps = row.rawPackSize as string;
+                      if (!overrideName.toLowerCase().includes(ps.toLowerCase())) {
+                        setOverrideName((prev) => `${prev} ${ps}`.trim());
+                      }
+                    }}
+                  >
+                    Add to name
+                  </Button>
+                </Box>
+              ) : null}
+            </Box>
+          ) : null}
+
+          <Typography variant="subtitle2" sx={{ pt: 0.5 }}>
+            Line details
+          </Typography>
+          <Stack direction="row" spacing={1}>
             <TextField
               size="small"
-              label="New material name"
-              value={overrideName}
-              onChange={(e) => setOverrideName(e.target.value)}
+              type="number"
+              label="Quantity"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              inputProps={{ min: 0, step: "any" }}
               fullWidth
-              helperText={`AI extracted: "${row.rawName}"`}
             />
-          ) : null}
+            <TextField
+              select
+              size="small"
+              label="Unit"
+              value={unit}
+              onChange={(e) => setUnit(e.target.value)}
+              fullWidth
+            >
+              {MATERIAL_UNITS.map((u) => (
+                <MenuItem key={u} value={u}>
+                  {u}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Stack>
+          <Stack direction="row" spacing={1}>
+            <TextField
+              size="small"
+              type="number"
+              label="Unit price (₹)"
+              value={unitPrice}
+              onChange={(e) => setUnitPrice(e.target.value)}
+              inputProps={{ min: 0, step: "any" }}
+              fullWidth
+              helperText="Per piece/can/bag — not per litre for packaged goods"
+            />
+            <TextField
+              size="small"
+              label="Brand"
+              value={brand}
+              onChange={(e) => setBrand(e.target.value)}
+              fullWidth
+              placeholder="e.g. Dr. Fixit"
+            />
+          </Stack>
 
           <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1 }}>
             <Button onClick={onClose}>Cancel</Button>
@@ -125,4 +246,8 @@ export default function ResolveRowEditor({
       ) : null}
     </Popover>
   );
+}
+
+function formatNumber(n: number): string {
+  return n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 }

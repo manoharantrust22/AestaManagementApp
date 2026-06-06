@@ -9,7 +9,7 @@ import type { z } from "zod";
 
 import type { MatchResult, MaterialMatchCandidate, VendorMatchCandidate } from "./fuzzyMatch";
 
-export type IngestionMode = "purchase" | "quotation" | "warranty";
+export type IngestionMode = "purchase" | "quotation" | "warranty" | "purchase_batch";
 
 /**
  * Step name in the dialog state machine. UI renders one panel per step.
@@ -78,6 +78,18 @@ export type RowMatchOutcome<TEntity> =
   | { kind: "ambiguous"; candidates: TEntity[]; chosenId: string | null }
   | { kind: "new"; suggestedName: string };
 
+/**
+ * A size/pack variant the user can snap a line to in ResolveRowEditor (e.g.
+ * "5L can"), shown with its last-paid price. Variants are sibling materials in
+ * the same parent family.
+ */
+export interface VariantOption {
+  id: string;
+  name: string;
+  unit: string;
+  lastPrice: number | null;
+}
+
 export interface ResolvedPreviewRow {
   /** Stable index inside the AI items array. */
   index: number;
@@ -120,6 +132,32 @@ export interface ResolvedPreviewRow {
    * NEW rows and matched rows with no photo set yet.
    */
   existingImageUrl: string | null;
+  /**
+   * Size/pack variants of the matched material's family (each with last-paid
+   * price), for the "pick the exact can size" chips in ResolveRowEditor.
+   * Empty when the matched material has no variant family (or row is NEW).
+   */
+  variantOptions: VariantOption[];
+  /** AI-extracted pack/can size hint for packaged goods (e.g. "5L can"). */
+  rawPackSize: string | null;
+}
+
+/**
+ * Multi-bill batch preview: a list of independent single-bill previews. Each
+ * bill renders the same `ResolvedPreview` UI (incl. the per-bill date card and
+ * inline row editing), plus an optional bill photo mapped from the Context
+ * upload set (`billUrl`, reassignable in the preview).
+ */
+export interface BatchBill {
+  /** Stable index for list keys + patching (matches the parsed.purchases index). */
+  id: number;
+  preview: ResolvedPreview;
+  /** Bill photo for this bill, mapped from ctx.billUrls by order (editable). */
+  billUrl: string | null;
+}
+
+export interface BatchResolvedPreview {
+  bills: BatchBill[];
 }
 
 export interface ResolvedPreview {
@@ -133,6 +171,16 @@ export interface ResolvedPreview {
    * vendors or vendors with no recent bills in the visible site set.
    */
   vendorSummary: VendorSummary | null;
+  /**
+   * Purchase-mode date reconciliation, populated by resolvePreview.
+   * `billDate` is what the AI read off the bill (null if it couldn't);
+   * `effectiveDate` is the date that will actually be committed and is
+   * user-editable on the Preview step (initialized to billDate ?? the
+   * Context "Purchase date"). Optional so quotation/warranty previews — which
+   * don't surface this card — stay valid without setting them.
+   */
+  billDate?: string | null;
+  effectiveDate?: string;
 }
 
 export type CommitPhase =
@@ -142,10 +190,19 @@ export type CommitPhase =
   | "complete"
   | "failed";
 
+/** Per-bill status line shown in CommitProgress during a multi-bill commit. */
+export interface BatchCommitItem {
+  label: string;
+  status: "pending" | "saving" | "done" | "failed";
+  error?: string;
+}
+
 export interface CommitState {
   phase: CommitPhase;
   message: string;
   error?: string;
+  /** Present only for batch commits — per-bill progress for "7 of 8 saved". */
+  items?: BatchCommitItem[];
 }
 
 /**
@@ -154,7 +211,7 @@ export interface CommitState {
  * @template TParsed The strict shape returned by the AI (Zod-validated).
  * @template TCommitResult The shape returned by the commit mutation (e.g. ref_code).
  */
-export interface ModeConfig<TParsed, TCommitResult> {
+export interface ModeConfig<TParsed, TCommitResult, TPreview = ResolvedPreview> {
   mode: IngestionMode;
   label: string;
   description: string;
@@ -169,9 +226,13 @@ export interface ModeConfig<TParsed, TCommitResult> {
   schema: z.ZodType<TParsed>;
   /**
    * Run fuzzy matching against the catalog and produce a preview that the
-   * user can edit before commit.
+   * user can edit before commit. Receives the dialog context so modes can
+   * seed context-dependent preview fields (e.g. purchase mode reconciles the
+   * AI-read bill date against the user's selected "Purchase date"). `TPreview`
+   * defaults to a single `ResolvedPreview`; the batch mode returns a
+   * `BatchResolvedPreview` (list of bills).
    */
-  resolvePreview(parsed: TParsed): Promise<ResolvedPreview>;
+  resolvePreview(parsed: TParsed, ctx: IngestionContext): Promise<TPreview>;
   /**
    * Commit the resolved preview transactionally. Implementations are expected
    * to call `aiIngestionService.commitX(...)` and return whatever metadata
@@ -179,7 +240,7 @@ export interface ModeConfig<TParsed, TCommitResult> {
    */
   commit(args: {
     parsed: TParsed;
-    preview: ResolvedPreview;
+    preview: TPreview;
     ctx: IngestionContext;
     onPhaseChange: (state: CommitState) => void;
   }): Promise<TCommitResult>;
@@ -192,4 +253,4 @@ export interface ModeConfig<TParsed, TCommitResult> {
 /**
  * Type-erased ModeConfig for storage in registries / dialog props.
  */
-export type AnyModeConfig = ModeConfig<unknown, unknown>;
+export type AnyModeConfig = ModeConfig<unknown, unknown, unknown>;

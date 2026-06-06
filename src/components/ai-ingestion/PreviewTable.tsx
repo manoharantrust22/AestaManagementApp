@@ -8,6 +8,7 @@
 import { useRef, useState } from "react";
 import {
   Box,
+  Button,
   Chip,
   CircularProgress,
   IconButton,
@@ -18,6 +19,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TextField,
   Tooltip,
   Typography,
   Paper,
@@ -33,10 +35,12 @@ import {
   PhotoCamera as PhotoCameraIcon,
   Close as CloseIcon,
   AutoFixHigh as ReplaceIcon,
+  ImageSearch as ImageSearchIcon,
 } from "@mui/icons-material";
 
 import { createClient } from "@/lib/supabase/client";
 import { hardenedUpload } from "@/lib/storage/uploadHelpers";
+import ImageSearchPicker from "@/components/common/ImageSearchPicker";
 
 import type {
   ResolvedPreview,
@@ -52,9 +56,12 @@ interface PreviewTableProps {
   preview: ResolvedPreview;
   summary: string;
   onPatch: (patch: (prev: ResolvedPreview) => ResolvedPreview) => void;
+  /** The "Purchase date" picked in the Context step — compared against the
+   * AI-read bill date to flag a mismatch on the date card. */
+  selectedDate?: string;
 }
 
-export default function PreviewTable({ preview, summary, onPatch }: PreviewTableProps) {
+export default function PreviewTable({ preview, summary, onPatch, selectedDate }: PreviewTableProps) {
   const [editAnchor, setEditAnchor] = useState<HTMLElement | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
@@ -69,6 +76,10 @@ export default function PreviewTable({ preview, summary, onPatch }: PreviewTable
   const applyEdit = (patch: {
     overrideMaterialId: string | null;
     overrideMaterialName: string | null;
+    quantity: number | null;
+    unit: string;
+    unitPrice: number;
+    brand: string | null;
   }) => {
     if (editingIndex === null) return;
     onPatch((prev) => ({
@@ -79,9 +90,28 @@ export default function PreviewTable({ preview, summary, onPatch }: PreviewTable
               ...r,
               overrideMaterialId: patch.overrideMaterialId,
               overrideMaterialName: patch.overrideMaterialName,
+              quantity: patch.quantity,
+              unit: patch.unit,
+              unitPrice: patch.unitPrice,
+              rawBrand: patch.brand,
+              totalPrice:
+                patch.quantity != null && Number.isFinite(patch.unitPrice)
+                  ? patch.quantity * patch.unitPrice
+                  : null,
+              warnings: recomputeWarnings(r, patch.unit),
             }
           : r,
       ),
+    }));
+  };
+
+  // Edit the date that will actually be committed. Empty input falls back to
+  // the Context "Purchase date" so the commit never sends an empty string
+  // (the RPC requires a non-null date).
+  const setEffectiveDate = (value: string) => {
+    onPatch((prev) => ({
+      ...prev,
+      effectiveDate: value || selectedDate || prev.effectiveDate,
     }));
   };
 
@@ -118,6 +148,15 @@ export default function PreviewTable({ preview, summary, onPatch }: PreviewTable
           {vendorMatchLabel(preview)}
         </Typography>
       </Box>
+
+      {preview.effectiveDate ? (
+        <PurchaseDateCard
+          effectiveDate={preview.effectiveDate}
+          billDate={preview.billDate ?? null}
+          selectedDate={selectedDate ?? preview.effectiveDate}
+          onChange={setEffectiveDate}
+        />
+      ) : null}
 
       {ambigCount > 0 ? (
         <Alert severity="warning" icon={<WarningIcon />}>
@@ -237,6 +276,7 @@ export default function PreviewTable({ preview, summary, onPatch }: PreviewTable
                       photoUrl={row.productPhotoUrl}
                       existingImageUrl={row.existingImageUrl}
                       rowName={displayName(row)}
+                      searchQuery={[row.rawBrand, displayName(row)].filter(Boolean).join(" ")}
                       onUploaded={(url) => setRowPhoto(row.index, url)}
                       onCleared={() => setRowPhoto(row.index, null)}
                     />
@@ -341,6 +381,109 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
+/** Day-month-year for an unambiguous read of YYYY-MM-DD dates. */
+function formatFullDate(iso: string): string {
+  // Parse as local midnight so en-IN display never shifts a day across TZs.
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/**
+ * Recompute a row's warnings after an inline edit. The only warning today is
+ * the catalog-vs-bill unit mismatch, keyed off the auto-matched material.
+ */
+function recomputeWarnings(row: ResolvedPreviewRow, unit: string): string[] {
+  const warnings: string[] = [];
+  if (
+    row.materialMatch.kind === "matched" &&
+    row.materialMatch.entity.unit &&
+    row.materialMatch.entity.unit !== unit
+  ) {
+    warnings.push(`catalog says ${row.materialMatch.entity.unit}, bill says ${unit}`);
+  }
+  return warnings;
+}
+
+/**
+ * Purchase-date reconciliation card on the Preview step. Shows the date that
+ * will actually be committed (editable), and warns when the AI's bill date
+ * disagrees with the date picked in the Context step.
+ */
+function PurchaseDateCard({
+  effectiveDate,
+  billDate,
+  selectedDate,
+  onChange,
+}: {
+  effectiveDate: string;
+  billDate: string | null;
+  selectedDate: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Stack spacing={1.5}>
+        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+          <TextField
+            type="date"
+            label="Purchase date"
+            value={effectiveDate}
+            onChange={(e) => onChange(e.target.value)}
+            size="small"
+            InputLabelProps={{ shrink: true }}
+            sx={{ minWidth: 180 }}
+          />
+          <Typography variant="caption" color="text.secondary">
+            Saved to the bill, price history, and expense.
+          </Typography>
+        </Stack>
+
+        {billDate !== null && billDate !== selectedDate ? (
+          <Alert severity="warning" icon={<WarningIcon />}>
+            <Stack spacing={1}>
+              <Box component="span">
+                The bill appears dated <strong>{formatFullDate(billDate)}</strong>, but you selected{" "}
+                <strong>{formatFullDate(selectedDate)}</strong>. We&apos;ll save{" "}
+                <strong>{formatFullDate(effectiveDate)}</strong>.
+              </Box>
+              <Stack direction="row" spacing={1}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="inherit"
+                  onClick={() => onChange(billDate)}
+                  disabled={effectiveDate === billDate}
+                >
+                  Use bill date
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="inherit"
+                  onClick={() => onChange(selectedDate)}
+                  disabled={effectiveDate === selectedDate}
+                >
+                  Keep my date
+                </Button>
+              </Stack>
+            </Stack>
+          </Alert>
+        ) : billDate !== null && effectiveDate === billDate ? (
+          <Typography variant="caption" color="success.main">
+            Bill date {formatFullDate(billDate)} ✓ matches your selection.
+          </Typography>
+        ) : billDate === null ? (
+          <Typography variant="caption" color="text.secondary">
+            The AI couldn&apos;t read a date from the bill — saving your selected date{" "}
+            {formatFullDate(effectiveDate)}.
+          </Typography>
+        ) : null}
+      </Stack>
+    </Paper>
+  );
+}
+
 function effectiveStatus(row: ResolvedPreviewRow): "matched" | "ambiguous" | "new" {
   if (row.overrideMaterialId) return "matched";
   if (row.overrideMaterialName) return "new";
@@ -353,6 +496,10 @@ function effectiveStatus(row: ResolvedPreviewRow): "matched" | "ambiguous" | "ne
 
 function displayName(row: ResolvedPreviewRow): string {
   if (row.overrideMaterialId) {
+    // A picked size-variant may not be among the fuzzy candidates — check the
+    // variant family first so the chosen size shows in the row.
+    const fromVariant = row.variantOptions?.find((v) => v.id === row.overrideMaterialId);
+    if (fromVariant) return fromVariant.name;
     const candidates =
       row.materialMatch.kind === "matched" || row.materialMatch.kind === "ambiguous"
         ? row.materialMatch.candidates
@@ -406,18 +553,22 @@ function PhotoCell({
   photoUrl,
   existingImageUrl,
   rowName,
+  searchQuery,
   onUploaded,
   onCleared,
 }: {
   photoUrl: string | null;
   existingImageUrl: string | null;
   rowName: string;
+  /** "{brand} {name}" prefilled into the online image search. */
+  searchQuery?: string;
   onUploaded: (url: string) => void;
   onCleared: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const willReplaceExisting = !!existingImageUrl && !!photoUrl;
 
   const handlePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -518,6 +669,17 @@ function PhotoCell({
           </IconButton>
         </Tooltip>
       )}
+      <Tooltip title="Find a product image online" placement="top">
+        <Button
+          size="small"
+          startIcon={<ImageSearchIcon sx={{ fontSize: 14 }} />}
+          onClick={() => setPickerOpen(true)}
+          disabled={uploading}
+          sx={{ minWidth: 0, px: 0.5, py: 0, fontSize: 9, lineHeight: 1.4 }}
+        >
+          Find online
+        </Button>
+      </Tooltip>
       {willReplaceExisting ? (
         <Tooltip title="This material already has a catalog photo. Confirming will replace it." placement="top">
           <Stack direction="row" spacing={0.25} alignItems="center">
@@ -537,6 +699,12 @@ function PhotoCell({
         accept="image/jpeg,image/png,image/webp"
         style={{ display: "none" }}
         onChange={handlePicked}
+      />
+      <ImageSearchPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        defaultQuery={searchQuery?.trim() || rowName}
+        onPicked={(url) => onUploaded(url)}
       />
     </Box>
   );

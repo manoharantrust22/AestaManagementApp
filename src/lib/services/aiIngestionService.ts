@@ -94,7 +94,9 @@ function buildPurchasePayload(args: {
 
   return {
     site_id: ctx.siteId,
-    purchase_date: parsed.purchase_date ?? ctx.defaultDate,
+    // The user can edit the date on the Preview step (preview.effectiveDate);
+    // fall back to the AI's bill date, then the Context default.
+    purchase_date: preview.effectiveDate ?? parsed.purchase_date ?? ctx.defaultDate,
     total_amount: parsed.total_amount,
     transport_cost: parsed.transport_cost ?? 0,
     invoice_no: parsed.invoice_no ?? null,
