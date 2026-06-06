@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
 import { recordSpend } from "@/lib/services/engineerWalletV2";
+import { buildAdvanceExpensePayload } from "@/lib/materials/advanceExpensePayload";
+import type { PayerSource, PayerSourceSplitRow } from "@/types/settlement.types";
 import { ENGINEER_WALLET_KEYS } from "@/hooks/queries/useEngineerWalletV2";
 import { generateOptimisticId } from "@/lib/optimistic";
 import { wrapQueryFn } from "@/lib/utils/timeout";
@@ -1743,6 +1745,12 @@ export function useRecordAdvancePayment() {
       recorded_by_name?: string;
       site_group_id?: string | null;
       paying_site_id?: string;
+      // Payer source (already normalized by the dialog via toRpcArgs)
+      payer_source?: PayerSource | "split";
+      payer_name?: string;
+      payer_source_split?: PayerSourceSplitRow[] | null;
+      /** True for a full bulk settlement (isGroupStockAdvancePO) — forces is_paid. */
+      is_complete?: boolean;
     }) => {
       await ensureFreshSession();
 
@@ -1753,80 +1761,101 @@ export function useRecordAdvancePayment() {
         data.recorded_by_name
       );
 
-      // For group_stock advance payments via engineer wallet:
-      // Create the GSP-* material_purchase_expenses row now so the record
-      // doesn't vanish from the settlements list after advance_paid is set.
-      // The delivery flow detects the existing row and skips re-creation.
-      let expenseId: string | null = null;
+      // Fetch PO details needed to materialize the expense row.
+      const { data: po } = await supabase
+        .from("purchase_orders")
+        .select(`
+          id, po_number, site_id, vendor_id, total_amount, transport_cost, internal_notes,
+          vendor:vendors(id, name),
+          items:purchase_order_items(id, material_id, brand_id, quantity, unit_price)
+        `)
+        .eq("id", data.po_id)
+        .single();
+
+      // Current auth user → created_by (references auth.users(id)).
+      const { data: authData } = await supabase.auth.getUser();
+      const authUserId = authData?.user?.id ?? null;
+
+      // Idempotency: reuse an existing expense row for this PO if one exists.
+      const { data: existingExpense } = await supabase
+        .from("material_purchase_expenses")
+        .select("id")
+        .eq("purchase_order_id", data.po_id)
+        .maybeSingle();
+
+      let expenseId: string | null = existingExpense?.id ?? null;
+      const insertedThisCall = !existingExpense;
       let walletDebited = false;
 
-      if (isWalletPath) {
-        const { data: existingExpense } = await supabase
-          .from("material_purchase_expenses")
-          .select("id")
-          .eq("purchase_order_id", data.po_id)
-          .maybeSingle();
+      if (po) {
+        const { data: refCode } = await supabase.rpc("generate_material_purchase_reference");
+        const built = buildAdvanceExpensePayload(
+          po,
+          {
+            amount_paid: data.amount_paid,
+            payment_date: data.payment_date,
+            payment_mode: data.payment_mode,
+            payment_reference: data.payment_reference,
+            payment_screenshot_url: data.payment_screenshot_url,
+            notes: data.notes,
+            payer_source: data.payer_source,
+            payer_name: data.payer_name ?? null,
+            payer_source_split: data.payer_source_split ?? null,
+            is_complete: data.is_complete,
+            payment_channel: isWalletPath ? "engineer_wallet" : "direct",
+            paying_site_id: data.paying_site_id ?? null,
+            site_group_id: data.site_group_id ?? null,
+          },
+          refCode || `MAT-${Date.now()}`,
+          authUserId,
+        );
 
-        if (existingExpense) {
-          expenseId = existingExpense.id;
-          // Mark existing row as paid and link wallet
+        if (expenseId) {
+          // Idempotent update: refresh paid + payer fields on the existing row.
+          const { error: updErr } = await supabase
+            .from("material_purchase_expenses")
+            .update({
+              is_paid: built.expenseRow.is_paid,
+              paid_date: built.expenseRow.paid_date,
+              payment_mode: built.expenseRow.payment_mode,
+              payment_reference: built.expenseRow.payment_reference,
+              payment_screenshot_url: built.expenseRow.payment_screenshot_url,
+              amount_paid: built.expenseRow.amount_paid,
+              settlement_payer_source: built.expenseRow.settlement_payer_source,
+              settlement_payer_name: built.expenseRow.settlement_payer_name,
+              payer_source_split: built.expenseRow.payer_source_split,
+              payment_channel: built.expenseRow.payment_channel,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", expenseId);
+          if (updErr) throw updErr;
         } else {
-          // Fetch PO details needed for the expense row
-          const { data: po } = await supabase
-            .from("purchase_orders")
-            .select(`
-              id, po_number, site_id, vendor_id, total_amount, transport_cost,
-              vendor:vendors(id, name),
-              items:purchase_order_items(id, material_id, brand_id, quantity, unit_price)
-            `)
-            .eq("id", data.po_id)
+          const { data: inserted, error: insErr } = await supabase
+            .from("material_purchase_expenses")
+            .insert(built.expenseRow)
+            .select("id")
             .single();
+          if (insErr) throw insErr;
+          expenseId = inserted?.id ?? null;
 
-          if (po) {
-            const { data: refCode } = await supabase.rpc("generate_material_purchase_reference");
-            const totalQty = (po.items || []).reduce(
-              (sum: number, item: any) => sum + Number(item.quantity),
-              0
-            );
-
-            const { data: expense, error: expenseErr } = await supabase
-              .from("material_purchase_expenses")
-              .insert({
-                site_id: po.site_id,
-                ref_code: refCode || `MAT-${Date.now()}`,
-                purchase_type: "group_stock",
-                purchase_order_id: po.id,
-                vendor_id: po.vendor_id,
-                vendor_name: po.vendor?.name || null,
-                purchase_date: data.payment_date,
-                total_amount: po.total_amount || data.amount_paid,
-                transport_cost: po.transport_cost || 0,
-                status: "recorded",
-                is_paid: true,
-                paid_date: data.payment_date,
-                payment_mode: data.payment_mode || "cash",
-                payment_reference: data.payment_reference || null,
-                payment_screenshot_url: data.payment_screenshot_url || null,
-                amount_paid: data.amount_paid,
-                notes: data.notes || `Advance payment for PO ${po.po_number}`,
-                paying_site_id: data.paying_site_id || null,
-                site_group_id: data.site_group_id || null,
-                original_qty: totalQty || null,
-                remaining_qty: totalQty || null,
-                payment_channel: "engineer_wallet",
-              })
-              .select("id")
-              .single();
-
-            if (expenseErr) {
-              console.error("[useRecordAdvancePayment] Failed to create group_stock expense:", expenseErr);
-            } else {
-              expenseId = expense?.id ?? null;
+          // Create line items so landed cost / material detail are complete.
+          if (expenseId && built.expenseItems.length > 0) {
+            const itemsPayload = built.expenseItems.map((it) => ({
+              purchase_expense_id: expenseId,
+              ...it,
+            }));
+            const { error: itemsErr } = await supabase
+              .from("material_purchase_expense_items")
+              .insert(itemsPayload);
+            if (itemsErr) {
+              console.warn("[useRecordAdvancePayment] Failed to create expense items:", itemsErr);
             }
           }
         }
+      }
 
-        // Debit the engineer wallet
+      // Engineer-wallet path: debit the wallet and link the spend.
+      if (isWalletPath && expenseId) {
         try {
           const spend = await recordSpend(supabase, {
             engineer_id: data.engineer_id!,
@@ -1841,28 +1870,23 @@ export function useRecordAdvancePayment() {
             description: `Group stock advance payment`,
           });
 
-          if (spend?.id && expenseId) {
+          if (spend?.id) {
             await supabase
               .from("material_purchase_expenses")
-              .update({
-                engineer_transaction_id: spend.id,
-                is_paid: true,
-                paid_date: data.payment_date,
-                payment_channel: "engineer_wallet",
-              })
+              .update({ engineer_transaction_id: spend.id })
               .eq("id", expenseId);
           }
           walletDebited = true;
         } catch (walletErr) {
-          // Wallet debit failed — roll back the expense row we just created
-          if (expenseId) {
+          // Roll back ONLY a row this call inserted — never delete a pre-existing one.
+          if (insertedThisCall && expenseId) {
             await supabase.from("material_purchase_expenses").delete().eq("id", expenseId);
           }
           throw walletErr;
         }
       }
 
-      // Record advance_paid on the PO
+      // Record advance_paid on the PO.
       const { error } = await supabase
         .from("purchase_orders")
         .update({
@@ -1883,6 +1907,7 @@ export function useRecordAdvancePayment() {
       // misses the settlement page the user is actually looking at.
       queryClient.invalidateQueries({ queryKey: queryKeys.materialPurchases.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.bySite(result.site_id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.expenses.all });
       if (result.walletDebited) {
         queryClient.invalidateQueries({ queryKey: ENGINEER_WALLET_KEYS.all });
       }
