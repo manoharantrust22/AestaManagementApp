@@ -40,6 +40,7 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   People as PeopleIcon,
+  ContactPhone as ContactPhoneIcon,
   Groups as GroupsIcon,
   AccessTime as AccessTimeIcon,
   AccountBalanceWallet as AccountBalanceWalletIcon,
@@ -313,6 +314,11 @@ const companyNavCategories: NavCategory[] = [
     emoji: "👷",
     items: [
       { text: "Laborers", icon: <PeopleIcon />, path: "/company/laborers" },
+      {
+        text: "Directory",
+        icon: <ContactPhoneIcon />,
+        path: "/company/directory",
+      },
       { text: "Teams", icon: <GroupsIcon />, path: "/company/teams" },
       {
         text: "Concreting Teams",

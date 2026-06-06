@@ -57,6 +57,12 @@ export const queryKeys = {
     byId: (id: string) => ['vendors', id] as const,
   },
 
+  technicians: {
+    all: ['technicians'] as const,
+    list: () => ['technicians', 'list'] as const,
+    byId: (id: string) => ['technicians', id] as const,
+  },
+
   users: {
     all: ['users'] as const,
     list: () => ['users', 'list'] as const,
@@ -411,6 +417,7 @@ export function getCacheTTL(queryKey: readonly unknown[]): number {
     'labor-roles',
     'materials',
     'vendors',
+    'technicians',
     'users',
     'subcontracts',
     'companies',
