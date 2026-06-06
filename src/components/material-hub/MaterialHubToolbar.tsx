@@ -54,7 +54,14 @@ export default function MaterialHubToolbar({
         isOptionEqualToValue={(o, v) => o.material_id === v.material_id}
         sx={{ width: 240 }}
         renderInput={(params) => (
-          <TextField {...params} placeholder="Filter by material…" />
+          <TextField
+            {...params}
+            placeholder="Filter by material…"
+            inputProps={{
+              ...params.inputProps,
+              "aria-label": "Filter by material",
+            }}
+          />
         )}
       />
 
