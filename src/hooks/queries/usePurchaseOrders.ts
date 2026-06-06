@@ -1747,7 +1747,7 @@ export function useRecordAdvancePayment() {
       paying_site_id?: string;
       // Payer source (already normalized by the dialog via toRpcArgs)
       payer_source?: PayerSource | "split";
-      payer_name?: string;
+      payer_name?: string | null;
       payer_source_split?: PayerSourceSplitRow[] | null;
       /** True for a full bulk settlement (isGroupStockAdvancePO) — forces is_paid. */
       is_complete?: boolean;
