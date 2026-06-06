@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildAdvanceExpensePayload, parsePoNotes } from "./advanceExpensePayload";
+import type { PayerSourceSplitRow } from "@/types/settlement.types";
 
 const groupPo = {
   id: "po-1",
@@ -62,7 +63,7 @@ describe("buildAdvanceExpensePayload", () => {
 
   it("writes a split payload and leaves an own-site partial advance unpaid", () => {
     const ownPo = { ...groupPo, internal_notes: null, total_amount: 10000 };
-    const split = [
+    const split: PayerSourceSplitRow[] = [
       { source: "own_money", amount: 4000 },
       { source: "client_money", amount: 2000 },
     ];
