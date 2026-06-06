@@ -26,6 +26,7 @@ import { M_STAGES, VISIBLE_STAGES, stageIndex, stageLabel, type VisibleStageKey 
 import MaterialThreadPipeline from "./MaterialThreadPipeline";
 import MaterialThreadExpanded from "./MaterialThreadExpanded";
 import ThreadActionButton from "./ThreadActionButton";
+import ThreadDeleteMenu from "./ThreadDeleteMenu";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 
 export interface MaterialThreadRowProps {
@@ -82,6 +83,7 @@ export default function MaterialThreadRow({
     <Box
       sx={{
         background: hubTokens.card,
+        position: "relative",
         borderRadius: "12px",
         border: `1px solid ${selected ? accent : hubTokens.border}`,
         transition: "all .12s",
@@ -91,6 +93,11 @@ export default function MaterialThreadRow({
           : "none",
       }}
     >
+      {isMobile && (
+        <Box sx={{ position: "absolute", top: 6, right: 6, zIndex: 2 }}>
+          <ThreadDeleteMenu thread={thread} />
+        </Box>
+      )}
       <Box
         onClick={onSelect}
         sx={{
@@ -443,9 +450,17 @@ export default function MaterialThreadRow({
           </>
         )}
 
-        {/* Action button (desktop) */}
+        {/* Action button + row kebab (desktop) */}
         {!isMobile && (
-          <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              gap: "4px",
+            }}
+          >
+            <ThreadDeleteMenu thread={thread} />
             <ThreadActionButton
               thread={thread}
               accent={accent}
