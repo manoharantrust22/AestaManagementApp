@@ -47,8 +47,10 @@ export function matchesMaterial(
 
 /**
  * True when the thread's request date falls within [start, end] inclusive
- * (day granularity). A null bound disables the date filter (passes everything).
- * A thread with no requested_at fails a set range.
+ * (day granularity). Both bounds must be non-null to activate the filter; if
+ * either is null the function passes everything (the Hub date picker always
+ * sets both together). A thread with no requested_at fails when both bounds
+ * are set.
  */
 export function matchesDateRange(
   t: DateFilterable,

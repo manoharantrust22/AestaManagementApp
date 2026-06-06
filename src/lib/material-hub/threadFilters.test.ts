@@ -64,6 +64,7 @@ describe("matchesDateRange", () => {
   it("passes everything when either bound is null", () => {
     expect(matchesDateRange(thread, null, null)).toBe(true);
     expect(matchesDateRange(thread, new Date("2025-12-01"), null)).toBe(true);
+    expect(matchesDateRange(thread, null, new Date("2025-12-31"))).toBe(true);
   });
 
   it("matches a request date inside the range (inclusive boundaries)", () => {
