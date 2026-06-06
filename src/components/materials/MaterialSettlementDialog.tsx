@@ -221,6 +221,15 @@ export default function MaterialSettlementDialog({
 
     // Handle PO advance payment
     if (isPOAdvancePayment && purchaseOrder) {
+      // Validate + normalize payer source. Engineers pass their auto LIFO single
+      // source; admin/office pass whatever they picked (single or split).
+      const advancePayerCheck = validatePayerSourceInput(payer, finalAmountPaid);
+      if (!advancePayerCheck.ok) {
+        setError(advancePayerCheck.reason);
+        return;
+      }
+      const advancePayerRpc = toRpcArgs(payer);
+
       try {
         setError("");
 
@@ -233,6 +242,10 @@ export default function MaterialSettlementDialog({
           payment_reference: paymentReference || undefined,
           payment_screenshot_url: screenshot?.url || undefined,
           notes: notes || undefined,
+          payer_source: advancePayerRpc.p_payer_source as PayerSource | "split",
+          payer_name: advancePayerRpc.p_payer_name || undefined,
+          payer_source_split: advancePayerRpc.p_payer_source_split,
+          is_complete: isGroupStockAdvancePO,
           // Pass wallet fields for group_stock POs settled by site engineer
           ...(isSiteEngineer && isGroupStockAdvancePO && engineerId && effectiveWalletSiteId ? {
             engineer_id: engineerId,
@@ -756,14 +769,14 @@ export default function MaterialSettlementDialog({
 
         {/* Payer Source — only for admins/office on regular expense settlements.
             Engineers are auto-attributed via wallet LIFO and never see this UI. */}
-        {!isPOAdvancePayment && !isSiteEngineer && (
+        {!isSiteEngineer && (
           <Box sx={{ mb: 2 }}>
             <PayerSourceSplitInput
               value={payer}
               onChange={setPayer}
               total={Number(amountPaid) || purchaseAmount}
-              siteId={purchase?.site_id ?? selectedSite?.id}
-              disabled={settleMutation.isPending}
+              siteId={purchase?.site_id ?? purchaseOrder?.site_id ?? selectedSite?.id}
+              disabled={settleMutation.isPending || advancePaymentMutation.isPending}
             />
             {(() => {
               const c = validatePayerSourceInput(
@@ -842,8 +855,7 @@ export default function MaterialSettlementDialog({
             // Block submit when split mode is currently invalid (sum mismatch,
             // missing custom-name, duplicate sources, etc.). Single-source
             // failures still surface as inline alerts on submit.
-            (!isPOAdvancePayment &&
-              !isSiteEngineer &&
+            (!isSiteEngineer &&
               payer.mode === "split" &&
               !validatePayerSourceInput(
                 payer,
