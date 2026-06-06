@@ -1941,6 +1941,11 @@ export interface MaterialPurchaseExpense {
   settlement_date: string | null;
   settlement_payer_source: string | null;
   settlement_payer_name: string | null;
+  // Phase 4: multi-source payer split (set when settlement_payer_source === "split")
+  payer_source_split?: Array<{ source: string; name?: string; amount: number }> | null;
+  // Wallet linkage — set when the settlement was paid via an engineer wallet.
+  payment_channel?: "direct" | "engineer_wallet" | null;
+  engineer_transaction_id?: string | null;
 
   // For group stock: tracks if converted to own site
   converted_from_group: boolean;

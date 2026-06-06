@@ -46,6 +46,9 @@ import { hasEditPermission } from "@/lib/permissions";
 import UsageLogList from "@/components/inventory/UsageLogList";
 import type { UsageLogItem } from "@/hooks/queries/useUsageLog";
 import ThreadCorrectionMenu from "@/components/material-hub/ThreadCorrectionMenu";
+import PhotoLightbox from "@/components/dashboard/PhotoLightbox";
+import type { WorkPhoto } from "@/types/work-updates.types";
+import { normalizeImageUrl } from "@/lib/utils/storageUrl";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 
 const DELIVERED_IDX = M_STAGES.indexOf("delivered");
@@ -151,21 +154,25 @@ function DetailRow({ label, value, emphasis, tone = "default" }: DetailRowProps)
   );
 }
 
-/** Small clickable icon link for an attached scan / screenshot / bill. Opens
- *  in a new tab. Tooltip describes what's attached. Used in the PO, Delivery,
- *  and Settlement blocks to surface paperwork without leaving the Hub. */
+type AttachmentTone = "primary" | "success" | "warn" | "muted";
+type AttachmentIcon = "bill" | "screenshot" | "doc";
+
+/** Small clickable icon for an attached scan / screenshot / bill. Opens the
+ *  image INSIDE the app (via PhotoLightbox) rather than a raw new browser tab —
+ *  historical URLs are normalized through {@link normalizeImageUrl} so they
+ *  load on blocked ISPs and repair the doubled-bucket 404. Tooltip describes
+ *  what's attached. Used in the PO, Delivery, and Settlement blocks. */
 function AttachmentIconLink({
-  url,
   label,
   icon,
   tone = "primary",
+  onOpen,
 }: {
-  url: string | null | undefined;
   label: string;
-  icon: "bill" | "screenshot" | "doc";
-  tone?: "primary" | "success" | "warn" | "muted";
+  icon: AttachmentIcon;
+  tone?: AttachmentTone;
+  onOpen: () => void;
 }) {
-  if (!url) return null;
   const color =
     tone === "success"
       ? hubTokens.success
@@ -183,10 +190,16 @@ function AttachmentIconLink({
   return (
     <Tooltip title={label} arrow>
       <Box
-        component="a"
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
+        role="button"
+        tabIndex={0}
+        aria-label={label}
+        onClick={onOpen}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onOpen();
+          }
+        }}
         sx={{
           display: "inline-flex",
           alignItems: "center",
@@ -196,7 +209,7 @@ function AttachmentIconLink({
           borderRadius: "6px",
           background: hubTokens.chip,
           color,
-          textDecoration: "none",
+          cursor: "pointer",
           transition: "background 0.15s ease",
           "&:hover": { background: hubTokens.hairline },
         }}
@@ -204,6 +217,51 @@ function AttachmentIconLink({
         <Icon sx={{ fontSize: 14 }} />
       </Box>
     </Tooltip>
+  );
+}
+
+interface AttachmentItem {
+  url: string | null | undefined;
+  label: string;
+  icon: AttachmentIcon;
+  tone?: AttachmentTone;
+}
+
+/** Renders a row of attachment icons for one block. Builds a single normalized
+ *  photo list from the present attachments and opens the shared lightbox at the
+ *  clicked image (so bill/screenshot navigate with prev/next). Returns null when
+ *  nothing is attached. */
+function AttachmentGroup({
+  items,
+  onOpen,
+  gap = "4px",
+  marginRight,
+}: {
+  items: AttachmentItem[];
+  onOpen: (photos: WorkPhoto[], index: number) => void;
+  gap?: string;
+  marginRight?: string;
+}) {
+  const present = items.filter((it) => !!it.url);
+  if (present.length === 0) return null;
+  const photos: WorkPhoto[] = present.map((it, i) => ({
+    id: `att-${i}`,
+    url: normalizeImageUrl(it.url),
+    description: it.label,
+    uploadedAt: "",
+  }));
+  return (
+    <Box sx={{ display: "flex", gap, ...(marginRight ? { marginRight } : {}) }}>
+      {present.map((it, i) => (
+        <AttachmentIconLink
+          key={it.label}
+          label={it.label}
+          icon={it.icon}
+          tone={it.tone}
+          onOpen={() => onOpen(photos, i)}
+        />
+      ))}
+    </Box>
   );
 }
 
@@ -284,6 +342,16 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
   const canEdit = !t.is_mirror && hasEditPermission(userProfile?.role);
 
   const [showUsageLog, setShowUsageLog] = useState(false);
+
+  // In-app image viewer for attached bills / screenshots / scans. Replaces the
+  // old "open in a new browser tab" anchors (which also 404'd on historically
+  // doubled storage paths — now repaired by normalizeImageUrl at display time).
+  const [lightbox, setLightbox] = useState<{
+    photos: WorkPhoto[];
+    index: number;
+  } | null>(null);
+  const openLightbox = (photos: WorkPhoto[], index: number) =>
+    setLightbox({ photos, index });
 
   // Group batch with a real ref code → fetch per-site + per-variant breakdown.
   // The "—" sentinel from formatters means "no batch yet" — skip the RPC then.
@@ -375,6 +443,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
     !!t.self_use_expense;
 
   return (
+    <>
     <Box
       sx={{
         background: "#fafbfc",
@@ -489,18 +558,13 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
           correct={<ThreadCorrectionMenu thread={t} section="po" canEdit={canEdit} />}
           action={
             t.po && (t.po.vendor_bill_url || t.po.quotation_url) ? (
-              <Box sx={{ display: "flex", gap: "4px" }}>
-                <AttachmentIconLink
-                  url={t.po.vendor_bill_url}
-                  label="Vendor bill"
-                  icon="bill"
-                />
-                <AttachmentIconLink
-                  url={t.po.quotation_url}
-                  label="Quotation"
-                  icon="doc"
-                />
-              </Box>
+              <AttachmentGroup
+                onOpen={openLightbox}
+                items={[
+                  { url: t.po.vendor_bill_url, label: "Vendor bill", icon: "bill" },
+                  { url: t.po.quotation_url, label: "Quotation", icon: "doc" },
+                ]}
+              />
             ) : undefined
           }
         />
@@ -714,22 +778,15 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                         {b.grn_number}
                       </Box>
                       {/* Per-batch attachments (challan / invoice scan) */}
-                      {(b.challan_url || b.invoice_url) && (
-                        <Box sx={{ display: "flex", gap: "3px", marginRight: "2px" }}>
-                          <AttachmentIconLink
-                            url={b.challan_url}
-                            label="Challan"
-                            icon="doc"
-                            tone="muted"
-                          />
-                          <AttachmentIconLink
-                            url={b.invoice_url}
-                            label="Invoice"
-                            icon="bill"
-                            tone="muted"
-                          />
-                        </Box>
-                      )}
+                      <AttachmentGroup
+                        onOpen={openLightbox}
+                        gap="3px"
+                        marginRight="2px"
+                        items={[
+                          { url: b.challan_url, label: "Challan", icon: "doc", tone: "muted" },
+                          { url: b.invoice_url, label: "Invoice", icon: "bill", tone: "muted" },
+                        ]}
+                      />
                       {b.verified || settledOrBeyond ? (
                         // Once the vendor has been paid (or the material
                         // is in-use / exhausted), the GRN's verification
@@ -803,20 +860,18 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
           action={
             t.settlement &&
             (t.settlement.payment_screenshot_url || t.settlement.bill_url) ? (
-              <Box sx={{ display: "flex", gap: "4px" }}>
-                <AttachmentIconLink
-                  url={t.settlement.payment_screenshot_url}
-                  label="Payment screenshot"
-                  icon="screenshot"
-                  tone="success"
-                />
-                <AttachmentIconLink
-                  url={t.settlement.bill_url}
-                  label="Vendor bill"
-                  icon="bill"
-                  tone="success"
-                />
-              </Box>
+              <AttachmentGroup
+                onOpen={openLightbox}
+                items={[
+                  {
+                    url: t.settlement.payment_screenshot_url,
+                    label: "Payment screenshot",
+                    icon: "screenshot",
+                    tone: "success",
+                  },
+                  { url: t.settlement.bill_url, label: "Vendor bill", icon: "bill", tone: "success" },
+                ]}
+              />
             ) : undefined
           }
         />
@@ -1537,5 +1592,12 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
         </Box>
       </Box>
     </Box>
+      <PhotoLightbox
+        open={!!lightbox}
+        photos={lightbox?.photos ?? []}
+        startIndex={lightbox?.index ?? 0}
+        onClose={() => setLightbox(null)}
+      />
+    </>
   );
 }

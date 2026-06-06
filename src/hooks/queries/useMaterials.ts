@@ -723,6 +723,53 @@ export function useParentMaterials() {
 }
 
 /**
+ * Per-material parent lookup for the Material Hub filter.
+ *
+ * Returns a Map keyed by `material_id` → { parentId, parentName, selfName } for
+ * every active material, so the Hub can roll grade/size variants up under their
+ * parent (e.g. "TMT Rods 16mm" → "TMT Rods") when filtering. A standalone/root
+ * material has `parentId === null`. Cheap (one `id,name,parent_id` query) and
+ * cached like the other catalog reads.
+ */
+export interface MaterialParentInfo {
+  parentId: string | null;
+  parentName: string | null;
+  selfName: string;
+}
+
+export function useMaterialParentMap() {
+  const supabase = createClient();
+
+  return useQuery({
+    queryKey: ["materials", "parent-map"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("materials")
+        .select("id, name, parent_id")
+        .eq("is_active", true);
+
+      if (error) throw error;
+      const rows = (data ?? []) as {
+        id: string;
+        name: string;
+        parent_id: string | null;
+      }[];
+      const nameById = new Map(rows.map((r) => [r.id, r.name]));
+      const map = new Map<string, MaterialParentInfo>();
+      for (const r of rows) {
+        map.set(r.id, {
+          parentId: r.parent_id,
+          parentName: r.parent_id ? nameById.get(r.parent_id) ?? null : null,
+          selfName: r.name,
+        });
+      }
+      return map;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
  * Pagination parameters for server-side pagination
  */
 export interface PaginationParams {

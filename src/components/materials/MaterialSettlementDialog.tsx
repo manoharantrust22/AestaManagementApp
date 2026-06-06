@@ -53,7 +53,8 @@ import { usePayerSources } from "@/hooks/queries/usePayerSources";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
 import type { MaterialPurchaseExpenseWithDetails, MaterialPaymentMode, PurchaseOrderWithDetails } from "@/types/material.types";
-import type { PayerSource, PayerSourceInput } from "@/types/settlement.types";
+import type { PayerSource, PayerSourceInput, PayerSourceSplitRow } from "@/types/settlement.types";
+import { normalizeImageUrl } from "@/lib/utils/storageUrl";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 
 interface MaterialSettlementDialogProps {
@@ -70,6 +71,24 @@ const PAYMENT_MODES: { value: MaterialPaymentMode; label: string }[] = [
   { value: "bank_transfer", label: "Bank Transfer" },
   { value: "cheque", label: "Cheque" },
 ];
+
+/** Reverse of `toRpcArgs`: rebuild a PayerSourceInput from the columns stored on
+ *  a settled expense, so the edit dialog opens with the original payer pre-filled. */
+function payerInputFromExpense(p: {
+  settlement_payer_source?: string | null;
+  settlement_payer_name?: string | null;
+  payer_source_split?: Array<{ source: string; name?: string; amount: number }> | null;
+}): PayerSourceInput {
+  const split = p.payer_source_split;
+  if (Array.isArray(split) && split.length > 0) {
+    return { mode: "split", rows: split as PayerSourceSplitRow[] };
+  }
+  return {
+    mode: "single",
+    source: (p.settlement_payer_source as PayerSource) || "own_money",
+    ...(p.settlement_payer_name ? { name: p.settlement_payer_name } : {}),
+  };
+}
 
 export default function MaterialSettlementDialog({
   open,
@@ -108,6 +127,15 @@ export default function MaterialSettlementDialog({
 
   // Determine if this is a PO advance payment or expense settlement
   const isPOAdvancePayment = !!purchaseOrder && !purchase;
+
+  // EDIT mode: correcting an already-settled expense (opened from the Hub's
+  // settlement "Correct" menu). Pre-fills the form and routes the save through
+  // the edit-safe path (existing ref preserved, no wallet re-post). For a
+  // wallet-paid row we lock the amount & payer to protect wallet integrity —
+  // those must be reversed on the canonical page instead.
+  const isEditMode = !!purchase?.is_paid;
+  const isWalletPaidRow = purchase?.payment_channel === "engineer_wallet";
+  const lockAmountPayer = isEditMode && isWalletPaidRow;
 
   // Detect group_stock PO so we can show "Complete Settlement" instead of "Advance Payment"
   const poNotes = (() => {
@@ -170,6 +198,35 @@ export default function MaterialSettlementDialog({
         ? Number(purchase.purchase_order.total_amount)
         : Number(record?.total_amount || 0);
 
+      if (isEditMode && purchase) {
+        // Pre-fill from the existing settlement so the user edits in place.
+        const existingDate = purchase.settlement_date || purchase.paid_date || "";
+        setSettlementDate(
+          existingDate
+            ? existingDate.split("T")[0]
+            : new Date().toISOString().split("T")[0]
+        );
+        setPaymentMode((purchase.payment_mode as MaterialPaymentMode) || "upi");
+        setPayer(payerInputFromExpense(purchase));
+        setPaymentReference(purchase.payment_reference || "");
+        setBill(
+          purchase.bill_url
+            ? { url: normalizeImageUrl(purchase.bill_url), storage_path: "" }
+            : null
+        );
+        setScreenshot(
+          purchase.payment_screenshot_url
+            ? { url: normalizeImageUrl(purchase.payment_screenshot_url), storage_path: "" }
+            : null
+        );
+        setNotes(purchase.notes || "");
+        setError("");
+        setAmountPaid(String(purchase.amount_paid ?? purchaseAmount));
+        setPayingSiteId(purchase.paying_site_id || purchase.site_id || "");
+        resetVerification();
+        return;
+      }
+
       setSettlementDate(new Date().toISOString().split("T")[0]);
       setPaymentMode(isSiteEngineer ? "cash" : "upi");
       setPayer({ mode: "single", source: "own_money" });
@@ -182,7 +239,7 @@ export default function MaterialSettlementDialog({
       setPayingSiteId(purchase?.paying_site_id || purchase?.site_id || "");
       resetVerification();
     }
-  }, [open, purchase, purchaseOrder, resetVerification]);
+  }, [open, purchase, purchaseOrder, resetVerification, isEditMode, isSiteEngineer]);
 
   // Auto-apply LIFO payer source for engineer whenever wallet data (re-)loads,
   // including when the paying site selector changes. Always resets to
@@ -211,8 +268,9 @@ export default function MaterialSettlementDialog({
       return;
     }
 
-    // Check bill verification before proceeding (only for non-advance payments)
-    if (!isPOAdvancePayment && hasBill && !billVerified) {
+    // Check bill verification before proceeding (only for non-advance, non-edit
+    // payments — editing an already-settled row should not re-prompt).
+    if (!isPOAdvancePayment && !isEditMode && hasBill && !billVerified) {
       const canProceed = checkVerification(hasBill, billVerified);
       if (!canProceed) {
         return; // Will show verification prompt
@@ -283,7 +341,10 @@ export default function MaterialSettlementDialog({
     }
     const payerRpc = toRpcArgs(payer);
 
-    const useWallet = isSiteEngineer && engineerId && effectiveWalletSiteId;
+    // Editing never re-posts the wallet (that would double-debit) — corrections
+    // to wallet-paid rows are limited to metadata (date/images/mode/ref/notes).
+    const useWallet =
+      !isEditMode && isSiteEngineer && engineerId && effectiveWalletSiteId;
 
     try {
       setError("");
@@ -291,6 +352,16 @@ export default function MaterialSettlementDialog({
         id: purchase.id,
         settlement_date: settlementDate,
         payment_mode: paymentMode,
+        // EDIT mode: preserve the existing ref + pass the prior amount as the
+        // inventory-adjustment baseline so a re-edit transitions by the delta.
+        existing_settlement_reference: isEditMode
+          ? purchase.settlement_reference ?? undefined
+          : undefined,
+        previous_amount_paid: isEditMode
+          ? purchase.amount_paid != null
+            ? Number(purchase.amount_paid)
+            : undefined
+          : undefined,
         // For this domain the legacy single-source column is
         // `settlement_payer_source` on material_purchase_expenses (not
         // `payer_source`). The mutation hook maps `payer_source` -> that
@@ -382,8 +453,8 @@ export default function MaterialSettlementDialog({
   return (
     <Dialog open={open} onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <PaymentIcon color={isGroupStockAdvancePO ? "success" : isPOAdvancePayment ? "warning" : isGroupStockParent ? "secondary" : "success"} />
-        {isGroupStockAdvancePO ? "Complete Bulk Settlement" : isPOAdvancePayment ? "Record Advance Payment" : isGroupStockParent ? "Record Vendor Payment" : "Settle Material Purchase"}
+        <PaymentIcon color={isEditMode ? "primary" : isGroupStockAdvancePO ? "success" : isPOAdvancePayment ? "warning" : isGroupStockParent ? "secondary" : "success"} />
+        {isEditMode ? "Edit Settlement" : isGroupStockAdvancePO ? "Complete Bulk Settlement" : isPOAdvancePayment ? "Record Advance Payment" : isGroupStockParent ? "Record Vendor Payment" : "Settle Material Purchase"}
       </DialogTitle>
 
       <DialogContent>
@@ -649,11 +720,19 @@ export default function MaterialSettlementDialog({
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.5 }}>
             Original Amount: {formatCurrency(purchaseAmount)} • You can enter a different amount after bargaining
           </Typography>
+          {lockAmountPayer && (
+            <Alert severity="info" sx={{ mb: 1.5 }}>
+              This settlement was paid from an engineer wallet. The amount and
+              payer can&apos;t be changed here — reverse it on the settlement
+              page to re-pay. You can still fix the date, images, mode and notes.
+            </Alert>
+          )}
           <TextField
             label="Amount to Pay"
             type="number"
             value={amountPaid}
             onChange={(e) => setAmountPaid(e.target.value)}
+            disabled={lockAmountPayer}
             fullWidth
             size="small"
             placeholder={purchaseAmount.toString()}
@@ -777,7 +856,7 @@ export default function MaterialSettlementDialog({
               onChange={setPayer}
               total={Number(amountPaid) || purchaseAmount}
               siteId={purchase?.site_id ?? purchaseOrder?.site_id ?? selectedSite?.id}
-              disabled={settleMutation.isPending || advancePaymentMutation.isPending}
+              disabled={settleMutation.isPending || advancePaymentMutation.isPending || lockAmountPayer}
             />
             {(() => {
               const c = validatePayerSourceInput(
@@ -872,8 +951,8 @@ export default function MaterialSettlementDialog({
           }
         >
           {(settleMutation.isPending || advancePaymentMutation.isPending)
-            ? (isGroupStockAdvancePO ? "Processing..." : isPOAdvancePayment ? "Recording..." : isGroupStockParent ? "Recording..." : "Settling...")
-            : (isGroupStockAdvancePO ? "Confirm Full Settlement" : isPOAdvancePayment ? "Confirm Advance Payment" : isGroupStockParent ? "Confirm Vendor Payment" : "Confirm Settlement")}
+            ? (isEditMode ? "Saving..." : isGroupStockAdvancePO ? "Processing..." : isPOAdvancePayment ? "Recording..." : isGroupStockParent ? "Recording..." : "Settling...")
+            : (isEditMode ? "Save Changes" : isGroupStockAdvancePO ? "Confirm Full Settlement" : isPOAdvancePayment ? "Confirm Advance Payment" : isGroupStockParent ? "Confirm Vendor Payment" : "Confirm Settlement")}
         </Button>
       </DialogActions>
 

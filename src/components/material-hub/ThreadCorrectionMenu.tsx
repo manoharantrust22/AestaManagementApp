@@ -54,8 +54,10 @@ import {
   useReverseDelivery,
   usePurchaseOrder,
 } from "@/hooks/queries/usePurchaseOrders";
+import { useMaterialPurchaseById } from "@/hooks/queries/useMaterialPurchases";
 import MaterialRequestDialog from "@/components/materials/MaterialRequestDialog";
 import UnifiedPurchaseOrderDialog from "@/components/materials/UnifiedPurchaseOrderDialog";
+import MaterialSettlementDialog from "@/components/materials/MaterialSettlementDialog";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 
 export type CorrectionSection = "request" | "po" | "delivery" | "settlement";
@@ -95,11 +97,13 @@ export default function ThreadCorrectionMenu({
   const [error, setError] = useState<string | null>(null);
   const [editRequestOpen, setEditRequestOpen] = useState(false);
   const [editPOOpen, setEditPOOpen] = useState(false);
+  const [editSettlementOpen, setEditSettlementOpen] = useState(false);
 
   const open = Boolean(anchorEl);
   const siteId = t.site_id;
   const requestId = t.source === "material_request" ? t.source_row_id : null;
   const poId = t.po?.id ?? null;
+  const settlementExpenseId = t.settlement?.expense_id ?? null;
   const deliveryBatches = t.po?.delivery_batches ?? [];
 
   // Lazily fetch the full record only while its edit dialog is open (the
@@ -110,6 +114,9 @@ export default function ThreadCorrectionMenu({
   );
   const { data: poForEdit } = usePurchaseOrder(
     editPOOpen && poId ? poId : undefined
+  );
+  const { data: settlementForEdit } = useMaterialPurchaseById(
+    editSettlementOpen && settlementExpenseId ? settlementExpenseId : undefined
   );
 
   // After an inline edit, refresh the Hub threads (the dialogs invalidate their
@@ -302,16 +309,35 @@ export default function ThreadCorrectionMenu({
 
   if (section === "settlement") {
     const href = t.kind === "own" ? "/site/material-settlements" : "/site/inter-site-settlement";
+    // Primary: edit the vendor settlement (date / amount / payer / bill image)
+    // in place — the user's most common correction. Only when there's a
+    // settled expense row to edit.
+    if (settlementExpenseId) {
+      items.push(
+        <MenuItem
+          key="edit-settle"
+          onClick={() => {
+            setEditSettlementOpen(true);
+            closeMenu();
+          }}
+        >
+          <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Edit settlement</ListItemText>
+        </MenuItem>
+      );
+    }
+    // Escape hatch: full reverse / inter-site reconciliation still lives on the
+    // canonical page.
     items.push(
       <MenuItem
-        key="rev-settle"
+        key="open-settle-page"
         onClick={() => {
           closeMenu();
           router.push(href);
         }}
       >
         <ListItemIcon><UndoIcon fontSize="small" /></ListItemIcon>
-        <ListItemText>Reverse / edit settlement</ListItemText>
+        <ListItemText>Reverse on settlement page</ListItemText>
         <OpenInNewIcon sx={{ fontSize: 13, color: hubTokens.subtle, ml: 1 }} />
       </MenuItem>
     );
@@ -401,6 +427,17 @@ export default function ThreadCorrectionMenu({
           }}
           purchaseOrder={poForEdit ?? null}
           siteId={siteId}
+          onSuccess={() => refreshHub()}
+        />
+      )}
+      {settlementExpenseId && (
+        <MaterialSettlementDialog
+          open={editSettlementOpen && !!settlementForEdit}
+          purchase={settlementForEdit ?? null}
+          onClose={() => {
+            setEditSettlementOpen(false);
+            refreshHub();
+          }}
           onSuccess={() => refreshHub()}
         />
       )}

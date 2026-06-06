@@ -14,8 +14,8 @@ import type { MaterialOption } from "@/lib/material-hub/threadFilters";
 
 export interface MaterialHubToolbarProps {
   materialOptions: MaterialOption[];
-  selectedMaterialId: string | null;
-  onMaterialChange: (id: string | null) => void;
+  selected: MaterialOption | null;
+  onSelectedChange: (sel: MaterialOption | null) => void;
   dateStart: Date | null;
   dateEnd: Date | null;
   onDateChange: (start: Date | null, end: Date | null) => void;
@@ -24,17 +24,14 @@ export interface MaterialHubToolbarProps {
 
 export default function MaterialHubToolbar({
   materialOptions,
-  selectedMaterialId,
-  onMaterialChange,
+  selected,
+  onSelectedChange,
   dateStart,
   dateEnd,
   onDateChange,
   onClear,
 }: MaterialHubToolbarProps) {
-  const selectedOption =
-    materialOptions.find((o) => o.material_id === selectedMaterialId) ?? null;
-  const hasActiveFilters =
-    !!selectedMaterialId || (!!dateStart && !!dateEnd);
+  const hasActiveFilters = !!selected || (!!dateStart && !!dateEnd);
 
   return (
     <Box
@@ -48,10 +45,11 @@ export default function MaterialHubToolbar({
       <Autocomplete
         size="small"
         options={materialOptions}
-        value={selectedOption}
-        onChange={(_, val) => onMaterialChange(val?.material_id ?? null)}
-        getOptionLabel={(o) => o.material_name}
-        isOptionEqualToValue={(o, v) => o.material_id === v.material_id}
+        value={selected}
+        onChange={(_, val) => onSelectedChange(val ?? null)}
+        groupBy={(o) => o.group}
+        getOptionLabel={(o) => o.label}
+        isOptionEqualToValue={(o, v) => o.kind === v.kind && o.id === v.id}
         sx={{ width: 240 }}
         renderInput={(params) => (
           <TextField

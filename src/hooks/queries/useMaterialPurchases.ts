@@ -900,6 +900,21 @@ export interface SettleMaterialPurchaseData {
   recorded_by_name?: string;
   /** Optional description for the wallet ledger row. Defaults to "Material payment: <refCode>". */
   wallet_description?: string;
+  /**
+   * EDIT mode: when correcting an already-settled expense, pass its existing
+   * `settlement_reference` so it is preserved instead of generating a new
+   * PSET- code (which would orphan downstream references). Omit on a first
+   * settle.
+   */
+  existing_settlement_reference?: string | null;
+  /**
+   * EDIT mode: the `amount_paid` currently stored on the row. The inventory
+   * value adjustment uses this as the baseline (`amount_paid / previous`) so a
+   * re-edit transitions `avg_unit_cost` by the delta rather than compounding
+   * the discount from `total_amount` every time. Omit on a first settle
+   * (baseline falls back to `total_amount`, preserving original behavior).
+   */
+  previous_amount_paid?: number | null;
 }
 
 /**
@@ -916,8 +931,11 @@ export function useSettleMaterialPurchase() {
     mutationFn: async (data: SettleMaterialPurchaseData) => {
       await ensureFreshSession();
 
-      // For vendor-only payment (group stock), don't set settlement_reference
-      const settlementRef = data.isVendorPaymentOnly ? null : generateSettlementRef();
+      // For vendor-only payment (group stock), don't set settlement_reference.
+      // EDIT mode: reuse the existing ref so corrections don't mint a new code.
+      const settlementRef = data.isVendorPaymentOnly
+        ? null
+        : data.existing_settlement_reference ?? generateSettlementRef();
 
       // First, get the expense record to check if we need to adjust inventory values
       const { data: expense, error: fetchError } = await (supabase as any)
@@ -1059,9 +1077,13 @@ export function useSettleMaterialPurchase() {
         }
       }
 
-      // If amount_paid differs from total_amount (bargaining discount), adjust inventory values proportionally
-      if (data.amount_paid && expense?.total_amount && data.amount_paid !== expense.total_amount) {
-        const discountRatio = data.amount_paid / expense.total_amount;
+      // If amount_paid differs from the baseline (bargaining discount), adjust
+      // inventory values proportionally. Baseline is the previously-paid amount
+      // on an EDIT (so re-edits transition by the delta and don't compound),
+      // falling back to total_amount on a first settle.
+      const inventoryBaseline = data.previous_amount_paid ?? expense?.total_amount;
+      if (data.amount_paid && inventoryBaseline && data.amount_paid !== inventoryBaseline) {
+        const discountRatio = data.amount_paid / inventoryBaseline;
         const siteId = expense.site_id;
         const items = expense.items || [];
 

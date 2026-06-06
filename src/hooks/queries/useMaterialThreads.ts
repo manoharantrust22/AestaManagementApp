@@ -829,6 +829,8 @@ function mapStandardThread(
     material_id: primaryItem?.material_id ?? "",
     material_name: (primaryItem as any)?.material?.name ?? "—",
     material_unit: (primaryItem as any)?.material?.unit ?? "nos",
+    brand_id: (primaryItem as any)?.brand_id ?? null,
+    brand_name: (primaryItem as any)?.brand?.brand_name ?? null,
     qty: totalQty || Number(primaryItem?.requested_qty ?? 0),
     request_number: mr.request_number,
     requested_by: mr.requested_by,

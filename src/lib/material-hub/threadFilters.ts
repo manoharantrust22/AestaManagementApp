@@ -1,48 +1,156 @@
 import dayjs from "dayjs";
 import type { MaterialThread } from "./threadTypes";
 
+export type FilterKind = "material" | "variant" | "brand";
+
+export type FilterGroup = "Material" | "Size / Variant" | "Brand";
+
+/**
+ * One entry in the Hub's grouped material filter. `kind` decides how
+ * {@link matchesMaterial} interprets `id`:
+ *   - "material" → a parent (or standalone) material_id; matches the material
+ *     itself AND every variant rolled under it.
+ *   - "variant"  → a specific leaf material_id; exact match.
+ *   - "brand"    → a brand_id; matches any line (primary or variant) of that brand.
+ */
 export interface MaterialOption {
-  material_id: string;
-  material_name: string;
+  kind: FilterKind;
+  id: string;
+  label: string;
+  group: FilterGroup;
 }
 
+/** Per-material parent lookup (see `useMaterialParentMap`). */
+export interface ParentInfo {
+  parentId: string | null;
+  parentName: string | null;
+  selfName: string;
+}
+export type ParentMap = Map<string, ParentInfo>;
+
 /** Narrow shapes so unit tests can pass minimal objects. */
-type MaterialFilterable = Pick<MaterialThread, "material_id" | "material_name"> & {
-  variants?: { material_id: string; material_name: string }[];
+type MaterialFilterable = Pick<
+  MaterialThread,
+  "material_id" | "material_name" | "brand_id" | "brand_name"
+> & {
+  variants?: {
+    material_id: string;
+    material_name: string;
+    brand_id?: string | null;
+    brand_name?: string | null;
+  }[];
 };
 type DateFilterable = Pick<MaterialThread, "requested_at">;
 
-/**
- * Distinct materials present across the given threads — primary material plus
- * every variant — deduped by material_id and sorted by name. Drives the Hub
- * material-filter dropdown, so options always correspond to real rows.
- */
-export function collectMaterialOptions(
-  threads: MaterialFilterable[]
-): MaterialOption[] {
-  const byId = new Map<string, string>();
-  for (const t of threads) {
-    if (t.material_id) byId.set(t.material_id, t.material_name);
-    for (const v of t.variants ?? []) {
-      if (v.material_id) byId.set(v.material_id, v.material_name);
-    }
+/** All material lines on a thread (primary + variants), id + name. */
+function threadMaterials(
+  t: MaterialFilterable
+): { id: string; name: string }[] {
+  const out: { id: string; name: string }[] = [];
+  if (t.material_id) out.push({ id: t.material_id, name: t.material_name });
+  for (const v of t.variants ?? []) {
+    if (v.material_id) out.push({ id: v.material_id, name: v.material_name });
   }
-  return [...byId.entries()]
-    .map(([material_id, material_name]) => ({ material_id, material_name }))
-    .sort((a, b) => a.material_name.localeCompare(b.material_name));
+  return out;
+}
+
+/** All brand lines on a thread (primary + variants), id + name. */
+function threadBrands(
+  t: MaterialFilterable
+): { id: string; name: string }[] {
+  const out: { id: string; name: string }[] = [];
+  if (t.brand_id) out.push({ id: t.brand_id, name: t.brand_name ?? "Brand" });
+  for (const v of t.variants ?? []) {
+    if (v.brand_id) out.push({ id: v.brand_id, name: v.brand_name ?? "Brand" });
+  }
+  return out;
 }
 
 /**
- * True when the thread's primary material OR any of its variants equals the
- * selected material. A null selection passes everything.
+ * Distinct filter options across the given threads, grouped into Material /
+ * Size·Variant / Brand. Variants roll up under their parent (resolved via
+ * `parentMap`) so picking a parent matches all its sizes & brands. Options are
+ * returned group-contiguous (Material, then Size/Variant, then Brand) and
+ * sorted by label within each group — MUI's `groupBy` needs them pre-grouped.
+ */
+export function collectMaterialOptions(
+  threads: MaterialFilterable[],
+  parentMap: ParentMap
+): MaterialOption[] {
+  const materialNames = new Map<string, string>();
+  const brandNames = new Map<string, string>();
+  for (const t of threads) {
+    for (const m of threadMaterials(t)) materialNames.set(m.id, m.name);
+    for (const b of threadBrands(t)) brandNames.set(b.id, b.name);
+  }
+
+  const parentOpts = new Map<string, MaterialOption>();
+  const variantOpts = new Map<string, MaterialOption>();
+  for (const [id, name] of materialNames) {
+    const info = parentMap.get(id);
+    if (info?.parentId) {
+      // A variant → contributes a parent option + its own size option.
+      parentOpts.set(info.parentId, {
+        kind: "material",
+        id: info.parentId,
+        label: info.parentName ?? "Material",
+        group: "Material",
+      });
+      variantOpts.set(id, {
+        kind: "variant",
+        id,
+        label: name,
+        group: "Size / Variant",
+      });
+    } else {
+      // A root / standalone material → a single parent-level option.
+      parentOpts.set(id, {
+        kind: "material",
+        id,
+        label: info?.selfName ?? name,
+        group: "Material",
+      });
+    }
+  }
+
+  const brandOpts = [...brandNames.entries()].map(
+    ([id, label]): MaterialOption => ({ kind: "brand", id, label, group: "Brand" })
+  );
+
+  const byLabel = (a: MaterialOption, b: MaterialOption) =>
+    a.label.localeCompare(b.label);
+  return [
+    ...[...parentOpts.values()].sort(byLabel),
+    ...[...variantOpts.values()].sort(byLabel),
+    ...brandOpts.sort(byLabel),
+  ];
+}
+
+/**
+ * True when the thread matches the selected filter option. A null selection
+ * passes everything.
+ *   - "material" (parent/standalone): any material line equals the id OR rolls
+ *     up to it via `parentMap`.
+ *   - "variant": any material line equals the id exactly.
+ *   - "brand": any brand line equals the id.
  */
 export function matchesMaterial(
   t: MaterialFilterable,
-  materialId: string | null
+  sel: MaterialOption | null,
+  parentMap: ParentMap
 ): boolean {
-  if (!materialId) return true;
-  if (t.material_id === materialId) return true;
-  return (t.variants ?? []).some((v) => v.material_id === materialId);
+  if (!sel) return true;
+  if (sel.kind === "brand") {
+    return threadBrands(t).some((b) => b.id === sel.id);
+  }
+  const materials = threadMaterials(t);
+  if (sel.kind === "variant") {
+    return materials.some((m) => m.id === sel.id);
+  }
+  // sel.kind === "material" (parent or standalone)
+  return materials.some(
+    (m) => m.id === sel.id || parentMap.get(m.id)?.parentId === sel.id
+  );
 }
 
 /**

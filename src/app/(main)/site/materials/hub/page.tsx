@@ -44,7 +44,10 @@ import {
   collectMaterialOptions,
   matchesMaterial,
   matchesDateRange,
+  type MaterialOption,
+  type ParentMap,
 } from "@/lib/material-hub/threadFilters";
+import { useMaterialParentMap } from "@/hooks/queries/useMaterials";
 import MaterialThreadRow from "@/components/material-hub/MaterialThreadRow";
 import MaterialThreadDetailSheet from "@/components/material-hub/MaterialThreadDetailSheet";
 import MaterialHubTable from "@/components/material-hub/MaterialHubTable";
@@ -76,7 +79,7 @@ export default function MaterialHubPage() {
   const siteGroupId = selectedSite?.site_group_id ?? null;
 
   const [filter, setFilter] = useState<HubFilterKey>("all");
-  const [selectedMaterialId, setSelectedMaterialId] = useState<string | null>(
+  const [selectedFilter, setSelectedFilter] = useState<MaterialOption | null>(
     null
   );
   const [dateStart, setDateStart] = useState<Date | null>(null);
@@ -184,13 +187,17 @@ export default function MaterialHubPage() {
     [threads, siteId]
   );
 
+  const { data: parentMap } = useMaterialParentMap();
+  const emptyParentMap = useMemo<ParentMap>(() => new Map(), []);
+  const resolvedParentMap = parentMap ?? emptyParentMap;
+
   const materialOptions = useMemo(
-    () => collectMaterialOptions(threads),
-    [threads]
+    () => collectMaterialOptions(threads, resolvedParentMap),
+    [threads, resolvedParentMap]
   );
 
   const clearFilters = () => {
-    setSelectedMaterialId(null);
+    setSelectedFilter(null);
     setDateStart(null);
     setDateEnd(null);
   };
@@ -216,10 +223,10 @@ export default function MaterialHubPage() {
     else if (filter === "historical")
       list = list.filter((t) => !!t.is_historical);
 
-    list = list.filter((t) => matchesMaterial(t, selectedMaterialId));
+    list = list.filter((t) => matchesMaterial(t, selectedFilter, resolvedParentMap));
     list = list.filter((t) => matchesDateRange(t, dateStart, dateEnd));
     return list;
-  }, [threads, filter, selectedMaterialId, dateStart, dateEnd]);
+  }, [threads, filter, selectedFilter, resolvedParentMap, dateStart, dateEnd]);
 
   const isMobile = useMediaQuery(`(max-width:${HUB_BREAKPOINT_PX - 1}px)`);
 
@@ -332,8 +339,8 @@ export default function MaterialHubPage() {
       <Box sx={{ mb: 1.5 }}>
         <MaterialHubToolbar
           materialOptions={materialOptions}
-          selectedMaterialId={selectedMaterialId}
-          onMaterialChange={setSelectedMaterialId}
+          selected={selectedFilter}
+          onSelectedChange={setSelectedFilter}
           dateStart={dateStart}
           dateEnd={dateEnd}
           onDateChange={(s, e) => {

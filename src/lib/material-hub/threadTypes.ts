@@ -244,6 +244,11 @@ export interface MaterialThread {
   material_id: string;
   material_name: string;
   material_unit: string;
+  /** Brand of the primary line item, when known. Multi-line brands live on
+   *  `variants[]`; this surfaces the single-line brand so the Hub's brand
+   *  filter can match single-item threads too. */
+  brand_id?: string | null;
+  brand_name?: string | null;
   qty: number;
 
   // Request meta
