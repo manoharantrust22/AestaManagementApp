@@ -17,7 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { wrapQueryFn } from "@/lib/utils/timeout";
 import { useSitesData } from "@/contexts/SiteContext/SitesDataContext";
-import type { LedgerRow } from "./useMaterialUsageLedger";
+import { gradeOf, type LedgerRow } from "./useMaterialUsageLedger";
 
 // ─── Public interfaces ────────────────────────────────────────────────────────
 
@@ -30,6 +30,11 @@ export interface LedgerDetailEntry {
   /** The raw material name of this entry — may be a variant (e.g. "43 Grade")
    * distinct from the parent group the drawer was opened for. */
   material_name: string | null;
+  /** The attributed grade label (variant name, parent's default grade, or
+   * "Grade not recorded") — always set so every entry shows a grade. */
+  grade_name: string;
+  /** Resolved brand name; null when the row has no brand recorded. */
+  brand_name: string | null;
   unit_cost: number | null;
   total_cost: number | null;
   work_description: string | null;
@@ -95,6 +100,8 @@ export function buildLedgerDetailEntries(
       unit_cost: row.unit_cost,
       total_cost: row.total_cost,
       work_description: row.work_description ?? null,
+      grade_name: gradeOf(row).name,
+      brand_name: row.brand_name ?? null,
       batch_ref_code: row.batch_ref_code ?? null,
       is_self_use: row.is_self_use ?? null,
       settlement_status: row.settlement_status ?? null,

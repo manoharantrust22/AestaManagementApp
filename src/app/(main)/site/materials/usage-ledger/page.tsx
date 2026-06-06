@@ -114,7 +114,8 @@ function MaterialRow({
         <TableCell colSpan={5} sx={{ py: 0, border: 0 }}>
           <Collapse in={open} unmountOnExit>
             <Box sx={{ pl: 6, py: 1 }}>
-              {group.variant_breakdown.length > 1 && (
+              {(group.grade_breakdown.some((g) => g.grade_id !== group.material_id) ||
+                group.grade_breakdown.reduce((n, g) => n + g.brands.length, 0) > 1) && (
                 <Box sx={{ mb: 1.5 }}>
                   <Typography
                     variant="caption"
@@ -122,25 +123,40 @@ function MaterialRow({
                     color="text.secondary"
                     sx={{ textTransform: "uppercase", letterSpacing: 1, mb: 0.5 }}
                   >
-                    Grade / variant breakdown
+                    Grade / brand breakdown
                   </Typography>
-                  {group.variant_breakdown.map((v) => (
-                    <Box key={v.material_id} sx={{ display: "flex", gap: 4, py: 0.25 }}>
-                      <Typography variant="body2" sx={{ width: 180 }}>
-                        {v.material_name}
-                        {v.is_base && (
-                          <Typography component="span" variant="caption" color="text.disabled">
-                            {" "}
-                            · base
+                  {group.grade_breakdown.map((g) => (
+                    <Box key={g.grade_id} sx={{ mb: 0.5 }}>
+                      <Box sx={{ display: "flex", gap: 4, py: 0.25 }}>
+                        <Typography variant="body2" sx={{ width: 180, fontWeight: 600 }}>
+                          {g.grade_name}
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {g.total_qty.toLocaleString()} {g.unit}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {formatCurrency(g.total_cost)}
+                        </Typography>
+                      </Box>
+                      {g.brands.map((b) => (
+                        <Box
+                          key={b.brand_id ?? "none"}
+                          sx={{ display: "flex", gap: 4, py: 0.25, pl: 2 }}
+                        >
+                          <Typography
+                            variant="body2"
+                            sx={{ width: 164, color: b.brand_id ? "text.primary" : "text.disabled" }}
+                          >
+                            {b.brand_name}
                           </Typography>
-                        )}
-                      </Typography>
-                      <Typography variant="body2">
-                        {v.total_qty.toLocaleString()} {v.unit}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {formatCurrency(v.total_cost)}
-                      </Typography>
+                          <Typography variant="body2">
+                            {b.total_qty.toLocaleString()} {g.unit}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {formatCurrency(b.total_cost)}
+                          </Typography>
+                        </Box>
+                      ))}
                     </Box>
                   ))}
                 </Box>

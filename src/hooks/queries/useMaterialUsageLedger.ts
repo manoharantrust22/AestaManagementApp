@@ -30,6 +30,12 @@ export interface LedgerRow {
   // NULL when the material has no parent (i.e. it is its own group).
   parent_material_id: string | null;
   parent_material_name: string | null;
+  // Grade attribution + resolved brand (migration 20260606141000).
+  // group_default_grade_* = the parent material's default grade variant, used to
+  // attribute bare-parent usage to a grade (e.g. PPC Cement → "43 Grade").
+  group_default_grade_id: string | null;
+  group_default_grade_name: string | null;
+  brand_name: string | null;
   // Convenience accessors shaped like embedded joins (derived from flat cols)
   material: { id: string; name: string } | null;
   section: { id: string; name: string } | null;
@@ -46,18 +52,26 @@ export interface MaterialGroup {
   avg_unit_cost: number;
   untagged_count: number;
   section_breakdown: SectionBreakdown[];
-  /** Per-variant split of this group's usage (>1 entry ⇒ the material has variants). */
-  variant_breakdown: VariantBreakdown[];
+  /** Two-level split: grade (variant / default grade) → brand. */
+  grade_breakdown: GradeBreakdown[];
 }
 
-export interface VariantBreakdown {
-  material_id: string;
-  material_name: string;
+export interface BrandBreakdown {
+  brand_id: string | null;
+  /** Resolved brand name, or "Brand not set" when brand_id is null. */
+  brand_name: string;
+  total_qty: number;
+  total_cost: number;
+}
+
+export interface GradeBreakdown {
+  /** The grade variant id (or the parent id when no grade can be attributed). */
+  grade_id: string;
+  grade_name: string;
   unit: string;
   total_qty: number;
   total_cost: number;
-  /** True when this row is the parent material's own direct usage (not a sub-variant). */
-  is_base: boolean;
+  brands: BrandBreakdown[];
 }
 
 export interface SectionBreakdown {
@@ -101,6 +115,26 @@ function groupKeyOf(row: LedgerRow): { id: string; name: string } {
   };
 }
 
+export const NO_BRAND_LABEL = "Brand not set";
+const GRADE_NOT_RECORDED = "Grade not recorded";
+
+// Attribute a usage row to a grade. A row recorded against a grade variant
+// (parent_material_id set) IS that grade; a bare-parent row is attributed to the
+// parent's configured default grade (materials.default_grade_variant_id, e.g.
+// PPC Cement → "43 Grade"); otherwise it has no grade.
+export function gradeOf(row: LedgerRow): { id: string; name: string } {
+  if (row.parent_material_id) {
+    return { id: row.material_id, name: row.material?.name ?? row.material_id };
+  }
+  if (row.group_default_grade_id) {
+    return {
+      id: row.group_default_grade_id,
+      name: row.group_default_grade_name ?? GRADE_NOT_RECORDED,
+    };
+  }
+  return { id: row.material_id, name: GRADE_NOT_RECORDED };
+}
+
 export function groupByMaterial(rows: LedgerRow[]): MaterialGroup[] {
   const map = new Map<string, { rows: LedgerRow[]; material_name: string; unit: string }>();
   for (const row of rows) {
@@ -137,33 +171,60 @@ export function groupByMaterial(rows: LedgerRow[]): MaterialGroup[] {
       })
     );
 
-    // Per-variant split — keyed on the raw material_id within this parent group.
-    const variantMap = new Map<
+    // Two-level split: grade → brand. A grade bucket holds per-brand totals.
+    const gradeMap = new Map<
       string,
-      { qty: number; cost: number; name: string; unit: string }
+      {
+        name: string;
+        unit: string;
+        qty: number;
+        cost: number;
+        brands: Map<string | null, { name: string; qty: number; cost: number }>;
+      }
     >();
     for (const r of mRows) {
-      if (!variantMap.has(r.material_id)) {
-        variantMap.set(r.material_id, {
+      const grade = gradeOf(r);
+      if (!gradeMap.has(grade.id)) {
+        gradeMap.set(grade.id, {
+          name: grade.name,
+          unit: r.unit,
           qty: 0,
           cost: 0,
-          name: r.material?.name ?? r.material_id,
-          unit: r.unit,
+          brands: new Map(),
         });
       }
-      const v = variantMap.get(r.material_id)!;
-      v.qty += r.quantity;
-      v.cost += r.total_cost ?? 0;
+      const g = gradeMap.get(grade.id)!;
+      g.qty += r.quantity;
+      g.cost += r.total_cost ?? 0;
+
+      const brandKey = r.brand_id ?? null;
+      if (!g.brands.has(brandKey)) {
+        g.brands.set(brandKey, {
+          name: r.brand_name ?? NO_BRAND_LABEL,
+          qty: 0,
+          cost: 0,
+        });
+      }
+      const b = g.brands.get(brandKey)!;
+      b.qty += r.quantity;
+      b.cost += r.total_cost ?? 0;
     }
 
-    const variant_breakdown: VariantBreakdown[] = Array.from(variantMap.entries())
-      .map(([vid, { qty, cost, name, unit: vunit }]) => ({
-        material_id: vid,
-        material_name: name,
-        unit: vunit,
-        total_qty: qty,
-        total_cost: cost,
-        is_base: vid === material_id,
+    const grade_breakdown: GradeBreakdown[] = Array.from(gradeMap.entries())
+      .map(([grade_id, g]) => ({
+        grade_id,
+        grade_name: g.name,
+        unit: g.unit,
+        total_qty: g.qty,
+        total_cost: g.cost,
+        brands: Array.from(g.brands.entries())
+          .map(([brand_id, b]) => ({
+            brand_id,
+            brand_name: b.name,
+            total_qty: b.qty,
+            total_cost: b.cost,
+          }))
+          .sort((a, b) => b.total_cost - a.total_cost),
       }))
       .sort((a, b) => b.total_cost - a.total_cost);
 
@@ -176,7 +237,7 @@ export function groupByMaterial(rows: LedgerRow[]): MaterialGroup[] {
       avg_unit_cost,
       untagged_count,
       section_breakdown,
-      variant_breakdown,
+      grade_breakdown,
     };
   });
 }
@@ -238,7 +299,8 @@ export function useMaterialUsageLedger(filters: LedgerFilters) {
            quantity, unit, unit_cost, total_cost, usage_date, work_description, source,
            material_name, section_name,
            batch_ref_code, created_by, created_at, is_self_use, settlement_status, is_verified,
-           parent_material_id, parent_material_name`
+           parent_material_id, parent_material_name,
+           group_default_grade_id, group_default_grade_name, brand_name`
         )
         .order("usage_date", { ascending: false });
 

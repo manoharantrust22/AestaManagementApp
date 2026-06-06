@@ -13,6 +13,7 @@ const rows: LedgerRow[] = [
     created_at: "2026-01-01T00:00:00Z", is_self_use: false,
     settlement_status: "pending", is_verified: null,
     parent_material_id: null, parent_material_name: null,
+    group_default_grade_id: null, group_default_grade_name: null, brand_name: null,
     material: { id: "m1", name: "Cement" },
     section: { id: "sec1", name: "Footing" },
   },
@@ -27,6 +28,7 @@ const rows: LedgerRow[] = [
     created_at: "2026-01-01T00:00:00Z", is_self_use: null,
     settlement_status: null, is_verified: false,
     parent_material_id: null, parent_material_name: null,
+    group_default_grade_id: null, group_default_grade_name: null, brand_name: null,
     material: { id: "m1", name: "Cement" },
     section: { id: "sec2", name: "Structure" },
   },
@@ -41,14 +43,16 @@ const rows: LedgerRow[] = [
     created_at: "2026-01-01T00:00:00Z", is_self_use: false,
     settlement_status: "pending", is_verified: null,
     parent_material_id: null, parent_material_name: null,
+    group_default_grade_id: null, group_default_grade_name: null, brand_name: null,
     material: { id: "m2", name: "M-Sand" },
     section: null,
   },
 ];
 
-// Variant scenario: a grade-variant ("43 Grade") with parent_material_id → PPC,
-// plus direct usage recorded against the PPC parent itself.
-const variantRows: LedgerRow[] = [
+// Grade scenario: a "43 Grade" variant row (parent_material_id → PPC) PLUS a
+// bare-parent PPC row. PPC's default grade variant is "43 Grade" (v43), so both
+// rows attribute to the same grade node — with their own brands preserved.
+const gradeRows: LedgerRow[] = [
   {
     id: "v1", site_id: "s1", site_group_id: "g1",
     material_id: "v43", brand_id: "b1", section_id: "sec1",
@@ -60,6 +64,7 @@ const variantRows: LedgerRow[] = [
     created_at: "2026-03-01T00:00:00Z", is_self_use: true,
     settlement_status: "self_use", is_verified: null,
     parent_material_id: "p_ppc", parent_material_name: "PPC Cement (50kg bag)",
+    group_default_grade_id: "v43", group_default_grade_name: "43 Grade", brand_name: "Chettinad",
     material: { id: "v43", name: "43 Grade" },
     section: { id: "sec1", name: "Footing" },
   },
@@ -74,6 +79,7 @@ const variantRows: LedgerRow[] = [
     created_at: "2026-03-05T00:00:00Z", is_self_use: true,
     settlement_status: "self_use", is_verified: null,
     parent_material_id: null, parent_material_name: null,
+    group_default_grade_id: "v43", group_default_grade_name: "43 Grade", brand_name: "TNPL",
     material: { id: "p_ppc", name: "PPC Cement (50kg bag)" },
     section: { id: "sec2", name: "Structure" },
   },
@@ -113,44 +119,58 @@ describe("groupByMaterial", () => {
     expect(footing.total_qty).toBe(100);
   });
 
-  it("gives a non-variant material a single is_base variant_breakdown entry", () => {
+  it("a material with no parent and no default grade → 'Grade not recorded' / 'Brand not set'", () => {
     const result = groupByMaterial(rows);
     const cement = result.find((r) => r.material_id === "m1")!;
-    expect(cement.variant_breakdown).toHaveLength(1);
-    expect(cement.variant_breakdown[0].material_id).toBe("m1");
-    expect(cement.variant_breakdown[0].is_base).toBe(true);
+    expect(cement.grade_breakdown).toHaveLength(1);
+    const grade = cement.grade_breakdown[0];
+    expect(grade.grade_name).toBe("Grade not recorded");
+    expect(grade.total_qty).toBe(150);
+    expect(grade.brands).toHaveLength(1);
+    expect(grade.brands[0].brand_id).toBeNull();
+    expect(grade.brands[0].brand_name).toBe("Brand not set");
+    expect(grade.brands[0].total_qty).toBe(150);
   });
 });
 
-describe("groupByMaterial — variant roll-up", () => {
-  it("rolls a variant up under its parent material", () => {
-    const result = groupByMaterial(variantRows);
-    // Both rows collapse into one group keyed on the parent id.
+describe("groupByMaterial — grade → brand tree", () => {
+  it("rolls variant + bare-parent into one parent group", () => {
+    const result = groupByMaterial(gradeRows);
     expect(result).toHaveLength(1);
     const ppc = result[0];
     expect(ppc.material_id).toBe("p_ppc");
     expect(ppc.material_name).toBe("PPC Cement (50kg bag)");
     expect(ppc.total_qty).toBe(263.5);
-    expect(ppc.total_cost).toBe(77267.5);
   });
 
-  it("splits the group into a variant_breakdown (base + variant, cost desc)", () => {
-    const result = groupByMaterial(variantRows);
+  it("attributes both the variant row and the bare-parent (via default grade) to ONE '43 Grade' node", () => {
+    const result = groupByMaterial(gradeRows);
     const ppc = result[0];
-    expect(ppc.variant_breakdown).toHaveLength(2);
-    // Sorted by cost desc → the base (64000) leads the variant (13267.5).
-    const [first, second] = ppc.variant_breakdown;
-    expect(first.material_id).toBe("p_ppc");
-    expect(first.is_base).toBe(true);
+    // Single grade node — the variant row (material v43) and the bare-parent row
+    // (default grade v43) collapse together.
+    expect(ppc.grade_breakdown).toHaveLength(1);
+    const grade = ppc.grade_breakdown[0];
+    expect(grade.grade_id).toBe("v43");
+    expect(grade.grade_name).toBe("43 Grade");
+    expect(grade.total_qty).toBe(263.5);
+  });
+
+  it("splits the grade into brands (preserved, cost desc)", () => {
+    const result = groupByMaterial(gradeRows);
+    const grade = result[0].grade_breakdown[0];
+    expect(grade.brands).toHaveLength(2);
+    // Sorted by cost desc → TNPL (64000) leads Chettinad (13267.5).
+    const [first, second] = grade.brands;
+    expect(first.brand_id).toBe("b2");
+    expect(first.brand_name).toBe("TNPL");
     expect(first.total_qty).toBe(220);
-    expect(second.material_id).toBe("v43");
-    expect(second.material_name).toBe("43 Grade");
-    expect(second.is_base).toBe(false);
+    expect(second.brand_id).toBe("b1");
+    expect(second.brand_name).toBe("Chettinad");
     expect(second.total_qty).toBe(43.5);
   });
 
   it("does not roll unrelated materials together", () => {
-    const result = groupByMaterial([...rows, ...variantRows]);
+    const result = groupByMaterial([...rows, ...gradeRows]);
     // m1, m2, and the PPC parent group = 3 groups
     expect(result).toHaveLength(3);
     expect(result.map((g) => g.material_id).sort()).toEqual(["m1", "m2", "p_ppc"]);
@@ -178,7 +198,7 @@ describe("groupBySection", () => {
   });
 
   it("rolls variants up to the parent in material_breakdown", () => {
-    const result = groupBySection(variantRows);
+    const result = groupBySection(gradeRows);
     const footing = result.find((r) => r.section_id === "sec1")!;
     // The "43 Grade" variant shows as its parent material in the section split.
     expect(footing.material_breakdown[0].material_id).toBe("p_ppc");

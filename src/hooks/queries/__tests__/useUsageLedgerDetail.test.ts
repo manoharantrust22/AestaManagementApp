@@ -27,6 +27,9 @@ function makeRow(overrides: Partial<LedgerRow> & { id: string }): LedgerRow {
     is_verified: null,
     parent_material_id: null,
     parent_material_name: null,
+    group_default_grade_id: null,
+    group_default_grade_name: null,
+    brand_name: null,
     material: { id: "mat-1", name: "Cement" },
     section: null,
     ...overrides,
@@ -274,5 +277,43 @@ describe("buildLedgerDetailEntries", () => {
     expect(ids).not.toContain("r3"); // unrelated material excluded
     const variantEntry = result.find((r) => r.id === "rv")!;
     expect(variantEntry.material_name).toBe("43 Grade");
+  });
+
+  it("resolves brand_name from the row (null stays null)", () => {
+    const branded = makeRow({ id: "rb", brand_name: "Chettinad", material_id: "mat-1" });
+    const [entry] = buildLedgerDetailEntries([branded], "mat-1", usersByAuthId, usersById, sitesById);
+    expect(entry.brand_name).toBe("Chettinad");
+
+    const [noBrand] = buildLedgerDetailEntries([batchRow], "mat-1", usersByAuthId, usersById, sitesById);
+    expect(noBrand.brand_name).toBeNull();
+  });
+
+  it("grade_name: a variant row uses its own material name", () => {
+    const variantRow = makeRow({
+      id: "rg1",
+      material_id: "mat-1-v43",
+      material_name: "43 Grade",
+      material: { id: "mat-1-v43", name: "43 Grade" },
+      parent_material_id: "mat-1",
+      parent_material_name: "Cement",
+    });
+    const [entry] = buildLedgerDetailEntries([variantRow], "mat-1", usersByAuthId, usersById, sitesById);
+    expect(entry.grade_name).toBe("43 Grade");
+  });
+
+  it("grade_name: a bare-parent row uses the parent's default grade", () => {
+    const bareRow = makeRow({
+      id: "rg2",
+      material_id: "mat-1", // parent, no grade recorded
+      group_default_grade_id: "mat-1-v43",
+      group_default_grade_name: "43 Grade",
+    });
+    const [entry] = buildLedgerDetailEntries([bareRow], "mat-1", usersByAuthId, usersById, sitesById);
+    expect(entry.grade_name).toBe("43 Grade");
+  });
+
+  it("grade_name: a bare-parent row with no default grade → 'Grade not recorded'", () => {
+    const [entry] = buildLedgerDetailEntries([batchRow], "mat-1", usersByAuthId, usersById, sitesById);
+    expect(entry.grade_name).toBe("Grade not recorded");
   });
 });
