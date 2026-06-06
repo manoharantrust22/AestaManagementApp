@@ -39,6 +39,12 @@ import MaterialHubKpiStrip from "@/components/material-hub/MaterialHubKpiStrip";
 import MaterialHubFilterChips, {
   type HubFilterKey,
 } from "@/components/material-hub/MaterialHubFilterChips";
+import MaterialHubToolbar from "@/components/material-hub/MaterialHubToolbar";
+import {
+  collectMaterialOptions,
+  matchesMaterial,
+  matchesDateRange,
+} from "@/lib/material-hub/threadFilters";
 import MaterialThreadRow from "@/components/material-hub/MaterialThreadRow";
 import MaterialThreadDetailSheet from "@/components/material-hub/MaterialThreadDetailSheet";
 import MaterialHubTable from "@/components/material-hub/MaterialHubTable";
@@ -70,6 +76,11 @@ export default function MaterialHubPage() {
   const siteGroupId = selectedSite?.site_group_id ?? null;
 
   const [filter, setFilter] = useState<HubFilterKey>("all");
+  const [selectedMaterialId, setSelectedMaterialId] = useState<string | null>(
+    null
+  );
+  const [dateStart, setDateStart] = useState<Date | null>(null);
+  const [dateEnd, setDateEnd] = useState<Date | null>(null);
   const [layout, setLayout] = useState<HubLayout>("cards");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [newEntryOpen, setNewEntryOpen] = useState(false);
@@ -173,6 +184,17 @@ export default function MaterialHubPage() {
     [threads, siteId]
   );
 
+  const materialOptions = useMemo(
+    () => collectMaterialOptions(threads),
+    [threads]
+  );
+
+  const clearFilters = () => {
+    setSelectedMaterialId(null);
+    setDateStart(null);
+    setDateEnd(null);
+  };
+
   const settlementDueAmount = useMemo(
     () =>
       threads
@@ -184,17 +206,20 @@ export default function MaterialHubPage() {
   );
 
   const filteredThreads = useMemo(() => {
-    if (filter === "all") return threads;
-    if (filter === "action") return threads.filter((t) => nextAction(t) != null);
-    if (filter === "own") return threads.filter((t) => t.kind === "own");
-    if (filter === "group") return threads.filter((t) => t.kind === "group");
-    if (filter === "advance") return threads.filter((t) => t.advance);
-    if (filter === "spot")
-      return threads.filter((t) => t.purchase_type === "spot");
-    if (filter === "historical")
-      return threads.filter((t) => !!t.is_historical);
-    return threads;
-  }, [threads, filter]);
+    let list = threads;
+    if (filter === "action") list = list.filter((t) => nextAction(t) != null);
+    else if (filter === "own") list = list.filter((t) => t.kind === "own");
+    else if (filter === "group") list = list.filter((t) => t.kind === "group");
+    else if (filter === "advance") list = list.filter((t) => t.advance);
+    else if (filter === "spot")
+      list = list.filter((t) => t.purchase_type === "spot");
+    else if (filter === "historical")
+      list = list.filter((t) => !!t.is_historical);
+
+    list = list.filter((t) => matchesMaterial(t, selectedMaterialId));
+    list = list.filter((t) => matchesDateRange(t, dateStart, dateEnd));
+    return list;
+  }, [threads, filter, selectedMaterialId, dateStart, dateEnd]);
 
   const isMobile = useMediaQuery(`(max-width:${HUB_BREAKPOINT_PX - 1}px)`);
 
@@ -301,6 +326,21 @@ export default function MaterialHubPage() {
           active={filter}
           onChange={setFilter}
           counts={counts}
+        />
+      </Box>
+
+      <Box sx={{ mb: 1.5 }}>
+        <MaterialHubToolbar
+          materialOptions={materialOptions}
+          selectedMaterialId={selectedMaterialId}
+          onMaterialChange={setSelectedMaterialId}
+          dateStart={dateStart}
+          dateEnd={dateEnd}
+          onDateChange={(s, e) => {
+            setDateStart(s);
+            setDateEnd(e);
+          }}
+          onClear={clearFilters}
         />
       </Box>
 
