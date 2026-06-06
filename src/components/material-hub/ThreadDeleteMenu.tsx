@@ -35,6 +35,10 @@ import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 
 export default function ThreadDeleteMenu({ thread }: { thread: MaterialThread }) {
   const { userProfile } = useAuth();
+  // Self-contained gate so MaterialThreadRow stays free of auth logic. Mirrors
+  // MaterialThreadExpanded's `canEdit` (!is_mirror && hasEditPermission) and
+  // additionally restricts to standard request threads — spot purchases and
+  // read-only mirror threads have no clean cascade-delete and get no kebab.
   const canEdit =
     !thread.is_mirror &&
     hasEditPermission(userProfile?.role) &&
@@ -48,6 +52,10 @@ export default function ThreadDeleteMenu({ thread }: { thread: MaterialThread })
 
   if (!canEdit) return null;
 
+  // The kebab renders inside the row's click-to-expand area. MUI Menu/Dialog
+  // portal into document.body, but React synthetic events still bubble along
+  // the React tree — so backdrop dismissals, the Cancel button, etc. would
+  // otherwise toggle the row. stopPropagation on every surface prevents that.
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
   const handleDelete = async () => {
@@ -90,6 +98,7 @@ export default function ThreadDeleteMenu({ thread }: { thread: MaterialThread })
           onClick={(e) => {
             e.stopPropagation();
             setAnchorEl(null);
+            setError(null);
             setConfirmOpen(true);
           }}
           sx={{ color: "error.main" }}
