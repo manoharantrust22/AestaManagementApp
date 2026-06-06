@@ -767,8 +767,9 @@ export default function MaterialSettlementDialog({
           </FormControl>
         )}
 
-        {/* Payer Source — only for admins/office on regular expense settlements.
-            Engineers are auto-attributed via wallet LIFO and never see this UI. */}
+        {/* Payer Source — shown for all admin/office settlements (regular, advance,
+            and bulk). Engineers are auto-attributed via wallet LIFO and never see
+            this UI, so do NOT re-add an !isPOAdvancePayment gate here. */}
         {!isSiteEngineer && (
           <Box sx={{ mb: 2 }}>
             <PayerSourceSplitInput
