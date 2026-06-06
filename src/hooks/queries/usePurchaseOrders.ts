@@ -1788,7 +1788,12 @@ export function useRecordAdvancePayment() {
       let walletDebited = false;
 
       if (po) {
-        const { data: refCode } = await supabase.rpc("generate_material_purchase_reference");
+        // Only mint a new ref code when we're actually inserting a row.
+        let refCode: string | null = null;
+        if (!expenseId) {
+          const { data: generatedRef } = await supabase.rpc("generate_material_purchase_reference");
+          refCode = generatedRef ?? null;
+        }
         const built = buildAdvanceExpensePayload(
           po,
           {
@@ -1848,10 +1853,18 @@ export function useRecordAdvancePayment() {
               .from("material_purchase_expense_items")
               .insert(itemsPayload);
             if (itemsErr) {
+              // Non-fatal by design: the paid expense header is still valid and
+              // re-recording hits the update path — we intentionally do not roll back.
               console.warn("[useRecordAdvancePayment] Failed to create expense items:", itemsErr);
             }
           }
         }
+      } else {
+        // A missing PO would otherwise stamp advance_paid with no expense row
+        // (and no payer source) — abort instead of progressing silently.
+        throw new Error(
+          `Purchase order ${data.po_id} not found — cannot record advance payment.`,
+        );
       }
 
       // Engineer-wallet path: debit the wallet and link the spend.
