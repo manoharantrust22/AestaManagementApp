@@ -82,7 +82,9 @@ export function buildAdvanceExpensePayload(
   const siteGroupId = args.site_group_id ?? notes?.site_group_id ?? notes?.group_id ?? null;
   const totalAmount = Number(po.total_amount ?? args.amount_paid);
   const totalQty = (po.items ?? []).reduce((sum, it) => sum + Number(it.quantity || 0), 0);
-  const isFullyPaid = !!args.is_complete || args.amount_paid >= totalAmount;
+  // Guard the equality branch so a degenerate 0-of-0 advance isn't marked paid.
+  const isFullyPaid =
+    !!args.is_complete || (totalAmount > 0 && args.amount_paid >= totalAmount);
   const payingSiteId = isGroupStock
     ? (args.paying_site_id ?? notes?.payment_source_site_id ?? po.site_id)
     : null;
@@ -107,8 +109,9 @@ export function buildAdvanceExpensePayload(
     notes: args.notes ?? `Advance payment for PO ${po.po_number ?? po.id}`,
     paying_site_id: payingSiteId,
     site_group_id: isGroupStock ? siteGroupId : null,
-    original_qty: isGroupStock ? totalQty || null : null,
-    remaining_qty: isGroupStock ? totalQty || null : null,
+    // null when items aren't populated yet (quantity-unknown advance)
+    original_qty: isGroupStock ? (totalQty > 0 ? totalQty : null) : null,
+    remaining_qty: isGroupStock ? (totalQty > 0 ? totalQty : null) : null,
     payment_channel: args.payment_channel,
     settlement_payer_source: args.payer_source ?? null,
     settlement_payer_name: args.payer_name ?? null,
