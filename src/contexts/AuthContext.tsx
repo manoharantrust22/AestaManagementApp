@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, useCallback, useRef } f
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { initializeSessionManager, stopSessionManager } from "@/lib/auth/sessionManager";
+import { setCachedAccessToken } from "@/lib/auth/accessTokenCache";
 import type { Database } from "@/types/database.types";
 
 type User = Database["public"]["Tables"]["users"]["Row"];
@@ -168,6 +169,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       console.log("[AuthContext] Auth state changed:", _event);
       setUser(session?.user ?? null);
+      // Publish the token lock-free so uploads can read it without queuing on
+      // the auth processLock (see accessTokenCache.ts). Fires on INITIAL_SESSION
+      // / SIGNED_IN / TOKEN_REFRESHED with the fresh token, and null on sign-out.
+      setCachedAccessToken(session?.access_token ?? null);
 
       if (session?.user) {
         // Skip profile fetch on TOKEN_REFRESHED if we already have the profile

@@ -6,6 +6,7 @@ vi.mock("@/lib/storage/uploadHelpers", () => ({
     path: filePath,
     publicUrl: `https://example.com/${filePath}`,
   })),
+  getUploadAccessToken: vi.fn(async () => "test-token"),
 }));
 
 vi.mock("@/lib/supabase/client", () => ({

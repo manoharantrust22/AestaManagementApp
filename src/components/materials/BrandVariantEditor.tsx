@@ -26,6 +26,7 @@ import {
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MaterialBrand, BrandWithVariants, BrandWithVariantLinks, MaterialBrandVariantLink } from "@/types/material.types";
 import FileUploader from "@/components/common/FileUploader";
+import { hardenedUpload } from "@/lib/storage/uploadHelpers";
 import {
   useToggleBrandVariantLink,
   useUpsertBrandVariantLinkImage,
@@ -434,29 +435,32 @@ export default function BrandVariantEditor({
                                       onChange={async (e) => {
                                         const file = e.target.files?.[0];
                                         if (!file || !brandId) return;
-                                        // Upload via Supabase storage then call upsertImage
+                                        // Upload via the hardened pipeline (lock-free
+                                        // token + watchdog + retry) so it can't hang on
+                                        // the auth lock like a raw storage.upload() does.
                                         const fileExt = file.name.split(".").pop();
                                         const fileName = `brand-variant-${brandId}-${variant.id}-${Date.now()}.${fileExt}`;
-                                        const { data: uploadData, error: uploadError } = await supabase.storage
-                                          .from("work-updates")
-                                          .upload(`product-photos/${fileName}`, file, { upsert: true });
-                                        if (uploadError) {
+                                        try {
+                                          const { publicUrl } = await hardenedUpload({
+                                            supabase,
+                                            bucketName: "work-updates",
+                                            filePath: `product-photos/${fileName}`,
+                                            file,
+                                            contentType: file.type,
+                                          });
+                                          upsertImage.mutate(
+                                            {
+                                              brandId,
+                                              variantId: variant.id,
+                                              imageUrl: publicUrl,
+                                              materialId,
+                                            },
+                                            { onError: () => setImageUploadErrorOpen(true) }
+                                          );
+                                        } catch (uploadError) {
                                           console.error("Variant image upload failed:", uploadError);
                                           setImageUploadErrorOpen(true);
-                                          return;
                                         }
-                                        const { data: urlData } = supabase.storage
-                                          .from("work-updates")
-                                          .getPublicUrl(uploadData.path);
-                                        upsertImage.mutate(
-                                          {
-                                            brandId,
-                                            variantId: variant.id,
-                                            imageUrl: urlData.publicUrl,
-                                            materialId,
-                                          },
-                                          { onError: () => setImageUploadErrorOpen(true) }
-                                        );
                                       }}
                                     />
                                   </IconButton>

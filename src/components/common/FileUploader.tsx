@@ -29,8 +29,8 @@ import {
   Visibility,
 } from "@mui/icons-material";
 import { SupabaseClient } from "@supabase/supabase-js";
-import { ensureFreshSession } from "@/lib/supabase/client";
-import { withTimeout } from "@/lib/utils/timeout";
+import { refreshSessionDeduped } from "@/lib/auth/sessionManager";
+import { getUploadAccessToken } from "@/lib/storage/uploadHelpers";
 import { useIsMobile } from "@/hooks/useIsMobile";
 
 // Upload status type for better UX feedback
@@ -686,12 +686,17 @@ export default function FileUploader({
           console.log(`[FileUploader] Waiting ${delay}ms before retry ${attempt}`);
           await new Promise((resolve) => setTimeout(resolve, delay));
 
-          // On retry, refresh the session token - network errors are often caused by expired tokens
+          // On retry, refresh the session token - network errors are often caused
+          // by expired tokens. Route through the deduped refresh so we don't race
+          // the SDK/proactive refresh into an invalid_grant (token rotation reuse).
           try {
-            const { data: { session: freshSession } } = await supabase.auth.refreshSession();
-            if (freshSession?.access_token) {
-              currentToken = freshSession.access_token;
-              console.log("[FileUploader] Refreshed auth token for retry");
+            const ok = await refreshSessionDeduped();
+            if (ok) {
+              const refreshed = await getUploadAccessToken(supabase);
+              if (refreshed) {
+                currentToken = refreshed;
+                console.log("[FileUploader] Refreshed auth token for retry");
+              }
             }
           } catch (refreshErr) {
             console.warn("[FileUploader] Token refresh on retry failed:", refreshErr);
@@ -850,25 +855,15 @@ export default function FileUploader({
         removeVisibilityListener = () =>
           document.removeEventListener('visibilitychange', onVisibilityChange);
 
-        try {
-          await ensureFreshSession();
-        } catch (sessionError) {
-          console.warn("[FileUploader] ensureFreshSession failed, proceeding with cached session:", sessionError);
-        }
-        // getSession() can block while an in-flight token refresh (triggered by
-        // proactiveRefreshIfNeeded on page load) completes through the Cloudflare
-        // proxy. On slow Indian networks this refresh takes 10-20s, causing a
-        // false "Upload timed out" when the previous 5s limit was too short.
-        // ensureFreshSession() above has a 4s internal timeout, so the refresh
-        // could have been running for up to 4s already — allow 25s total headroom
-        // (4s elapsed + 21s here) to cover the worst-case proxy round-trip.
-        const sessionResult = await withTimeout(
-          supabase.auth.getSession(),
-          21000,
-          "Session check timed out. Please check your connection and try again.",
-        );
-        const session = sessionResult.data.session;
-        if (!session?.access_token) {
+        // Lock-free, bounded token read. The old path (ensureFreshSession +
+        // getSession with a 21s timeout) blocked on the auth processLock while an
+        // in-flight token refresh held it behind the slow proxy — that's what hung
+        // the upload here at 50% until it "timed out". getUploadAccessToken never
+        // waits on the lock for more than ~3s and falls back to the token
+        // AuthContext published lock-free. A stale token just 401s on the first
+        // attempt and uploadWithRetry refreshes it.
+        const accessToken = await getUploadAccessToken(supabase);
+        if (!accessToken) {
           throw new Error("Session expired. Please log in again.");
         }
 
@@ -884,7 +879,7 @@ export default function FileUploader({
         const { data, error: uploadError } = await uploadWithRetry(
           filePath,
           fileToUpload,
-          session.access_token,
+          accessToken,
           (percent) => {
             // Map XHR progress (0-100) to our UI range (55-99)
             if (isMountedRef.current) {

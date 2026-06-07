@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ensureFreshSession } from "@/lib/auth/sessionManager";
+import { refreshSessionDeduped } from "@/lib/auth/sessionManager";
+import { getCachedAccessToken } from "@/lib/auth/accessTokenCache";
 
 /**
  * Shared upload primitives used by FileUploader, useImageUpload, and the
@@ -34,6 +35,44 @@ export function getAttemptTimeout(fileSizeBytes: number): number {
     UPLOAD_CONSTANTS.MIN_ATTEMPT_TIMEOUT,
     Math.ceil(sizeKB / 100) * UPLOAD_CONSTANTS.TIMEOUT_PER_100KB
   );
+}
+
+/**
+ * Get an access token for an upload WITHOUT blocking on the auth processLock.
+ *
+ * `supabase.auth.getSession()` acquires the in-tab processLock (lock: processLock
+ * in client.ts) and waits for it indefinitely. When a token refresh is in-flight
+ * — e.g. proactiveRefreshIfNeeded on page load, whose /auth/v1/token request is
+ * queued behind the single-origin proxy's request flood — that lock is held for
+ * up to ~25s. getSession() then queues behind it and the upload's own timeout
+ * fires first, surfacing as "Upload timed out" at "Preparing upload… 50%". A page
+ * reload is the only recovery because it resets the lock and the stuck fetch.
+ *
+ * The token we need is already valid in storage (proactive refresh only fires
+ * 15min before expiry). So: race getSession() against a short timeout, and if it
+ * doesn't win, fall back to the token published lock-free by AuthContext via
+ * accessTokenCache. If that token is stale, the XHR retry layer refreshes it.
+ *
+ * The timeout branch RESOLVES to null (never rejects) so a getSession() that
+ * resolves late is harmlessly discarded with no unhandled rejection.
+ */
+export async function getUploadAccessToken(
+  supabase: SupabaseClient,
+  fastTimeoutMs = 3000
+): Promise<string | null> {
+  try {
+    const token = await Promise.race<string | null>([
+      supabase.auth
+        .getSession()
+        .then((r) => r.data.session?.access_token ?? null)
+        .catch(() => null),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), fastTimeoutMs)),
+    ]);
+    if (token) return token;
+  } catch {
+    // fall through to the cached token
+  }
+  return getCachedAccessToken();
 }
 
 export interface XhrUploadOptions {
@@ -215,8 +254,6 @@ export interface HardenedUploadOptions {
   onProgress?: (percent: number) => void;
   signal?: AbortSignal;
   maxRetries?: number;
-  /** Skip the ensureFreshSession() call before upload (caller has already done it). */
-  skipSessionCheck?: boolean;
 }
 
 export interface HardenedUploadResult {
@@ -241,27 +278,15 @@ export async function hardenedUpload(
     onProgress,
     signal,
     maxRetries = UPLOAD_CONSTANTS.MAX_RETRIES,
-    skipSessionCheck = false,
   } = options;
 
-  if (!skipSessionCheck) {
-    try {
-      await ensureFreshSession();
-    } catch (err) {
-      console.warn(
-        "[hardenedUpload] ensureFreshSession failed, proceeding with cached session:",
-        err
-      );
-    }
-  }
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
+  // Lock-free token read: never block on the auth processLock before uploading
+  // (that's what hung the old getSession()/ensureFreshSession() path at 50%).
+  // A stale token here just 401s on the first attempt; the retry loop refreshes.
+  let currentToken = await getUploadAccessToken(supabase);
+  if (!currentToken) {
     throw new Error("Session expired. Please log in again.");
   }
-  let currentToken = session.access_token;
 
   let lastError: Error | null = null;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -274,14 +299,16 @@ export async function hardenedUpload(
         UPLOAD_CONSTANTS.INITIAL_RETRY_DELAY * Math.pow(2, attempt - 1);
       console.log(`[hardenedUpload] Retry ${attempt} after ${delay}ms`);
       await new Promise((r) => setTimeout(r, delay));
-      // On retry, refresh the token — a stalled first attempt may have
-      // happened because the token was about to expire.
+      // On retry, refresh the token — a stalled/401 first attempt may have
+      // happened because the token was stale. Route through the deduped refresh
+      // so we don't race the SDK/proactive refresh into an invalid_grant
+      // (refresh-token rotation reuse). The fresh token lands in the cache, and
+      // by now the lock is free so getUploadAccessToken returns it fast.
       try {
-        const {
-          data: { session: freshSession },
-        } = await supabase.auth.refreshSession();
-        if (freshSession?.access_token) {
-          currentToken = freshSession.access_token;
+        const ok = await refreshSessionDeduped();
+        if (ok) {
+          const refreshed = await getUploadAccessToken(supabase);
+          if (refreshed) currentToken = refreshed;
         }
       } catch {
         // ignore — keep using current token

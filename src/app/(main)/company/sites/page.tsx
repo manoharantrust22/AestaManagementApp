@@ -64,6 +64,7 @@ import {
 } from "@mui/icons-material";
 import DataTable, { type MRT_ColumnDef } from "@/components/common/DataTable";
 import { createClient } from "@/lib/supabase/client";
+import { hardenedUpload } from "@/lib/storage/uploadHelpers";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
 import { useSelectedCompany } from "@/contexts/CompanyContext";
@@ -502,19 +503,9 @@ export default function CompanySitesPage() {
       return;
     }
 
-    let progressInterval: NodeJS.Timeout | null = null;
-
     try {
       setUploading(true);
-      setUploadProgress(10);
-
-      // Simulate progress for better UX
-      progressInterval = setInterval(() => {
-        setUploadProgress((prev) => {
-          if (prev < 85) return prev + Math.random() * 15;
-          return prev;
-        });
-      }, 300);
+      setUploadProgress(5);
 
       const fileExt = file.name.split(".").pop();
       const fileName = `${
@@ -522,31 +513,19 @@ export default function CompanySitesPage() {
       }_client_contract_${Date.now()}.${fileExt}`;
       const filePath = `${editingSite?.id || "temp"}/${fileName}`;
 
-      const { data, error: uploadError } = await supabase.storage
-        .from("contract-documents")
-        .upload(filePath, file, {
-          cacheControl: "3600",
-          upsert: true,
-        });
+      // Hardened pipeline: lock-free token + no-progress watchdog + retry, with
+      // real upload progress (replaces the old raw storage.upload() that could
+      // hang on the auth lock, plus its fake setInterval progress simulation).
+      const { publicUrl } = await hardenedUpload({
+        supabase,
+        bucketName: "contract-documents",
+        filePath,
+        file,
+        contentType: file.type,
+        onProgress: (percent) => setUploadProgress(Math.max(5, percent)),
+      });
 
-      if (progressInterval) clearInterval(progressInterval);
-
-      if (uploadError) {
-        throw new Error(
-          uploadError.message || "Failed to upload file to storage"
-        );
-      }
-
-      if (!data || !data.path) {
-        throw new Error("Upload completed but no file path returned");
-      }
-
-      // Set progress to 100% before getting public URL
       setUploadProgress(100);
-
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("contract-documents").getPublicUrl(data.path);
 
       setForm({ ...form, contract_document_url: publicUrl });
       setUploadedFile({
@@ -561,7 +540,6 @@ export default function CompanySitesPage() {
         severity: "success",
       });
     } catch (err: any) {
-      if (progressInterval) clearInterval(progressInterval);
       setUploadProgress(0);
 
       console.error("Upload error:", err);
@@ -573,7 +551,6 @@ export default function CompanySitesPage() {
       });
     } finally {
       setUploading(false);
-      if (progressInterval) clearInterval(progressInterval);
       // Keep progress visible for a moment
       setTimeout(() => setUploadProgress(0), 2000);
     }

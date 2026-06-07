@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
+import { hardenedUpload } from "@/lib/storage/uploadHelpers";
 import { queryKeys } from "@/lib/cache/keys";
 import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
@@ -892,27 +893,22 @@ export function useUploadVerificationPhotos() {
       deliveryId: string;
       files: File[];
     }) => {
-      // Ensure fresh session before mutation
-      await ensureFreshSession();
-
       const uploadedUrls: string[] = [];
 
       for (const file of files) {
         const fileExt = file.name.split(".").pop();
         const fileName = `${deliveryId}/${Date.now()}.${fileExt}`;
 
-        const { data, error } = await supabase.storage
-          .from("delivery-verifications")
-          .upload(fileName, file);
-
-        if (error) throw error;
-
-        // Get public URL
-        const {
-          data: { publicUrl },
-        } = supabase.storage
-          .from("delivery-verifications")
-          .getPublicUrl(data.path);
+        // Hardened pipeline (lock-free token + watchdog + retry) so the upload
+        // can't hang on the auth lock like a raw storage.upload() does. It reads
+        // the token itself, so the old ensureFreshSession() pre-call is gone.
+        const { publicUrl } = await hardenedUpload({
+          supabase,
+          bucketName: "delivery-verifications",
+          filePath: fileName,
+          file,
+          contentType: file.type,
+        });
 
         uploadedUrls.push(publicUrl);
       }
