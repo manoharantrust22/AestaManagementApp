@@ -110,9 +110,15 @@ export default function SubcontractLinkSelector({
       // Get all subcontract IDs for bulk queries
       const scIds = subcontractsData.map((sc: any) => sc.id);
 
-      // Fetch ALL payment data in 3 bulk parallel queries instead of N*3 sequential
-      const [scPaymentsResult, laborPaymentsResult, expensesResult] =
-        await Promise.all([
+      // Fetch ALL payment data in 4 bulk parallel queries instead of N*4 sequential.
+      // Material expenses linked to a subcontract count toward its spend, using
+      // COALESCE(amount_paid, total_amount) to match the v_all_expenses basis.
+      const [
+        scPaymentsResult,
+        laborPaymentsResult,
+        expensesResult,
+        materialResult,
+      ] = await Promise.all([
           supabaseQueryWithTimeout(
             supabase
               .from("subcontract_payments")
@@ -134,6 +140,18 @@ export default function SubcontractLinkSelector({
               .in("contract_id", scIds),
             30000
           ),
+          supabaseQueryWithTimeout(
+            supabase
+              .from("material_purchase_expenses")
+              .select("subcontract_id, amount_paid, total_amount")
+              .in("subcontract_id", scIds)
+              .eq("is_paid", true)
+              // Mirror v_all_expenses' inclusion rule so this drill-down can't
+              // diverge from the page headline: own_site always counts;
+              // group_stock only once it carries a settlement_reference.
+              .or("purchase_type.neq.group_stock,settlement_reference.not.is.null"),
+            30000
+          ),
         ]);
 
       if (!isMountedRef.current) return;
@@ -142,6 +160,7 @@ export default function SubcontractLinkSelector({
       const scPaymentTotals = new Map<string, number>();
       const laborPaymentTotals = new Map<string, number>();
       const expenseTotals = new Map<string, number>();
+      const materialTotals = new Map<string, number>();
 
       (scPaymentsResult.data || []).forEach((p: any) => {
         const current = scPaymentTotals.get(p.contract_id) || 0;
@@ -151,6 +170,15 @@ export default function SubcontractLinkSelector({
       (laborPaymentsResult.data || []).forEach((p: any) => {
         const current = laborPaymentTotals.get(p.subcontract_id) || 0;
         laborPaymentTotals.set(p.subcontract_id, current + (p.amount || 0));
+      });
+
+      (materialResult.data || []).forEach((m: any) => {
+        if (!m.subcontract_id) return;
+        const current = materialTotals.get(m.subcontract_id) || 0;
+        materialTotals.set(
+          m.subcontract_id,
+          current + (Number(m.amount_paid ?? m.total_amount) || 0)
+        );
       });
 
       (expensesResult.data || []).forEach((e: any) => {
@@ -164,7 +192,8 @@ export default function SubcontractLinkSelector({
           const totalPaid =
             (scPaymentTotals.get(sc.id) || 0) +
             (laborPaymentTotals.get(sc.id) || 0) +
-            (expenseTotals.get(sc.id) || 0);
+            (expenseTotals.get(sc.id) || 0) +
+            (materialTotals.get(sc.id) || 0);
 
           return {
             id: sc.id,

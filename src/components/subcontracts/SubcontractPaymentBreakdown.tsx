@@ -24,6 +24,7 @@ import {
   Payment as PaymentIcon,
   LocalCafe as TeaIcon,
   Receipt as ExpenseIcon,
+  Inventory2 as MaterialIcon,
 } from "@mui/icons-material";
 import { createClient } from "@/lib/supabase/client";
 import dayjs from "dayjs";
@@ -98,6 +99,21 @@ export default function SubcontractPaymentBreakdown({
         .order("date", { ascending: false });
 
       if (expensesError) throw expensesError;
+
+      // Fetch linked material purchases — only paid rows count toward the
+      // contract spend. Amount basis matches v_all_expenses (amount_paid, else
+      // total_amount); the .or() mirrors the view's inclusion rule (own_site
+      // always; group_stock only once it carries a settlement_reference) so this
+      // breakdown can't exceed the headline total.
+      const { data: materials, error: materialsError } = await supabase
+        .from("material_purchase_expenses")
+        .select("id, ref_code, vendor_name, amount_paid, total_amount, payment_mode, settlement_date, paid_date, purchase_date")
+        .eq("subcontract_id", subcontractId)
+        .eq("is_paid", true)
+        .or("purchase_type.neq.group_stock,settlement_reference.not.is.null")
+        .order("settlement_date", { ascending: false });
+
+      if (materialsError) throw materialsError;
 
       // Group subcontract payments by type
       const paymentsByType: Record<string, PaymentItem[]> = {
@@ -200,6 +216,26 @@ export default function SubcontractPaymentBreakdown({
           color: "error.main",
           items: expenseItems,
           total: expenseItems.reduce((sum, i) => sum + i.amount, 0),
+        });
+      }
+
+      // Materials bought under this subcontract
+      if ((materials || []).length > 0) {
+        const materialItems: PaymentItem[] = (materials || []).map((m: any) => ({
+          id: m.id,
+          date: m.settlement_date || m.paid_date || m.purchase_date,
+          amount: Number(m.amount_paid ?? m.total_amount) || 0,
+          description: m.vendor_name
+            ? `${m.vendor_name}${m.ref_code ? ` (${m.ref_code})` : ""}`
+            : m.ref_code || "Material purchase",
+          payment_mode: m.payment_mode,
+        }));
+        categoryList.push({
+          name: "Materials",
+          icon: <MaterialIcon fontSize="small" />,
+          color: "warning.dark",
+          items: materialItems,
+          total: materialItems.reduce((sum, i) => sum + i.amount, 0),
         });
       }
 

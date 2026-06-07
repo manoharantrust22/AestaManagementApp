@@ -915,6 +915,12 @@ export interface SettleMaterialPurchaseData {
    * (baseline falls back to `total_amount`, preserving original behavior).
    */
   previous_amount_paid?: number | null;
+  /**
+   * Optional subcontract this material was bought under. `null` clears an
+   * existing link. When set on a paid row it counts toward that subcontract's
+   * spend (see v_all_expenses material branch + the base-table balance queries).
+   */
+  subcontract_id?: string | null;
 }
 
 /**
@@ -981,6 +987,13 @@ export function useSettleMaterialPurchase() {
       updateData.settlement_payer_source = data.payer_source;
       updateData.settlement_payer_name = data.payer_name || null;
       updateData.payer_source_split = data.payer_source_split ?? null;
+
+      // Optional subcontract link. Only touch the column when the dialog sent a
+      // value (including explicit null to unlink); leaving it absent preserves
+      // any existing link on a metadata-only edit.
+      if (data.subcontract_id !== undefined) {
+        updateData.subcontract_id = data.subcontract_id;
+      }
 
       // Allow overriding the paying site for group stock purchases
       if (data.paying_site_id) {

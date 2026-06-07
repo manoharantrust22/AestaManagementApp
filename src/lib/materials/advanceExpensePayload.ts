@@ -36,6 +36,8 @@ export interface AdvancePaymentArgs {
   paying_site_id?: string | null;
   /** Explicit site group id override (from dialog / PO notes). */
   site_group_id?: string | null;
+  /** Optional subcontract this material was bought under (null = unlinked). */
+  subcontract_id?: string | null;
 }
 
 export interface BuiltAdvanceExpense {
@@ -116,6 +118,7 @@ export function buildAdvanceExpensePayload(
     settlement_payer_source: args.payer_source ?? null,
     settlement_payer_name: args.payer_name ?? null,
     payer_source_split: args.payer_source_split ?? null,
+    subcontract_id: args.subcontract_id ?? null,
     created_by: createdByAuthId,
   };
 

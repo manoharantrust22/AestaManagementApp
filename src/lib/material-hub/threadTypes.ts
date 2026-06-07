@@ -10,6 +10,8 @@
  * useMaterialThreads() composes these into MaterialThread[] in memory.
  */
 
+import type { PayerSourceSplitRow } from "@/types/settlement.types";
+
 export type ThreadStage =
   | "requested"
   | "approved"
@@ -113,6 +115,13 @@ export interface ThreadSettlement {
   /** Vendor bill scan attached to the expense (separate from PO.vendor_bill_url
    *  which is captured at PO time). */
   bill_url?: string | null;
+  /** Payment source attribution — which fund paid the vendor. Mirrors
+   *  material_purchase_expenses.settlement_payer_source / _name / payer_source_split.
+   *  Rendered as a "Source" row on the settlement card so the payer is visible
+   *  without opening the Edit Settlement dialog. */
+  payer_source?: string | null;
+  payer_name?: string | null;
+  payer_source_split?: PayerSourceSplitRow[] | null;
 }
 
 export interface ThreadInventory {

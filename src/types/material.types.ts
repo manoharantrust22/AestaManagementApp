@@ -1955,6 +1955,9 @@ export interface MaterialPurchaseExpense {
   purchase_order_id: string | null;
   group_stock_transaction_id: string | null;
   site_group_id: string | null;
+  /** Optional subcontract this material was bought under (null = unlinked).
+   *  When set on a paid row the amount counts toward the subcontract's spend. */
+  subcontract_id: string | null;
 
   // Batch tracking fields (for group stock)
   paying_site_id: string | null;

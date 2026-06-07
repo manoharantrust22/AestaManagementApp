@@ -33,6 +33,7 @@ import {
 } from "@mui/icons-material";
 import { createClient } from "@/lib/supabase/client";
 import PayerSourceSplitInput from "@/components/settlement/PayerSourceSplitInput";
+import SubcontractLinkSelector from "@/components/payments/SubcontractLinkSelector";
 import {
   toRpcArgs,
   validatePayerSourceInput,
@@ -169,6 +170,8 @@ export default function MaterialSettlementDialog({
   const [error, setError] = useState("");
   const [amountPaid, setAmountPaid] = useState<string>(""); // Bargained amount
   const [payingSiteId, setPayingSiteId] = useState<string>("");
+  // Optional subcontract this material was bought under. null = unlinked.
+  const [subcontractId, setSubcontractId] = useState<string | null>(null);
 
   // Wallet hooks — keyed to the currently selected paying site so the balance
   // updates whenever the engineer switches the paying site selector.
@@ -223,6 +226,7 @@ export default function MaterialSettlementDialog({
         setError("");
         setAmountPaid(String(purchase.amount_paid ?? purchaseAmount));
         setPayingSiteId(purchase.paying_site_id || purchase.site_id || "");
+        setSubcontractId(purchase.subcontract_id ?? null);
         resetVerification();
         return;
       }
@@ -237,6 +241,7 @@ export default function MaterialSettlementDialog({
       setError("");
       setAmountPaid(purchaseAmount.toString());
       setPayingSiteId(purchase?.paying_site_id || purchase?.site_id || "");
+      setSubcontractId(purchase?.subcontract_id ?? null);
       resetVerification();
     }
   }, [open, purchase, purchaseOrder, resetVerification, isEditMode, isSiteEngineer]);
@@ -303,6 +308,7 @@ export default function MaterialSettlementDialog({
           payer_source: advancePayerRpc.p_payer_source as PayerSource | "split",
           payer_name: advancePayerRpc.p_payer_name || undefined,
           payer_source_split: advancePayerRpc.p_payer_source_split,
+          subcontract_id: subcontractId,
           is_complete: isGroupStockAdvancePO,
           // Pass wallet fields for group_stock POs settled by site engineer
           ...(isSiteEngineer && isGroupStockAdvancePO && engineerId && effectiveWalletSiteId ? {
@@ -370,6 +376,7 @@ export default function MaterialSettlementDialog({
         payer_source: payerRpc.p_payer_source as PayerSource | "split",
         payer_name: payerRpc.p_payer_name || undefined,
         payer_source_split: payerRpc.p_payer_source_split,
+        subcontract_id: subcontractId,
         payment_reference: paymentReference || undefined,
         bill_url: bill?.url || undefined,
         payment_screenshot_url: screenshot?.url || undefined,
@@ -871,6 +878,21 @@ export default function MaterialSettlementDialog({
             })()}
           </Box>
         )}
+
+        {/* Link to subcontract (optional). Some materials are bought under a
+            subcontract; linking makes the amount count toward that contract's
+            spend and surfaces it under the subcontract on /site/expenses. */}
+        <Box sx={{ mb: 2 }}>
+          <FormLabel sx={{ mb: 1, display: "block", fontWeight: 600, fontSize: "0.875rem" }}>
+            Link to subcontract (optional)
+          </FormLabel>
+          <SubcontractLinkSelector
+            selectedSubcontractId={subcontractId}
+            onSelect={setSubcontractId}
+            paymentAmount={Number(amountPaid) || purchaseAmount}
+            disabled={settleMutation.isPending || advancePaymentMutation.isPending}
+          />
+        </Box>
 
         {/* Payment Reference */}
         <TextField

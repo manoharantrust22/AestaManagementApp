@@ -30,6 +30,7 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import { hubTokens } from "@/lib/material-hub/tokens";
+import { formatPayerSource } from "@/lib/settlement/payerSource";
 import { inr } from "@/lib/material-hub/formatters";
 import { fmtDateShort } from "@/lib/material-hub/formatters";
 import { fmtQty } from "@/lib/formatters";
@@ -974,6 +975,25 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               {t.settlement.paid_by && (
                 <DetailRow label="Paid by" value={t.settlement.paid_by} />
               )}
+              {/* Payment source (which fund paid the vendor). Only rendered when
+                  actually recorded — an unset source must read as absent, not
+                  silently default to "Own Money". Split payments show the summary. */}
+              {(() => {
+                const split = t.settlement.payer_source_split;
+                const hasSplit = Array.isArray(split) && split.length > 0;
+                if (!t.settlement.payer_source && !hasSplit) return null;
+                const ps = formatPayerSource({
+                  payer_source: t.settlement.payer_source ?? null,
+                  payer_name: t.settlement.payer_name ?? null,
+                  payer_source_split: split ?? null,
+                });
+                return (
+                  <DetailRow
+                    label="Source"
+                    value={ps.kind === "split" ? ps.summary : ps.label}
+                  />
+                );
+              })()}
               {t.settlement.settled_at && (
                 <DetailRow label="On" value={fmtDateShort(t.settlement.settled_at)} />
               )}

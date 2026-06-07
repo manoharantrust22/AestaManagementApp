@@ -16,6 +16,7 @@ import type {
   ThreadDeliveryBatch,
   ThreadInventory,
 } from "@/lib/material-hub/threadTypes";
+import type { PayerSourceSplitRow } from "@/types/settlement.types";
 import { parseGroupMeta } from "@/lib/material-hub/groupMeta";
 
 // ----------------------------------------------------------------------------
@@ -226,8 +227,9 @@ function useSiteSpotPurchases(
           purchase_type, is_historical, used_qty_at_entry,
           vendor:vendors(id, name, is_draft),
           items:material_purchase_expense_items(
-            id, material_id, quantity, unit_price, total_price,
-            material:materials(id, name, unit, is_draft)
+            id, material_id, brand_id, quantity, unit_price, total_price,
+            material:materials(id, name, unit, is_draft),
+            brand:material_brands(id, brand_name, variant_name)
           ),
           allocations:spot_purchase_allocations(site_id, percentage, is_final)
           `
@@ -270,6 +272,9 @@ export interface SettlementSnapshot {
   payment_screenshot_url: string | null;
   bill_url: string | null;
   payment_mode: string | null;
+  settlement_payer_source: string | null;
+  settlement_payer_name: string | null;
+  payer_source_split: PayerSourceSplitRow[] | null;
 }
 
 // ----------------------------------------------------------------------------
@@ -408,7 +413,7 @@ function useSiteSettlements(
       let query = (supabase as any)
         .from("material_purchase_expenses")
         .select(
-          "id, ref_code, purchase_order_id, site_id, is_paid, paid_date, status, payment_channel, total_amount, amount_paid, payment_screenshot_url, bill_url, payment_mode"
+          "id, ref_code, purchase_order_id, site_id, is_paid, paid_date, status, payment_channel, total_amount, amount_paid, payment_screenshot_url, bill_url, payment_mode, settlement_payer_source, settlement_payer_name, payer_source_split"
         )
         .not("purchase_order_id", "is", null);
 
@@ -584,6 +589,26 @@ function mapStandardThread(
   const po = poByRequestId.get(mr.id);
   const primaryItem = mr.items?.[0];
   const threadKind = deriveKind(mr, po);
+
+  // Brand: the real purchased brand lives on the PO item; request items rarely
+  // carry it. Build a per-material map from the PO once, then fall back to the
+  // request item's own brand when the PO didn't record one.
+  const poBrandByMaterial = new Map<
+    string,
+    { brand_id: string | null; brand_name: string | null }
+  >();
+  for (const it of (po?.items ?? []) as any[]) {
+    if (it?.brand_id || it?.brand?.brand_name) {
+      poBrandByMaterial.set(it.material_id, {
+        brand_id: it.brand_id ?? null,
+        brand_name: it.brand?.brand_name ?? null,
+      });
+    }
+  }
+  const primaryBrand = poBrandByMaterial.get(primaryItem?.material_id ?? "") ?? {
+    brand_id: (primaryItem as any)?.brand_id ?? null,
+    brand_name: (primaryItem as any)?.brand?.brand_name ?? null,
+  };
 
   // A thread raised on a different site than the one being viewed.
   const isSiblingRequest =
@@ -829,8 +854,8 @@ function mapStandardThread(
     material_id: primaryItem?.material_id ?? "",
     material_name: (primaryItem as any)?.material?.name ?? "—",
     material_unit: (primaryItem as any)?.material?.unit ?? "nos",
-    brand_id: (primaryItem as any)?.brand_id ?? null,
-    brand_name: (primaryItem as any)?.brand?.brand_name ?? null,
+    brand_id: primaryBrand.brand_id,
+    brand_name: primaryBrand.brand_name,
     qty: totalQty || Number(primaryItem?.requested_qty ?? 0),
     request_number: mr.request_number,
     requested_by: mr.requested_by,
@@ -849,14 +874,22 @@ function mapStandardThread(
     inventory: threadInventory,
     variants:
       (mr.items ?? []).length > 1
-        ? (mr.items ?? []).map((it: any) => ({
-            material_id: it.material_id,
-            material_name: it.material?.name ?? "—",
-            unit: it.material?.unit ?? "nos",
-            brand_id: it.brand_id ?? null,
-            brand_name: it.brand?.brand_name ?? null,
-            requested_qty: Number(it.requested_qty ?? 0),
-          }))
+        ? (mr.items ?? []).map((it: any) => {
+            // Prefer the PO item's brand (per material); fall back to the
+            // request item's own brand.
+            const vb = poBrandByMaterial.get(it.material_id) ?? {
+              brand_id: it.brand_id ?? null,
+              brand_name: it.brand?.brand_name ?? null,
+            };
+            return {
+              material_id: it.material_id,
+              material_name: it.material?.name ?? "—",
+              unit: it.material?.unit ?? "nos",
+              brand_id: vb.brand_id,
+              brand_name: vb.brand_name,
+              requested_qty: Number(it.requested_qty ?? 0),
+            };
+          })
         : undefined,
     settlement: settlement
       ? {
@@ -878,6 +911,9 @@ function mapStandardThread(
           payment_screenshot_url: settlement.payment_screenshot_url,
           bill_url: settlement.bill_url,
           payment_mode: settlement.payment_mode,
+          payer_source: settlement.settlement_payer_source,
+          payer_name: settlement.settlement_payer_name,
+          payer_source_split: settlement.payer_source_split,
         }
       : undefined,
     // delivery / inter_site_usage populated later
@@ -945,6 +981,8 @@ function mapSpotThread(sp: SpotPurchaseExpense): MaterialThread {
     material_id: primary?.material_id ?? "",
     material_name: primary?.material?.name ?? "—",
     material_unit: primary?.material?.unit ?? "nos",
+    brand_id: (primary as any)?.brand_id ?? null,
+    brand_name: (primary as any)?.brand?.brand_name ?? null,
     qty: totalQty,
     requested_by: null,
     requested_at: sp.purchase_date,

@@ -138,7 +138,8 @@ export function usePurchaseOrdersForHub(
           items:purchase_order_items(
             id, material_id, brand_id, quantity, received_qty, unit_price,
             pricing_mode, calculated_weight, actual_weight, tax_rate,
-            material:materials(id, name, unit)
+            material:materials(id, name, unit),
+            brand:material_brands(id, brand_name, variant_name)
           )
         `
         )
@@ -1751,6 +1752,8 @@ export function useRecordAdvancePayment() {
       payer_source_split?: PayerSourceSplitRow[] | null;
       /** True for a full bulk settlement (isGroupStockAdvancePO) — forces is_paid. */
       is_complete?: boolean;
+      /** Optional subcontract this material was bought under (null = unlinked). */
+      subcontract_id?: string | null;
     }) => {
       await ensureFreshSession();
 
@@ -1810,6 +1813,7 @@ export function useRecordAdvancePayment() {
             payment_channel: isWalletPath ? "engineer_wallet" : "direct",
             paying_site_id: data.paying_site_id ?? null,
             site_group_id: data.site_group_id ?? null,
+            subcontract_id: data.subcontract_id ?? null,
           },
           refCode || `MAT-${Date.now()}`,
           authUserId,
@@ -1829,6 +1833,10 @@ export function useRecordAdvancePayment() {
               settlement_payer_source: built.expenseRow.settlement_payer_source,
               settlement_payer_name: built.expenseRow.settlement_payer_name,
               payer_source_split: built.expenseRow.payer_source_split,
+              // Advance flow rebuilds the row wholesale, so it always overwrites
+              // the link with the dialog's current selection (unlike the
+              // settle/edit path, which preserves an existing link when omitted).
+              subcontract_id: built.expenseRow.subcontract_id,
               payment_channel: built.expenseRow.payment_channel,
               updated_at: new Date().toISOString(),
             })

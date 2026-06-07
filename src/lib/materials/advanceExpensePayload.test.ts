@@ -42,12 +42,14 @@ describe("buildAdvanceExpensePayload", () => {
         payer_source_split: null,
         is_complete: true,
         payment_channel: "direct",
+        subcontract_id: "sc-1",
       },
       "MPE-TEST",
       "auth-1",
     );
     expect(isGroupStock).toBe(true);
     expect(expenseRow.purchase_type).toBe("group_stock");
+    expect(expenseRow.subcontract_id).toBe("sc-1");
     expect(expenseRow.settlement_payer_source).toBe("client_money");
     expect(expenseRow.settlement_payer_name).toBeNull();
     expect(expenseRow.payer_source_split).toBeNull();
@@ -90,5 +92,7 @@ describe("buildAdvanceExpensePayload", () => {
     expect(expenseRow.site_group_id).toBeNull();
     expect(expenseRow.paying_site_id).toBeNull();
     expect(expenseRow.created_by).toBeNull();
+    // No subcontract passed → row stays unlinked (null), not undefined.
+    expect(expenseRow.subcontract_id).toBeNull();
   });
 });

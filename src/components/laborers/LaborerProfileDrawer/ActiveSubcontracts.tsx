@@ -138,6 +138,24 @@ export default function ActiveSubcontracts({
         paidByContract[k] = (paidByContract[k] ?? 0) + Number(p.total_amount ?? 0);
       }
 
+      // Materials bought under these contracts also count toward spend. Only
+      // paid rows; amount basis matches v_all_expenses (amount_paid, else total).
+      // The .or() mirrors the view's inclusion rule (own_site always;
+      // group_stock only once it carries a settlement_reference).
+      const { data: materialRows, error: matErr } = await (supabase
+        .from("material_purchase_expenses") as any)
+        .select("subcontract_id, amount_paid, total_amount")
+        .in("subcontract_id", ids)
+        .eq("is_paid", true)
+        .or("purchase_type.neq.group_stock,settlement_reference.not.is.null");
+      if (matErr) throw matErr;
+      for (const m of (materialRows ?? []) as any[]) {
+        const k = m.subcontract_id as string;
+        if (!k) continue;
+        paidByContract[k] =
+          (paidByContract[k] ?? 0) + (Number(m.amount_paid ?? m.total_amount) || 0);
+      }
+
       return list.map((r) => ({
         id: r.id,
         title: r.title ?? "Untitled contract",
