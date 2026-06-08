@@ -20,7 +20,10 @@ import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import { hubTokens, HUB_BREAKPOINT_PX } from "@/lib/material-hub/tokens";
 import { inr, fmtDateShort } from "@/lib/material-hub/formatters";
-import { threadVariantCategory } from "@/lib/material-hub/threadTitle";
+import {
+  threadVariantCategory,
+  threadBrandLabel,
+} from "@/lib/material-hub/threadTitle";
 import { fmtQty } from "@/lib/formatters";
 import { M_STAGES, VISIBLE_STAGES, stageIndex, stageLabel, type VisibleStageKey } from "@/lib/material-hub/stageHelpers";
 import MaterialThreadPipeline from "./MaterialThreadPipeline";
@@ -46,6 +49,9 @@ export default function MaterialThreadRow({
   const isGroup = thread.kind === "group";
   const isAdvance = thread.advance;
   const isSpot = thread.purchase_type === "spot";
+  // Brand shown as a muted subtitle prefix so the engineer can tell which
+  // brand a material is (e.g. "Chettinad", "Amman"). Null → nothing shown.
+  const brandLabel = threadBrandLabel(thread);
   const accent = isGroup ? hubTokens.pink : hubTokens.primary;
   // Mirror threads (cluster-mate's group POs surfaced on this site) get a
   // dimmed band so the visual hierarchy makes ownership obvious at a glance.
@@ -209,6 +215,12 @@ export default function MaterialThreadRow({
             </Box>
           )}
           <Typography sx={{ fontSize: 11.5, color: hubTokens.muted }}>
+            {brandLabel && (
+              <Box component="span" sx={{ fontWeight: 600 }}>
+                {brandLabel}
+                {" · "}
+              </Box>
+            )}
             {thread.section || "—"}
             {thread.floor && thread.floor !== "—" ? ` · ${thread.floor}` : ""}
             {" · "}requested {fmtDateShort(thread.requested_at)}

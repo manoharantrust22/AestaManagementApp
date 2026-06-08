@@ -44,3 +44,25 @@ export function threadDisplayName(
   }
   return thread.material_name;
 }
+
+/**
+ * The brand string to show on a Hub card's subtitle, or null when none.
+ *
+ * Multi-size threads: the distinct set of variant brands joined by " / "
+ * (usually a single brand, e.g. "Amman"); falls back to the primary brand when
+ * no variant carries one. Single-line threads: just the primary brand.
+ */
+export function threadBrandLabel(thread: {
+  brand_name?: string | null;
+  variants?: Array<{ brand_name?: string | null }>;
+}): string | null {
+  if (thread.variants && thread.variants.length > 1) {
+    const names = Array.from(
+      new Set(
+        thread.variants.map((v) => (v.brand_name ?? "").trim()).filter(Boolean)
+      )
+    );
+    if (names.length > 0) return names.join(" / ");
+  }
+  return thread.brand_name?.trim() || null;
+}

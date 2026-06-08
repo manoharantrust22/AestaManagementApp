@@ -113,8 +113,9 @@ export function useMaterialRequests(
           *,
           section:building_sections(id, name),
           items:material_request_items(
-            id, material_id, requested_qty, approved_qty, fulfilled_qty,
-            material:materials(id, name, code, unit, image_url)
+            id, material_id, brand_id, requested_qty, approved_qty, fulfilled_qty,
+            material:materials(id, name, code, unit, image_url),
+            brand:material_brands(id, brand_name, variant_name)
           )
         `
         )
