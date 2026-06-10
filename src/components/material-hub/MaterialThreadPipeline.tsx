@@ -1,208 +1,70 @@
 "use client";
 
 /**
- * Per-row mini timeline. Six stages horizontally: Req · Approve · PO · Deliver
- * · Settle · In use. Spot purchases render a shorter 2- or 3-stage pipeline in
- * warn color.
+ * Per-row mini timeline. Six visible stages horizontally: Req · Approve · PO ·
+ * Deliver · Settle · Stock · In use. Spot purchases render a shorter 2- or
+ * 3-stage pipeline in warn colour.
  *
- * Mirrors `ProtoThreadPipeline` in docs/MaterialHub_Redesign/proto-screens.jsx.
+ * This file owns only the STATE derivation; the visuals come from the shared
+ * {@link HubPipelineStepper} ("Material rail"). INTER-SITE is no longer a rail
+ * node — it renders as a compact chip below the rail so the seven core columns
+ * stay aligned across every row.
+ *
+ * `buildMaterialPipeline` is the single source of truth for a thread's stage
+ * states; the desktop rail and the mobile summary bar (MaterialThreadRow) both
+ * consume it.
  */
 
 import { Box } from "@mui/material";
 import CheckIcon from "@mui/icons-material/Check";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { fmtQty } from "@/lib/formatters";
-import { M_STAGES, VISIBLE_STAGES, stageIndex, type VisibleStageKey } from "@/lib/material-hub/stageHelpers";
+import { M_STAGES, VISIBLE_STAGES, stageIndex } from "@/lib/material-hub/stageHelpers";
 import type { MaterialThread, ThreadStage } from "@/lib/material-hub/threadTypes";
+import HubPipelineStepper, {
+  hubPulse,
+  type HubStep,
+  type HubStepState,
+} from "@/components/common/HubPipelineStepper";
 
-const PULSE_KEYFRAMES = `
-@keyframes matPulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(0.6); opacity: 0.6; }
-}
-`;
+export type InterSiteChipState = "settled" | "active" | "dormant";
 
-interface StageDotProps {
-  done: boolean;
-  current: boolean;
-  /** 0–1. When between 0 and 1, renders as a partial-progress arc. */
-  progress?: number;
+export interface MaterialPipelineModel {
+  steps: HubStep[];
   accent: string;
   softAccent: string;
+  lineActiveColor?: string;
+  /** Inter-site chip state, or null when the thread has no cross-site debt. */
+  interSite: InterSiteChipState | null;
 }
 
-function StageDot({
-  done,
-  current,
-  progress,
-  accent,
-  softAccent,
-  /** Renders the dot as a green-check "done & terminal" state — used for the
-   *  last visible step when the thread is exhausted (fully consumed). */
-  completedSuccess,
-}: StageDotProps & { completedSuccess?: boolean }) {
-  const isPartial =
-    !done && progress != null && progress > 0 && progress < 1;
-  return (
-    <Box
-      sx={{
-        width: 14,
-        height: 14,
-        borderRadius: "50%",
-        // completedSuccess → green check; done → filled black; partial → conic;
-        // next-pending → accent fill; future → outlined.
-        background: completedSuccess
-          ? hubTokens.success
-          : done
-            ? hubTokens.text
-            : isPartial
-              ? `conic-gradient(${accent} ${Math.round((progress ?? 0) * 360)}deg, ${hubTokens.hairline} 0deg)`
-              : current
-                ? accent
-                : "#fff",
-        border:
-          completedSuccess || done || isPartial || current
-            ? "none"
-            : `2px solid ${hubTokens.border}`,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        boxShadow:
-          completedSuccess
-            ? `0 0 0 4px ${hubTokens.successSoft}`
-            : current || isPartial
-              ? `0 0 0 4px ${softAccent}`
-              : "none",
-        flexShrink: 0,
-        position: "relative",
-      }}
-    >
-      {completedSuccess || done ? (
-        <CheckIcon sx={{ fontSize: 9, color: "#fff", strokeWidth: 3 }} />
-      ) : isPartial ? (
-        // Inner white circle on top of the conic gradient creates a ring
-        <Box
-          sx={{
-            position: "absolute",
-            inset: 3,
-            borderRadius: "50%",
-            background: "#fff",
-          }}
-        />
-      ) : current ? (
-        <Box
-          sx={{
-            width: 5,
-            height: 5,
-            borderRadius: "50%",
-            background: "#fff",
-            animation: "matPulse 1.6s ease-in-out infinite",
-          }}
-        />
-      ) : null}
-    </Box>
-  );
-}
-
-interface StageLabelProps {
-  text: string;
-  done: boolean;
-  current: boolean;
-  accent: string;
-}
-
-function StageLabel({ text, done, current, accent }: StageLabelProps) {
-  return (
-    <Box
-      component="span"
-      sx={{
-        fontSize: 9,
-        fontWeight: current ? 700 : 600,
-        color: done ? (current ? accent : hubTokens.muted) : hubTokens.subtle,
-        letterSpacing: "0.2px",
-        textTransform: "uppercase",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {text}
-    </Box>
-  );
-}
-
-export interface MaterialThreadPipelineProps {
-  thread: MaterialThread;
-}
-
-export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelineProps) {
+/** Derive the full stage model for a thread (shared by desktop rail + mobile bar). */
+export function buildMaterialPipeline(thread: MaterialThread): MaterialPipelineModel {
   if (thread.purchase_type === "spot") {
-    const stages: { key: string; label: string; done: boolean; current: boolean }[] = [
-      { key: "bought", label: "Bought", done: true, current: false },
-      {
-        key: "inuse",
-        label: "In use",
-        done: true,
-        current: thread.kind === "own" || thread.spot_stage === "finalized",
-      },
-    ];
-    if (thread.kind === "group") {
-      stages.push({
+    const finalized = thread.spot_stage === "finalized";
+    const steps: HubStep[] = [{ key: "bought", label: "BOUGHT", state: "done" }];
+    if (thread.kind === "own") {
+      steps.push({ key: "inuse", label: "IN USE", state: "current" });
+    } else {
+      steps.push({ key: "inuse", label: "IN USE", state: "done" });
+      steps.push({
         key: "finalize",
-        label: "Finalize",
-        done: thread.spot_stage === "finalized",
-        current: thread.spot_stage === "provisional",
+        label: "FINALIZE",
+        state: finalized ? "success" : "current",
       });
     }
-    return (
-      <Box sx={{ display: "flex", alignItems: "center", height: 30 }}>
-        <style>{PULSE_KEYFRAMES}</style>
-        {stages.map((s, i) => {
-          const isLast = i === stages.length - 1;
-          return (
-            <Box key={s.key} sx={{ display: "contents" }}>
-              <Box
-                sx={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: "3px",
-                  flexShrink: 0,
-                }}
-              >
-                <StageDot
-                  done={s.done}
-                  current={s.current}
-                  accent={hubTokens.warn}
-                  softAccent={hubTokens.warnSoft}
-                />
-                <StageLabel
-                  text={s.label}
-                  done={s.done}
-                  current={s.current}
-                  accent={hubTokens.warn}
-                />
-              </Box>
-              {!isLast && (
-                <Box
-                  sx={{
-                    flex: 1,
-                    height: 2,
-                    marginBottom: "14px",
-                    minWidth: 14,
-                    background: stages[i + 1].done ? hubTokens.text : hubTokens.hairline,
-                  }}
-                />
-              )}
-            </Box>
-          );
-        })}
-      </Box>
-    );
+    return {
+      steps,
+      accent: hubTokens.warn,
+      softAccent: hubTokens.warnSoft,
+      lineActiveColor: hubTokens.warn,
+      interSite: null,
+    };
   }
 
-  // Standard flow: 6-stage pipeline
-  // `done` = stage already completed (filled black with check)
-  // `current` = the NEXT pending stage (pulsing accent, "do this next")
-  // `progress` = 0..1 partial progress (DELIVER step when partial_delivered)
+  // Standard flow: 7-stage pipeline.
+  // `done` = stage already completed · `current` = the NEXT pending stage
+  // (pulsing) · `progress` = 0..1 partial (DELIVER when partially delivered).
   // Terminal states (rejected/in-use/exhausted) have no "next" pulse.
   const idx = stageIndex(thread.stage);
   const isTerminal =
@@ -212,7 +74,6 @@ export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelin
   const nextKey =
     !isTerminal && idx + 1 < M_STAGES.length ? M_STAGES[idx + 1] : null;
 
-  // Per-stage overrides for the standard pipeline based on PO state.
   const po = thread.po;
   const orderedQty = po?.qty ?? 0;
   const receivedQty = po?.received_qty ?? 0;
@@ -222,19 +83,13 @@ export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelin
     po && orderedQty > 0 ? Math.min(receivedQty / orderedQty, 1) : 0;
   const deliverFullyDone = deliverFraction >= 1;
 
-  // Override: SETTLE shows as DONE for advance POs from the moment advance was paid.
-  // Override: DELIVER label shows fraction (e.g. "DELIVER 80/200").
-  // Override: when DELIVER is partial and stage is still "ordered", DELIVER is the
-  //           current-pending (with progress shown); pulse stays on the DELIVER dot.
+  // SETTLE shows as DONE for advance POs from the moment the advance was paid.
   const settleDoneByAdvance =
     isAdvancePaid && (!thread.settlement || thread.settlement.status !== "settled");
 
-  // Inventory step state (synthetic, not a real ThreadStage). The DB trigger
-  // adds delivered material to stock_inventory automatically — so STOCK is
-  // "done" whenever we have evidence of delivery, even if the inventory row
-  // hasn't been picked up by this query yet (older POs sometimes have
-  // PO.status='delivered' but per-item received_qty=0 due to legacy verify
-  // flows; the material still made it into the bucket).
+  // Inventory (synthetic). The DB trigger adds delivered material to stock, so
+  // STOCK is "done" whenever there's evidence of delivery even if the inventory
+  // row hasn't been picked up by this query yet.
   const inv = thread.inventory;
   const hasReceivedQty = !!po && receivedQty > 0;
   const hasBatches =
@@ -242,222 +97,155 @@ export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelin
   const inventoryDone =
     (!!inv && inv.received > 0) || hasReceivedQty || hasBatches;
 
-  // Inter-site step state (synthetic, not a real ThreadStage). Appended AFTER
-  // IN USE only for group threads that have cross-site usage. Amber while the
-  // cross-site debt is pending; green check once it's reconciled. Settlement is
-  // independent of consumption, so this never blocks the IN USE → DONE state.
-  const interSiteSettled =
-    !!thread.inter_site_applicable && !thread.inter_site_pending;
-  const renderStages: { key: VisibleStageKey; label: string }[] =
-    thread.inter_site_applicable
-      ? [...VISIBLE_STAGES, { key: "inter-site", label: "INTER-SITE" }]
-      : VISIBLE_STAGES;
+  const steps: HubStep[] = VISIBLE_STAGES.map((s) => {
+    // Synthetic STOCK step.
+    if (s.key === "inventory") {
+      // Only show batch-exact counts. A shared-pool fallback (batch === "—")
+      // describes the whole site bucket, not this thread.
+      const caption =
+        inv && inv.received > 0 && inv.batch !== "—"
+          ? `${fmtQty(inv.remaining)}/${fmtQty(inv.received)}`
+          : undefined;
+      return {
+        key: s.key,
+        label: "STOCK",
+        caption,
+        state: inventoryDone ? "done" : "upcoming",
+      };
+    }
 
-  // Whether a given visible step counts as "done" for connector coloring.
-  const stageDone = (key: VisibleStageKey): boolean => {
-    if (key === "inventory") return inventoryDone;
-    if (key === "inter-site") return interSiteSettled;
-    return M_STAGES.indexOf(key as ThreadStage) <= idx;
+    const stageKey = s.key as ThreadStage;
+    let done = M_STAGES.indexOf(stageKey) <= idx;
+    let current = stageKey === nextKey;
+    let progress: number | undefined;
+    let caption: string | undefined;
+    let label = s.label;
+    let success = false;
+
+    // IN USE: exhausted → terminal green DONE; still being consumed → pulsing.
+    if (stageKey === "in-use" && thread.stage === "exhausted") {
+      success = true;
+      done = true;
+      current = false;
+      label = "DONE";
+    } else if (stageKey === "in-use" && thread.stage === "in-use") {
+      done = false;
+      current = true;
+      const recv = inv?.received ?? 0;
+      const usedQty = inv?.used ?? 0;
+      if (inv && recv > 0 && usedQty > 0 && usedQty < recv && inv.batch !== "—") {
+        caption = `${fmtQty(usedQty)}/${fmtQty(recv)}`;
+      }
+    }
+
+    // DELIVER: partial-progress arc + fraction caption; keep the pulse here.
+    if (stageKey === "delivered" && po && receivedQty > 0 && !deliverFullyDone) {
+      progress = deliverFraction;
+      caption = `${fmtQty(receivedQty)}/${fmtQty(orderedQty)}`;
+      current = true;
+    }
+
+    // SETTLE: done for advance-paid POs even before delivery completes.
+    if (stageKey === "settled" && settleDoneByAdvance) {
+      done = true;
+      caption = "advance";
+      if (stageKey === nextKey) current = false;
+    }
+
+    const state: HubStepState = success
+      ? "success"
+      : current
+        ? "current"
+        : done
+          ? "done"
+          : "upcoming";
+    return { key: s.key, label, caption, progress, state };
+  });
+
+  // Inter-site (synthetic): settled → green · pending+exhausted → amber pulse
+  // (now your next action) · pending+in-use → faint (debt exists but not due).
+  let interSite: InterSiteChipState | null = null;
+  if (thread.inter_site_applicable) {
+    const pending = !!thread.inter_site_pending;
+    const activePending = pending && thread.stage === "exhausted";
+    interSite = !pending ? "settled" : activePending ? "active" : "dormant";
+  }
+
+  return {
+    steps,
+    accent: hubTokens.primary,
+    softAccent: hubTokens.primarySoft,
+    interSite,
   };
+}
+
+export interface MaterialThreadPipelineProps {
+  thread: MaterialThread;
+}
+
+export default function MaterialThreadPipeline({ thread }: MaterialThreadPipelineProps) {
+  const model = buildMaterialPipeline(thread);
+  return (
+    <HubPipelineStepper
+      steps={model.steps}
+      accent={model.accent}
+      softAccent={model.softAccent}
+      lineActiveColor={model.lineActiveColor}
+      trailing={
+        model.interSite ? <InterSiteChip state={model.interSite} /> : undefined
+      }
+    />
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Inter-site status chip (rendered below the rail)
+// ----------------------------------------------------------------------------
+
+export function InterSiteChip({ state }: { state: InterSiteChipState }) {
+  const spec =
+    state === "settled"
+      ? { bg: hubTokens.successSoft, fg: hubTokens.success, label: "Inter-site settled" }
+      : state === "active"
+        ? { bg: hubTokens.warnSoft, fg: hubTokens.warn, label: "Settle inter-site" }
+        : { bg: hubTokens.chip, fg: hubTokens.subtle, label: "Inter-site pending" };
 
   return (
-    <Box sx={{ display: "flex", alignItems: "center", height: 30 }}>
-      <style>{PULSE_KEYFRAMES}</style>
-      {renderStages.map((s, i) => {
-        // Synthetic "inventory" step: not in M_STAGES; derive done from thread.inventory.
-        if (s.key === "inventory") {
-          const isLast = i === renderStages.length - 1;
-          const nextStageKey = renderStages[i + 1]?.key;
-          const nextDone = !isLast && !!nextStageKey && stageDone(nextStageKey);
-          return (
-            <Box key={s.key} sx={{ display: "contents" }}>
-              <Box
-                sx={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: "3px",
-                  flexShrink: 0,
-                }}
-              >
-                <StageDot
-                  done={inventoryDone}
-                  current={false}
-                  accent={hubTokens.primary}
-                  softAccent={hubTokens.primarySoft}
-                />
-                <StageLabel
-                  // Only show batch-specific numbers when the match is
-                  // batch-exact (inv.batch !== "—"). Shared-pool fallbacks
-                  // describe the entire site bucket, not this thread — so
-                  // showing "0/20" there misrepresents the per-thread state.
-                  text={
-                    inv && inv.received > 0 && inv.batch !== "—"
-                      ? `STOCK ${fmtQty(inv.remaining)}/${fmtQty(inv.received)}`
-                      : "STOCK"
-                  }
-                  done={inventoryDone}
-                  current={false}
-                  accent={hubTokens.primary}
-                />
-              </Box>
-              {!isLast && (
-                <Box
-                  sx={{
-                    flex: 1,
-                    height: 2,
-                    marginBottom: "14px",
-                    minWidth: 14,
-                    background: nextDone ? hubTokens.text : hubTokens.hairline,
-                  }}
-                />
-              )}
-            </Box>
-          );
-        }
-
-        // Synthetic "inter-site" step. Three states:
-        //   • settled            → green check (debt reconciled).
-        //   • pending + exhausted → amber pulse: the material is fully used, so
-        //                           settling the cross-site debt is now the
-        //                           engineer's NEXT action (mirrors nextAction).
-        //   • pending + in use    → DORMANT future stage (outlined, subtle). The
-        //                           debt exists but isn't due yet — settlement
-        //                           normally happens only after the material is
-        //                           over, so pulsing here is premature and reads
-        //                           as "act now" when the real next step is still
-        //                           "Log usage". Always the last visible step.
-        if (s.key === "inter-site") {
-          const pending = !!thread.inter_site_pending;
-          // Pulse only once consumption is done — the same `exhausted` signal
-          // that turns the IN USE step green. While stock remains, stay dormant.
-          const activePending = pending && thread.stage === "exhausted";
-          return (
-            <Box key={s.key} sx={{ display: "contents" }}>
-              <Box
-                sx={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: "3px",
-                  flexShrink: 0,
-                }}
-              >
-                <StageDot
-                  // active pending → amber pulse; settled → green check;
-                  // dormant pending → outlined future dot (all flags false).
-                  done={false}
-                  current={activePending}
-                  completedSuccess={!pending}
-                  accent={hubTokens.warn}
-                  softAccent={hubTokens.warnSoft}
-                />
-                <StageLabel
-                  text="INTER-SITE"
-                  // settled/active → done so the label colors (muted vs amber);
-                  // dormant pending → done=false so it reads as a faint future
-                  // step. current drives the bold amber accent.
-                  done={!pending || activePending}
-                  current={activePending}
-                  accent={activePending ? hubTokens.warn : hubTokens.success}
-                />
-              </Box>
-            </Box>
-          );
-        }
-
-        const stageKey = s.key as ThreadStage;
-        let done = M_STAGES.indexOf(stageKey) <= idx;
-        let current = stageKey === nextKey;
-        let progress: number | undefined;
-        let labelText: string = s.label;
-        // Mark the final IN USE step as a green "DONE" when the batch is
-        // exhausted. Easier to scan than "IN USE with a filled black check"
-        // because it conveys terminal completion at a glance.
-        let completedSuccess = false;
-        if (stageKey === "in-use" && thread.stage === "exhausted") {
-          completedSuccess = true;
-          done = true;
-          current = false;
-          labelText = "DONE";
-        } else if (stageKey === "in-use" && thread.stage === "in-use") {
-          // Settled and being consumed, but stock STILL remains. Show IN USE as
-          // the ACTIVE (pulsing) step — the same treatment the INTER-SITE step
-          // gets while pending — NOT a finished check. The engineer's next
-          // action is still "Log usage" and the STOCK step still shows units
-          // left, so a check here reads as "done" when it isn't. Only the
-          // `exhausted` stage (remaining hits 0) earns the green DONE check.
-          done = false;
-          current = true; // pulsing accent dot, exactly like INTER-SITE pending
-          const recv = inv?.received ?? 0;
-          const usedQty = inv?.used ?? 0;
-          // Add a used/received count to the label when we have batch-exact
-          // numbers. A shared-pool fallback row (inv.batch === "—") describes
-          // the whole site bucket, not this thread, so skip the count there.
-          if (inv && recv > 0 && usedQty > 0 && usedQty < recv && inv.batch !== "—") {
-            labelText = `${s.label} ${fmtQty(usedQty)}/${fmtQty(recv)}`;
-          }
-        }
-
-        // DELIVER: show partial-progress arc + fraction label
-        if (stageKey === "delivered" && po && receivedQty > 0 && !deliverFullyDone) {
-          progress = deliverFraction;
-          labelText = `${s.label} ${fmtQty(receivedQty)}/${fmtQty(orderedQty)}`;
-          // Keep the pulse on DELIVER while partial (the engineer's next action
-          // is to record the next batch, not to advance to SETTLE).
-          current = true;
-        }
-        // SETTLE: mark done for advance-paid POs even before delivery completes.
-        if (stageKey === "settled" && settleDoneByAdvance) {
-          done = true;
-          labelText = "SETTLE · advance";
-          // If we marked SETTLE done by advance, the pulse should NOT sit on SETTLE.
-          if (stageKey === nextKey) current = false;
-        }
-
-        const isLast = i === renderStages.length - 1;
-        const nextVisibleKey = renderStages[i + 1]?.key;
-        const nextDone = !isLast && !!nextVisibleKey && stageDone(nextVisibleKey);
-        return (
-          <Box key={s.key} sx={{ display: "contents" }}>
-            <Box
-              sx={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "3px",
-                flexShrink: 0,
-              }}
-            >
-              <StageDot
-                done={done}
-                current={current}
-                progress={progress}
-                accent={hubTokens.primary}
-                softAccent={hubTokens.primarySoft}
-                completedSuccess={completedSuccess}
-              />
-              <StageLabel
-                text={labelText}
-                done={done}
-                current={current}
-                accent={completedSuccess ? hubTokens.success : hubTokens.primary}
-              />
-            </Box>
-            {!isLast && (
-              <Box
-                sx={{
-                  flex: 1,
-                  height: 2,
-                  marginBottom: "14px",
-                  minWidth: 14,
-                  background: nextDone ? hubTokens.text : hubTokens.hairline,
-                }}
-              />
-            )}
-          </Box>
-        );
-      })}
+    <Box
+      component="span"
+      sx={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "5px",
+        padding: "2px 8px",
+        borderRadius: "6px",
+        background: spec.bg,
+        color: spec.fg,
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: "0.2px",
+        lineHeight: "16px",
+        textTransform: "uppercase",
+      }}
+    >
+      {state === "settled" ? (
+        <CheckIcon sx={{ fontSize: 11 }} />
+      ) : (
+        <Box
+          component="span"
+          sx={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: spec.fg,
+            animation:
+              state === "active"
+                ? `${hubPulse} 1.6s ease-in-out infinite`
+                : "none",
+          }}
+        />
+      )}
+      {spec.label}
     </Box>
   );
 }

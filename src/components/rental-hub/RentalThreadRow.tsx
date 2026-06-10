@@ -21,9 +21,10 @@ import GroupsIcon from "@mui/icons-material/Groups";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import { hubTokens, HUB_BREAKPOINT_PX } from "@/lib/material-hub/tokens";
-import { bandTone, VISIBLE_STAGES, stageIndex, visibleStageForThread } from "@/lib/rental-hub/stageHelpers";
+import { bandTone } from "@/lib/rental-hub/stageHelpers";
 import { dueLabel, elapsedLabel, overdueLabel } from "@/lib/rental-hub/formatters";
-import RentalThreadPipeline from "./RentalThreadPipeline";
+import type { HubStepState } from "@/components/common/HubPipelineStepper";
+import RentalThreadPipeline, { buildRentalPipeline } from "./RentalThreadPipeline";
 import RentalMoneyBlock from "./RentalMoneyBlock";
 import RentalThreadActionButton from "./RentalThreadActionButton";
 import RentalThreadExpanded from "./RentalThreadExpanded";
@@ -77,9 +78,8 @@ export default function RentalThreadRow({
     if (onAction) onAction(t);
   };
 
-  // Mobile flat-bar pipeline data
-  const stage = visibleStageForThread(thread);
-  const idx = stageIndex(stage);
+  // Mobile summary bar shares the desktop stage model (single source of truth).
+  const mobilePipeline = buildRentalPipeline(thread);
 
   return (
     <Box
@@ -195,22 +195,19 @@ export default function RentalThreadRow({
         {!isMobile ? (
           <RentalMoneyBlock thread={thread} />
         ) : (
-          /* Mobile: flat-bar pipeline */
+          /* Mobile: rail-matching segment bar */
           <Box sx={{ display: "flex", gap: "3px", marginTop: "4px" }}>
-            {VISIBLE_STAGES.map((s, i) => {
-              const done = idx >= 0 && i <= idx;
-              return (
-                <Box
-                  key={s.key}
-                  sx={{
-                    flex: 1,
-                    height: 4,
-                    borderRadius: "2px",
-                    background: done ? band.color : hubTokens.hairline,
-                  }}
-                />
-              );
-            })}
+            {mobilePipeline.steps.map((s) => (
+              <Box
+                key={s.key}
+                sx={{
+                  flex: 1,
+                  height: 5,
+                  borderRadius: "3px",
+                  background: mobileSegColor(s.state, mobilePipeline.accent),
+                }}
+              />
+            ))}
           </Box>
         )}
 
@@ -238,6 +235,19 @@ export default function RentalThreadRow({
 // ----------------------------------------------------------------------------
 // Local helpers
 // ----------------------------------------------------------------------------
+
+/** Mobile summary-bar segment colour, mapped from the shared rail step state. */
+function mobileSegColor(state: HubStepState, accent: string): string {
+  switch (state) {
+    case "success":
+      return hubTokens.success;
+    case "done":
+    case "current":
+      return accent;
+    default:
+      return hubTokens.hairline;
+  }
+}
 
 function formatItemsSummary(items: RentalThread["items"]): string {
   if (items.length === 0) return "—";

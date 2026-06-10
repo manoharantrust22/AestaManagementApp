@@ -4,14 +4,16 @@
  * Per-row mini timeline for the Rental Hub. Five stages horizontally:
  * Request · Confirm · Active · Returned · Settled.
  *
- * Overdue rule (spec lines 196-198): the current stage circle AND the
- * just-passed line both flip to danger red when the order is overdue.
+ * State derivation only — visuals come from the shared {@link HubPipelineStepper}
+ * ("Material rail"), the same component the Material Hub uses.
  *
- * Cancelled rule (spec line 199): all 5 dots muted gray, no current stage.
+ * Overdue rule (spec lines 196-198): the current node + the just-passed rail
+ * segment flip to danger red. Cancelled rule (spec line 199): all 5 nodes muted.
+ *
+ * `buildRentalPipeline` is the single source of truth for a thread's stage
+ * states; the desktop rail and the mobile summary bar (RentalThreadRow) share it.
  */
 
-import { Box } from "@mui/material";
-import CheckIcon from "@mui/icons-material/Check";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import {
   VISIBLE_STAGES,
@@ -19,131 +21,55 @@ import {
   visibleStageForThread,
 } from "@/lib/rental-hub/stageHelpers";
 import type { RentalThread } from "@/lib/rental-hub/threadTypes";
+import HubPipelineStepper, {
+  type HubStep,
+  type HubStepState,
+} from "@/components/common/HubPipelineStepper";
 
-const PULSE_KEYFRAMES = `
-@keyframes matPulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(0.6); opacity: 0.6; }
-}
-`;
-
-interface StageDotProps {
-  done: boolean;
-  current: boolean;
+export interface RentalPipelineModel {
+  steps: HubStep[];
   accent: string;
   softAccent: string;
-  muted?: boolean;
-  /** Terminal completion (settled): green ring + green dot + check. */
-  completedSuccess?: boolean;
+  lineActiveColor?: string;
 }
 
-function StageDot({
-  done,
-  current,
-  accent,
-  softAccent,
-  muted,
-  completedSuccess,
-}: StageDotProps) {
-  if (muted) {
-    return (
-      <Box
-        sx={{
-          width: 14,
-          height: 14,
-          borderRadius: "50%",
-          background: hubTokens.hairline,
-          border: `2px solid ${hubTokens.border}`,
-          flexShrink: 0,
-        }}
-      />
-    );
-  }
-  return (
-    <Box
-      sx={{
-        width: 14,
-        height: 14,
-        borderRadius: "50%",
-        background: completedSuccess
-          ? hubTokens.success
+/** Derive the rental stage model (shared by desktop rail + mobile bar). */
+export function buildRentalPipeline(thread: RentalThread): RentalPipelineModel {
+  const stage = visibleStageForThread(thread);
+  const cancelled = thread.isCancelled;
+  const overdue = thread.isOverdue && !cancelled;
+  const idx = stageIndex(stage);
+
+  // Overdue: current node + just-passed segment = danger.
+  const accent = overdue ? hubTokens.danger : hubTokens.primary;
+  const softAccent = overdue ? hubTokens.dangerSoft : hubTokens.primarySoft;
+
+  const steps: HubStep[] = VISIBLE_STAGES.map((s, i) => {
+    const done = !cancelled && idx >= 0 && i <= idx;
+    const current = !cancelled && s.key === stage;
+    // SETTLED is terminal — flip to green DONE (mirrors Materials' exhausted→DONE).
+    const completedSuccess =
+      !cancelled && s.key === "settled" && stage === "settled";
+    const label = completedSuccess ? "DONE" : s.label;
+    const dotCurrent = completedSuccess ? false : current;
+    const state: HubStepState = cancelled
+      ? "muted"
+      : completedSuccess
+        ? "success"
+        : dotCurrent
+          ? "current"
           : done
-            ? current
-              ? accent
-              : hubTokens.text
-            : "#fff",
-        border:
-          completedSuccess || done ? "none" : `2px solid ${hubTokens.border}`,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        boxShadow: completedSuccess
-          ? `0 0 0 4px ${hubTokens.successSoft}`
-          : current
-            ? `0 0 0 4px ${softAccent}`
-            : "none",
-        flexShrink: 0,
-      }}
-    >
-      {completedSuccess ? (
-        <CheckIcon sx={{ fontSize: 9, color: "#fff", strokeWidth: 3 }} />
-      ) : done && current ? (
-        <Box
-          sx={{
-            width: 5,
-            height: 5,
-            borderRadius: "50%",
-            background: "#fff",
-            animation: "matPulse 1.6s ease-in-out infinite",
-          }}
-        />
-      ) : done ? (
-        <CheckIcon sx={{ fontSize: 9, color: "#fff", strokeWidth: 3 }} />
-      ) : null}
-    </Box>
-  );
-}
+            ? "done"
+            : "upcoming";
+    return { key: s.key, label, state };
+  });
 
-interface StageLabelProps {
-  text: string;
-  done: boolean;
-  current: boolean;
-  accent: string;
-  muted?: boolean;
-  completedSuccess?: boolean;
-}
-
-function StageLabel({
-  text,
-  done,
-  current,
-  accent,
-  muted,
-  completedSuccess,
-}: StageLabelProps) {
-  return (
-    <Box
-      component="span"
-      sx={{
-        fontSize: 9,
-        fontWeight: current || completedSuccess ? 700 : 600,
-        color: completedSuccess
-          ? hubTokens.success
-          : muted
-            ? hubTokens.subtle
-            : done
-              ? current
-                ? accent
-                : hubTokens.muted
-              : hubTokens.subtle,
-        letterSpacing: "0.2px",
-        textTransform: "uppercase",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {text}
-    </Box>
-  );
+  return {
+    steps,
+    accent,
+    softAccent,
+    lineActiveColor: overdue ? hubTokens.danger : undefined,
+  };
 }
 
 export interface RentalThreadPipelineProps {
@@ -151,80 +77,13 @@ export interface RentalThreadPipelineProps {
 }
 
 export default function RentalThreadPipeline({ thread }: RentalThreadPipelineProps) {
-  const stage = visibleStageForThread(thread);
-  const cancelled = thread.isCancelled;
-  const overdue = thread.isOverdue && !cancelled;
-  const idx = stageIndex(stage);
-
-  // Overdue: accent for the current dot + just-passed line = danger
-  const accent = overdue ? hubTokens.danger : hubTokens.primary;
-  const softAccent = overdue ? hubTokens.dangerSoft : hubTokens.primarySoft;
-
+  const model = buildRentalPipeline(thread);
   return (
-    <Box sx={{ display: "flex", alignItems: "center", height: 30 }}>
-      <style>{PULSE_KEYFRAMES}</style>
-      {VISIBLE_STAGES.map((s, i) => {
-        const done = !cancelled && idx >= 0 && i <= idx;
-        const current = !cancelled && s.key === stage;
-        // SETTLED is a terminal completion — flip to green DONE (mirrors
-        // Materials Hub's exhausted-→-DONE pattern). Suppresses the pulsing
-        // current indicator since there is no "next" step.
-        const completedSuccess =
-          !cancelled && s.key === "settled" && stage === "settled";
-        const labelText = completedSuccess ? "DONE" : s.label;
-        const dotCurrent = completedSuccess ? false : current;
-        const isLast = i === VISIBLE_STAGES.length - 1;
-        const nextDone = !isLast && !cancelled && idx >= 0 && i + 1 <= idx;
-        // Just-passed line flips to danger when overdue (spec line 197)
-        const lineIsJustPassed = current && !completedSuccess;
-        return (
-          <Box key={s.key} sx={{ display: "contents" }}>
-            <Box
-              sx={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "3px",
-                flexShrink: 0,
-              }}
-            >
-              <StageDot
-                done={done}
-                current={dotCurrent}
-                accent={accent}
-                softAccent={softAccent}
-                muted={cancelled}
-                completedSuccess={completedSuccess}
-              />
-              <StageLabel
-                text={labelText}
-                done={done}
-                current={dotCurrent}
-                accent={accent}
-                muted={cancelled}
-                completedSuccess={completedSuccess}
-              />
-            </Box>
-            {!isLast && (
-              <Box
-                sx={{
-                  flex: 1,
-                  height: 2,
-                  marginBottom: "14px",
-                  minWidth: 14,
-                  background: cancelled
-                    ? hubTokens.hairline
-                    : overdue && lineIsJustPassed
-                      ? hubTokens.danger
-                      : nextDone
-                        ? hubTokens.text
-                        : hubTokens.hairline,
-                }}
-              />
-            )}
-          </Box>
-        );
-      })}
-    </Box>
+    <HubPipelineStepper
+      steps={model.steps}
+      accent={model.accent}
+      softAccent={model.softAccent}
+      lineActiveColor={model.lineActiveColor}
+    />
   );
 }

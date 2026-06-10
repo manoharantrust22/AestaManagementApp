@@ -25,8 +25,12 @@ import {
   threadBrandLabel,
 } from "@/lib/material-hub/threadTitle";
 import { fmtQty } from "@/lib/formatters";
-import { M_STAGES, VISIBLE_STAGES, stageIndex, stageLabel, type VisibleStageKey } from "@/lib/material-hub/stageHelpers";
-import MaterialThreadPipeline from "./MaterialThreadPipeline";
+import { stageLabel } from "@/lib/material-hub/stageHelpers";
+import type { HubStepState } from "@/components/common/HubPipelineStepper";
+import MaterialThreadPipeline, {
+  buildMaterialPipeline,
+  InterSiteChip,
+} from "./MaterialThreadPipeline";
 import MaterialThreadExpanded from "./MaterialThreadExpanded";
 import ThreadActionButton from "./ThreadActionButton";
 import ThreadDeleteMenu from "./ThreadDeleteMenu";
@@ -56,14 +60,8 @@ export default function MaterialThreadRow({
   // Mirror threads (cluster-mate's group POs surfaced on this site) get a
   // dimmed band so the visual hierarchy makes ownership obvious at a glance.
   const bandOpacity = thread.is_mirror ? 0.22 : isGroup ? 1 : 0.35;
-  const idx = stageIndex(thread.stage);
-
-  // Mobile compact pipeline: same steps as the desktop pipeline, appending the
-  // synthetic INTER-SITE bar for group threads with cross-site usage.
-  const mobileStages: { key: VisibleStageKey; label: string }[] =
-    thread.inter_site_applicable
-      ? [...VISIBLE_STAGES, { key: "inter-site", label: "INTER-SITE" }]
-      : VISIBLE_STAGES;
+  // Mobile summary bar shares the desktop stage model (single source of truth).
+  const mobilePipeline = buildMaterialPipeline(thread);
 
   const handleAction = (t: MaterialThread) => {
     if (onAction) onAction(t);
@@ -374,36 +372,26 @@ export default function MaterialThreadRow({
             )}
           </Box>
         ) : (
-          /* Mobile compact: flat-bar pipeline + price inline */
+          /* Mobile compact: rail-matching segment bar + price inline */
           <>
             <Box sx={{ display: "flex", gap: "3px", marginTop: "4px" }}>
-              {mobileStages.map((s) => {
-                let done: boolean;
-                let barColor: string = accent;
-                if (s.key === "inventory") {
-                  done = !!thread.inventory && thread.inventory.received > 0;
-                } else if (s.key === "inter-site") {
-                  // Always a colored bar — amber while owed, green once settled.
-                  done = true;
-                  barColor = thread.inter_site_pending
-                    ? hubTokens.warn
-                    : hubTokens.success;
-                } else {
-                  done = M_STAGES.indexOf(s.key) <= idx;
-                }
-                return (
-                  <Box
-                    key={s.key}
-                    sx={{
-                      flex: 1,
-                      height: 4,
-                      borderRadius: "2px",
-                      background: done ? barColor : hubTokens.hairline,
-                    }}
-                  />
-                );
-              })}
+              {mobilePipeline.steps.map((s) => (
+                <Box
+                  key={s.key}
+                  sx={{
+                    flex: 1,
+                    height: 5,
+                    borderRadius: "3px",
+                    background: mobileSegColor(s.state, mobilePipeline.accent),
+                  }}
+                />
+              ))}
             </Box>
+            {mobilePipeline.interSite && (
+              <Box sx={{ marginTop: "6px" }}>
+                <InterSiteChip state={mobilePipeline.interSite} />
+              </Box>
+            )}
             <Box
               sx={{
                 display: "flex",
@@ -521,6 +509,19 @@ function variantShortLabel(materialName: string, category: string): string {
 // ----------------------------------------------------------------------------
 // Local primitives
 // ----------------------------------------------------------------------------
+
+/** Mobile summary-bar segment colour, mapped from the shared rail step state. */
+function mobileSegColor(state: HubStepState, accent: string): string {
+  switch (state) {
+    case "success":
+      return hubTokens.success;
+    case "done":
+    case "current":
+      return accent;
+    default:
+      return hubTokens.hairline;
+  }
+}
 
 function Dot({ color }: { color: string }) {
   return (
