@@ -28,6 +28,7 @@ import {
   toRpcArgs,
   validatePayerSourceInput,
 } from "@/lib/settlement/payerSource";
+import { deterministicSettlementKey } from "@/lib/settlement/deterministicKey";
 
 export interface SettlementResult {
   success: boolean;
@@ -332,11 +333,30 @@ export async function processSettlement(
     // Get the record date (use first record's date)
     const recordDate = config.records.length > 0 ? config.records[0].date : paymentDate;
 
+    // Attendance ids being settled — used both for the deterministic idempotency
+    // key and passed to create_settlement_group's already-settled guard so the
+    // same records can never be settled twice while the first settlement is live.
+    const dailyIds = config.records
+      .filter((r) => r.sourceType === "daily")
+      .map((r) => r.sourceId);
+    const marketIds = config.records
+      .filter((r) => r.sourceType === "market")
+      .map((r) => r.sourceId);
+
     // 1. Create settlement_group FIRST using atomic function with retry logic.
-    // sgIdempotencyKey is generated once and reused across all retry attempts so that
-    // if the RPC commits but the response is lost over the network, the retry returns
-    // the already-committed row instead of creating a second orphaned settlement_group.
-    const sgIdempotencyKey = crypto.randomUUID();
+    // The idempotency key is DETERMINISTIC (derived from the exact records +
+    // amount + date + channel), so any re-submit of the same settlement — a
+    // network-stall retry, a reload, a second tab — produces the same key and the
+    // RPC returns the already-committed row instead of creating a duplicate
+    // settlement_group (+ duplicate wallet debit). Replaces the old per-call
+    // crypto.randomUUID() that only deduped a single call's internal retries.
+    const sgIdempotencyKey = await deterministicSettlementKey({
+      siteId: config.siteId,
+      recordIds: config.records.map((r) => `${r.sourceType}:${r.sourceId}`),
+      amount: config.totalAmount,
+      paymentChannel: config.paymentChannel,
+      date: recordDate,
+    });
     const { data: groupResult, error: groupError } = await createSettlementWithRetry(
       supabase,
       {
@@ -356,6 +376,8 @@ export async function processSettlement(
         p_created_by: config.userId,
         p_created_by_name: config.userName,
         p_idempotency_key: sgIdempotencyKey,
+        p_attendance_daily_ids: dailyIds.length > 0 ? dailyIds : null,
+        p_attendance_market_ids: marketIds.length > 0 ? marketIds : null,
       }
     );
 
@@ -407,6 +429,7 @@ export async function processSettlement(
           recorded_by_user_id: config.userId,
           description:
             config.engineerReference || `Salary settlement ${settlementReference}`,
+          settlement_group_id: settlementGroupId,
         });
         engineerTransactionId = txId;
       } catch (walletErr: any) {
@@ -458,13 +481,8 @@ export async function processSettlement(
       settlement_group_id: settlementGroupId,
     };
 
-    // Group records by type
-    const dailyIds = config.records
-      .filter((r) => r.sourceType === "daily")
-      .map((r) => r.sourceId);
-    const marketIds = config.records
-      .filter((r) => r.sourceType === "market")
-      .map((r) => r.sourceId);
+    // Group records by type (dailyIds / marketIds were computed above, before the
+    // settlement_group was created, so they could feed the idempotency key + guard).
 
     // Wrap attendance updates with rollback on failure to prevent orphaned settlements
     try {
@@ -612,10 +630,19 @@ export async function processWeeklySettlement(
     }
 
     // 2. Create settlement_group using atomic function (guaranteed unique reference).
-    // idempotencyKey is generated once so that if the RPC commits but the network
-    // response is lost, a manual retry returns the original row instead of creating
-    // a second orphaned settlement_group (which would appear as "Unlinked Salary").
-    const weeklyIdempotencyKey = crypto.randomUUID();
+    // DETERMINISTIC idempotency key keyed on the settled week-range + amount, so a
+    // re-submit of the same weekly settlement (network stall, reload, second tab)
+    // collides and returns the existing row instead of creating a duplicate
+    // settlement_group + duplicate wallet debit. The range fully consumes its
+    // unpaid records, so a genuine re-settle of the same range finds nothing.
+    const weeklyIdempotencyKey = await deterministicSettlementKey({
+      siteId: config.siteId,
+      recordIds: [],
+      amount: config.totalAmount,
+      paymentChannel: config.paymentChannel,
+      date: config.dateFrom,
+      extra: `weekly:${config.dateFrom}:${config.dateTo}:${config.settlementType}`,
+    });
     const { data: groupResult, error: groupError } = await supabase.rpc(
       "create_settlement_group",
       {
@@ -675,6 +702,7 @@ export async function processWeeklySettlement(
           description:
             config.engineerReference ||
             `Weekly settlement ${settlementReference} (${config.dateFrom} - ${config.dateTo})`,
+          settlement_group_id: settlementGroupId,
         });
         engineerTransactionId = txId;
       } catch (walletErr: any) {
@@ -867,9 +895,51 @@ function getPayerLabel(source: PayerSource, customName?: string): string {
   }
 }
 
+export interface ReverseSettlementResult {
+  groupId: string;
+  alreadyCancelled: boolean;
+  spendCancelled: boolean;
+  dailyReset: number;
+  marketReset: number;
+}
+
 /**
- * Cancel a settlement and revert attendance records
- * Now marks settlement_groups as cancelled instead of deleting expenses.
+ * Atomically reverse a whole settlement via the reverse_settlement RPC: resets
+ * linked attendance to unpaid, soft-cancels the linked wallet spend (restoring the
+ * engineer's balance), cancels the settlement_group and frees its idempotency key.
+ * Authorization (recorder OR office/admin) is enforced inside the RPC from
+ * auth.uid(). Idempotent — reversing an already-cancelled settlement is a no-op.
+ */
+export async function reverseSettlement(
+  supabase: SupabaseClient,
+  args: { settlementGroupId: string; reason?: string | null }
+): Promise<ReverseSettlementResult> {
+  const { data, error } = await supabase.rpc("reverse_settlement", {
+    p_settlement_group_id: args.settlementGroupId,
+    p_reason: args.reason ?? null,
+  });
+  if (error) throw error;
+  const r = (data ?? {}) as {
+    group_id?: string;
+    already_cancelled?: boolean;
+    spend_cancelled?: boolean;
+    daily_reset?: number;
+    market_reset?: number;
+  };
+  return {
+    groupId: r.group_id ?? args.settlementGroupId,
+    alreadyCancelled: !!r.already_cancelled,
+    spendCancelled: !!r.spend_cancelled,
+    dailyReset: r.daily_reset ?? 0,
+    marketReset: r.market_reset ?? 0,
+  };
+}
+
+/**
+ * Cancel a settlement and revert attendance records.
+ * Modern (group-bearing) records reverse atomically via reverse_settlement (which
+ * also soft-cancels the linked wallet spend — the legacy path never did); records
+ * with no settlement_group_id fall back to the pre-group reset.
  */
 export async function cancelSettlement(
   supabase: SupabaseClient,
@@ -882,105 +952,94 @@ export async function cancelSettlement(
   }
 ): Promise<SettlementResult> {
   try {
-    // Reset attendance records
-    const dailyIds = config.records
-      .filter((r) => r.sourceType === "daily")
-      .map((r) => r.sourceId);
-    const marketIds = config.records
-      .filter((r) => r.sourceType === "market")
-      .map((r) => r.sourceId);
-
-    const resetData = {
-      is_paid: false,
-      payment_date: null,
-      payment_mode: null,
-      paid_via: null,
-      engineer_transaction_id: null,
-      payment_proof_url: null,
-      payment_notes: null,
-      payer_source: null,
-      payer_name: null,
-      expense_id: null,
-      settlement_group_id: null,
-    };
-
-    if (dailyIds.length > 0) {
-      const { error } = await supabase
-        .from("daily_attendance")
-        .update(resetData)
-        .in("id", dailyIds);
-      if (error) throw error;
-    }
-
-    if (marketIds.length > 0) {
-      const { error } = await supabase
-        .from("market_laborer_attendance")
-        .update(resetData)
-        .in("id", marketIds);
-      if (error) throw error;
-    }
-
-    // Mark settlement_groups as cancelled (instead of deleting expenses)
-    const groupIds = [...new Set(config.records.map((r) => r.settlementGroupId).filter(Boolean))];
+    // Modern settlements carry a settlement_group_id — reverse the whole group
+    // atomically via the reverse_settlement RPC (resets attendance, soft-cancels
+    // the linked wallet spend — which the legacy path below never did, leaving the
+    // debit live — cancels the group and frees its idempotency key).
+    const groupIds = [
+      ...new Set(config.records.map((r) => r.settlementGroupId).filter(Boolean)),
+    ] as string[];
     for (const groupId of groupIds) {
-      // Check if group still has linked records
-      const { count: dailyCount } = await supabase
-        .from("daily_attendance")
-        .select("*", { count: "exact", head: true })
-        .eq("settlement_group_id", groupId);
-
-      const { count: marketCount } = await supabase
-        .from("market_laborer_attendance")
-        .select("*", { count: "exact", head: true })
-        .eq("settlement_group_id", groupId);
-
-      if ((dailyCount || 0) + (marketCount || 0) === 0) {
-        // No more linked records, mark the group as cancelled
-        await (supabase.from("settlement_groups") as any)
-          .update({
-            is_cancelled: true,
-            cancelled_at: new Date().toISOString(),
-            cancelled_by: config.userName,
-            cancelled_by_user_id: config.userId,
-            cancellation_reason: config.reason || null,
-          })
-          .eq("id", groupId);
-      }
+      await reverseSettlement(supabase, {
+        settlementGroupId: groupId,
+        reason: config.reason ?? null,
+      });
     }
 
-    // Handle engineer transactions (legacy - still needed for old data)
-    const txIds = [...new Set(config.records.map((r) => r.engineerTransactionId).filter(Boolean))];
-    for (const txId of txIds) {
-      // Check if transaction still has linked records
-      const { count: dailyCount } = await supabase
-        .from("daily_attendance")
-        .select("*", { count: "exact", head: true })
-        .eq("engineer_transaction_id", txId);
+    // Legacy records with no settlement_group_id: fall back to the pre-group reset.
+    const legacyRecords = config.records.filter((r) => !r.settlementGroupId);
+    if (legacyRecords.length > 0) {
+      const dailyIds = legacyRecords
+        .filter((r) => r.sourceType === "daily")
+        .map((r) => r.sourceId);
+      const marketIds = legacyRecords
+        .filter((r) => r.sourceType === "market")
+        .map((r) => r.sourceId);
 
-      const { count: marketCount } = await supabase
-        .from("market_laborer_attendance")
-        .select("*", { count: "exact", head: true })
-        .eq("engineer_transaction_id", txId);
+      const resetData = {
+        is_paid: false,
+        payment_date: null,
+        payment_mode: null,
+        paid_via: null,
+        engineer_transaction_id: null,
+        payment_proof_url: null,
+        payment_notes: null,
+        payer_source: null,
+        payer_name: null,
+        expense_id: null,
+        settlement_group_id: null,
+      };
 
-      if ((dailyCount || 0) + (marketCount || 0) === 0) {
-        // No more linked records, cancel the transaction
-        await supabase
-          .from("site_engineer_transactions")
-          .update({
-            settlement_status: "cancelled",
-            cancelled_at: new Date().toISOString(),
-            cancelled_by: config.userName,
-            cancelled_by_user_id: config.userId,
-            cancellation_reason: config.reason || null,
-          })
-          .eq("id", txId);
+      if (dailyIds.length > 0) {
+        const { error } = await supabase
+          .from("daily_attendance")
+          .update(resetData)
+          .in("id", dailyIds);
+        if (error) throw error;
       }
-    }
+      if (marketIds.length > 0) {
+        const { error } = await supabase
+          .from("market_laborer_attendance")
+          .update(resetData)
+          .in("id", marketIds);
+        if (error) throw error;
+      }
 
-    // Delete old-style linked expenses (for backward compatibility during migration)
-    const expenseIds = [...new Set(config.records.map((r) => r.expenseId).filter(Boolean))];
-    if (expenseIds.length > 0) {
-      await supabase.from("expenses").delete().in("id", expenseIds);
+      // Cancel legacy engineer transactions when no records remain linked.
+      const txIds = [
+        ...new Set(legacyRecords.map((r) => r.engineerTransactionId).filter(Boolean)),
+      ];
+      for (const txId of txIds) {
+        const { count: dailyCount } = await supabase
+          .from("daily_attendance")
+          .select("*", { count: "exact", head: true })
+          .eq("engineer_transaction_id", txId);
+        const { count: marketCount } = await supabase
+          .from("market_laborer_attendance")
+          .select("*", { count: "exact", head: true })
+          .eq("engineer_transaction_id", txId);
+
+        if ((dailyCount || 0) + (marketCount || 0) === 0) {
+          await supabase
+            .from("site_engineer_transactions")
+            .update({
+              settlement_status: "cancelled",
+              cancelled_at: new Date().toISOString(),
+              cancelled_by: config.userName,
+              cancelled_by_user_id: config.userId,
+              cancellation_reason: config.reason || null,
+            })
+            .eq("id", txId);
+        }
+      }
+
+      // Delete old-style linked expenses (backward compatibility during migration).
+      const expenseIds = [
+        ...new Set(legacyRecords.map((r) => r.expenseId).filter(Boolean)),
+      ];
+      if (expenseIds.length > 0) {
+        await supabase.from("expenses").delete().in("id", expenseIds);
+      }
     }
 
     return { success: true };
@@ -1136,6 +1195,7 @@ export async function processContractPayment(
           recorded_by: config.userName,
           recorded_by_user_id: config.userId,
           description: `Contract payment for ${config.laborerName} (${settlementReference})`,
+          settlement_group_id: settlementGroupId,
         });
         engineerTransactionId = txId;
       } catch (walletErr: any) {
@@ -2012,6 +2072,7 @@ export async function processWaterfallContractPayment(
           recorded_by: config.userName,
           recorded_by_user_id: config.userId,
           description: `Contract payment (${weekRangeDesc}) - ${totalLaborers} laborers (${settlementReference})`,
+          settlement_group_id: settlementGroupId,
         });
         engineerTransactionId = txId;
       } catch (walletErr: any) {
@@ -2422,6 +2483,7 @@ export async function processDateWiseContractSettlement(
           recorded_by: config.userName,
           recorded_by_user_id: config.userId,
           description: `Contract settlement - Rs.${config.totalAmount.toLocaleString()} (${settlementReference})`,
+          settlement_group_id: settlementGroupId,
         });
         engineerTransactionId = txId;
       } catch (walletErr: any) {
