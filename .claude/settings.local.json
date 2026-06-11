@@ -460,7 +460,17 @@
       "PowerShell($wt = \"C:\\\\tmp\\\\aesta-ship\\\\node_modules\"; $target = \"C:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\node_modules\"; if \\(Test-Path $wt\\) { Write-Output \"node_modules already exists in worktree \\(skip\\)\" } else { New-Item -ItemType Junction -Path $wt -Target $target | Out-Null; Write-Output \"junction created\" }; if \\(Test-Path \"$wt\\\\next\"\\) { Write-Output \"junction OK: next present\" } else { Write-Output \"WARN: next not found via junction\" })",
       "PowerShell(Set-Location 'C:\\\\tmp\\\\aesta-ship'; $env:NODE_OPTIONS=''; npm run build 2>&1 | Select-Object -Last 45)",
       "PowerShell($wt = \"C:\\\\tmp\\\\aesta-ship\"; if \\(Test-Path $wt\\) { try { Remove-Item $wt -Recurse -Force -ErrorAction Stop; Write-Output \"temp worktree dir removed\" } catch { Write-Output \\(\"leftover temp dir remains \\(harmless\\): \" + $_.Exception.Message\\) } } else { Write-Output \"temp dir already gone\" }; $main = \"C:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\node_modules\"; Write-Output \\(\"MAIN node_modules intact? next=\" + \\(Test-Path \"$main\\\\next\"\\) + \" count=\" + \\(Get-ChildItem $main -Force | Measure-Object\\).Count\\))",
-      "PowerShell(npx vitest run src/components/inventory/UsageLogList.test.tsx)"
+      "PowerShell(npx vitest run src/components/inventory/UsageLogList.test.tsx)",
+      "PowerShell(npx vitest run src/contexts/AuthContext.deadlock.test.tsx src/components/providers/SessionErrorHandler.test.tsx 2>&1)",
+      "PowerShell(npx vitest run src/contexts/AuthContext.deadlock.test.tsx 2>&1)",
+      "PowerShell(npm run test 2>&1)",
+      "PowerShell($c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { \"PORT 3000 IN USE by PID $\\($c[0].OwningProcess\\): $\\(\\(Get-Process -Id $c[0].OwningProcess\\).ProcessName\\)\" } else { \"port 3000 free\" })",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d.get\\('scripts',{}\\).get\\('test',''\\)\\)\")",
+      "Bash(Get-Content \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\tsconfig.json\")",
+      "PowerShell(Remove-Item c:\\\\tmp\\\\verify-deadlock-fix.js -Force -Confirm:$false)",
+      "PowerShell(git status --short; Write-Output \"---PORT CHECK---\"; $conn = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -First 1; if \\($conn\\) { Write-Output \"Port 3000 in use \\(PID $\\($conn.OwningProcess\\)\\)\" } else { Write-Output \"Port 3000 free\" })",
+      "PowerShell(npm run dev:cloud)",
+      "PowerShell(node c:\\\\tmp\\\\verify-deadlock-fix.cjs)"
     ],
     "deny": [],
     "ask": [],

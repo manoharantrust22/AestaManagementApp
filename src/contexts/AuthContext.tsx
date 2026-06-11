@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import { initializeSessionManager, stopSessionManager } from "@/lib/auth/sessionManager";
@@ -26,6 +26,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [supabase] = useState(() => createClient());
   const userProfileRef = useRef<User | null>(null);
+  // In-flight profile fetch shared by deferred onAuthStateChange handlers
+  // (see DEADLOCK GUARD below) so bursts of auth events fetch once.
+  const profileFetchInFlightRef = useRef<Promise<boolean> | null>(null);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -162,9 +165,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }, 5000);
 
+    // DEADLOCK GUARD — this callback MUST stay synchronous and MUST NOT await
+    // any supabase call (supabase.from(...) / supabase.auth.*). auth-js emits
+    // SIGNED_IN on every tab return and TOKEN_REFRESHED after every token
+    // rotation while HOLDING the auth processLock, and it awaits all subscriber
+    // callbacks before releasing it. Every PostgREST request internally awaits
+    // auth.getSession() — which needs that same lock — so an awaited supabase
+    // call here deadlocks the lock permanently: every query/mutation in the tab
+    // then hangs before fetch until a hard page refresh. Defer any supabase
+    // work out of the callback (setTimeout) instead.
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
 
       console.log("[AuthContext] Auth state changed:", _event);
@@ -175,21 +187,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setCachedAccessToken(session?.access_token ?? null);
 
       if (session?.user) {
-        // Skip profile fetch on TOKEN_REFRESHED if we already have the profile
-        // This prevents unnecessary API calls on token refresh
-        if (_event === "TOKEN_REFRESHED" && userProfileRef.current) {
-          console.log("[AuthContext] Skipping profile fetch on TOKEN_REFRESHED - already loaded");
-        } else {
-          await fetchUserProfile(session.user.id);
-        }
         // Initialize session manager when user signs in
         initializeSessionManager();
-      } else {
-        setUserProfile(null);
-        // Stop session manager when user signs out
-        stopSessionManager();
+
+        // Skip the profile fetch when this user's profile is already loaded.
+        // SIGNED_IN re-fires on every tab return (auth-js visibilitychange
+        // recovery) and TOKEN_REFRESHED on every rotation — refetching the
+        // profile each time would hammer the slow proxy for no new data.
+        if (userProfileRef.current?.auth_id === session.user.id) {
+          console.log(`[AuthContext] Skipping profile fetch on ${_event} - already loaded`);
+          setLoading(false);
+          return;
+        }
+
+        // Deferred out of the lock window (see DEADLOCK GUARD above). Dedupe
+        // so an INITIAL_SESSION + SIGNED_IN burst doesn't double-fetch.
+        const userId = session.user.id;
+        setTimeout(() => {
+          if (!mounted) return;
+          if (!profileFetchInFlightRef.current) {
+            profileFetchInFlightRef.current = fetchUserProfile(userId).finally(() => {
+              profileFetchInFlightRef.current = null;
+            });
+          }
+          void profileFetchInFlightRef.current.finally(() => {
+            if (mounted) setLoading(false);
+          });
+        }, 0);
+        return;
       }
 
+      setUserProfile(null);
+      // Stop session manager when user signs out
+      stopSessionManager();
       setLoading(false);
     });
 

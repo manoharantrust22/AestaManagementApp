@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { withTimeout } from "@/lib/utils/timeout";
 import type { QueryClient } from "@tanstack/react-query";
 
 /**
@@ -39,6 +40,20 @@ const VISIBILITY_REFRESH_THRESHOLD = 5 * 60 * 1000; // 5 minutes - re-auth on ta
 // concurrent refresh calls cannot race and trigger refresh-token-rotation reuse
 // detection (which surfaces as a 400 invalid_grant from /auth/v1/token).
 let _refreshInFlight: Promise<boolean> | null = null;
+
+// Ceiling on the deduped refresh. If getSession()/refreshSession() ever wedge
+// (e.g. the auth lock is contended or a fetch never settles), _refreshInFlight
+// would otherwise stay pending forever and permanently jam every recovery path
+// that funnels through it. The timeout resolves false and clears the slot so
+// the next attempt gets a fresh try.
+const REFRESH_DEDUPE_TIMEOUT_MS = 20_000;
+
+// Whether the most recent failed refresh was a HARD auth failure (no session,
+// invalid/expired refresh token) vs a transient one (timeout, network blip).
+// recoverFromIdleWake only forces a login redirect on hard failures — kicking
+// the user to /login because the proxy was slow for 20s is worse than letting
+// the next action retry with the still-valid token.
+let _lastRefreshFailureHard = false;
 
 // Module-level dedupe for the full idle-wake recovery (refresh + pool heal).
 // Both `handleVisibilityChange` (tab return) and `handleActivity` (same-tab idle
@@ -196,35 +211,57 @@ class SessionManager {
       return _refreshInFlight;
     }
 
-    _refreshInFlight = (async (): Promise<boolean> => {
-      try {
-        const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
+    const doRefresh = async (): Promise<boolean> => {
+      _lastRefreshFailureHard = false;
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
 
-        if (!session) {
-          console.warn("[SessionManager] No session to refresh");
-          return false;
-        }
-
-        const { error } = await supabase.auth.refreshSession();
-
-        if (error) {
-          console.error("[SessionManager] Failed to refresh:", error);
-          this.dispatchRefreshFailedEvent(error.message);
-          return false;
-        }
-
-        console.log("[SessionManager] Session refreshed successfully");
-        return true;
-      } catch (err) {
-        console.error("[SessionManager] Refresh error:", err);
+      if (!session) {
+        console.warn("[SessionManager] No session to refresh");
+        _lastRefreshFailureHard = true;
         return false;
-      } finally {
-        _refreshInFlight = null;
       }
-    })();
+
+      const { error } = await supabase.auth.refreshSession();
+
+      if (error) {
+        console.error("[SessionManager] Failed to refresh:", error);
+        // AuthRetryableFetchError = network-level blip (still recoverable);
+        // anything else (invalid_grant etc.) means the refresh token is dead.
+        _lastRefreshFailureHard = error.name !== "AuthRetryableFetchError";
+        this.dispatchRefreshFailedEvent(error.message);
+        return false;
+      }
+
+      console.log("[SessionManager] Session refreshed successfully");
+      return true;
+    };
+
+    _refreshInFlight = withTimeout(
+      doRefresh(),
+      REFRESH_DEDUPE_TIMEOUT_MS,
+      `Session refresh timed out after ${REFRESH_DEDUPE_TIMEOUT_MS}ms`
+    )
+      .catch((err) => {
+        // Timeouts and thrown exceptions are transient — the token in storage
+        // may still be perfectly valid.
+        console.error("[SessionManager] Refresh error:", err);
+        _lastRefreshFailureHard = false;
+        return false;
+      })
+      .finally(() => {
+        _refreshInFlight = null;
+      });
 
     return _refreshInFlight;
+  }
+
+  /**
+   * True when the most recent refreshSessionDeduped() failure was a hard,
+   * unrecoverable auth failure (vs a transient timeout/network blip).
+   */
+  wasLastRefreshFailureHard(): boolean {
+    return _lastRefreshFailureHard;
   }
 
   /**
@@ -277,11 +314,17 @@ class SessionManager {
         const nowSeconds = Math.floor(Date.now() / 1000);
         if (!session || (expiresAt !== undefined && expiresAt < nowSeconds + POST_IDLE_EXPIRY_BUFFER)) {
           const ok = await this.refreshSessionDeduped();
-          if (!ok) {
+          if (!ok && _lastRefreshFailureHard) {
             console.error("[SessionManager] Post-idle refresh failed");
             throw new Error("Session expired. Please log in again.");
           }
-          console.log("[SessionManager] Post-idle token refresh successful");
+          if (!ok) {
+            // Transient failure — proceed; a genuinely stale token just 401s
+            // and QueryProvider's retry→refresh path recovers it.
+            console.warn("[SessionManager] Post-idle refresh failed transiently — proceeding");
+          } else {
+            console.log("[SessionManager] Post-idle token refresh successful");
+          }
         } else {
           console.log("[SessionManager] Post-idle pool healed; token still valid — proceeding");
         }
@@ -309,11 +352,15 @@ class SessionManager {
         if (expiresAt < fiveMinutesFromNow) {
           console.log("[SessionManager] Session expiring soon, refreshing...");
           const ok = await this.refreshSessionDeduped();
-          if (!ok) {
+          if (!ok && _lastRefreshFailureHard) {
             console.error("[SessionManager] Session refresh failed before mutation");
             throw new Error("Session expired. Please log in again.");
           }
-          console.log("[SessionManager] Session refreshed before mutation");
+          if (!ok) {
+            console.warn("[SessionManager] Pre-mutation refresh failed transiently — proceeding (401 path recovers)");
+          } else {
+            console.log("[SessionManager] Session refreshed before mutation");
+          }
         }
       }
 
@@ -484,12 +531,20 @@ class SessionManager {
           return;
         }
 
-        // Refresh failed. If it's an unrecoverable refresh-token state (rotated
-        // / reused / expired), the only path back is a fresh login. Anything
-        // else — transient network — will recover on the next user action.
-        console.error("[SessionManager] Idle-wake refresh failed — redirecting to login");
-        if (typeof window !== "undefined") {
-          window.location.href = "/login?session_expired=true";
+        // Refresh failed. Only an unrecoverable refresh-token state (rotated
+        // / reused / expired / no session) warrants the login redirect.
+        // Transient failures (timeout, network blip) keep the current — often
+        // still valid — token; the next user action retries via
+        // ensureFreshSession / QueryProvider's 401 path.
+        if (_lastRefreshFailureHard) {
+          console.error("[SessionManager] Idle-wake refresh failed — redirecting to login");
+          if (typeof window !== "undefined") {
+            window.location.href = "/login?session_expired=true";
+          }
+        } else {
+          console.warn(
+            "[SessionManager] Idle-wake refresh failed transiently — keeping session, will retry on next action"
+          );
         }
       } finally {
         _recoverInFlight = null;

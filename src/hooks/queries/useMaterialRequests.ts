@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
 import { StaleStateError } from "@/lib/utils/staleState";
+import { wrapMutationFn } from "@/lib/utils/timeout";
 import { useOptimisticMutation } from "@/hooks/mutations/useOptimisticMutation";
 import {
   createStatusUpdater,
@@ -469,53 +470,56 @@ export function useUpdateMaterialRequest() {
  * Approve a material request with optimistic update
  * Shows the approved status immediately in the list
  */
+type ApproveRequestVariables = {
+  id: string;
+  userId: string;
+  approvedItems: { itemId: string; approved_qty: number }[];
+  siteId: string; // Used by the optimistic update in onMutate
+};
+
 export function useApproveMaterialRequest() {
   const queryClient = useQueryClient();
   const supabase = createClient() as any;
 
   return useMutation({
-    mutationFn: async ({
-      id,
-      userId,
-      approvedItems,
-      siteId,
-    }: {
-      id: string;
-      userId: string;
-      approvedItems: { itemId: string; approved_qty: number }[];
-      siteId: string; // Added for optimistic update
-    }) => {
-      // Ensure fresh session before mutation
-      await ensureFreshSession();
+    // wrapMutationFn puts one ceiling on the whole handler so the dialog's
+    // "Approving..." state can never spin forever — any wedge surfaces as a
+    // TimeoutError the onError/rollback path handles.
+    mutationFn: wrapMutationFn<ApproveRequestVariables, MaterialRequest>(
+      async ({ id, userId, approvedItems }) => {
+        // Ensure fresh session before mutation
+        await ensureFreshSession();
 
-      // Update request status
-      const { data: request, error: requestError } = await supabase
-        .from("material_requests")
-        .update({
-          status: "approved",
-          approved_by: userId,
-          approved_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", id)
-        .eq("status", "pending")
-        .select()
-        .maybeSingle();
+        // Update request status
+        const { data: request, error: requestError } = await supabase
+          .from("material_requests")
+          .update({
+            status: "approved",
+            approved_by: userId,
+            approved_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", id)
+          .eq("status", "pending")
+          .select()
+          .maybeSingle();
 
-      if (requestError) throw requestError;
-      if (!request) throw new StaleStateError("material request");
+        if (requestError) throw requestError;
+        if (!request) throw new StaleStateError("material request");
 
-      // Update item approved quantities in parallel (optimized from sequential loop)
-      const updatePromises = approvedItems.map((item) =>
-        supabase
-          .from("material_request_items")
-          .update({ approved_qty: item.approved_qty })
-          .eq("id", item.itemId)
-      );
-      await Promise.all(updatePromises);
+        // Update item approved quantities in parallel (optimized from sequential loop)
+        const updatePromises = approvedItems.map((item) =>
+          supabase
+            .from("material_request_items")
+            .update({ approved_qty: item.approved_qty })
+            .eq("id", item.itemId)
+        );
+        await Promise.all(updatePromises);
 
-      return request as MaterialRequest;
-    },
+        return request as MaterialRequest;
+      },
+      { operationName: "approveMaterialRequest" }
+    ),
     // Optimistic update: Show approved status immediately
     onMutate: async (variables) => {
       const queryKey = queryKeys.materialRequests.bySite(variables.siteId);
