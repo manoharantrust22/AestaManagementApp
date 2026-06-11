@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useCallback, useRef, useState } from "react";
+import React, { useEffect, useCallback, useRef, useState } from "react";
 import { Snackbar, Alert, Button } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import { softRecoverSession } from "@/lib/auth/sessionManager";
 
 /**
  * Global listener for session-related errors.
@@ -25,6 +26,23 @@ export function SessionErrorHandler({
     }
     console.warn("[SessionErrorHandler] Session expired - redirecting to login");
     window.location.href = "/login?session_expired=true";
+  }, []);
+
+  // Soft recovery for the warning banner: cycle the connection pool + refresh
+  // the token in place, then dismiss — NO page reload, so any in-progress form
+  // data the user typed is preserved. A genuinely-dead session is still handled
+  // by the session-refresh-failed → redirect path below.
+  const [recovering, setRecovering] = useState(false);
+  const handleSoftRecover = useCallback(async () => {
+    setRecovering(true);
+    try {
+      await softRecoverSession();
+    } catch (err) {
+      console.warn("[SessionErrorHandler] Soft recover failed:", err);
+    } finally {
+      setRecovering(false);
+      setSessionWarning(null);
+    }
   }, []);
 
   // Use a ref to ensure we only install the fetch wrapper once
@@ -51,13 +69,6 @@ export function SessionErrorHandler({
           "Session refresh failed. Your changes may not save. Click refresh if issues persist."
         );
       }
-    };
-
-    // Listen for post-idle session timeout (from ensureFreshSession)
-    const handleSessionTimeout = () => {
-      setSessionWarning(
-        "Your session may have expired after being idle. Please refresh if you experience issues."
-      );
     };
 
     // Only install the fetch wrapper once to prevent wrapper chaining
@@ -97,19 +108,11 @@ export function SessionErrorHandler({
       "session-refresh-failed",
       handleSessionRefreshFailed as EventListener
     );
-    window.addEventListener(
-      "session-check-timeout",
-      handleSessionTimeout as EventListener
-    );
 
     return () => {
       window.removeEventListener(
         "session-refresh-failed",
         handleSessionRefreshFailed as EventListener
-      );
-      window.removeEventListener(
-        "session-check-timeout",
-        handleSessionTimeout as EventListener
       );
       if (originalFetch) {
         window.fetch = originalFetch;
@@ -135,9 +138,10 @@ export function SessionErrorHandler({
               color="inherit"
               size="small"
               startIcon={<RefreshIcon />}
-              onClick={() => window.location.reload()}
+              onClick={handleSoftRecover}
+              disabled={recovering}
             >
-              Refresh
+              {recovering ? "Refreshing…" : "Refresh"}
             </Button>
           }
           sx={{ width: "100%", maxWidth: 500 }}

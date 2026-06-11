@@ -22,7 +22,16 @@ const EXPIRY_BUFFER = 15 * 60; // 15 minutes in seconds - refresh if token expir
 const ACTIVITY_DEBOUNCE = 2000; // 2 seconds
 const SESSION_CHECK_DEBOUNCE = 30000; // 30 seconds - trust a verified session for this long
 const SESSION_CHECK_TIMEOUT = 4000; // 4 seconds - if slow, proceed and let Supabase 401 handle it
-const SESSION_CHECK_TIMEOUT_POST_IDLE = 8000; // 8 seconds - longer after idle for slow mobile networks
+// 15s - the post-idle path now heals the connection pool (canary + warm-up +
+// recheck, ~9s worst case) before the mutation's request chain. This safety
+// timeout must comfortably exceed that so the heal normally finishes inside it;
+// if it ever doesn't, we proceed anyway (a stale token just 401s → retry).
+const SESSION_CHECK_TIMEOUT_POST_IDLE = 15000;
+// After idle, only force a blocking token refresh if the token can't survive at
+// least this long. Access tokens last ~1h, so after a short idle the token is
+// almost always still valid and a forced refresh is just another slow round-trip
+// (and the source of the false "session expired" banner).
+const POST_IDLE_EXPIRY_BUFFER = 120; // seconds
 const VISIBILITY_REFRESH_THRESHOLD = 5 * 60 * 1000; // 5 minutes - re-auth on tab return if hidden longer than this
 
 // Module-level singleton in-flight refresh. ALL callers (SessionManager methods,
@@ -36,6 +45,12 @@ let _refreshInFlight: Promise<boolean> | null = null;
 // end) can race here when the user backgrounds the tab and clicks immediately
 // on return — let only one run finish.
 let _recoverInFlight: Promise<void> | null = null;
+
+// Module-level dedupe for the connection-pool heal. recoverFromIdleWake() (tab
+// return / same-tab idle end) and ensureFreshSession() (the next mutation) can
+// both reach for a heal after the same idle period — share one canary+warm-up
+// pass instead of firing duplicate pings.
+let _healInFlight: Promise<boolean> | null = null;
 
 // Canary endpoint: a tiny GET against the proxy used to detect a poisoned
 // per-host connection pool. labor_categories is in the Worker's CACHEABLE_TABLES
@@ -237,22 +252,39 @@ class SessionManager {
     const timeout = needsRefresh ? SESSION_CHECK_TIMEOUT_POST_IDLE : SESSION_CHECK_TIMEOUT;
 
     if (needsRefresh) {
-      console.log("[SessionManager] Performing post-idle session refresh");
-      // Clear the flag immediately to prevent duplicate refreshes from concurrent mutations
+      console.log("[SessionManager] Post-idle check: healing pool + verifying token");
+      // Clear the flag immediately to prevent duplicate work from concurrent mutations
       this.state.needsRefreshOnNextMutation = false;
     }
 
     const sessionCheckPromise = async (): Promise<void> => {
       const supabase = createClient();
 
-      // After idle wake: force a full token refresh (not just cached getSession)
+      // After idle wake: the real problem is a poisoned per-host connection pool
+      // (dead half-open sockets), which makes EVERY subsequent request crawl for
+      // 15-20s — a mutation's chain of round-trips then takes minutes and the
+      // Save button spins. So heal the pool FIRST, before the mutation fires its
+      // requests. Bounded + deduped, with a no-op fast path when the pool is fine.
       if (needsRefresh) {
-        const ok = await this.refreshSessionDeduped();
-        if (!ok) {
-          console.error("[SessionManager] Post-idle refresh failed");
-          throw new Error("Session expired. Please log in again.");
+        await this.healConnectionPool();
+
+        // Refresh the token ONLY if it's missing or actually near expiry. After a
+        // short idle the token (≈1h life) is almost always still valid, so a
+        // forced refresh is just another slow round-trip. A genuinely stale token
+        // 401s and QueryProvider's retry→refresh path recovers it.
+        const { data: { session } } = await supabase.auth.getSession();
+        const expiresAt = session?.expires_at;
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        if (!session || (expiresAt !== undefined && expiresAt < nowSeconds + POST_IDLE_EXPIRY_BUFFER)) {
+          const ok = await this.refreshSessionDeduped();
+          if (!ok) {
+            console.error("[SessionManager] Post-idle refresh failed");
+            throw new Error("Session expired. Please log in again.");
+          }
+          console.log("[SessionManager] Post-idle token refresh successful");
+        } else {
+          console.log("[SessionManager] Post-idle pool healed; token still valid — proceeding");
         }
-        console.log("[SessionManager] Post-idle session refresh successful");
         this.state.lastSessionCheckTime = Date.now();
         return;
       }
@@ -289,25 +321,18 @@ class SessionManager {
       this.state.lastSessionCheckTime = Date.now();
     };
 
-    // Timeout behavior depends on context:
-    // - Normal check: resolve (let mutation proceed, Supabase 401 triggers retry)
-    // - Post-idle check: reject (token is definitely stale, fail fast with clear error)
-    const timeoutPromise = new Promise<void>((resolve, reject) => {
+    // Safety timeout: in BOTH cases, proceed (resolve) if the check is still
+    // running when it fires. The post-idle work (pool heal + optional refresh)
+    // is internally bounded and normally finishes well within `timeout`; if it
+    // ever doesn't, a genuinely stale token just 401s and QueryProvider's
+    // retry→refresh path recovers it. We deliberately do NOT reject or pop a
+    // "session may have expired" banner here — that was a false alarm that hung
+    // the Save dialog while the token was actually still valid.
+    const timeoutPromise = new Promise<void>((resolve) => {
       setTimeout(() => {
-        if (needsRefresh) {
-          // Post-idle: token is likely expired, don't let mutation proceed with stale token
-          console.warn(`[SessionManager] Post-idle session refresh timed out (${timeout / 1000}s) - session may be expired`);
-          // Notify UI so user sees a warning banner
-          if (typeof window !== "undefined") {
-            window.dispatchEvent(new CustomEvent("session-check-timeout"));
-          }
-          reject(new Error("Session refresh timed out. Please try again."));
-        } else {
-          // Normal: proceed anyway, mutation retry will handle 401 if needed
-          console.warn(`[SessionManager] ensureFreshSession check slow (${timeout / 1000}s) - proceeding anyway`);
-          this.state.lastSessionCheckTime = Date.now();
-          resolve();
-        }
+        console.warn(`[SessionManager] ensureFreshSession slow (${timeout / 1000}s) - proceeding anyway`);
+        this.state.lastSessionCheckTime = Date.now();
+        resolve();
       }, timeout);
     });
 
@@ -442,17 +467,19 @@ class SessionManager {
         // CancelledErrors on every idle-wake, making every page appear broken
         // until the IdleRecoveryHandler's invalidateQueries fired 1 second later.
 
+        // Heal the browser per-host connection pool FIRST. The token refresh
+        // below is itself a request through the same proxy origin, so if the
+        // pool is poisoned the refresh crawls behind a dead socket. Cycling the
+        // pool first (canary → WS evict → REST warm-up) makes the refresh — and
+        // the user's next request — fast. Root-cause fix for "Upload/Save timed
+        // out" after idle.
+        await this.healConnectionPool();
+
         const ok = await this.refreshSessionDeduped();
 
         if (ok) {
           this.state.lastSessionCheckTime = Date.now();
           this.state.needsRefreshOnNextMutation = false;
-
-          // Heal browser per-host connection pool. Canary first; only force a
-          // realtime reconnect if the pool is actually poisoned. This is the
-          // root-cause fix for "Upload timed out" after idle.
-          await this.healConnectionPool();
-
           this.dispatchSessionRestoredEvent();
           return;
         }
@@ -483,8 +510,21 @@ class SessionManager {
    * Strategy: run a tiny canary GET bound by 3s. If it succeeds, the pool
    * is fine — leave realtime alone. If it fails, force-disconnect the WS
    * (which evicts its socket from the pool) and re-subscribe channels.
+   *
+   * Deduped via `_healInFlight` so a concurrent idle-wake recovery and a
+   * pre-mutation check share one canary+warm-up pass.
    */
   private async healConnectionPool(): Promise<boolean> {
+    if (_healInFlight) {
+      return _healInFlight;
+    }
+    _healInFlight = this.runHealConnectionPool().finally(() => {
+      _healInFlight = null;
+    });
+    return _healInFlight;
+  }
+
+  private async runHealConnectionPool(): Promise<boolean> {
     const canaryOk = await this.runPoolCanary();
     if (canaryOk) {
       // The pool is provably alive — a cheap GET round-tripped. If a query
@@ -690,5 +730,12 @@ export const refreshSessionDeduped = () => sessionManager.refreshSessionDeduped(
 export const setSessionManagerQueryClient = (qc: QueryClient) => sessionManager.setQueryClient(qc);
 export const healConnectionPoolNow = () => sessionManager.healConnectionPoolNow();
 export const ensureFreshSession = () => sessionManager.ensureFreshSession();
+// Lightweight, non-destructive recovery for the "session may have refreshed"
+// banner's Refresh button: cycle the connection pool and refresh the token in
+// place — NO page reload, so in-progress form data is preserved.
+export const softRecoverSession = async (): Promise<void> => {
+  await healConnectionPoolNow();
+  await refreshSessionDeduped();
+};
 export const isUserIdle = () => sessionManager.isUserIdle();
 export const getLastActivity = () => sessionManager.getLastActivity();
