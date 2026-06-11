@@ -172,9 +172,15 @@ export default function ContextPicker({
         </Box>
       ) : null}
 
+      {isBatch ? (
+        <Alert severity="info" sx={{ py: 0.5 }}>
+          Each bill keeps its own printed date — you&apos;ll review and can fix every bill&apos;s
+          date in the next step.
+        </Alert>
+      ) : null}
       <TextField
         type="date"
-        label={mode === "quotation" ? "Quote date" : isBatch ? "Default date" : "Purchase date"}
+        label={mode === "quotation" ? "Quote date" : isBatch ? "Fallback date" : "Purchase date"}
         value={ctx.defaultDate}
         onChange={(e) => onChange({ defaultDate: e.target.value })}
         size="small"
@@ -182,7 +188,7 @@ export default function ContextPicker({
         InputLabelProps={{ shrink: true }}
         helperText={
           isBatch
-            ? "Fallback only — each bill keeps its own printed date; this is used only when a bill has none."
+            ? "Used only if a bill has no readable date."
             : "Default if the AI can't read the date from the bill."
         }
       />

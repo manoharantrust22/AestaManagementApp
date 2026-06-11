@@ -93,7 +93,11 @@ export async function GET(req: NextRequest) {
     // No provider configured — the picker shows its paste-a-URL fallback.
     return NextResponse.json({ configured: false, results: [] });
   } catch (err) {
+    // Upstream provider failed (e.g. API not enabled, rate-limited, timeout).
+    // Return 200 with the error in the body — the picker reads `error` and shows
+    // it inline + falls back to paste-a-URL. A non-2xx here would only surface a
+    // noisy browser console error for a case the UI already handles cleanly.
     const error = err instanceof Error ? err.message : "Image search failed";
-    return NextResponse.json({ configured: true, results: [], error }, { status: 502 });
+    return NextResponse.json({ configured: true, results: [], error });
   }
 }
