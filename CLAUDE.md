@@ -45,6 +45,14 @@ When the user says **"move to prod"** or similar (e.g., "push to production", "d
 
 **Migration ordering rule:** Schema first (step 3), then code (steps 4–5). Never the other way around.
 
+## Vercel Deployment & Environment Variables
+- **Deploys are git-triggered.** Pushing to remote `main` auto-triggers the Vercel Next.js build/deploy — this IS the deployment pipeline. Do **NOT** deploy directly with `vercel deploy` / `vercel --prod`; let the git push drive it.
+- **Updating a prod env var (e.g. an API key) is done via the Vercel CLI — and that alone is enough.** The CLI is logged in (account `manoharantrust2022-1066`, project `aesta_management_app`, linked via `.vercel/`):
+  - Add: `printf '%s' '<value>' | vercel env add <NAME> production` (repeat for `preview`).
+  - List names only (no values): `vercel env ls`.
+- **Env-var changes take effect on the NEXT git-triggered deployment** — Vercel does not inject them into the already-running build. Do not force a manual `vercel redeploy`; the value goes live with the next normal push.
+- **Never commit secrets.** `.env.local` / `.env.cloud.local` are gitignored — put keys there for local and in Vercel (CLI/dashboard) for prod.
+
 ## Test Credentials (for Playwright testing)
 - **Email**: Haribabu@nerasmclasses.onmicrosoft.com
 - **Password**: Padma@123
