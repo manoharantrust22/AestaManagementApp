@@ -32,6 +32,8 @@ export interface WalletLedgerEntry {
   amount: number;
   transaction_date: string; // YYYY-MM-DD
   site_id: string | null;
+  /** Settlement this spend belongs to, when it is a settlement debit (else null). */
+  settlement_group_id: string | null;
   description: string | null;
   payment_mode: WalletPaymentMode;
   proof_url: string | null;
@@ -170,6 +172,8 @@ export interface RecordSpendInput {
   notes?: string | null;
   recorded_by: string;
   recorded_by_user_id: string;
+  /** Settlement this spend belongs to (salary/contract paths pass it; ad-hoc spends omit). */
+  settlement_group_id?: string | null;
 }
 
 /** Filters for getWalletLedger. Cursor-paginated. */

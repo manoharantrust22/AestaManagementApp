@@ -470,6 +470,7 @@ export async function recordSpend(
     p_recorded_by: input.recorded_by,
     p_recorded_by_user_id: input.recorded_by_user_id,
     p_description: input.description ?? null,
+    p_settlement_group_id: input.settlement_group_id ?? null,
   });
 
   if (error) {
