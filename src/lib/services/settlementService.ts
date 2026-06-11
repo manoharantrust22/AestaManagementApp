@@ -452,13 +452,19 @@ export async function processSettlement(
           // unique index -> 23505). If so the settlement is valid — reuse that debit
           // rather than cancelling the group.
           if ((walletErr as { code?: string })?.code === "23505") {
-            const { data: g2 } = await supabase
-              .from("settlement_groups")
-              .select("engineer_transaction_id")
-              .eq("id", settlementGroupId)
-              .single();
-            engineerTransactionId =
-              (g2?.engineer_transaction_id as string | null) ?? null;
+            // The one-live-debit unique index rejected this insert because a live
+            // spend for this settlement already exists (a concurrent winner). Read
+            // it straight from the transactions table — it is guaranteed present —
+            // rather than from settlement_groups, whose engineer_transaction_id the
+            // winner may not have written yet.
+            const { data: existingSpend } = await supabase
+              .from("site_engineer_transactions")
+              .select("id")
+              .eq("settlement_group_id", settlementGroupId)
+              .eq("transaction_type", "spend")
+              .is("cancelled_at", null)
+              .maybeSingle();
+            engineerTransactionId = (existingSpend?.id as string | null) ?? null;
           }
           if (!engineerTransactionId) {
             await supabase
@@ -749,13 +755,19 @@ export async function processWeeklySettlement(
           engineerTransactionId = txId;
         } catch (walletErr: any) {
           if ((walletErr as { code?: string })?.code === "23505") {
-            const { data: g2 } = await supabase
-              .from("settlement_groups")
-              .select("engineer_transaction_id")
-              .eq("id", settlementGroupId)
-              .single();
-            engineerTransactionId =
-              (g2?.engineer_transaction_id as string | null) ?? null;
+            // The one-live-debit unique index rejected this insert because a live
+            // spend for this settlement already exists (a concurrent winner). Read
+            // it straight from the transactions table — it is guaranteed present —
+            // rather than from settlement_groups, whose engineer_transaction_id the
+            // winner may not have written yet.
+            const { data: existingSpend } = await supabase
+              .from("site_engineer_transactions")
+              .select("id")
+              .eq("settlement_group_id", settlementGroupId)
+              .eq("transaction_type", "spend")
+              .is("cancelled_at", null)
+              .maybeSingle();
+            engineerTransactionId = (existingSpend?.id as string | null) ?? null;
           }
           if (!engineerTransactionId) {
             await supabase
