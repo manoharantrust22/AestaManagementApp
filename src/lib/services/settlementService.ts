@@ -407,43 +407,73 @@ export async function processSettlement(
     // wrote dropped columns (is_settled / settlement_status / …) and the
     // unrecognised 'received_from_company' transaction type.
     if (config.paymentChannel === "engineer_wallet" && config.engineerId) {
-      // SettlementConfig.paymentMode is "upi" | "cash" | "net_banking" | "other".
-      // The wallet-v2 RPC accepts only "cash" | "upi" | "bank_transfer", so net_banking
-      // maps to bank_transfer (closest ledger equivalent) and "other" falls back to cash.
-      const walletPaymentMode: "cash" | "upi" | "bank_transfer" =
-        config.paymentMode === "upi"
-          ? "upi"
-          : config.paymentMode === "net_banking"
-          ? "bank_transfer"
-          : "cash";
-      try {
-        const { id: txId } = await recordSpend(supabase, {
-          engineer_id: config.engineerId,
-          site_id: config.siteId,
-          amount: config.totalAmount,
-          transaction_date: paymentDate,
-          payment_mode: walletPaymentMode,
-          proof_url: config.proofUrl || null,
-          notes: config.notes || null,
-          recorded_by: config.userName,
-          recorded_by_user_id: config.userId,
-          description:
-            config.engineerReference || `Salary settlement ${settlementReference}`,
-          settlement_group_id: settlementGroupId,
-        });
-        engineerTransactionId = txId;
-      } catch (walletErr: any) {
-        await supabase
-          .from("settlement_groups")
-          .update({
-            is_cancelled: true,
-            cancelled_at: new Date().toISOString(),
-            cancelled_by: config.userName,
-            cancelled_by_user_id: config.userId,
-            cancellation_reason: `Engineer wallet debit failed: ${walletErr?.message ?? walletErr}`,
-          })
-          .eq("id", settlementGroupId);
-        throw walletErr;
+      // Idempotent-retry / concurrency guard: when the deterministic key returned
+      // an EXISTING settlement (a retry of the same submit) that already carries a
+      // live wallet debit, reuse it. Creating a second debit would trip the
+      // one-live-debit unique index, and the catch below would then wrongly cancel
+      // the legitimate first settlement. A freshly-created group has a NULL
+      // engineer_transaction_id here, so this only short-circuits true retries.
+      const { data: existingGrp } = await supabase
+        .from("settlement_groups")
+        .select("engineer_transaction_id")
+        .eq("id", settlementGroupId)
+        .single();
+      engineerTransactionId =
+        (existingGrp?.engineer_transaction_id as string | null) ?? null;
+
+      if (!engineerTransactionId) {
+        // SettlementConfig.paymentMode is "upi" | "cash" | "net_banking" | "other".
+        // The wallet-v2 RPC accepts only "cash" | "upi" | "bank_transfer", so net_banking
+        // maps to bank_transfer (closest ledger equivalent) and "other" falls back to cash.
+        const walletPaymentMode: "cash" | "upi" | "bank_transfer" =
+          config.paymentMode === "upi"
+            ? "upi"
+            : config.paymentMode === "net_banking"
+            ? "bank_transfer"
+            : "cash";
+        try {
+          const { id: txId } = await recordSpend(supabase, {
+            engineer_id: config.engineerId,
+            site_id: config.siteId,
+            amount: config.totalAmount,
+            transaction_date: paymentDate,
+            payment_mode: walletPaymentMode,
+            proof_url: config.proofUrl || null,
+            notes: config.notes || null,
+            recorded_by: config.userName,
+            recorded_by_user_id: config.userId,
+            description:
+              config.engineerReference || `Salary settlement ${settlementReference}`,
+            settlement_group_id: settlementGroupId,
+          });
+          engineerTransactionId = txId;
+        } catch (walletErr: any) {
+          // A concurrent attempt may already have created the debit (one-live-debit
+          // unique index -> 23505). If so the settlement is valid — reuse that debit
+          // rather than cancelling the group.
+          if ((walletErr as { code?: string })?.code === "23505") {
+            const { data: g2 } = await supabase
+              .from("settlement_groups")
+              .select("engineer_transaction_id")
+              .eq("id", settlementGroupId)
+              .single();
+            engineerTransactionId =
+              (g2?.engineer_transaction_id as string | null) ?? null;
+          }
+          if (!engineerTransactionId) {
+            await supabase
+              .from("settlement_groups")
+              .update({
+                is_cancelled: true,
+                cancelled_at: new Date().toISOString(),
+                cancelled_by: config.userName,
+                cancelled_by_user_id: config.userId,
+                cancellation_reason: `Engineer wallet debit failed: ${walletErr?.message ?? walletErr}`,
+              })
+              .eq("id", settlementGroupId);
+            throw walletErr;
+          }
+        }
       }
 
       const { error: updateError } = await supabase
@@ -681,42 +711,66 @@ export async function processWeeklySettlement(
     // for the rationale (legacy site_engineer_transactions columns dropped +
     // unrecognised transaction_type).
     if (config.paymentChannel === "engineer_wallet" && config.engineerId) {
-      // See processSettlement for the paymentMode mapping rationale.
-      const walletPaymentMode: "cash" | "upi" | "bank_transfer" =
-        config.paymentMode === "upi"
-          ? "upi"
-          : config.paymentMode === "net_banking"
-          ? "bank_transfer"
-          : "cash";
-      try {
-        const { id: txId } = await recordSpend(supabase, {
-          engineer_id: config.engineerId,
-          site_id: config.siteId,
-          amount: config.totalAmount,
-          transaction_date: paymentDate,
-          payment_mode: walletPaymentMode,
-          proof_url: config.proofUrl || null,
-          notes: config.notes || null,
-          recorded_by: config.userName,
-          recorded_by_user_id: config.userId,
-          description:
-            config.engineerReference ||
-            `Weekly settlement ${settlementReference} (${config.dateFrom} - ${config.dateTo})`,
-          settlement_group_id: settlementGroupId,
-        });
-        engineerTransactionId = txId;
-      } catch (walletErr: any) {
-        await supabase
-          .from("settlement_groups")
-          .update({
-            is_cancelled: true,
-            cancelled_at: new Date().toISOString(),
-            cancelled_by: config.userName,
-            cancelled_by_user_id: config.userId,
-            cancellation_reason: `Engineer wallet debit failed: ${walletErr?.message ?? walletErr}`,
-          })
-          .eq("id", settlementGroupId);
-        throw walletErr;
+      // Idempotent-retry / concurrency guard — see processSettlement. Reuse an
+      // existing live debit rather than creating a second (which would trip the
+      // one-live-debit unique index and wrongly cancel the legitimate settlement).
+      const { data: existingGrp } = await supabase
+        .from("settlement_groups")
+        .select("engineer_transaction_id")
+        .eq("id", settlementGroupId)
+        .single();
+      engineerTransactionId =
+        (existingGrp?.engineer_transaction_id as string | null) ?? null;
+
+      if (!engineerTransactionId) {
+        // See processSettlement for the paymentMode mapping rationale.
+        const walletPaymentMode: "cash" | "upi" | "bank_transfer" =
+          config.paymentMode === "upi"
+            ? "upi"
+            : config.paymentMode === "net_banking"
+            ? "bank_transfer"
+            : "cash";
+        try {
+          const { id: txId } = await recordSpend(supabase, {
+            engineer_id: config.engineerId,
+            site_id: config.siteId,
+            amount: config.totalAmount,
+            transaction_date: paymentDate,
+            payment_mode: walletPaymentMode,
+            proof_url: config.proofUrl || null,
+            notes: config.notes || null,
+            recorded_by: config.userName,
+            recorded_by_user_id: config.userId,
+            description:
+              config.engineerReference ||
+              `Weekly settlement ${settlementReference} (${config.dateFrom} - ${config.dateTo})`,
+            settlement_group_id: settlementGroupId,
+          });
+          engineerTransactionId = txId;
+        } catch (walletErr: any) {
+          if ((walletErr as { code?: string })?.code === "23505") {
+            const { data: g2 } = await supabase
+              .from("settlement_groups")
+              .select("engineer_transaction_id")
+              .eq("id", settlementGroupId)
+              .single();
+            engineerTransactionId =
+              (g2?.engineer_transaction_id as string | null) ?? null;
+          }
+          if (!engineerTransactionId) {
+            await supabase
+              .from("settlement_groups")
+              .update({
+                is_cancelled: true,
+                cancelled_at: new Date().toISOString(),
+                cancelled_by: config.userName,
+                cancelled_by_user_id: config.userId,
+                cancellation_reason: `Engineer wallet debit failed: ${walletErr?.message ?? walletErr}`,
+              })
+              .eq("id", settlementGroupId);
+            throw walletErr;
+          }
+        }
       }
 
       await supabase
