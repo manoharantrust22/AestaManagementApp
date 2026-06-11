@@ -93,6 +93,24 @@ export default function DirectoryContent({ initialData }: DirectoryContentProps)
   const counts = useMemo(() => sourceCountsOf(allEntries), [allEntries]);
   const tradeChips = useMemo(() => tradeChipsOf(allEntries), [allEntries]);
 
+  // Dialog dropdown options: the curated list ∪ every trade already in use, so
+  // a trade typed once reappears next time (the list self-curates). Deduped by
+  // canonical key, curated entries first.
+  const formTradeOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const label of [
+      ...initialData.tradeOptions,
+      ...tradeChips.map((c) => c.label),
+    ]) {
+      const key = canonicalTrade(label);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(label);
+    }
+    return out;
+  }, [initialData.tradeOptions, tradeChips]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const qDigits = q.replace(/\D/g, "");
@@ -307,7 +325,7 @@ export default function DirectoryContent({ initialData }: DirectoryContentProps)
         open={formOpen}
         onClose={() => setFormOpen(false)}
         editing={editing?.rawTechnician ?? null}
-        tradeOptions={initialData.tradeOptions}
+        tradeOptions={formTradeOptions}
         onSaved={() => setSnack(editing ? "Saved changes" : "Technician added")}
       />
 

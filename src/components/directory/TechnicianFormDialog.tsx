@@ -177,6 +177,7 @@ export default function TechnicianFormDialog({
             onChange={(v) => set("trade", v)}
             options={tradeOptions}
             required
+            helperText="Not listed? Type it and tap “Add …” — it’s saved to your trades."
           />
 
           <SpecialtiesAutocomplete
