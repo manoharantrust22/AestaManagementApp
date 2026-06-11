@@ -41,6 +41,10 @@ import {
 } from "@/hooks/queries/useMaterialUsageLedger";
 import { useSitesData } from "@/contexts/SiteContext";
 import { useSiteGroupsWithSites } from "@/hooks/queries/useSiteGroups";
+import {
+  usePurchaseOrderQtyByScope,
+  type OrderedQtyByMaterial,
+} from "@/hooks/queries/usePurchaseOrderQtyByMaterial";
 import UsageDetailDrawer from "@/components/materials/UsageDetailDrawer";
 
 type ScopeMode = "all" | "group" | "site";
@@ -49,9 +53,11 @@ type ViewMode = "material" | "section";
 // MaterialRow: expandable row showing material → section breakdown
 function MaterialRow({
   group,
+  poQty,
   onTrace,
 }: {
   group: MaterialGroup;
+  poQty?: OrderedQtyByMaterial;
   onTrace?: (id: string, name: string) => void;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -109,6 +115,15 @@ function MaterialRow({
         </TableCell>
         <TableCell>{group.unit}</TableCell>
         <TableCell align="right">{group.total_qty.toLocaleString()}</TableCell>
+        <TableCell align="right" sx={{ color: poQty?.group_qty ? "text.primary" : "text.disabled" }}>
+          {(poQty?.group_qty ?? 0).toLocaleString()}
+        </TableCell>
+        <TableCell align="right" sx={{ color: poQty?.own_qty ? "text.primary" : "text.disabled" }}>
+          {(poQty?.own_qty ?? 0).toLocaleString()}
+        </TableCell>
+        <TableCell align="right" sx={{ color: poQty?.total_qty ? "text.primary" : "text.disabled" }}>
+          {(poQty?.total_qty ?? 0).toLocaleString()}
+        </TableCell>
         <TableCell align="right">
           {formatCurrency(group.avg_unit_cost)}/{group.unit}
         </TableCell>
@@ -117,7 +132,7 @@ function MaterialRow({
         </TableCell>
       </TableRow>
       <TableRow>
-        <TableCell colSpan={5} sx={{ py: 0, border: 0 }}>
+        <TableCell colSpan={8} sx={{ py: 0, border: 0 }}>
           <Collapse in={open} unmountOnExit>
             <Box sx={{ pl: 6, py: 1 }}>
               {(group.grade_breakdown.some((g) => g.grade_id !== group.material_id) ||
@@ -237,12 +252,15 @@ function SectionRow({ group }: { group: SectionGroup }) {
         <TableCell />
         <TableCell align="right">{group.total_qty.toLocaleString()}</TableCell>
         <TableCell />
+        <TableCell />
+        <TableCell />
+        <TableCell />
         <TableCell align="right" sx={{ fontWeight: 600 }}>
           {formatCurrency(group.total_cost)}
         </TableCell>
       </TableRow>
       <TableRow>
-        <TableCell colSpan={5} sx={{ py: 0, border: 0 }}>
+        <TableCell colSpan={8} sx={{ py: 0, border: 0 }}>
           <Collapse in={open} unmountOnExit>
             <Box sx={{ pl: 6, py: 1 }}>
               {group.material_breakdown.map((m) => (
@@ -367,6 +385,38 @@ export default function CompanyMaterialUsagePage() {
   }, [rows, search]);
 
   const sectionGroups = React.useMemo(() => groupBySection(rows), [rows]);
+
+  // Ordered (PO) quantity columns — derive the group/own scope from the current
+  // selector. All Sites = every site + every group; By Group = that group's
+  // sites + the group; Individual Site = the site + its group. Active POs only,
+  // all-time (independent of the date filter).
+  const { ownSiteIds, groupIds } = React.useMemo(() => {
+    if (scopeMode === "all") {
+      return {
+        ownSiteIds: sites.map((s) => s.id),
+        groupIds: siteGroups.map((g) => g.id),
+      };
+    }
+    if (scopeMode === "group" && selectedGroupId) {
+      const g = siteGroups.find((grp) => grp.id === selectedGroupId);
+      return {
+        ownSiteIds: (g?.sites ?? []).map((s) => s.id),
+        groupIds: [selectedGroupId],
+      };
+    }
+    if (scopeMode === "site" && selectedSiteId) {
+      const g = siteGroups.find((grp) =>
+        (grp.sites ?? []).some((s) => s.id === selectedSiteId),
+      );
+      return {
+        ownSiteIds: [selectedSiteId],
+        groupIds: g ? [g.id] : [],
+      };
+    }
+    return { ownSiteIds: [] as string[], groupIds: [] as string[] };
+  }, [scopeMode, selectedGroupId, selectedSiteId, sites, siteGroups]);
+
+  const { data: poQtyMap } = usePurchaseOrderQtyByScope(ownSiteIds, groupIds);
 
   const totalCost = rows.reduce((s, r) => s + (r.total_cost ?? 0), 0);
   const distinctMaterials = new Set(
@@ -579,6 +629,9 @@ export default function CompanyMaterialUsagePage() {
                     </TableCell>
                     <TableCell>Unit</TableCell>
                     <TableCell align="right">Qty Used</TableCell>
+                    <TableCell align="right">Group Ordered</TableCell>
+                    <TableCell align="right">Own Ordered</TableCell>
+                    <TableCell align="right">Total Ordered</TableCell>
                     <TableCell align="right">Avg Unit Cost</TableCell>
                     <TableCell align="right">Total Cost</TableCell>
                   </TableRow>
@@ -589,6 +642,7 @@ export default function CompanyMaterialUsagePage() {
                         <MaterialRow
                           key={g.material_id}
                           group={g}
+                          poQty={poQtyMap?.get(g.material_id)}
                           onTrace={(id, name) => setDrawerMaterial({ id, name })}
                         />
                       ))

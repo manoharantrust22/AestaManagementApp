@@ -496,6 +496,11 @@ export function useCreateMaterialUsage() {
             .rpc("record_batch_usage", {
               p_batch_ref_code: inventory.batch_code,
               p_usage_site_id: data.site_id,
+              // Variant-aware RPC matches (material_id, brand_id) against the
+              // batch's line items. Passing these keeps the brand on the batch
+              // usage row instead of dropping it to NULL ("Brand not set").
+              p_material_id: data.material_id,
+              p_brand_id: data.brand_id || inventory.brand_id || null,
               p_quantity: data.quantity,
               p_usage_date: usageDate,
               p_work_description: data.work_description ?? undefined,
@@ -875,7 +880,7 @@ export function useUpdateMaterialUsage() {
     }: {
       id: string;
       siteId: string;
-      data: { quantity: number; work_description?: string };
+      data: { quantity: number; work_description?: string; brand_id?: string | null };
     }) => {
       // Ensure fresh session before mutation
       await ensureFreshSession();
@@ -912,14 +917,18 @@ export function useUpdateMaterialUsage() {
       const newQuantity = data.quantity;
       const quantityDelta = newQuantity - originalQuantity;
 
-      // If no quantity change, just update the record
+      // If no quantity change, just update the record (description and/or brand).
       if (quantityDelta === 0) {
+        const noDeltaPayload: Record<string, unknown> = {
+          work_description: data.work_description,
+          updated_at: new Date().toISOString(),
+        };
+        // Brand is reporting-only — set it only when the caller passed one.
+        if (data.brand_id !== undefined) noDeltaPayload.brand_id = data.brand_id;
+
         const { data: result, error } = await supabase
           .from("daily_material_usage")
-          .update({
-            work_description: data.work_description,
-            updated_at: new Date().toISOString(),
-          })
+          .update(noDeltaPayload)
           .eq("id", id)
           .select()
           .single();
@@ -1027,14 +1036,17 @@ export function useUpdateMaterialUsage() {
 
       // 8. Update the usage record
       const newTotalCost = newQuantity * (originalRecord.unit_cost || 0);
+      const updatePayload: Record<string, unknown> = {
+        quantity: newQuantity,
+        total_cost: newTotalCost,
+        work_description: data.work_description,
+        updated_at: new Date().toISOString(),
+      };
+      if (data.brand_id !== undefined) updatePayload.brand_id = data.brand_id;
+
       const { data: result, error } = await supabase
         .from("daily_material_usage")
-        .update({
-          quantity: newQuantity,
-          total_cost: newTotalCost,
-          work_description: data.work_description,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq("id", id)
         .select()
         .single();

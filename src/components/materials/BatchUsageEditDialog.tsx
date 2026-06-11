@@ -23,6 +23,7 @@ import {
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { createClient } from "@/lib/supabase/client";
 import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
+import { useMaterialBrands } from "@/hooks/queries/useMaterials";
 import type { BatchUsageRecordWithDetails } from "@/types/material.types";
 import {
   BATCH_USAGE_SETTLEMENT_STATUS_LABELS,
@@ -32,18 +33,25 @@ import {
 interface BatchUsageEditDialogProps {
   open: boolean;
   record: BatchUsageRecordWithDetails | null;
+  /** Parent/group material id — its brands populate the brand picker. When
+   *  omitted, the brand picker is hidden (callers that don't edit brand). */
+  materialId?: string;
   onClose: () => void;
   onSave: (data: {
     quantity?: number;
     work_description?: string;
     usage_site_id?: string;
+    brand_id?: string | null;
   }) => void;
   isSaving: boolean;
 }
 
+const UNBRANDED = "__unbranded__";
+
 export default function BatchUsageEditDialog({
   open,
   record,
+  materialId,
   onClose,
   onSave,
   isSaving,
@@ -51,7 +59,14 @@ export default function BatchUsageEditDialog({
   const [quantity, setQuantity] = useState<number>(0);
   const [workDescription, setWorkDescription] = useState<string>("");
   const [usageSiteId, setUsageSiteId] = useState<string>("");
+  const [brandId, setBrandId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Brands for this material (they attach to the parent material). Used to let
+  // the user correct a missing/wrong brand — brand is reporting-only. The picker
+  // only appears when a caller supplies materialId (the Usage Ledger drawer).
+  const showBrandPicker = !!materialId;
+  const { data: brands = [] } = useMaterialBrands(materialId);
 
   // Sites in this batch's group (the candidate consuming sites).
   const { data: membership } = useSiteGroupMembership(record?.usage_site_id);
@@ -84,6 +99,7 @@ export default function BatchUsageEditDialog({
       setQuantity(Number(record.quantity));
       setWorkDescription(record.work_description || "");
       setUsageSiteId(record.usage_site_id ?? record.usage_site?.id ?? "");
+      setBrandId(record.brand?.id ?? null);
       setError(null);
     }
   }, [open, record]);
@@ -121,22 +137,32 @@ export default function BatchUsageEditDialog({
     return null;
   };
 
+  const originalBrandId = record.brand?.id ?? null;
+  const brandChanged = brandId !== originalBrandId;
+
+  const brandDirty = showBrandPicker && brandChanged;
   const validationError = validateQuantity();
   const hasChanges =
     quantity !== originalQuantity ||
     workDescription !== (record.work_description || "") ||
-    siteChanged;
+    siteChanged ||
+    brandDirty;
 
   const handleSave = () => {
-    const err = validateQuantity();
-    if (err) {
-      setError(err);
-      return;
+    // Brand is the only editable field on locked rows; skip the quantity guard
+    // when nothing financial changed so a brand-only correction always saves.
+    if (!isLocked) {
+      const err = validateQuantity();
+      if (err) {
+        setError(err);
+        return;
+      }
     }
     onSave({
-      quantity: quantity !== originalQuantity ? quantity : undefined,
-      work_description: workDescription,
-      usage_site_id: siteChanged ? usageSiteId : undefined,
+      quantity: !isLocked && quantity !== originalQuantity ? quantity : undefined,
+      work_description: !isLocked ? workDescription : undefined,
+      usage_site_id: !isLocked && siteChanged ? usageSiteId : undefined,
+      brand_id: brandDirty ? brandId : undefined,
     });
   };
 
@@ -167,6 +193,35 @@ export default function BatchUsageEditDialog({
     }
   }
 
+  // Brand picker — editable in every state (brand is reporting-only and never
+  // affects settlement, so it is safe to correct even on settled records).
+  const brandSelectField = (
+    <TextField
+      select
+      label="Brand"
+      value={brandId ?? UNBRANDED}
+      onChange={(e) =>
+        setBrandId(e.target.value === UNBRANDED ? null : e.target.value)
+      }
+      fullWidth
+      helperText={
+        brandChanged
+          ? `Will change from ${
+              brandName || "Unbranded"
+            } to ${brands.find((b) => b.id === brandId)?.brand_name || "Unbranded"}`
+          : "Correct the brand if it's missing or wrong."
+      }
+    >
+      <MenuItem value={UNBRANDED}>Unbranded (no brand)</MenuItem>
+      {brands.map((b) => (
+        <MenuItem key={b.id} value={b.id}>
+          {b.brand_name}
+          {b.variant_name ? ` ${b.variant_name}` : ""}
+        </MenuItem>
+      ))}
+    </TextField>
+  );
+
   return (
     <Dialog
       open={open}
@@ -187,7 +242,11 @@ export default function BatchUsageEditDialog({
           <EditIcon color="primary" />
         )}
         <Typography variant="h6" component="span">
-          {isLocked ? "Cannot Edit Usage Record" : "Edit Batch Usage Record"}
+          {isLocked
+            ? showBrandPicker
+              ? "Correct Brand (record settled)"
+              : "Cannot Edit Usage Record"
+            : "Edit Batch Usage Record"}
         </Typography>
       </DialogTitle>
 
@@ -202,11 +261,6 @@ export default function BatchUsageEditDialog({
               <Typography variant="body2" fontWeight={500}>
                 {materialName}
               </Typography>
-              {brandName && (
-                <Typography variant="caption" color="text.secondary">
-                  {brandName}
-                </Typography>
-              )}
             </Box>
             <Box>
               <Typography variant="caption" color="text.secondary">
@@ -266,16 +320,30 @@ export default function BatchUsageEditDialog({
         </Box>
 
         {isLocked ? (
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            <Typography variant="body2" fontWeight={500}>
-              {isSettled
-                ? "This usage is part of a completed settlement and cannot be modified."
-                : "This usage has been pulled into an inter-site settlement and cannot be modified."}
-            </Typography>
-            <Typography variant="caption" sx={{ mt: 1, display: "block" }}>
-              To make changes, the settlement must first be reversed.
-            </Typography>
-          </Alert>
+          <>
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              <Typography variant="body2" fontWeight={500}>
+                {isSettled
+                  ? showBrandPicker
+                    ? "This usage is part of a completed settlement, so quantity and site can't be changed."
+                    : "This usage is part of a completed settlement and cannot be modified."
+                  : showBrandPicker
+                    ? "This usage has been pulled into an inter-site settlement, so quantity and site can't be changed."
+                    : "This usage has been pulled into an inter-site settlement and cannot be modified."}
+              </Typography>
+              <Typography variant="caption" sx={{ mt: 1, display: "block" }}>
+                {showBrandPicker
+                  ? "Brand is reporting-only and never affects settlement — you can still correct it below. To change anything else, reverse the settlement first."
+                  : "To make changes, the settlement must first be reversed."}
+              </Typography>
+            </Alert>
+            {error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
+            {showBrandPicker && brandSelectField}
+          </>
         ) : (
           <>
             {error && (
@@ -336,6 +404,8 @@ export default function BatchUsageEditDialog({
                 rows={2}
                 placeholder="e.g., foundation, plastering, etc."
               />
+
+              {showBrandPicker && brandSelectField}
             </Box>
 
             {hasChanges && (
@@ -423,14 +493,21 @@ export default function BatchUsageEditDialog({
 
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} disabled={isSaving}>
-          {isLocked ? "Close" : "Cancel"}
+          {isLocked && !showBrandPicker ? "Close" : "Cancel"}
         </Button>
-        {!isLocked && (
+        {(!isLocked || showBrandPicker) && (
           <Button
             variant="contained"
             color="primary"
             onClick={handleSave}
-            disabled={isSaving || !hasChanges || !!validationError}
+            // When locked, only a brand change can be saved; otherwise the
+            // quantity validation also gates the button.
+            disabled={
+              isSaving ||
+              !hasChanges ||
+              (!isLocked && !!validationError) ||
+              (isLocked && !brandDirty)
+            }
             startIcon={
               isSaving ? (
                 <CircularProgress size={16} color="inherit" />
@@ -439,7 +516,7 @@ export default function BatchUsageEditDialog({
               )
             }
           >
-            {isSaving ? "Saving..." : "Save Changes"}
+            {isSaving ? "Saving..." : isLocked ? "Save Brand" : "Save Changes"}
           </Button>
         )}
       </DialogActions>

@@ -51,6 +51,7 @@ import { hubTokens } from "@/lib/material-hub/tokens";
 import { formatDate, formatCurrency } from "@/lib/formatters";
 import {
   useUpdateBatchUsage,
+  useSetBatchUsageBrand,
   useDeleteBatchUsage,
   useBatchSettlementSummary,
 } from "@/hooks/queries/useBatchUsage";
@@ -398,6 +399,15 @@ function EntryRow({
 }: EntryRowProps) {
   const locked = entryIsLocked(entry);
   const editable = canEditEntry(entry, siteId, canEdit);
+  // Brand is reporting-only and its RPC bypasses the settlement lock, so a
+  // SETTLED batch row consumed at THIS site can still have its brand corrected.
+  // Wrong-site rows and own-stock rows keep the existing (fully-locked) gating.
+  const brandEditable =
+    !editable &&
+    canEdit &&
+    locked &&
+    entry.source === "batch" &&
+    (!siteId || !entry.consuming_site_id || entry.consuming_site_id === siteId);
   // Every entry shows its attributed grade + its brand (or "No brand").
   const gradeLabel = entry.grade_name;
   const brandLabel = entry.brand_name ?? "No brand";
@@ -696,6 +706,17 @@ function EntryRow({
                     </IconButton>
                   </Tooltip>
                 </>
+              ) : brandEditable ? (
+                // Settled (or in-settlement) row — only the brand can be fixed.
+                <Tooltip title="Correct brand (record settled)">
+                  <IconButton
+                    size="small"
+                    onClick={() => onEdit(entry)}
+                    disabled={saving}
+                  >
+                    <EditIcon sx={{ fontSize: 15 }} />
+                  </IconButton>
+                </Tooltip>
               ) : (
                 <Tooltip
                   title={
@@ -757,12 +778,14 @@ export default function UsageDetailDrawer({
 
   // ── Mutation hooks ────────────────────────────────────────────────────────
   const updateBatch = useUpdateBatchUsage();
+  const setBatchBrand = useSetBatchUsageBrand();
   const deleteBatch = useDeleteBatchUsage();
   const updatePool = useUpdateMaterialUsage();
   const deletePool = useDeleteMaterialUsage();
 
   const saving =
     updateBatch.isPending ||
+    setBatchBrand.isPending ||
     deleteBatch.isPending ||
     updatePool.isPending ||
     deletePool.isPending;
@@ -822,28 +845,50 @@ export default function UsageDetailDrawer({
     quantity?: number;
     work_description?: string;
     usage_site_id?: string;
+    brand_id?: string | null;
   }) => {
     if (!editBatchEntry || !editBatchEntry.batch_ref_code || !siteId) return;
+    const { brand_id, ...rest } = updates;
+    const hasNonBrand =
+      rest.quantity !== undefined ||
+      rest.usage_site_id !== undefined ||
+      rest.work_description !== undefined;
     try {
-      await updateBatch.mutateAsync({
-        usageId: editBatchEntry.id,
-        batchRefCode: editBatchEntry.batch_ref_code,
-        siteId,
-        updates,
-      });
+      // Financial fields go through the guarded hook (blocked when settled).
+      if (hasNonBrand) {
+        await updateBatch.mutateAsync({
+          usageId: editBatchEntry.id,
+          batchRefCode: editBatchEntry.batch_ref_code,
+          siteId,
+          updates: rest,
+        });
+      }
+      // Brand is reporting-only — its own RPC works even on settled rows.
+      if (brand_id !== undefined) {
+        await setBatchBrand.mutateAsync({
+          usageId: editBatchEntry.id,
+          batchRefCode: editBatchEntry.batch_ref_code,
+          siteId,
+          brandId: brand_id,
+        });
+      }
       setEditBatchEntry(null);
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Failed to save");
     }
   };
 
-  const handlePoolEditSave = async (quantity: number, work_description: string) => {
+  const handlePoolEditSave = async (
+    quantity: number,
+    work_description: string,
+    brand_id: string | null,
+  ) => {
     if (!editPoolEntry || !siteId) return;
     try {
       await updatePool.mutateAsync({
         id: editPoolEntry.id,
         siteId,
-        data: { quantity, work_description },
+        data: { quantity, work_description, brand_id },
       });
       setEditPoolEntry(null);
     } catch (e) {
@@ -883,12 +928,15 @@ export default function UsageDetailDrawer({
         work_description: editBatchEntry.work_description,
         settlement_status: editBatchEntry.settlement_status,
         // The ledger view doesn't expose settlement_id; null is the safe
-        // fallback. Locked rows never reach this dialog (canEditEntry gates
-        // settled/in_settlement), so the status-string check is sufficient.
+        // fallback. The dialog re-derives the lock from settlement_status and
+        // now exposes a brand-only edit on locked rows.
         settlement_id: null,
         usage_site_id: editBatchEntry.consuming_site_id,
         material: { name: materialName, unit: editBatchEntry.unit } as any,
-        brand: null,
+        // Seed the brand picker from the entry (the ledger row carries both).
+        brand: editBatchEntry.brand_id
+          ? { id: editBatchEntry.brand_id, brand_name: editBatchEntry.brand_name }
+          : null,
         usage_site: {
           id: editBatchEntry.consuming_site_id,
           name: editBatchEntry.consuming_site_name,
@@ -1075,9 +1123,10 @@ export default function UsageDetailDrawer({
       <BatchUsageEditDialog
         open={!!editBatchEntry}
         record={batchEditRecord}
+        materialId={materialId ?? ""}
         onClose={() => setEditBatchEntry(null)}
         onSave={handleBatchEditSave}
-        isSaving={updateBatch.isPending}
+        isSaving={updateBatch.isPending || setBatchBrand.isPending}
       />
 
       {/* ── Pool (own-stock) edit dialog ── */}
@@ -1085,6 +1134,8 @@ export default function UsageDetailDrawer({
         open={!!editPoolEntry}
         row={poolEditRow}
         unit={unit}
+        materialId={materialId ?? ""}
+        currentBrandId={editPoolEntry?.brand_id ?? null}
         isSaving={updatePool.isPending}
         onClose={() => setEditPoolEntry(null)}
         onSave={handlePoolEditSave}

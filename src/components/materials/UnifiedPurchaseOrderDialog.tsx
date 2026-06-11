@@ -146,6 +146,11 @@ function dedupeById<T extends { id: string }>(list: T[]): T[] {
 // Component
 // ============================================================================
 
+// Sentinel brand option: lets the buyer DELIBERATELY record a brandless line
+// for a material that does have brands (the alternative to silently leaving it
+// blank). Distinct from "not yet chosen" (null).
+const UNBRANDED_OPTION = "Unbranded (no brand)";
+
 export default function UnifiedPurchaseOrderDialog({
   open,
   onClose,
@@ -341,8 +346,18 @@ export default function UnifiedPurchaseOrderDialog({
     return Array.from(brandNames).sort();
   }, [selectedVendor, vendorBrands, effectiveMaterial]);
 
+  // A material with catalog/vendor brands must have a deliberate brand choice
+  // (a real brand OR explicit "Unbranded") — that's how we stop blank brands
+  // leaking into usage. Brandless materials (sand, gravel) are unaffected.
+  const brandRequired = uniqueBrandNames.length > 0;
+  const brandOptions = useMemo(
+    () => (brandRequired ? [UNBRANDED_OPTION, ...uniqueBrandNames] : uniqueBrandNames),
+    [brandRequired, uniqueBrandNames],
+  );
+  const brandMissing = brandRequired && !selectedBrandName;
+
   const brandVariantsForSelectedBrand = useMemo(() => {
-    if (!selectedBrandName) return [];
+    if (!selectedBrandName || selectedBrandName === UNBRANDED_OPTION) return [];
     if (selectedVendor && vendorBrands.length > 0) {
       return vendorBrands.filter((b) => b.brand_name === selectedBrandName);
     }
@@ -896,6 +911,12 @@ export default function UnifiedPurchaseOrderDialog({
     }
     if (!newItemPrice || parseFloat(newItemPrice) <= 0) {
       setError("Please enter a valid unit price");
+      return;
+    }
+    // Prevention: a brand-having material must have a deliberate choice so the
+    // brand carries through to usage (an explicit "Unbranded" is allowed).
+    if (brandMissing) {
+      setError('Pick a brand, or choose "Unbranded (no brand)".');
       return;
     }
 
@@ -1970,7 +1991,7 @@ export default function UnifiedPurchaseOrderDialog({
           {/* Brand Selection */}
           <Grid size={{ xs: 12, md: 2 }}>
             <Autocomplete
-              options={uniqueBrandNames}
+              options={brandOptions}
               getOptionLabel={(brandName) => brandName}
               value={selectedBrandName}
               onChange={(_, value) => {
@@ -1982,8 +2003,10 @@ export default function UnifiedPurchaseOrderDialog({
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  label="Brand"
+                  label={brandRequired ? "Brand *" : "Brand"}
                   size="small"
+                  error={brandMissing}
+                  helperText={brandMissing ? "Pick a brand or Unbranded" : undefined}
                   placeholder={
                     !selectedVendor
                       ? "Select vendor first"
@@ -1993,13 +2016,18 @@ export default function UnifiedPurchaseOrderDialog({
                           ? "Loading..."
                           : uniqueBrandNames.length === 0
                             ? "No brands from vendor"
-                            : "Optional"
+                            : "Pick a brand"
                   }
                 />
               )}
               renderOption={(props, brandName) => (
                 <li {...props} key={brandName}>
-                  <Typography variant="body2">{brandName}</Typography>
+                  <Typography
+                    variant="body2"
+                    sx={brandName === UNBRANDED_OPTION ? { fontStyle: "italic", color: "text.secondary" } : undefined}
+                  >
+                    {brandName}
+                  </Typography>
                 </li>
               )}
               slotProps={{
@@ -2151,6 +2179,7 @@ export default function UnifiedPurchaseOrderDialog({
               variant="outlined"
               startIcon={<AddIcon />}
               onClick={handleAddItem}
+              disabled={brandMissing}
               sx={{ height: 40 }}
             >
               Add

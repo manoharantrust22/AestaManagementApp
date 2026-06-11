@@ -8,8 +8,10 @@ import {
   DialogActions,
   Button,
   TextField,
+  MenuItem,
   Box,
 } from "@mui/material";
+import { useMaterialBrands } from "@/hooks/queries/useMaterials";
 import type { UsageLogRow } from "@/hooks/queries/useUsageLog";
 
 /** Only the fields this dialog actually reads — lets callers pass any
@@ -20,27 +22,41 @@ export interface PoolUsageEditDialogProps {
   open: boolean;
   row: PoolUsageEditRow | null;
   unit: string;
+  /** Parent/group material id — its brands populate the brand picker. When
+   *  omitted, the brand picker is hidden (callers that don't edit brand). */
+  materialId?: string;
+  /** The row's current brand id (null = Brand not set). Seeds the picker. */
+  currentBrandId?: string | null;
   isSaving: boolean;
   onClose: () => void;
-  onSave: (quantity: number, work_description: string) => void;
+  onSave: (quantity: number, work_description: string, brand_id: string | null) => void;
 }
+
+const UNBRANDED = "__unbranded__";
 
 export default function PoolUsageEditDialog({
   open,
   row,
   unit,
+  materialId,
+  currentBrandId,
   isSaving,
   onClose,
   onSave,
 }: PoolUsageEditDialogProps) {
   const [quantity, setQuantity] = useState<number>(0);
   const [desc, setDesc] = useState<string>("");
+  const [brandId, setBrandId] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
+
+  const showBrandPicker = !!materialId;
+  const { data: brands = [] } = useMaterialBrands(materialId);
 
   // Seed fields when a new row opens.
   if (open && row && !touched) {
     setQuantity(row.quantity);
     setDesc(row.work_description ?? "");
+    setBrandId(currentBrandId ?? null);
     setTouched(true);
   }
   if (!open && touched) setTouched(false);
@@ -73,6 +89,27 @@ export default function PoolUsageEditDialog({
             rows={2}
             fullWidth
           />
+          {showBrandPicker && (
+            <TextField
+              select
+              label="Brand"
+              size="small"
+              value={brandId ?? UNBRANDED}
+              onChange={(e) =>
+                setBrandId(e.target.value === UNBRANDED ? null : e.target.value)
+              }
+              helperText="Correct the brand if it's missing or wrong."
+              fullWidth
+            >
+              <MenuItem value={UNBRANDED}>Unbranded (no brand)</MenuItem>
+              {brands.map((b) => (
+                <MenuItem key={b.id} value={b.id}>
+                  {b.brand_name}
+                  {b.variant_name ? ` ${b.variant_name}` : ""}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
         </Box>
       </DialogContent>
       <DialogActions>
@@ -81,7 +118,7 @@ export default function PoolUsageEditDialog({
         </Button>
         <Button
           variant="contained"
-          onClick={() => onSave(quantity, desc)}
+          onClick={() => onSave(quantity, desc, brandId)}
           disabled={isSaving || invalid}
         >
           {isSaving ? "Saving…" : "Save changes"}

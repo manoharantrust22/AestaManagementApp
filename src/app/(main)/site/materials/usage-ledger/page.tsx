@@ -36,6 +36,11 @@ import {
   type MaterialGroup,
   type SectionGroup,
 } from "@/hooks/queries/useMaterialUsageLedger";
+import {
+  usePurchaseOrderQtyByMaterial,
+  type OrderedQtyByMaterial,
+} from "@/hooks/queries/usePurchaseOrderQtyByMaterial";
+import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 import UsageDetailDrawer from "@/components/materials/UsageDetailDrawer";
 
 type ViewMode = "material" | "section";
@@ -43,9 +48,11 @@ type ViewMode = "material" | "section";
 // MaterialRow: expandable row showing material → section breakdown
 function MaterialRow({
   group,
+  poQty,
   onTrace,
 }: {
   group: MaterialGroup;
+  poQty?: OrderedQtyByMaterial;
   onTrace?: (id: string, name: string) => void;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -103,6 +110,15 @@ function MaterialRow({
         </TableCell>
         <TableCell>{group.unit}</TableCell>
         <TableCell align="right">{group.total_qty.toLocaleString()}</TableCell>
+        <TableCell align="right" sx={{ color: poQty?.group_qty ? "text.primary" : "text.disabled" }}>
+          {(poQty?.group_qty ?? 0).toLocaleString()}
+        </TableCell>
+        <TableCell align="right" sx={{ color: poQty?.own_qty ? "text.primary" : "text.disabled" }}>
+          {(poQty?.own_qty ?? 0).toLocaleString()}
+        </TableCell>
+        <TableCell align="right" sx={{ color: poQty?.total_qty ? "text.primary" : "text.disabled" }}>
+          {(poQty?.total_qty ?? 0).toLocaleString()}
+        </TableCell>
         <TableCell align="right">
           {formatCurrency(group.avg_unit_cost)}/{group.unit}
         </TableCell>
@@ -111,7 +127,7 @@ function MaterialRow({
         </TableCell>
       </TableRow>
       <TableRow>
-        <TableCell colSpan={5} sx={{ py: 0, border: 0 }}>
+        <TableCell colSpan={8} sx={{ py: 0, border: 0 }}>
           <Collapse in={open} unmountOnExit>
             <Box sx={{ pl: 6, py: 1 }}>
               {(group.grade_breakdown.some((g) => g.grade_id !== group.material_id) ||
@@ -231,12 +247,15 @@ function SectionRow({ group }: { group: SectionGroup }) {
         <TableCell />
         <TableCell align="right">{group.total_qty.toLocaleString()}</TableCell>
         <TableCell />
+        <TableCell />
+        <TableCell />
+        <TableCell />
         <TableCell align="right" sx={{ fontWeight: 600 }}>
           {formatCurrency(group.total_cost)}
         </TableCell>
       </TableRow>
       <TableRow>
-        <TableCell colSpan={5} sx={{ py: 0, border: 0 }}>
+        <TableCell colSpan={8} sx={{ py: 0, border: 0 }}>
           <Collapse in={open} unmountOnExit>
             <Box sx={{ pl: 6, py: 1 }}>
               {group.material_breakdown.map((m) => (
@@ -273,6 +292,14 @@ export default function UsageLedgerPage() {
     from_date: fromDate ? fromDate.toISOString().split("T")[0] : undefined,
     to_date: toDate ? toDate.toISOString().split("T")[0] : undefined,
   });
+
+  // Ordered (PO) quantity per material — Group / Own / Total columns. Active POs
+  // only, all-time (independent of the date filter above).
+  const { data: membership } = useSiteGroupMembership(selectedSite?.id);
+  const { data: poQtyMap } = usePurchaseOrderQtyByMaterial(
+    selectedSite?.id,
+    membership?.groupId ?? null,
+  );
 
   const materialGroups = React.useMemo(() => {
     const groups = groupByMaterial(rows);
@@ -453,6 +480,9 @@ export default function UsageLedgerPage() {
                 </TableCell>
                 <TableCell>Unit</TableCell>
                 <TableCell align="right">Qty Used</TableCell>
+                <TableCell align="right">Group Ordered</TableCell>
+                <TableCell align="right">Own Ordered</TableCell>
+                <TableCell align="right">Total Ordered</TableCell>
                 <TableCell align="right">Avg Unit Cost</TableCell>
                 <TableCell align="right">Total Cost</TableCell>
               </TableRow>
@@ -463,6 +493,7 @@ export default function UsageLedgerPage() {
                     <MaterialRow
                       key={g.material_id}
                       group={g}
+                      poQty={poQtyMap?.get(g.material_id)}
                       onTrace={(id, name) => setDrawerMaterial({ id, name })}
                     />
                   ))

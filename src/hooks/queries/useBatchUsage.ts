@@ -877,6 +877,54 @@ export function useUpdateBatchUsage() {
   });
 }
 
+/**
+ * Correct ONLY the brand on a batch usage record via the SECURITY DEFINER RPC
+ * `set_batch_usage_brand`. Brand is reporting-only (settlement matches on
+ * material_id, never brand_id), so this is safe even on settled / in-settlement
+ * rows — the RPC touches only brand_id and never any financial field. Passing
+ * `brandId: null` clears the brand back to "Brand not set".
+ */
+export function useSetBatchUsageBrand() {
+  const queryClient = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    retry: false,
+    mutationFn: async (data: {
+      usageId: string;
+      batchRefCode: string;
+      siteId: string;
+      brandId: string | null;
+    }) => {
+      const { error } = await (supabase as any).rpc("set_batch_usage_brand", {
+        p_usage_id: data.usageId,
+        p_brand_id: data.brandId,
+      });
+      if (error) throw new Error(error.message);
+      return { success: true };
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.batchUsage.byBatch(variables.batchRefCode),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.batchUsage.bySite(variables.siteId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.batchUsage.summary(variables.batchRefCode),
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.batchUsage.all });
+      // Hub surfaces (usage-log list, variant chips, group usage summary).
+      queryClient.invalidateQueries({ queryKey: ["usage-history"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-variant-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
+      // Usage Ledger pages and UsageDetailDrawer
+      queryClient.invalidateQueries({ queryKey: ["material-usage-ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["usage-ledger-detail"] });
+    },
+  });
+}
+
 // ============================================
 // PUSH GROUP SELF-USE EXPENSE (MANUAL)
 // ============================================
