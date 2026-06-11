@@ -15,7 +15,7 @@
  * read-only — mirroring BatchUsageHistoryTab.
  */
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Box,
   Typography,
@@ -53,7 +53,13 @@ import type { BatchUsageRecordWithDetails } from "@/types/material.types";
 
 export interface UsageLogListProps {
   item: UsageLogItem | null;
+  /** The site the listed item belongs to — scopes the pooled usage query. */
   siteId: string | undefined;
+  /** The site the viewer is on. The per-row edit gate compares each event's
+   *  usage_site against THIS (falling back to siteId) — on a cluster group
+   *  thread siteId is the requesting site, which is not necessarily where the
+   *  viewer (or the usage) is. */
+  currentSiteId?: string;
   /** Show Edit/Delete affordances (subject to per-row locks). */
   canEdit?: boolean;
   /** Render a totals header above the rows (used by the dialog). */
@@ -76,10 +82,12 @@ function rowIsLocked(row: UsageLogRow): boolean {
 export default function UsageLogList({
   item,
   siteId,
+  currentSiteId,
   canEdit = false,
   showHeader = false,
   enabled = true,
 }: UsageLogListProps) {
+  const gateSiteId = currentSiteId ?? siteId;
   const { rows, isLoading, totalUsed } = useUsageLog(item, siteId, enabled);
 
   const updateBatch = useUpdateBatchUsage();
@@ -132,11 +140,17 @@ export default function UsageLogList({
   const showSummary = rows.length > 0 && (distinctVariants > 1 || summary.length > 1);
 
   // A row is editable when canEdit, not locked, and (for group) used at the
-  // current site — matching BatchUsageHistoryTab's per-site gate.
+  // site the viewer is on — matching BatchUsageHistoryTab's per-site gate and
+  // the RLS policies on batch_usage_records (can_access_site(usage_site_id)).
   const canEditRow = (row: UsageLogRow): boolean => {
     if (!canEdit) return false;
     if (rowIsLocked(row)) return false;
-    if (row.source === "batch" && siteId && row.usage_site_id && row.usage_site_id !== siteId)
+    if (
+      row.source === "batch" &&
+      gateSiteId &&
+      row.usage_site_id &&
+      row.usage_site_id !== gateSiteId
+    )
       return false;
     return true;
   };
@@ -152,12 +166,12 @@ export default function UsageLogList({
     work_description?: string;
     usage_site_id?: string;
   }) => {
-    if (!editRow || !editRow.batch_ref_code || !siteId) return;
+    if (!editRow || !editRow.batch_ref_code || !gateSiteId) return;
     try {
       await updateBatch.mutateAsync({
         usageId: editRow.id,
         batchRefCode: editRow.batch_ref_code,
-        siteId,
+        siteId: gateSiteId,
         updates,
       });
       setEditRow(null);
@@ -167,11 +181,11 @@ export default function UsageLogList({
   };
 
   const handlePoolEditSave = async (quantity: number, work_description: string) => {
-    if (!poolEditRow || !siteId) return;
+    if (!poolEditRow || !gateSiteId) return;
     try {
       await updatePool.mutateAsync({
         id: poolEditRow.id,
-        siteId,
+        siteId: gateSiteId,
         data: { quantity, work_description },
       });
       setPoolEditRow(null);
@@ -181,16 +195,16 @@ export default function UsageLogList({
   };
 
   const handleDelete = async () => {
-    if (!deleteTarget || !siteId) return;
+    if (!deleteTarget || !gateSiteId) return;
     try {
       if (deleteTarget.source === "batch" && deleteTarget.batch_ref_code) {
         await deleteBatch.mutateAsync({
           usageId: deleteTarget.id,
           batchRefCode: deleteTarget.batch_ref_code,
-          siteId,
+          siteId: gateSiteId,
         });
       } else {
-        await deletePool.mutateAsync({ id: deleteTarget.id, siteId });
+        await deletePool.mutateAsync({ id: deleteTarget.id, siteId: gateSiteId });
       }
       setDeleteTarget(null);
     } catch (e) {
@@ -397,7 +411,7 @@ export default function UsageLogList({
                       title={
                         locked
                           ? "Settled — reverse the settlement (Settlement block) before editing."
-                          : "Recorded at another site — edit it from that site."
+                          : `Recorded at ${r.usage_site_name ?? "another site"} — edit it from that site.`
                       }
                     >
                       <span>

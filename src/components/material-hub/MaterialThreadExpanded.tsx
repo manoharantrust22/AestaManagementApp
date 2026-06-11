@@ -43,6 +43,7 @@ import {
 import { useInterSiteBalances } from "@/hooks/queries/useInterSiteSettlements";
 import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSelectedSite } from "@/contexts/SiteContext";
 import { hasEditPermission } from "@/lib/permissions";
 import UsageLogList from "@/components/inventory/UsageLogList";
 import type { UsageLogItem } from "@/hooks/queries/useUsageLog";
@@ -341,6 +342,11 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
   // All roles may correct/edit (subject to per-row settled locks); mirror
   // threads stay read-only — corrections belong to the originating site.
   const canEdit = !t.is_mirror && hasEditPermission(userProfile?.role);
+
+  // The site being viewed. On a cluster group thread t.site_id is the
+  // REQUESTING site, so per-site gates (usage-log edit/delete) must compare
+  // against the viewer's site, not the thread's.
+  const { selectedSite } = useSelectedSite();
 
   const [showUsageLog, setShowUsageLog] = useState(false);
 
@@ -1308,6 +1314,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                   <UsageLogList
                     item={usageLogItem}
                     siteId={t.site_id}
+                    currentSiteId={selectedSite?.id}
                     canEdit={canEdit}
                     showHeader
                     enabled={showUsageLog}

@@ -722,7 +722,7 @@ function EntryRow({
                   title={
                     locked
                       ? "Settled — reverse the settlement first."
-                      : "Recorded at another site — edit it from that site."
+                      : `Recorded at ${entry.consuming_site_name ?? "another site"} — edit it from that site.`
                   }
                 >
                   <span>
