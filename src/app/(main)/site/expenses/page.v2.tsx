@@ -250,7 +250,7 @@ export default function ExpensesPageV2() {
   const { selectedSite } = useSite();
   const auditState = useSiteAuditState();
   const { userProfile } = useAuth();
-  const { formatForApi, isAllTime } = useDateRange();
+  const { formatForApi, isAllTime, setAllTime } = useDateRange();
   const { dateFrom, dateTo } = formatForApi();
   const pane = useInspectPane();
   const canEdit = hasEditPermission(userProfile?.role);
@@ -318,6 +318,19 @@ export default function ExpensesPageV2() {
   const [fromHubThreadId, setFromHubThreadId] = useState<string | null>(() =>
     searchParams.get("fromHub")
   );
+
+  // A c_ref deep-link targets ONE expense that can sit far outside the
+  // currently selected top-bar date window; c_ref only filters rows already
+  // fetched, so widen the fetch window to All Time once at mount or the link
+  // lands on "No expenses match". Deferred a tick because the
+  // DateRangeProvider's own mount effect (which restores the persisted range)
+  // runs AFTER this child effect and would overwrite an immediate setAllTime.
+  useEffect(() => {
+    if (!searchParams.get("c_ref")) return;
+    const t = setTimeout(() => setAllTime(), 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Count of non-default secondary filters (trade / sub-kind / status) — used
   // for the mobile "Filters" button badge.

@@ -107,7 +107,7 @@ export default function MaterialHubTable({
             t.kind === "group"
               ? t.is_sibling_request && t.mirrored_from_site_name
                 ? `Group · from ${t.mirrored_from_site_name}`
-                : "Group"
+                : "Group · own"
               : "Own"
           );
           if (t.advance) parts.push("Advance");

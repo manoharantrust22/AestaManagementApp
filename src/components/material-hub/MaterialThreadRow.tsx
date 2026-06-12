@@ -158,7 +158,7 @@ export default function MaterialThreadRow({
                   ? `Group · Paid by ${thread.po.payer_site_name}`
                   : thread.is_sibling_request && thread.mirrored_from_site_name
                     ? `Group · from ${thread.mirrored_from_site_name}`
-                    : "Group · cluster"}
+                    : "Group · own request"}
               </ThreadChip>
             )}
             {isGroup && thread.is_group_self_used && (

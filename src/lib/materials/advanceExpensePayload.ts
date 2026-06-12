@@ -4,6 +4,11 @@ import type { PayerSourceSplitRow } from "@/types/settlement.types";
 export interface AdvancePoForExpense {
   id: string;
   site_id: string;
+  /** Cluster id stamped on group POs at creation. Carried onto the expense row
+   *  even when the group-stock notes marker is absent — the Hub's settlement
+   *  query matches cluster mates via site_group_id, so dropping it makes the
+   *  settlement invisible on every other site. */
+  site_group_id?: string | null;
   po_number?: string | null;
   vendor_id?: string | null;
   vendor?: { name?: string | null } | null;
@@ -81,7 +86,16 @@ export function buildAdvanceExpensePayload(
 ): BuiltAdvanceExpense {
   const notes = parsePoNotes(po.internal_notes);
   const isGroupStock = notes?.is_group_stock === true;
-  const siteGroupId = args.site_group_id ?? notes?.site_group_id ?? notes?.group_id ?? null;
+  // Fall back to the PO row's own cluster id: group POs created without the
+  // is_group_stock notes marker still need site_group_id on the expense, or
+  // the settlement reads "settled" on the recording site but "pending" on
+  // every cluster mate.
+  const siteGroupId =
+    args.site_group_id ??
+    notes?.site_group_id ??
+    notes?.group_id ??
+    po.site_group_id ??
+    null;
   const totalAmount = Number(po.total_amount ?? args.amount_paid);
   const totalQty = (po.items ?? []).reduce((sum, it) => sum + Number(it.quantity || 0), 0);
   // Guard the equality branch so a degenerate 0-of-0 advance isn't marked paid.
@@ -110,7 +124,10 @@ export function buildAdvanceExpensePayload(
     amount_paid: args.amount_paid,
     notes: args.notes ?? `Advance payment for PO ${po.po_number ?? po.id}`,
     paying_site_id: payingSiteId,
-    site_group_id: isGroupStock ? siteGroupId : null,
+    // Always carry the cluster id (not only for group_stock): it scopes the
+    // expense's cross-site VISIBILITY, while purchase_type alone drives the
+    // group-stock inventory machinery.
+    site_group_id: siteGroupId,
     // null when items aren't populated yet (quantity-unknown advance)
     original_qty: isGroupStock ? (totalQty > 0 ? totalQty : null) : null,
     remaining_qty: isGroupStock ? (totalQty > 0 ? totalQty : null) : null,

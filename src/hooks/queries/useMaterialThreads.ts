@@ -272,6 +272,13 @@ export interface SettlementSnapshot {
   payment_screenshot_url: string | null;
   bill_url: string | null;
   payment_mode: string | null;
+  /** 'own_site' | 'group_stock' — group_stock parents never appear on
+      v_all_expenses (their per-site usage allocations do), so the Hub must
+      not deep-link them to /site/expenses. */
+  purchase_type: string | null;
+  /** Site whose money paid the vendor (group-stock purchases); null when the
+      recording site itself paid. */
+  paying_site_id: string | null;
   settlement_payer_source: string | null;
   settlement_payer_name: string | null;
   payer_source_split: PayerSourceSplitRow[] | null;
@@ -413,7 +420,7 @@ function useSiteSettlements(
       let query = (supabase as any)
         .from("material_purchase_expenses")
         .select(
-          "id, ref_code, purchase_order_id, site_id, is_paid, paid_date, status, payment_channel, total_amount, amount_paid, payment_screenshot_url, bill_url, payment_mode, settlement_payer_source, settlement_payer_name, payer_source_split"
+          "id, ref_code, purchase_order_id, site_id, is_paid, paid_date, status, payment_channel, total_amount, amount_paid, payment_screenshot_url, bill_url, payment_mode, purchase_type, paying_site_id, settlement_payer_source, settlement_payer_name, payer_source_split"
         )
         .not("purchase_order_id", "is", null);
 
@@ -552,6 +559,13 @@ interface StandardThreadDeps {
    *  block reports the bill's full received/used/remaining instead of just the
    *  primary material's row. */
   stockBySiteBatch: Map<string, Array<{ stock: StockRow; used: number }>>;
+  /** All inventory rows for a batch_code across the WHOLE cluster (keyed by
+   *  batch_code alone, no site). A MAT-/GSP- code is globally unique to one
+   *  settlement, so this aggregates a group batch's stock no matter which
+   *  cluster site each delivery physically landed at — the headline STOCK
+   *  received/used/remaining is cluster-wide, not just the viewing site's row.
+   *  Degenerates to the single site's rows for own-site (single-site) batches. */
+  stockByBatch: Map<string, Array<{ stock: StockRow; used: number }>>;
   settlementByPo: Map<string, SettlementSnapshot>;
   /** Pending cross-site debt (₹) per batch_ref_code — keeps a group thread
    *  from reading DONE until the cross-site portion is settled. */
@@ -684,18 +698,40 @@ function mapStandardThread(
   let invUsed = invMatch ? Math.max(0, invMatch.used) : 0;
   let invRemaining = invMatch ? Math.max(0, Number(invMatch.stock.current_qty)) : 0;
   let aggBatch: { received: number; used: number; remaining: number } | undefined;
+  let invPerSite: ThreadInventory["per_site"] | undefined;
   if (invMatch && invMatch.stock.batch_code) {
-    const batchKey = makeBatchKey(mr.site_id, invMatch.stock.batch_code);
-    const sharedBatch = deps.stockBySiteBatch.get(batchKey) ?? [invMatch];
+    // Aggregate cluster-wide by batch_code alone: a group batch's deliveries
+    // physically land at different cluster sites (each its own stock row), so
+    // the headline received/used/remaining must sum every site's row — not just
+    // the viewing/originating site's. Falls back to the single matched row.
+    const sharedBatch =
+      deps.stockByBatch.get(invMatch.stock.batch_code) ?? [invMatch];
     let aggRemaining = 0;
     let aggUsed = 0;
+    // Per-site received/used split for the inventory block (group batches).
+    const perSite = new Map<string, { received: number; used: number }>();
     for (const c of sharedBatch) {
-      aggRemaining += Math.max(0, Number(c.stock.current_qty));
-      aggUsed += Math.max(0, c.used);
+      const remaining = Math.max(0, Number(c.stock.current_qty));
+      const used = Math.max(0, c.used);
+      aggRemaining += remaining;
+      aggUsed += used;
+      const acc = perSite.get(c.stock.site_id) ?? { received: 0, used: 0 };
+      acc.received += remaining + used;
+      acc.used += used;
+      perSite.set(c.stock.site_id, acc);
     }
     invUsed = aggUsed;
     invRemaining = aggRemaining;
     aggBatch = { received: aggRemaining + aggUsed, used: aggUsed, remaining: aggRemaining };
+    // Only surface the split when the batch spans more than one site.
+    if (threadKind === "group" && perSite.size > 1) {
+      invPerSite = Array.from(perSite.entries()).map(([site_id, v]) => ({
+        site_id,
+        site_name: deps.siteNameById.get(site_id) ?? "Unknown site",
+        received: v.received,
+        used: v.used,
+      }));
+    }
   }
 
   // Batch ref used to look up cross-site usage. When an inventory row matched,
@@ -776,6 +812,7 @@ function mapStandardThread(
         received_qty: received,
         accepted_qty: accepted,
         verified: !!d.verified,
+        site_id: d.site_id,
         vehicle_number: d.vehicle_number,
         notes: d.notes,
         invoice_url: d.invoice_url,
@@ -832,6 +869,7 @@ function mapStandardThread(
       received: aggBatch?.received ?? invRemaining + invUsed,
       used: aggBatch?.used ?? invUsed,
       remaining: aggBatch?.remaining ?? invRemaining,
+      per_site: invPerSite,
     };
   }
 
@@ -908,9 +946,18 @@ function mapStandardThread(
           settled_at: settlement.paid_date,
           expense_ref: settlement.ref_code,
           expense_id: settlement.id,
+          expense_on_ledger: settlement.purchase_type !== "group_stock",
           payment_screenshot_url: settlement.payment_screenshot_url,
           bill_url: settlement.bill_url,
           payment_mode: settlement.payment_mode,
+          // Which SITE's money paid the vendor. paying_site_id is only stamped
+          // on group-stock settlements; fall back to the site that recorded
+          // the expense so group cards can always name the payer.
+          paying_site_id: settlement.paying_site_id ?? settlement.site_id,
+          paying_site_name:
+            deps.siteNameById.get(
+              settlement.paying_site_id ?? settlement.site_id
+            ) ?? undefined,
           payer_source: settlement.settlement_payer_source,
           payer_name: settlement.settlement_payer_name,
           payer_source_split: settlement.payer_source_split,
@@ -1109,6 +1156,10 @@ export function useMaterialThreads(
       string,
       Array<{ stock: StockRow; used: number }>
     >();
+    const stockByBatch = new Map<
+      string,
+      Array<{ stock: StockRow; used: number }>
+    >();
     for (const s of stock.data?.stockRows ?? []) {
       const entry = { stock: s, used: stock.data?.usageMap.get(s.id) ?? 0 };
       const matKey = makeStockKey(s.site_id, s.material_id);
@@ -1120,6 +1171,10 @@ export function useMaterialThreads(
         const batchList = stockBySiteBatch.get(batchKey) ?? [];
         batchList.push(entry);
         stockBySiteBatch.set(batchKey, batchList);
+        // Cluster-wide rollup keyed by batch_code alone (no site).
+        const clusterList = stockByBatch.get(s.batch_code) ?? [];
+        clusterList.push(entry);
+        stockByBatch.set(s.batch_code, clusterList);
       }
     }
     // Index settlements by purchase_order_id (one row per PO in normal flow).
@@ -1137,6 +1192,7 @@ export function useMaterialThreads(
       deliveriesByPo,
       stockBySiteMaterial,
       stockBySiteBatch,
+      stockByBatch,
       settlementByPo,
       pendingInterSiteByBatch:
         batchUsage.data?.pendingCrossSiteByBatch ?? new Map<string, number>(),

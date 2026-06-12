@@ -1145,6 +1145,13 @@ export function useSettleMaterialPurchase() {
         queryClient.invalidateQueries({ queryKey: queryKeys.materialPurchases.all }),
         queryClient.invalidateQueries({ queryKey: queryKeys.expenses.all }),
         queryClient.invalidateQueries({ queryKey: queryKeys.materialStock.all }),
+        // Hub sub-queries: useMaterialThreads has no umbrella key — settle and
+        // edit-settlement must refresh its settlement snapshot + PO list (the
+        // PO carries advance_paid/payment fields) or the row stays "pending".
+        queryClient.invalidateQueries({ queryKey: ["material-settlements"] }),
+        queryClient.invalidateQueries({ queryKey: ["purchase-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["stock-inventory"] }),
+        queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] }),
       ]);
       if (variables.payment_channel === "engineer_wallet") {
         await queryClient.invalidateQueries({ queryKey: ENGINEER_WALLET_KEYS.all });

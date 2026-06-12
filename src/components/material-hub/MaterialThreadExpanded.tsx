@@ -521,8 +521,10 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
           ) : (
             <Box component="span">· Shared across the cluster — any site can act</Box>
           )}
-          {t.is_sibling_request && t.mirrored_from_site_name && (
+          {t.is_sibling_request && t.mirrored_from_site_name ? (
             <Box component="span">· Requested by {t.mirrored_from_site_name}</Box>
+          ) : (
+            <Box component="span">· Requested by this site</Box>
           )}
         </Box>
       )}
@@ -744,7 +746,9 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                   >
                     Batches ({t.po.delivery_batches.length})
                   </Typography>
-                  {t.po.delivery_batches.map((b) => (
+                  {[...t.po.delivery_batches]
+                    .sort((a, b) => a.delivery_date.localeCompare(b.delivery_date))
+                    .map((b, i) => (
                     <Box
                       key={b.id}
                       sx={{
@@ -757,6 +761,23 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                         fontSize: 11,
                       }}
                     >
+                      {/* Child index under the parent MAT- batch so installments
+                          read as Batch 1 / 2 / 3 rather than opaque GRN codes. */}
+                      <Box
+                        component="span"
+                        sx={{
+                          fontWeight: 800,
+                          fontSize: 9.5,
+                          letterSpacing: "0.3px",
+                          color: hubTokens.muted,
+                          background: hubTokens.chip,
+                          borderRadius: "4px",
+                          padding: "1px 5px",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Batch {i + 1}
+                      </Box>
                       <Box
                         component="span"
                         sx={{
@@ -981,6 +1002,14 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               {t.settlement.paid_by && (
                 <DetailRow label="Paid by" value={t.settlement.paid_by} />
               )}
+              {/* Which SITE's money paid the vendor — only meaningful on group
+                  threads (own-site settlements are trivially the own site). */}
+              {t.kind === "group" && t.settlement.paying_site_name && (
+                <DetailRow
+                  label="Paying site"
+                  value={t.settlement.paying_site_name}
+                />
+              )}
               {/* Payment source (which fund paid the vendor). Only rendered when
                   actually recorded — an unset source must read as absent, not
                   silently default to "Own Money". Split payments show the summary. */}
@@ -1002,6 +1031,38 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               })()}
               {t.settlement.settled_at && (
                 <DetailRow label="On" value={fmtDateShort(t.settlement.settled_at)} />
+              )}
+              {/* Expense ref — deep-links to /site/expenses pre-filtered to this
+                  row (same c_ref pattern as the own-thread Expenses block) so the
+                  settlement can be verified on the ledger in one tap. Group-stock
+                  parents are excluded from v_all_expenses (their per-site usage
+                  allocations are the ledger rows), so those render as plain text. */}
+              {t.settlement.expense_ref && (
+                <DetailRow
+                  label="Ref"
+                  value={
+                    t.settlement.expense_on_ledger !== false ? (
+                      <Box
+                        component="a"
+                        href={`/site/expenses?c_ref=${encodeURIComponent(
+                          t.settlement.expense_ref
+                        )}&fromHub=${encodeURIComponent(t.id)}`}
+                        sx={{
+                          fontFamily: hubTokens.mono,
+                          color: hubTokens.primary,
+                          textDecoration: "none",
+                          "&:hover": { textDecoration: "underline" },
+                        }}
+                      >
+                        {t.settlement.expense_ref}
+                      </Box>
+                    ) : (
+                      <Box component="span" sx={{ fontFamily: hubTokens.mono }}>
+                        {t.settlement.expense_ref}
+                      </Box>
+                    )
+                  }
+                />
               )}
             </>
           ) : isAdvancePaid ? (
@@ -1084,12 +1145,10 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                 }
               />
               <DetailRow label="Received" value={`${t.inventory.received} ${t.material_unit}`} />
-              <DetailRow label="Used" value={`${t.inventory.used} ${t.material_unit}`} />
-              {/* Per-site usage chips for shared group batches.
-                  Only renders when the batch has been consumed across more than
-                  one site (or a single non-payer site) so the line stays quiet
-                  for pure self-use batches. */}
-              {batchSummary && batchSummary.site_allocations.length > 0 && (
+              {/* Per-site received/used split for shared group batches whose
+                  deliveries landed at more than one cluster site — so the
+                  cluster-wide Received total above reconciles to each site. */}
+              {t.inventory.per_site && t.inventory.per_site.length > 1 && (
                 <Box
                   sx={{
                     display: "flex",
@@ -1100,9 +1159,9 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                     marginBottom: "6px",
                   }}
                 >
-                  {batchSummary.site_allocations.map((a) => (
+                  {t.inventory.per_site.map((ps) => (
                     <Box
-                      key={a.site_id}
+                      key={ps.site_id}
                       component="span"
                       sx={{
                         display: "inline-flex",
@@ -1110,18 +1169,24 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                         gap: "4px",
                         padding: "1px 7px",
                         borderRadius: "5px",
-                        background: a.is_payer ? hubTokens.successSoft : hubTokens.chip,
-                        color: a.is_payer ? hubTokens.success : hubTokens.muted,
+                        background: hubTokens.chip,
+                        color: hubTokens.muted,
                         fontSize: 10.5,
                         fontWeight: 600,
                         lineHeight: "15px",
                       }}
                     >
-                      {a.site_name}: {Number(a.quantity_used)} {t.material_unit}
+                      {ps.site_name}: {fmtQty(ps.received)} recv · {fmtQty(ps.used)} used
                     </Box>
                   ))}
                 </Box>
               )}
+              <DetailRow label="Used" value={`${t.inventory.used} ${t.material_unit}`} />
+              {/* The per-site split under Received above carries the accurate
+                  physical used-per-site figures (from stock transactions). The
+                  old settlement-allocation chips were removed here: they read
+                  from the settlement self_used_qty, which could disagree with
+                  the physical split and break the ledger cross-check. */}
               <DetailRow
                 label="Remaining"
                 value={`${t.inventory.remaining} ${t.material_unit}`}

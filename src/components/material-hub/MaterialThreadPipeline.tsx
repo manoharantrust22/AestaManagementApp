@@ -1,9 +1,11 @@
 "use client";
 
 /**
- * Per-row mini timeline. Six visible stages horizontally: Req · Approve · PO ·
- * Deliver · Settle · Stock · In use. Spot purchases render a shorter 2- or
- * 3-stage pipeline in warn colour.
+ * Per-row mini timeline. Seven visible stages horizontally: Req · Approve ·
+ * PO · Deliver · Stock · Settle · In use — except advance-paid POs, where the
+ * vendor is settled upfront so the order becomes Req · Approve · PO · Settle ·
+ * Deliver · Stock · In use. Spot purchases render a shorter 2- or 3-stage
+ * pipeline in warn colour.
  *
  * This file owns only the STATE derivation; the visuals come from the shared
  * {@link HubPipelineStepper} ("Material rail"). INTER-SITE is no longer a rail
@@ -19,7 +21,7 @@ import { Box } from "@mui/material";
 import CheckIcon from "@mui/icons-material/Check";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { fmtQty } from "@/lib/formatters";
-import { M_STAGES, VISIBLE_STAGES, stageIndex } from "@/lib/material-hub/stageHelpers";
+import { M_STAGES, getVisibleStages, stageIndex } from "@/lib/material-hub/stageHelpers";
 import type { MaterialThread, ThreadStage } from "@/lib/material-hub/threadTypes";
 import HubPipelineStepper, {
   hubPulse,
@@ -97,7 +99,7 @@ export function buildMaterialPipeline(thread: MaterialThread): MaterialPipelineM
   const inventoryDone =
     (!!inv && inv.received > 0) || hasReceivedQty || hasBatches;
 
-  const steps: HubStep[] = VISIBLE_STAGES.map((s) => {
+  const steps: HubStep[] = getVisibleStages(thread.advance).map((s) => {
     // Synthetic STOCK step.
     if (s.key === "inventory") {
       // Only show batch-exact counts. A shared-pool fallback (batch === "—")

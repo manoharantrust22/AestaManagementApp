@@ -1768,7 +1768,7 @@ export function useRecordAdvancePayment() {
       const { data: po } = await supabase
         .from("purchase_orders")
         .select(`
-          id, po_number, site_id, vendor_id, total_amount, transport_cost, internal_notes,
+          id, po_number, site_id, site_group_id, vendor_id, total_amount, transport_cost, internal_notes,
           vendor:vendors(id, name),
           items:purchase_order_items(id, material_id, brand_id, quantity, unit_price)
         `)
@@ -1927,8 +1927,16 @@ export function useRecordAdvancePayment() {
       // differs from the paying site shown on screen, so a site-scoped invalidation
       // misses the settlement page the user is actually looking at.
       queryClient.invalidateQueries({ queryKey: queryKeys.materialPurchases.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.bySite(result.site_id) });
+      // Broad PO prefix, not bySite(result.site_id): for a group PO the result
+      // site is the originating site, which misses the viewing site's
+      // "hub-light" PO list (payment_timing/advance_paid feed the SETTLE step).
+      queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
       queryClient.invalidateQueries({ queryKey: queryKeys.expenses.all });
+      // Hub sub-queries: useMaterialThreads has no umbrella key — its
+      // settlement snapshot lives under ["material-settlements","for-hub-site",…].
+      queryClient.invalidateQueries({ queryKey: ["material-settlements"] });
+      queryClient.invalidateQueries({ queryKey: ["stock-inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
       if (result.walletDebited) {
         queryClient.invalidateQueries({ queryKey: ENGINEER_WALLET_KEYS.all });
       }

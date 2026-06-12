@@ -40,6 +40,7 @@ import MaterialHubFilterChips, {
   type HubFilterKey,
 } from "@/components/material-hub/MaterialHubFilterChips";
 import MaterialHubToolbar from "@/components/material-hub/MaterialHubToolbar";
+import HubFilteredSummary from "@/components/material-hub/HubFilteredSummary";
 import {
   collectMaterialOptions,
   matchesMaterial,
@@ -398,6 +399,14 @@ export default function MaterialHubPage() {
           onClear={clearFilters}
         />
       </Box>
+
+      {selectedFilter && (
+        <HubFilteredSummary
+          threads={filteredThreads}
+          materialLabel={selectedFilter.label}
+          viewingSiteName={selectedSite.name}
+        />
+      )}
 
       {threads.length > 0 ? (
         // We have data — ALWAYS show it. A failed background refresh (the heavy

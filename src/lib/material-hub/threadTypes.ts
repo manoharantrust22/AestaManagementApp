@@ -80,6 +80,10 @@ export interface ThreadDeliveryBatch {
   received_qty: number;
   accepted_qty: number;
   verified: boolean;
+  /** Cluster site this batch physically landed at (deliveries.site_id). For a
+   *  group batch, deliveries can split across sites — used to attribute per-GRN
+   *  usage to the right site's consumption. */
+  site_id?: string | null;
   vehicle_number?: string | null;
   notes?: string | null;
   /** Vendor invoice / challan scans attached at delivery time (if any). The Hub
@@ -107,6 +111,10 @@ export interface ThreadSettlement {
   expense_ref?: string | null;
   /** UUID of the material_purchase_expenses row (for future deep-link navigation). */
   expense_id?: string | null;
+  /** False for group_stock parents: v_all_expenses excludes them (the per-site
+   *  usage allocations are the ledger rows), so a /site/expenses?c_ref= link
+   *  would land on an empty filter. */
+  expense_on_ledger?: boolean;
   /** Payment mode used at settlement (upi / cash / bank_transfer / other).
    *  Renders as a small chip next to the settled amount. */
   payment_mode?: string | null;
@@ -115,6 +123,11 @@ export interface ThreadSettlement {
   /** Vendor bill scan attached to the expense (separate from PO.vendor_bill_url
    *  which is captured at PO time). */
   bill_url?: string | null;
+  /** Site whose money paid the vendor. From material_purchase_expenses.
+   *  paying_site_id (group-stock purchases), falling back to the site that
+   *  recorded the expense. Rendered as a "Paying site" row on group cards. */
+  paying_site_id?: string | null;
+  paying_site_name?: string | null;
   /** Payment source attribution — which fund paid the vendor. Mirrors
    *  material_purchase_expenses.settlement_payer_source / _name / payer_source_split.
    *  Rendered as a "Source" row on the settlement card so the payer is visible
@@ -129,6 +142,16 @@ export interface ThreadInventory {
   received: number;
   used: number;
   remaining: number;
+  /** Per-site received/used split for shared group batches whose deliveries
+   *  landed at more than one cluster site. Undefined for single-site batches.
+   *  Lets the Hub show "Padmavathy 40 recv · 21.5 used / Srinivasan 30 · 3.5"
+   *  so totals reconcile against the material usage ledger. */
+  per_site?: Array<{
+    site_id: string;
+    site_name: string;
+    received: number;
+    used: number;
+  }>;
 }
 
 /**

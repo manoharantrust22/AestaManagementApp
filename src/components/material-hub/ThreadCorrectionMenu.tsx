@@ -119,10 +119,21 @@ export default function ThreadCorrectionMenu({
     editSettlementOpen && settlementExpenseId ? settlementExpenseId : undefined
   );
 
-  // After an inline edit, refresh the Hub threads (the dialogs invalidate their
-  // own request/PO caches but not the composed thread view).
+  // After an inline edit, refresh the Hub threads. useMaterialThreads has NO
+  // ["material-threads"] query — it composes granular sub-queries, so each of
+  // those keys must be invalidated individually.
   const refreshHub = () => {
-    queryClient.invalidateQueries({ queryKey: ["material-threads"] });
+    const keys = [
+      ["material-requests"],
+      ["purchase-orders"],
+      ["spot-purchases"],
+      ["deliveries"],
+      ["stock-inventory"],
+      ["material-settlements"],
+      ["batch-usage-summary"],
+      ["material-purchases"],
+    ];
+    keys.forEach((queryKey) => queryClient.invalidateQueries({ queryKey }));
   };
 
   if (!canEdit) return null;

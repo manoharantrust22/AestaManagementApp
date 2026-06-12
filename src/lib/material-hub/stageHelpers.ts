@@ -22,9 +22,9 @@ export const M_STAGES: ThreadStage[] = [
  *
  * NOTE: the synthetic "inventory" key does NOT exist as a real `ThreadStage`
  * value — it's a pure UI indicator that mirrors `thread.inventory` (populated
- * the moment any delivery batch lands at site). It sits between SETTLE and
- * IN USE so the engineer can see "yes, the received stock is in the
- * inventory tracker."
+ * the moment any delivery batch lands at site). It sits right after DELIVER
+ * (delivery immediately creates stock) and before SETTLE, which often
+ * happens much later.
  *
  * The synthetic "inter-site" key is likewise NOT a real `ThreadStage`. It's
  * appended AFTER IN USE only for group threads with cross-site usage
@@ -40,10 +40,34 @@ export const VISIBLE_STAGES: { key: VisibleStageKey; label: string }[] = [
   { key: "approved", label: "APPROVE" },
   { key: "ordered", label: "PO" },
   { key: "delivered", label: "DELIVER" },
+  { key: "inventory", label: "STOCK" },
   { key: "settled", label: "SETTLE" },
+  { key: "in-use", label: "IN USE" },
+];
+
+/**
+ * Advance-payment order: the vendor is paid upfront right after the PO (before
+ * any delivery), so SETTLE belongs ahead of DELIVER/STOCK. On-delivery POs keep
+ * the default order where settlement follows the goods. Only the visible
+ * ordering changes — done/current state is still derived from M_STAGES indices
+ * in buildMaterialPipeline, so moving SETTLE is purely presentational.
+ */
+const ADVANCE_VISIBLE_STAGES: { key: VisibleStageKey; label: string }[] = [
+  { key: "requested", label: "REQ" },
+  { key: "approved", label: "APPROVE" },
+  { key: "ordered", label: "PO" },
+  { key: "settled", label: "SETTLE" },
+  { key: "delivered", label: "DELIVER" },
   { key: "inventory", label: "STOCK" },
   { key: "in-use", label: "IN USE" },
 ];
+
+/** The visible stage order for a thread — advance POs settle before delivery. */
+export function getVisibleStages(
+  advance: boolean
+): { key: VisibleStageKey; label: string }[] {
+  return advance ? ADVANCE_VISIBLE_STAGES : VISIBLE_STAGES;
+}
 
 export function stageLabel(stage: ThreadStage): string {
   switch (stage) {

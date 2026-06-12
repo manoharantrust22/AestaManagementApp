@@ -95,4 +95,34 @@ describe("buildAdvanceExpensePayload", () => {
     // No subcontract passed → row stays unlinked (null), not undefined.
     expect(expenseRow.subcontract_id).toBeNull();
   });
+
+  it("carries the PO's cluster id even without the group-stock notes marker", () => {
+    // Regression: group POs created without internal_notes' is_group_stock
+    // marker settled with site_group_id=null — settled on the recording site
+    // but forever "pending" on every cluster mate (PO-MM4H84TG-77IX).
+    const unmarkedGroupPo = {
+      ...groupPo,
+      internal_notes: null,
+      site_group_id: "g-1",
+    };
+    const { expenseRow, isGroupStock } = buildAdvanceExpensePayload(
+      unmarkedGroupPo,
+      {
+        amount_paid: 6900,
+        payment_date: "2026-02-27",
+        payer_source: "client_money",
+        payer_name: null,
+        payer_source_split: null,
+        is_complete: true,
+        payment_channel: "direct",
+      },
+      "MPE-3",
+      null,
+    );
+    // Not group-stock (no inventory machinery), but cluster-visible.
+    expect(isGroupStock).toBe(false);
+    expect(expenseRow.purchase_type).toBe("own_site");
+    expect(expenseRow.site_group_id).toBe("g-1");
+    expect(expenseRow.paying_site_id).toBeNull();
+  });
 });
