@@ -64,6 +64,10 @@ interface MaterialSettlementDialogProps {
   purchaseOrder?: PurchaseOrderWithDetails | null;
   onClose: () => void;
   onSuccess?: () => void;
+  /** Site whose payer sources should be offered (the viewing site when opened
+   *  from the Hub). Without it a group PO falls back to the PO's originating
+   *  site, surfacing another site's sources. */
+  siteId?: string;
 }
 
 const PAYMENT_MODES: { value: MaterialPaymentMode; label: string }[] = [
@@ -97,6 +101,7 @@ export default function MaterialSettlementDialog({
   purchaseOrder,
   onClose,
   onSuccess,
+  siteId,
 }: MaterialSettlementDialogProps) {
   const supabase = createClient();
   const { user, userProfile } = useAuth();
@@ -499,13 +504,26 @@ export default function MaterialSettlementDialog({
           </Alert>
         )}
 
-        {/* Advance Payment Info Alert */}
-        {isPOAdvancePayment && (
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            Recording <strong>advance payment</strong> for this purchase order.
-            Materials have not been delivered yet.
-          </Alert>
-        )}
+        {/* Direct-PO payment alert — wording follows the PO's delivery state
+            (same status field the Hub stepper reads) so a fully delivered
+            order never claims "not delivered yet". */}
+        {isPOAdvancePayment &&
+          (purchaseOrder?.status === "delivered" ? (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Materials for this order have been <strong>delivered</strong>.
+              Recording the final vendor payment.
+            </Alert>
+          ) : purchaseOrder?.status === "partial_delivered" ? (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Materials are <strong>partially delivered</strong>. Recording
+              vendor payment for this order.
+            </Alert>
+          ) : (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              Recording <strong>advance payment</strong> for this purchase order.
+              Materials have not been delivered yet.
+            </Alert>
+          ))}
 
         {/* Cross-site banner: consumer site settling on behalf of another payer site */}
         {isGroupStockParent && purchase && selectedSite && purchase.site_id !== selectedSite.id && (
@@ -862,7 +880,13 @@ export default function MaterialSettlementDialog({
               value={payer}
               onChange={setPayer}
               total={Number(amountPaid) || purchaseAmount}
-              siteId={purchase?.site_id ?? purchaseOrder?.site_id ?? selectedSite?.id}
+              siteId={
+                payingSiteId ||
+                siteId ||
+                purchase?.site_id ||
+                purchaseOrder?.site_id ||
+                selectedSite?.id
+              }
               disabled={settleMutation.isPending || advancePaymentMutation.isPending || lockAmountPayer}
             />
             {(() => {

@@ -174,6 +174,7 @@ export const HubDialogRouter = forwardRef<
       <MaterialSettlementDialog
         open={dialog?.kind === "settle" && poReady}
         onClose={close}
+        siteId={siteId}
         purchaseOrder={dialog?.kind === "settle" ? fullPO.data ?? null : null}
       />
 

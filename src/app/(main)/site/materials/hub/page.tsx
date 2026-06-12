@@ -48,6 +48,10 @@ import {
   type ParentMap,
 } from "@/lib/material-hub/threadFilters";
 import { useMaterialParentMap } from "@/hooks/queries/useMaterials";
+import {
+  loadHubFilters,
+  saveHubFilters,
+} from "@/lib/material-hub/hubFilterStorage";
 import MaterialThreadRow from "@/components/material-hub/MaterialThreadRow";
 import MaterialThreadDetailSheet from "@/components/material-hub/MaterialThreadDetailSheet";
 import MaterialHubTable from "@/components/material-hub/MaterialHubTable";
@@ -85,6 +89,50 @@ export default function MaterialHubPage() {
   const [dateStart, setDateStart] = useState<Date | null>(null);
   const [dateEnd, setDateEnd] = useState<Date | null>(null);
   const [layout, setLayout] = useState<HubLayout>("cards");
+
+  // Filters survive a page refresh: restore the per-site sessionStorage
+  // snapshot once per site, then write-through on every filter change. The
+  // restore must run before the first save so the defaults don't clobber a
+  // stored snapshot.
+  const restoredForSiteRef = useRef<string | null>(null);
+  // The restore + save effects run in the same commit on a site switch; this
+  // flag keeps that commit's save from writing the OLD site's filter values
+  // under the NEW site's key before the restored state has landed.
+  const skipNextSaveRef = useRef(false);
+  useEffect(() => {
+    if (!siteId || restoredForSiteRef.current === siteId) return;
+    restoredForSiteRef.current = siteId;
+    skipNextSaveRef.current = true;
+    const saved = loadHubFilters(siteId);
+    if (!saved) {
+      // Site switch with nothing saved → reset to defaults so the previous
+      // site's filters don't leak across.
+      setFilter("all");
+      setSelectedFilter(null);
+      setDateStart(null);
+      setDateEnd(null);
+      return;
+    }
+    setFilter(saved.filter);
+    setSelectedFilter(saved.selectedFilter);
+    setDateStart(saved.dateStart ? new Date(saved.dateStart) : null);
+    setDateEnd(saved.dateEnd ? new Date(saved.dateEnd) : null);
+    setLayout(saved.layout);
+  }, [siteId]);
+  useEffect(() => {
+    if (!siteId || restoredForSiteRef.current !== siteId) return;
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false;
+      return;
+    }
+    saveHubFilters(siteId, {
+      filter,
+      selectedFilter,
+      dateStart: dateStart?.toISOString() ?? null,
+      dateEnd: dateEnd?.toISOString() ?? null,
+      layout,
+    });
+  }, [siteId, filter, selectedFilter, dateStart, dateEnd, layout]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [newEntryOpen, setNewEntryOpen] = useState(false);
   const [backfillPicker, setBackfillPicker] = useState(false);

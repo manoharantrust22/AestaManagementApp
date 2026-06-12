@@ -470,7 +470,8 @@
       "PowerShell(Remove-Item c:\\\\tmp\\\\verify-deadlock-fix.js -Force -Confirm:$false)",
       "PowerShell(git status --short; Write-Output \"---PORT CHECK---\"; $conn = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -First 1; if \\($conn\\) { Write-Output \"Port 3000 in use \\(PID $\\($conn.OwningProcess\\)\\)\" } else { Write-Output \"Port 3000 free\" })",
       "PowerShell(npm run dev:cloud)",
-      "PowerShell(node c:\\\\tmp\\\\verify-deadlock-fix.cjs)"
+      "PowerShell(node c:\\\\tmp\\\\verify-deadlock-fix.cjs)",
+      "PowerShell(npm run test 2>$null)"
     ],
     "deny": [],
     "ask": [],
