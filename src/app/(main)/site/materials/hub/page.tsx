@@ -41,6 +41,7 @@ import MaterialHubFilterChips, {
 } from "@/components/material-hub/MaterialHubFilterChips";
 import MaterialHubToolbar from "@/components/material-hub/MaterialHubToolbar";
 import HubFilteredSummary from "@/components/material-hub/HubFilteredSummary";
+import ReconcileUsageDialog from "@/components/material-hub/reconcile/ReconcileUsageDialog";
 import {
   collectMaterialOptions,
   matchesMaterial,
@@ -89,6 +90,7 @@ export default function MaterialHubPage() {
   );
   const [dateStart, setDateStart] = useState<Date | null>(null);
   const [dateEnd, setDateEnd] = useState<Date | null>(null);
+  const [reconcileOpen, setReconcileOpen] = useState(false);
   const [layout, setLayout] = useState<HubLayout>("cards");
 
   // Filters survive a page refresh: restore the per-site sessionStorage
@@ -405,6 +407,23 @@ export default function MaterialHubPage() {
           threads={filteredThreads}
           materialLabel={selectedFilter.label}
           viewingSiteName={selectedSite.name}
+          onReconcile={
+            selectedFilter.kind !== "brand" && siteGroupId
+              ? () => setReconcileOpen(true)
+              : undefined
+          }
+        />
+      )}
+
+      {selectedFilter && selectedFilter.kind !== "brand" && siteId && (
+        <ReconcileUsageDialog
+          open={reconcileOpen}
+          onClose={() => setReconcileOpen(false)}
+          siteId={siteId}
+          siteGroupId={siteGroupId}
+          materialId={selectedFilter.id}
+          materialName={selectedFilter.label}
+          materialUnit={filteredThreads[0]?.material_unit}
         />
       )}
 

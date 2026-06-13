@@ -282,6 +282,13 @@ export interface SettlementSnapshot {
   settlement_payer_source: string | null;
   settlement_payer_name: string | null;
   payer_source_split: PayerSourceSplitRow[] | null;
+  /** When paid from an engineer's wallet (payment_channel='engineer_wallet'),
+   *  links to the site_engineer_transactions spend row. */
+  engineer_transaction_id: string | null;
+  /** Joined wallet-spend row (engineer_tx) — recorded_by is the engineer whose
+   *  wallet funded the settlement, so the card can name the payer instead of a
+   *  bare "wallet". Null for non-wallet settlements. */
+  engineer_tx: { recorded_by: string | null } | null;
 }
 
 // ----------------------------------------------------------------------------
@@ -314,6 +321,11 @@ interface GroupBatchUsageSummary {
   pendingCrossSiteByBatch: Map<string, number>;
   /** batch_ref_codes that have at least one cross-site (non-self) usage row. */
   hasCrossSiteByBatch: Set<string>;
+  /** batch_ref_code → (usage_site_id → qty used). The ledger-true per-site
+   *  consumption (by usage_site_id), used for the per-site split + filtered
+   *  summary. NOT derived from stock-row decrements, which for a group batch
+   *  land on an arbitrary cluster site and don't match the usage ledger. */
+  usedBySiteByBatch: Map<string, Map<string, number>>;
 }
 
 function useGroupBatchUsageSummary(siteGroupId: string | null | undefined) {
@@ -324,17 +336,29 @@ function useGroupBatchUsageSummary(siteGroupId: string | null | undefined) {
     queryFn: async (): Promise<GroupBatchUsageSummary> => {
       const { data, error } = await (supabase as any)
         .from("batch_usage_records")
-        .select("batch_ref_code, is_self_use, settlement_status, total_cost")
+        .select("batch_ref_code, usage_site_id, quantity, is_self_use, settlement_status, total_cost")
         .eq("site_group_id", siteGroupId);
       if (error) throw error;
       const pendingCrossSiteByBatch = new Map<string, number>();
       const hasCrossSiteByBatch = new Set<string>();
+      const usedBySiteByBatch = new Map<string, Map<string, number>>();
       for (const r of (data ?? []) as Array<{
         batch_ref_code: string;
+        usage_site_id: string;
+        quantity: number | string;
         is_self_use: boolean;
         settlement_status: string;
         total_cost: number | string;
       }>) {
+        // Per-site consumption (every row, self-use or cross-site).
+        const bySite =
+          usedBySiteByBatch.get(r.batch_ref_code) ?? new Map<string, number>();
+        bySite.set(
+          r.usage_site_id,
+          (bySite.get(r.usage_site_id) ?? 0) + Number(r.quantity ?? 0)
+        );
+        usedBySiteByBatch.set(r.batch_ref_code, bySite);
+
         if (r.is_self_use) continue;
         hasCrossSiteByBatch.add(r.batch_ref_code);
         if (r.settlement_status === "pending") {
@@ -345,7 +369,39 @@ function useGroupBatchUsageSummary(siteGroupId: string | null | undefined) {
           );
         }
       }
-      return { pendingCrossSiteByBatch, hasCrossSiteByBatch };
+      return { pendingCrossSiteByBatch, hasCrossSiteByBatch, usedBySiteByBatch };
+    },
+    staleTime: 60000,
+  });
+}
+
+/**
+ * delivery_id → qty consumed from that delivery, from the persisted FIFO
+ * allocations (batch_usage_delivery_allocations). Scoped to the cluster via the
+ * usage record's site_group_id. Powers the per-GRN "used / received" indicator.
+ */
+function useDeliveryUsageAllocations(siteGroupId: string | null | undefined) {
+  const supabase = createClient();
+  return useQuery({
+    queryKey: ["delivery-usage-allocations", "for-hub", siteGroupId ?? null],
+    enabled: !!siteGroupId,
+    queryFn: async (): Promise<Map<string, number>> => {
+      const { data, error } = await (supabase as any)
+        .from("batch_usage_delivery_allocations")
+        .select("delivery_id, quantity, batch_usage_records!inner(site_group_id)")
+        .eq("batch_usage_records.site_group_id", siteGroupId);
+      if (error) throw error;
+      const map = new Map<string, number>();
+      for (const r of (data ?? []) as Array<{
+        delivery_id: string;
+        quantity: number | string;
+      }>) {
+        map.set(
+          r.delivery_id,
+          (map.get(r.delivery_id) ?? 0) + Number(r.quantity ?? 0)
+        );
+      }
+      return map;
     },
     staleTime: 60000,
   });
@@ -420,7 +476,7 @@ function useSiteSettlements(
       let query = (supabase as any)
         .from("material_purchase_expenses")
         .select(
-          "id, ref_code, purchase_order_id, site_id, is_paid, paid_date, status, payment_channel, total_amount, amount_paid, payment_screenshot_url, bill_url, payment_mode, purchase_type, paying_site_id, settlement_payer_source, settlement_payer_name, payer_source_split"
+          "id, ref_code, purchase_order_id, site_id, is_paid, paid_date, status, payment_channel, total_amount, amount_paid, payment_screenshot_url, bill_url, payment_mode, purchase_type, paying_site_id, settlement_payer_source, settlement_payer_name, payer_source_split, engineer_transaction_id, engineer_tx:site_engineer_transactions!material_purchase_expenses_engineer_tx_fkey(recorded_by)"
         )
         .not("purchase_order_id", "is", null);
 
@@ -441,6 +497,46 @@ function useSiteSettlements(
 // ----------------------------------------------------------------------------
 // Stage derivation
 // ----------------------------------------------------------------------------
+
+/**
+ * Resolve the stock_inventory row that backs a thread's batch.
+ *
+ * A GROUP batch's stock physically lands at whichever cluster site received the
+ * delivery — which may NOT be the requesting (`mr.site_id`) site. So when the
+ * same-site candidate list misses on the batch_code, fall back to the
+ * cluster-wide rollup (rows sharing this batch_code across all cluster sites).
+ * `batch_code` is globally unique to a batch, so a cluster-wide match is exact;
+ * own-site stock has a null batch_code and never appears in that rollup, so
+ * own-site threads can't false-match here.
+ *
+ * Resolution order:
+ *   1. same-site row whose batch_code === batchCode (the common case);
+ *   2. cluster-wide row with this batch_code (prefer the matching material
+ *      variant, else the first) — fixes a group buy raised by one cluster site
+ *      but delivered to another, where step 1 finds nothing locally;
+ *   3. same-site shared-pool bucket (no batch_code) for own-site POs.
+ */
+export function pickInventoryMatch(args: {
+  candidates: Array<{ stock: StockRow; used: number }>;
+  clusterRows: Array<{ stock: StockRow; used: number }>;
+  batchCode: string | null;
+  materialId: string | null;
+}): { stock: StockRow; used: number } | undefined {
+  const { candidates, clusterRows, batchCode, materialId } = args;
+  if (batchCode) {
+    const sameSite = candidates.find((c) => c.stock.batch_code === batchCode);
+    if (sameSite) return sameSite;
+    // Group batch landed at a sibling cluster site → resolve cluster-wide.
+    if (clusterRows.length > 0) {
+      return (
+        clusterRows.find((c) => c.stock.material_id === materialId) ??
+        clusterRows[0]
+      );
+    }
+  }
+  // Own-site shared bucket (deliveries merge into one batch_code-less row).
+  return candidates.find((c) => !c.stock.batch_code || c.stock.batch_code === "");
+}
 
 export function deriveStandardStage(
   mr: MaterialRequestWithDetails,
@@ -573,6 +669,10 @@ interface StandardThreadDeps {
   /** Batches that have ANY cross-site (non-self) usage row, settled or not —
    *  distinguishes a truly own-used group buy from shared-and-settled. */
   hasCrossSiteByBatch: Set<string>;
+  /** batch_ref_code → (usage_site_id → qty) — ledger-true per-site usage. */
+  usedBySiteByBatch: Map<string, Map<string, number>>;
+  /** delivery_id → qty consumed from that delivery (FIFO allocations). */
+  usedByDelivery: Map<string, number>;
   /** batch_ref_code → posted SELF-USE expense ({ ref_code, amount }) for a
    *  fully-self-used group batch. Present → Hub shows a "Recorded · <ref>"
    *  deep-link; absent → Hub shows the "Push to material expense" action. */
@@ -680,16 +780,19 @@ function mapStandardThread(
       : deps.stockBySiteMaterial.get(
           makeStockKey(mr.site_id, stockLookupMaterialId)
         ) ?? [];
-    if (batchCode) {
-      invMatch = candidates.find((c) => c.stock.batch_code === batchCode);
-    }
-    // Fall back to a row with no batch_code (the site's shared bucket) for
-    // own POs where deliveries merge into a single inventory row.
-    if (!invMatch) {
-      invMatch = candidates.find(
-        (c) => !c.stock.batch_code || c.stock.batch_code === ""
-      );
-    }
+    // A GROUP batch's stock can land at a SIBLING cluster site (the MR site
+    // didn't physically receive the delivery), so the same-site candidate list
+    // misses. Fall back to the cluster-wide rollup keyed by batch_code alone.
+    // Skipped for mirrors (their inventory belongs to the originating site) and
+    // for own-site POs (no batch_code → not present in stockByBatch).
+    const clusterRows =
+      batchCode && !isMirror ? deps.stockByBatch.get(batchCode) ?? [] : [];
+    invMatch = pickInventoryMatch({
+      candidates,
+      clusterRows,
+      batchCode,
+      materialId: stockLookupMaterialId,
+    });
   }
   // For batch-scoped stock (group POs / multi-variant bills) aggregate ALL
   // stock_inventory rows sharing this batch_code so a 3-variant steel bill
@@ -708,29 +811,52 @@ function mapStandardThread(
       deps.stockByBatch.get(invMatch.stock.batch_code) ?? [invMatch];
     let aggRemaining = 0;
     let aggUsed = 0;
-    // Per-site received/used split for the inventory block (group batches).
-    const perSite = new Map<string, { received: number; used: number }>();
+    // RECEIVED per site comes from the stock rows (received = current_qty +
+    // whatever was decremented = what physically landed at that site).
+    const receivedBySite = new Map<string, number>();
     for (const c of sharedBatch) {
       const remaining = Math.max(0, Number(c.stock.current_qty));
-      const used = Math.max(0, c.used);
+      const stockUsed = Math.max(0, c.used);
       aggRemaining += remaining;
-      aggUsed += used;
-      const acc = perSite.get(c.stock.site_id) ?? { received: 0, used: 0 };
-      acc.received += remaining + used;
-      acc.used += used;
-      perSite.set(c.stock.site_id, acc);
+      aggUsed += stockUsed;
+      receivedBySite.set(
+        c.stock.site_id,
+        (receivedBySite.get(c.stock.site_id) ?? 0) + remaining + stockUsed
+      );
     }
-    invUsed = aggUsed;
-    invRemaining = aggRemaining;
-    aggBatch = { received: aggRemaining + aggUsed, used: aggUsed, remaining: aggRemaining };
-    // Only surface the split when the batch spans more than one site.
-    if (threadKind === "group" && perSite.size > 1) {
-      invPerSite = Array.from(perSite.entries()).map(([site_id, v]) => ({
-        site_id,
-        site_name: deps.siteNameById.get(site_id) ?? "Unknown site",
-        received: v.received,
-        used: v.used,
-      }));
+    // USED per site is the ledger-true attribution (batch_usage_records by
+    // usage_site_id), NOT the stock-row decrement: for a group batch the
+    // decrement lands on an arbitrary cluster row and would mis-report who
+    // actually consumed. The cluster total still matches (stock-used sum ==
+    // attribution sum), only the per-site breakdown differs.
+    const usedBySite =
+      deps.usedBySiteByBatch.get(invMatch.stock.batch_code) ??
+      new Map<string, number>();
+    const attribUsedTotal = Array.from(usedBySite.values()).reduce(
+      (s, v) => s + v,
+      0
+    );
+    invUsed = attribUsedTotal > 0 ? attribUsedTotal : aggUsed;
+    invRemaining = aggRemaining + aggUsed - invUsed;
+    aggBatch = {
+      received: aggRemaining + aggUsed,
+      used: invUsed,
+      remaining: invRemaining,
+    };
+    // Per-site split: union of sites that received and sites that used.
+    if (threadKind === "group") {
+      const siteIds = new Set<string>([
+        ...receivedBySite.keys(),
+        ...usedBySite.keys(),
+      ]);
+      if (siteIds.size > 1) {
+        invPerSite = Array.from(siteIds).map((site_id) => ({
+          site_id,
+          site_name: deps.siteNameById.get(site_id) ?? "Unknown site",
+          received: receivedBySite.get(site_id) ?? 0,
+          used: usedBySite.get(site_id) ?? 0,
+        }));
+      }
     }
   }
 
@@ -813,6 +939,7 @@ function mapStandardThread(
         accepted_qty: accepted,
         verified: !!d.verified,
         site_id: d.site_id,
+        used_qty: deps.usedByDelivery.get(d.id) ?? 0,
         vehicle_number: d.vehicle_number,
         notes: d.notes,
         invoice_url: d.invoice_url,
@@ -943,6 +1070,12 @@ function mapStandardThread(
               : settlement.payment_channel === "direct"
                 ? "office"
                 : settlement.payment_channel ?? null,
+          // For a wallet settlement, name the engineer whose wallet paid (the
+          // spend row's recorded_by) so "Paid by wallet" isn't anonymous.
+          paid_by_engineer_name:
+            settlement.payment_channel === "engineer_wallet"
+              ? settlement.engineer_tx?.recorded_by ?? null
+              : null,
           settled_at: settlement.paid_date,
           expense_ref: settlement.ref_code,
           expense_id: settlement.id,
@@ -1115,6 +1248,7 @@ export function useMaterialThreads(
   const settlements = useSiteSettlements(siteId, siteGroupId);
   const groupSiteNames = useGroupSiteNames(siteGroupId);
   const batchUsage = useGroupBatchUsageSummary(siteGroupId);
+  const deliveryUsage = useDeliveryUsageAllocations(siteGroupId);
   const selfUseExpenses = useSelfUseExpenses(siteId, siteGroupId);
 
   const { threads, materialRequestById, purchaseOrderById, spotBatchById } = useMemo(() => {
@@ -1198,6 +1332,9 @@ export function useMaterialThreads(
         batchUsage.data?.pendingCrossSiteByBatch ?? new Map<string, number>(),
       hasCrossSiteByBatch:
         batchUsage.data?.hasCrossSiteByBatch ?? new Set<string>(),
+      usedBySiteByBatch:
+        batchUsage.data?.usedBySiteByBatch ?? new Map<string, Map<string, number>>(),
+      usedByDelivery: deliveryUsage.data ?? new Map<string, number>(),
       selfUseExpenseByBatch:
         selfUseExpenses.data ?? new Map<string, { ref_code: string; amount: number }>(),
       siteNameById: groupSiteNames.data ?? new Map(),
@@ -1233,6 +1370,7 @@ export function useMaterialThreads(
     settlements.data,
     groupSiteNames.data,
     batchUsage.data,
+    deliveryUsage.data,
     selfUseExpenses.data,
     siteId,
   ]);

@@ -144,6 +144,29 @@ describe("buildMaterialPipeline", () => {
     expect(byKey["inventory"].state).toBe("done");
   });
 
+  it("advance settled but only partially delivered → SETTLE done while DELIVER pulses", () => {
+    // The contradiction the user saw: card reads SETTLED but the stepper left
+    // SETTLE empty because the lifecycle stage is still 'delivered'.
+    const { steps } = buildMaterialPipeline(
+      makeThread({
+        advance: true,
+        stage: "delivered",
+        po: makePO({
+          status: "partial",
+          qty: 200,
+          received_qty: 70,
+          payment_timing: "advance",
+          advance_paid: 61000,
+        }),
+        settlement: { status: "settled", amount: 61000, paid_by: "wallet" },
+        inventory: { batch: "MAT-260516-7A41", received: 70, used: 25, remaining: 45 },
+      })
+    );
+    const byKey = Object.fromEntries(steps.map((s) => [s.key, s]));
+    expect(byKey["settled"].state).toBe("done");
+    expect(byKey["delivered"].state).toBe("current");
+  });
+
   it("settled stage marks SETTLE done and pulses IN USE next", () => {
     const { steps } = buildMaterialPipeline(
       makeThread({

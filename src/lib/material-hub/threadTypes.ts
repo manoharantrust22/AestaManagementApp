@@ -84,6 +84,10 @@ export interface ThreadDeliveryBatch {
    *  group batch, deliveries can split across sites — used to attribute per-GRN
    *  usage to the right site's consumption. */
   site_id?: string | null;
+  /** Qty consumed from THIS delivery, from the persisted FIFO allocations
+   *  (batch_usage_delivery_allocations). 0 when nothing drawn yet. Drives the
+   *  per-GRN "used / received" indicator. */
+  used_qty?: number;
   vehicle_number?: string | null;
   notes?: string | null;
   /** Vendor invoice / challan scans attached at delivery time (if any). The Hub
@@ -105,6 +109,10 @@ export interface ThreadSettlement {
   status: "pending" | "settled";
   amount: number;
   paid_by: "office" | "wallet" | "site" | string | null;
+  /** When paid_by === "wallet", the engineer whose wallet funded the vendor
+   *  payment (site_engineer_transactions.recorded_by). Lets the card read
+   *  "Paid by wallet · Ajith Kumar" instead of an anonymous wallet. */
+  paid_by_engineer_name?: string | null;
   settled_at?: string | null;
   /** Human-readable ref_code on the material_purchase_expenses row (e.g. "MAT-260214-6805").
    *  Surfaced in the Expenses block so the user can find the row on /site/expenses. */

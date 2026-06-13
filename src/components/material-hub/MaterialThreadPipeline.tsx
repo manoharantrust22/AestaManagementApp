@@ -147,11 +147,21 @@ export function buildMaterialPipeline(thread: MaterialThread): MaterialPipelineM
       current = true;
     }
 
-    // SETTLE: done for advance-paid POs even before delivery completes.
-    if (stageKey === "settled" && settleDoneByAdvance) {
-      done = true;
-      caption = "advance";
-      if (stageKey === nextKey) current = false;
+    // SETTLE: done once the vendor is actually settled (status='settled'),
+    // independent of the thread's lifecycle position — an advance batch can be
+    // settled while still only partially delivered, so M_STAGES position
+    // (stuck at 'delivered') would otherwise leave SETTLE looking empty even
+    // though the card reads SETTLED. The advance-paid fallback marks SETTLE
+    // done from the upfront payment, before the settlement row exists.
+    if (stageKey === "settled") {
+      if (thread.settlement?.status === "settled") {
+        done = true;
+        current = false;
+      } else if (settleDoneByAdvance) {
+        done = true;
+        caption = "advance";
+        if (stageKey === nextKey) current = false;
+      }
     }
 
     const state: HubStepState = success

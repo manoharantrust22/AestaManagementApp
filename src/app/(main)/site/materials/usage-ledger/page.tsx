@@ -42,6 +42,9 @@ import {
 } from "@/hooks/queries/usePurchaseOrderQtyByMaterial";
 import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 import UsageDetailDrawer from "@/components/materials/UsageDetailDrawer";
+import ReconcileUsageDialog from "@/components/material-hub/reconcile/ReconcileUsageDialog";
+import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
+import Tooltip from "@mui/material/Tooltip";
 
 type ViewMode = "material" | "section";
 
@@ -50,10 +53,12 @@ function MaterialRow({
   group,
   poQty,
   onTrace,
+  onReconcile,
 }: {
   group: MaterialGroup;
   poQty?: OrderedQtyByMaterial;
   onTrace?: (id: string, name: string) => void;
+  onReconcile?: (id: string, name: string, unit: string) => void;
 }) {
   const [open, setOpen] = React.useState(false);
   return (
@@ -105,6 +110,19 @@ function MaterialRow({
                 color="warning"
                 variant="outlined"
               />
+            )}
+            {onReconcile && (
+              <Tooltip title="Reconcile usage between sites">
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onReconcile(group.material_id, group.material_name, group.unit);
+                  }}
+                >
+                  <SwapHorizIcon fontSize="inherit" sx={{ fontSize: "1rem", opacity: 0.6 }} />
+                </IconButton>
+              </Tooltip>
             )}
           </Box>
         </TableCell>
@@ -286,6 +304,7 @@ export default function UsageLedgerPage() {
   const [toDate, setToDate] = React.useState<Date | null>(null);
   const [search, setSearch] = React.useState("");
   const [drawerMaterial, setDrawerMaterial] = React.useState<{ id: string; name: string } | null>(null);
+  const [reconcileMat, setReconcileMat] = React.useState<{ id: string; name: string; unit: string } | null>(null);
 
   const { data: rows = [], isLoading } = useMaterialUsageLedger({
     site_id: selectedSite?.id,
@@ -495,6 +514,11 @@ export default function UsageLedgerPage() {
                       group={g}
                       poQty={poQtyMap?.get(g.material_id)}
                       onTrace={(id, name) => setDrawerMaterial({ id, name })}
+                      onReconcile={
+                        membership?.groupId
+                          ? (id, name, unit) => setReconcileMat({ id, name, unit })
+                          : undefined
+                      }
                     />
                   ))
                 : sectionGroups.map((g) => (
@@ -516,6 +540,18 @@ export default function UsageLedgerPage() {
         scopeKey={`site:${selectedSite?.id ?? ""}:${fromDate ? fromDate.toISOString().split("T")[0] : ""}:${toDate ? toDate.toISOString().split("T")[0] : ""}`}
         canEdit
       />
+
+      {selectedSite?.id && (
+        <ReconcileUsageDialog
+          open={!!reconcileMat}
+          onClose={() => setReconcileMat(null)}
+          siteId={selectedSite.id}
+          siteGroupId={membership?.groupId ?? null}
+          materialId={reconcileMat?.id ?? ""}
+          materialName={reconcileMat?.name}
+          materialUnit={reconcileMat?.unit}
+        />
+      )}
     </Box>
   );
 }

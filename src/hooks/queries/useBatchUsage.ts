@@ -359,6 +359,8 @@ export function useRecordBatchUsage() {
       queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
       queryClient.invalidateQueries({ queryKey: ["stock-inventory"] });
       queryClient.invalidateQueries({ queryKey: queryKeys.materialStock.all });
+      // Per-GRN usage bar (Hub) reads batch_usage_delivery_allocations.
+      queryClient.invalidateQueries({ queryKey: ["delivery-usage-allocations"] });
     },
   });
 }
@@ -628,6 +630,9 @@ export function useDeleteBatchUsage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.batchUsage.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.materialStock.all });
       queryClient.invalidateQueries({ queryKey: ["material-usage"] });
+      // Per-GRN usage bar (Hub) reads batch_usage_delivery_allocations; the FK
+      // cascade-deleted its rows, so the cached allocation map is now stale.
+      queryClient.invalidateQueries({ queryKey: ["delivery-usage-allocations"] });
       // Usage Ledger pages and UsageDetailDrawer
       queryClient.invalidateQueries({ queryKey: ["material-usage-ledger"] });
       queryClient.invalidateQueries({ queryKey: ["usage-ledger-detail"] });
@@ -870,6 +875,9 @@ export function useUpdateBatchUsage() {
       queryClient.invalidateQueries({ queryKey: ["usage-history"] });
       queryClient.invalidateQueries({ queryKey: ["batch-variant-summary"] });
       queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
+      // Per-GRN usage bar (Hub): a qty edit or site reassignment re-runs the
+      // FIFO allocation, so the delivery→qty map must refresh.
+      queryClient.invalidateQueries({ queryKey: ["delivery-usage-allocations"] });
       // Usage Ledger pages and UsageDetailDrawer
       queryClient.invalidateQueries({ queryKey: ["material-usage-ledger"] });
       queryClient.invalidateQueries({ queryKey: ["usage-ledger-detail"] });
@@ -1264,6 +1272,8 @@ export function useRecordGroupStockUsageFIFO() {
       // Invalidate stock inventory - record_batch_usage now decrements stock_inventory.current_qty
       queryClient.invalidateQueries({ queryKey: queryKeys.materialStock.all });
       queryClient.invalidateQueries({ queryKey: ["stock-inventory"] });
+      // Per-GRN usage bar (Hub) reads batch_usage_delivery_allocations.
+      queryClient.invalidateQueries({ queryKey: ["delivery-usage-allocations"] });
     },
   });
 }
@@ -1355,6 +1365,96 @@ export function useRecordBatchUsageWaterfall() {
       queryClient.invalidateQueries({ queryKey: queryKeys.materialStock.all });
       queryClient.invalidateQueries({ queryKey: ["inter-site-settlements"] });
       queryClient.invalidateQueries({ queryKey: ["material-usage"] });
+      // Per-GRN usage bar (Hub) reads batch_usage_delivery_allocations.
+      queryClient.invalidateQueries({ queryKey: ["delivery-usage-allocations"] });
+    },
+  });
+}
+
+/**
+ * Atomic "delete & refill" bulk reconciliation for ONE material across a
+ * cluster's group-stock pool — the commit step of the Reconcile dialog.
+ * Deletes the named pending/self_use records (reversing stock) and inserts the
+ * new per-batch allocations in one transaction via the SECURITY DEFINER RPC
+ * record_reconciliation_usage (cross-site writes are otherwise RLS-blocked).
+ */
+export function useRecordReconciliationUsage() {
+  const queryClient = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    retry: false, // not idempotent — modifies stock + usage records
+    mutationFn: async (data: {
+      created_by?: string;
+      delete_ids: string[];
+      entries: Array<{
+        usage_site_id: string;
+        usage_date: string;
+        work_description?: string | null;
+        allocations: Array<{
+          batch_ref_code: string;
+          material_id: string;
+          brand_id?: string | null;
+          quantity: number;
+        }>;
+      }>;
+    }) => {
+      const entries = data.entries
+        .map((e) => ({
+          ...e,
+          allocations: e.allocations.filter((a) => a.quantity > 0),
+        }))
+        .filter((e) => e.allocations.length > 0);
+      if (entries.length === 0 && data.delete_ids.length === 0) {
+        throw new Error("Nothing to reconcile");
+      }
+
+      const { data: result, error } = await (supabase as any).rpc(
+        "record_reconciliation_usage",
+        {
+          p_created_by: data.created_by || null,
+          p_delete_ids: data.delete_ids,
+          p_entries: entries,
+        }
+      );
+
+      if (error) {
+        throw new Error(error.message);
+      }
+      return result as string[];
+    },
+    onSuccess: (_result, variables) => {
+      const refCodes = new Set<string>();
+      const siteIds = new Set<string>();
+      for (const e of variables.entries) {
+        siteIds.add(e.usage_site_id);
+        for (const a of e.allocations) refCodes.add(a.batch_ref_code);
+      }
+      for (const ref of refCodes) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.batchUsage.byBatch(ref) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.batchUsage.summary(ref) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.materialPurchases.byRefCode(ref) });
+        queryClient.invalidateQueries({ queryKey: ["batch-variant-summary", ref] });
+      }
+      for (const site of siteIds) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.batchUsage.bySite(site) });
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.batchUsage.all });
+      queryClient.invalidateQueries({ queryKey: ["material-purchases", "batches"] });
+      queryClient.invalidateQueries({ queryKey: ["material-purchases"] });
+      queryClient.invalidateQueries({ queryKey: ["all-expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["material-threads"] });
+      queryClient.invalidateQueries({ queryKey: ["usage-history"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["stock-inventory"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.materialStock.all });
+      queryClient.invalidateQueries({ queryKey: ["inter-site-settlements"] });
+      queryClient.invalidateQueries({ queryKey: ["material-usage"] });
+      queryClient.invalidateQueries({ queryKey: ["delivery-usage-allocations"] });
+      // Usage Ledger pages + UsageDetailDrawer.
+      queryClient.invalidateQueries({ queryKey: ["material-usage-ledger"] });
+      queryClient.invalidateQueries({ queryKey: ["usage-ledger-detail"] });
     },
   });
 }

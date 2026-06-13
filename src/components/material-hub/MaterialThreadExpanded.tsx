@@ -753,14 +753,15 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                       key={b.id}
                       sx={{
                         display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
+                        flexDirection: "column",
+                        gap: "3px",
                         padding: "4px 6px",
                         background: hubTokens.hairline,
                         borderRadius: "6px",
                         fontSize: 11,
                       }}
                     >
+                     <Box sx={{ display: "flex", alignItems: "center", gap: "8px", width: "100%" }}>
                       {/* Child index under the parent MAT- batch so installments
                           read as Batch 1 / 2 / 3 rather than opaque GRN codes. */}
                       <Box
@@ -815,14 +816,16 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                           { url: b.invoice_url, label: "Invoice", icon: "bill", tone: "muted" },
                         ]}
                       />
-                      {b.verified || settledOrBeyond ? (
-                        // Once the vendor has been paid (or the material
-                        // is in-use / exhausted), the GRN's verification
-                        // flag is moot — paying for the delivery is itself
-                        // acceptance. Verification "PENDING" only makes
-                        // sense in the window between delivery and
-                        // settlement, where the engineer's next action is
-                        // actually to verify before settling.
+                      {b.verified || hasSettlement ? (
+                        // Once the vendor has been paid (settled outright OR an
+                        // advance PO paid upfront, captured by hasSettlement —
+                        // NOT the stage-based settledOrBeyond, which lags while
+                        // an advance batch is still mid-delivery), the GRN's
+                        // verification flag is moot: paying for the delivery is
+                        // itself acceptance. Verification "PENDING" only makes
+                        // sense in the window between delivery and settlement,
+                        // where the engineer's next action is actually to
+                        // verify before settling.
                         <Box
                           component="span"
                           sx={{
@@ -853,6 +856,27 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                           PENDING
                         </Box>
                       )}
+                     </Box>
+                     {/* Per-GRN consumption (FIFO-allocated from
+                         batch_usage_delivery_allocations). Only shown once this
+                         delivery has been drawn from; unused installments stay
+                         quiet. Capped at received for multi-material rows. */}
+                     {b.received_qty > 0 && (b.used_qty ?? 0) > 0 && (
+                       <Box sx={{ display: "flex", alignItems: "center", gap: "6px", paddingLeft: "2px" }}>
+                         <Box sx={{ flex: 1, height: 4, borderRadius: 2, background: hubTokens.chip, overflow: "hidden" }}>
+                           <Box
+                             sx={{
+                               width: `${Math.min(100, (Math.min(b.used_qty ?? 0, b.received_qty) / b.received_qty) * 100)}%`,
+                               height: "100%",
+                               background: hubTokens.primary,
+                             }}
+                           />
+                         </Box>
+                         <Box component="span" sx={{ fontSize: 9.5, color: hubTokens.muted, fontFamily: hubTokens.mono, whiteSpace: "nowrap" }}>
+                           {fmtQty(Math.min(b.used_qty ?? 0, b.received_qty))}/{fmtQty(b.received_qty)} used
+                         </Box>
+                       </Box>
+                     )}
                     </Box>
                   ))}
                 </Box>
@@ -1000,7 +1024,15 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                 />
               )}
               {t.settlement.paid_by && (
-                <DetailRow label="Paid by" value={t.settlement.paid_by} />
+                <DetailRow
+                  label="Paid by"
+                  value={
+                    t.settlement.paid_by === "wallet" &&
+                    t.settlement.paid_by_engineer_name
+                      ? `wallet · ${t.settlement.paid_by_engineer_name}`
+                      : t.settlement.paid_by
+                  }
+                />
               )}
               {/* Which SITE's money paid the vendor — only meaningful on group
                   threads (own-site settlements are trivially the own site). */}
@@ -1032,38 +1064,86 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               {t.settlement.settled_at && (
                 <DetailRow label="On" value={fmtDateShort(t.settlement.settled_at)} />
               )}
-              {/* Expense ref — deep-links to /site/expenses pre-filtered to this
-                  row (same c_ref pattern as the own-thread Expenses block) so the
-                  settlement can be verified on the ledger in one tap. Group-stock
-                  parents are excluded from v_all_expenses (their per-site usage
-                  allocations are the ledger rows), so those render as plain text. */}
-              {t.settlement.expense_ref && (
-                <DetailRow
-                  label="Ref"
-                  value={
-                    t.settlement.expense_on_ledger !== false ? (
-                      <Box
-                        component="a"
-                        href={`/site/expenses?c_ref=${encodeURIComponent(
-                          t.settlement.expense_ref
-                        )}&fromHub=${encodeURIComponent(t.id)}`}
-                        sx={{
-                          fontFamily: hubTokens.mono,
-                          color: hubTokens.primary,
-                          textDecoration: "none",
-                          "&:hover": { textDecoration: "underline" },
-                        }}
-                      >
-                        {t.settlement.expense_ref}
-                      </Box>
-                    ) : (
-                      <Box component="span" sx={{ fontFamily: hubTokens.mono }}>
-                        {t.settlement.expense_ref}
-                      </Box>
-                    )
-                  }
-                />
-              )}
+              {/* Linkage + Ref. Every settlement is traceable somewhere, but not
+                  always as a single /site/expenses row:
+                    · own_site / spot  → it IS a ledger row → link to expenses.
+                    · wallet-paid      → the cash left the site wallet → link to
+                      /site/my-wallet (group-stock parents are excluded from
+                      v_all_expenses by design; their cost shows as the wallet
+                      spend + per-site usage, both visible here).
+                    · anything else    → no traceable target → "reverify" flag.
+                  The Ref deep-links to whichever target applies so the settlement
+                  can be verified in one tap. */}
+              {(() => {
+                const onLedger = t.settlement.expense_on_ledger !== false;
+                const walletPaid = t.settlement.paid_by === "wallet";
+                const ref = t.settlement.expense_ref;
+                const href = !ref
+                  ? null
+                  : onLedger
+                    ? `/site/expenses?c_ref=${encodeURIComponent(ref)}&fromHub=${encodeURIComponent(t.id)}`
+                    : walletPaid
+                      ? "/site/my-wallet"
+                      : null;
+                const linkedLabel = onLedger
+                  ? "On site expenses"
+                  : walletPaid
+                    ? t.settlement.paid_by_engineer_name
+                      ? `Paid from ${t.settlement.paid_by_engineer_name}'s wallet`
+                      : "Paid from site wallet"
+                    : t.kind === "group"
+                      ? "Tracked as per-site usage"
+                      : null;
+                const isLinked = onLedger || walletPaid || t.kind === "group";
+                return (
+                  <>
+                    <DetailRow
+                      label="Linked"
+                      value={
+                        <Box
+                          component="span"
+                          sx={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: isLinked ? hubTokens.success : hubTokens.warn,
+                          }}
+                        >
+                          {isLinked ? "✓" : "⚠"}{" "}
+                          {isLinked ? linkedLabel : "Not linked — reverify"}
+                        </Box>
+                      }
+                    />
+                    {ref && (
+                      <DetailRow
+                        label="Ref"
+                        value={
+                          href ? (
+                            <Box
+                              component="a"
+                              href={href}
+                              sx={{
+                                fontFamily: hubTokens.mono,
+                                color: hubTokens.primary,
+                                textDecoration: "none",
+                                "&:hover": { textDecoration: "underline" },
+                              }}
+                            >
+                              {ref}
+                            </Box>
+                          ) : (
+                            <Box component="span" sx={{ fontFamily: hubTokens.mono }}>
+                              {ref}
+                            </Box>
+                          )
+                        }
+                      />
+                    )}
+                  </>
+                );
+              })()}
             </>
           ) : isAdvancePaid ? (
             <>
@@ -1298,13 +1378,26 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               <Typography
                 sx={{
                   fontSize: 11,
-                  color: hubTokens.subtle,
+                  color: t.kind === "own" ? hubTokens.subtle : hubTokens.warn,
                   fontStyle: "italic",
                   marginBottom: "6px",
                 }}
               >
-                Merged into the site&apos;s {t.material_name} stock pool
-                (own-site POs don&apos;t separate batches).
+                {t.kind === "own" ? (
+                  <>
+                    Merged into the site&apos;s {t.material_name} stock pool
+                    (own-site POs don&apos;t separate batches).
+                  </>
+                ) : (
+                  // A GROUP purchase must keep a separate batch stock row. If we
+                  // land here, the delivery verified but the batch stock row is
+                  // missing (the stock-on-verify trigger didn't fire) — never
+                  // claim it "merged into the own-site pool".
+                  <>
+                    Delivered, but no batch stock record was found for this group
+                    purchase — re-verify the delivery to create batch stock.
+                  </>
+                )}
               </Typography>
               <DetailRow
                 label="Added to stock"

@@ -12,7 +12,8 @@
  */
 
 import { useMemo } from "react";
-import { Box, Typography } from "@mui/material";
+import { Box, Typography, Button } from "@mui/material";
+import { SwapHoriz as SwapIcon } from "@mui/icons-material";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { fmtQty } from "@/lib/formatters";
 import { summarizeFilteredThreads } from "@/lib/material-hub/filteredSummary";
@@ -22,6 +23,8 @@ interface HubFilteredSummaryProps {
   threads: MaterialThread[];
   materialLabel: string;
   viewingSiteName: string;
+  /** When provided, shows a "Reconcile usage" action (group materials only). */
+  onReconcile?: () => void;
 }
 
 function Metric({
@@ -72,6 +75,7 @@ export default function HubFilteredSummary({
   threads,
   materialLabel,
   viewingSiteName,
+  onReconcile,
 }: HubFilteredSummaryProps) {
   const s = useMemo(
     () => summarizeFilteredThreads(threads, viewingSiteName),
@@ -148,6 +152,18 @@ export default function HubFilteredSummary({
             ))}
           </Box>
         </Box>
+      )}
+
+      {onReconcile && (
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<SwapIcon fontSize="small" />}
+          onClick={onReconcile}
+          sx={{ ml: s.perSiteUsed.length > 0 ? 1.5 : "auto", textTransform: "none", flexShrink: 0 }}
+        >
+          Reconcile usage
+        </Button>
       )}
     </Box>
   );
