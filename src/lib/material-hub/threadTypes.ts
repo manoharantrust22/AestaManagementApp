@@ -150,8 +150,11 @@ export interface ThreadInventory {
   received: number;
   used: number;
   remaining: number;
-  /** Per-site received/used split for shared group batches whose deliveries
-   *  landed at more than one cluster site. Undefined for single-site batches.
+  /** Per-site received/used split for a GROUP batch — one entry per cluster
+   *  site that received or used it. Populated for any group batch (including
+   *  single-site) so a cluster-wide roll-up reconciles with the headline;
+   *  undefined for own-site batches. The Hub expanded card only renders its
+   *  segmented bar when there is more than one site.
    *  Lets the Hub show "Padmavathy 40 recv · 21.5 used / Srinivasan 30 · 3.5"
    *  so totals reconcile against the material usage ledger. */
   per_site?: Array<{
@@ -159,6 +162,9 @@ export interface ThreadInventory {
     site_name: string;
     received: number;
     used: number;
+    /** Live current_qty held on this site's stock row (Σ reconciles to the
+     *  batch's headline remaining). Optional for older callers. */
+    remaining?: number;
   }>;
 }
 

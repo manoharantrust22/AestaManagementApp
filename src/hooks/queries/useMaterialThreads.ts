@@ -620,12 +620,20 @@ export function deriveStandardStage(
   return base;
 }
 
-function deriveKind(
+export function deriveKind(
   mr: MaterialRequestWithDetails,
-  po: PurchaseOrderWithDetails | undefined
+  po: PurchaseOrderWithDetails | undefined,
+  settlement?: SettlementSnapshot
 ): ThreadKind {
-  // The PO is the source of truth for group vs own — v1 /site/purchase-orders
-  // parses `notes` for "[GROUP STOCK]" and shows the chip from that. We mirror
+  // The SETTLED expense is the source of truth for group vs own: purchase_type
+  // ('group_stock' | 'own_site') is decided at PO/settlement time and recorded
+  // on material_purchase_expenses. A PO carries site_group_id merely because its
+  // site belongs to a cluster — that alone must NOT promote an own-site buy to
+  // "group" (the reconcile dialog and OWN-exclusion already trust this field).
+  if (settlement?.purchase_type === "group_stock") return "group";
+  if (settlement?.purchase_type === "own_site") return "own";
+  // No settled expense yet (e.g. advance PO not yet delivered): fall back to the
+  // PO — v1 /site/purchase-orders parses `notes` for "[GROUP STOCK]"; we mirror
   // that here AND fall back to `po.site_group_id` being set. `mr.purchase_type`
   // is unreliable: many MRs were created as own_site but converted to group
   // stock at PO creation time, leaving the MR's flag stale.
@@ -702,7 +710,10 @@ function mapStandardThread(
 ): MaterialThread {
   const po = poByRequestId.get(mr.id);
   const primaryItem = mr.items?.[0];
-  const threadKind = deriveKind(mr, po);
+  // The settled expense (own_site vs group_stock) is the source of truth for
+  // group/own classification; look it up once here and reuse it below.
+  const settlement = po ? deps.settlementByPo.get(po.id) : undefined;
+  const threadKind = deriveKind(mr, po, settlement);
 
   // Brand: the real purchased brand lives on the PO item; request items rarely
   // carry it. Build a per-material map from the PO once, then fall back to the
@@ -753,9 +764,9 @@ function mapStandardThread(
     0
   );
 
-  // Look up settlement first, then pick the inventory row matching this
-  // thread's batch (settlement.ref_code → stock_inventory.batch_code).
-  const settlement = po ? deps.settlementByPo.get(po.id) : undefined;
+  // Pick the inventory row matching this thread's batch
+  // (settlement.ref_code → stock_inventory.batch_code). `settlement` is resolved
+  // once at the top of this function (used for the group/own classification too).
   const batchCode = settlement?.ref_code ?? null;
 
   // Stock is keyed by the actually-purchased material (PO line), which can
@@ -814,6 +825,11 @@ function mapStandardThread(
     // RECEIVED per site comes from the stock rows (received = current_qty +
     // whatever was decremented = what physically landed at that site).
     const receivedBySite = new Map<string, number>();
+    // HELD NOW per site = the live current_qty on that site's stock row. Kept
+    // separate from received so a per-site "held" roll-up reconciles exactly
+    // with the headline remaining (Σ current_qty), even when a stock-row
+    // decrement has no matching usage-ledger row.
+    const remainingBySite = new Map<string, number>();
     for (const c of sharedBatch) {
       const remaining = Math.max(0, Number(c.stock.current_qty));
       const stockUsed = Math.max(0, c.used);
@@ -822,6 +838,10 @@ function mapStandardThread(
       receivedBySite.set(
         c.stock.site_id,
         (receivedBySite.get(c.stock.site_id) ?? 0) + remaining + stockUsed
+      );
+      remainingBySite.set(
+        c.stock.site_id,
+        (remainingBySite.get(c.stock.site_id) ?? 0) + remaining
       );
     }
     // USED per site is the ledger-true attribution (batch_usage_records by
@@ -844,17 +864,22 @@ function mapStandardThread(
       remaining: invRemaining,
     };
     // Per-site split: union of sites that received and sites that used.
+    // Populated for ANY group batch (incl. single-site) so a cluster-wide
+    // roll-up of per-site used/held reconciles with the headline remaining —
+    // the Hub expanded card only renders its bar for size > 1 (sharedUsage),
+    // so single-entry splits stay invisible there.
     if (threadKind === "group") {
       const siteIds = new Set<string>([
         ...receivedBySite.keys(),
         ...usedBySite.keys(),
       ]);
-      if (siteIds.size > 1) {
+      if (siteIds.size > 0) {
         invPerSite = Array.from(siteIds).map((site_id) => ({
           site_id,
           site_name: deps.siteNameById.get(site_id) ?? "Unknown site",
           received: receivedBySite.get(site_id) ?? 0,
           used: usedBySite.get(site_id) ?? 0,
+          remaining: remainingBySite.get(site_id) ?? 0,
         }));
       }
     }
@@ -1108,7 +1133,18 @@ function mapSpotThread(sp: SpotPurchaseExpense): MaterialThread {
   const allocations = sp.allocations ?? [];
   const isFinal = allocations.length > 0 && allocations.every((a) => a.is_final);
   const isProvisional = allocations.length > 0 && !isFinal;
-  const kind: ThreadKind = sp.site_group_id ? "group" : "own";
+  // Authoritative own/group from purchase_type; only actual spot rows ('spot')
+  // fall back to site_group_id (a cluster-allocated spot buy is shared). A
+  // historical own-site buy carries a site_group_id when the site is in a
+  // cluster, but it is NOT shared stock.
+  const kind: ThreadKind =
+    sp.purchase_type === "group_stock"
+      ? "group"
+      : sp.purchase_type === "own_site"
+      ? "own"
+      : sp.site_group_id
+      ? "group"
+      : "own";
 
   const isHistorical = !!sp.is_historical;
   const usedQty = sp.used_qty_at_entry != null ? Number(sp.used_qty_at_entry) : 0;

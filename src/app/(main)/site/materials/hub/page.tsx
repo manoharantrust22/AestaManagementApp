@@ -407,6 +407,10 @@ export default function MaterialHubPage() {
           threads={filteredThreads}
           materialLabel={selectedFilter.label}
           viewingSiteName={selectedSite.name}
+          viewingSiteId={siteId ?? undefined}
+          siteGroupId={siteGroupId}
+          materialId={selectedFilter.id}
+          filterKind={selectedFilter.kind}
           onReconcile={
             selectedFilter.kind !== "brand" && siteGroupId
               ? () => setReconcileOpen(true)
