@@ -650,7 +650,12 @@ export default function ReconcileUsageDialog({
                     />
                   ))}
                 </Box>
-                {/* Available-in-range cap + over-allocation guard */}
+                {/* Show the CURRENT available group pool — the same number as the
+                    "Shared group pool available now" header — so the period line
+                    never disagrees with it. (The over-allocation guard still uses
+                    the delivered cap internally: a period replaces prior usage, so
+                    its ceiling is delivered, not delivered−used; that only surfaces
+                    in the over-limit error below.) */}
                 {(() => {
                   const cap = preview.periodCapacity[p.id] ?? 0;
                   const entered = periodEntered(p);
@@ -658,8 +663,7 @@ export default function ReconcileUsageDialog({
                   return (
                     <Box sx={{ mt: 1 }}>
                       <Typography variant="caption" color={over ? "error" : "text.secondary"} sx={{ fontWeight: over ? 700 : 400 }}>
-                        Group delivered as of {p.asOfDate || "—"}: <strong>{fmtQty(cap)} {materialUnit}</strong>
-                        {" · "}allocated {fmtQty(entered)} / {fmtQty(cap)}
+                        <strong>{fmtQty(clusterAvailable)} {materialUnit}</strong> available in the group pool
                       </Typography>
                       {over && (
                         <Typography variant="caption" color="error" component="div">
