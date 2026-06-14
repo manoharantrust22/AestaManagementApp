@@ -20,6 +20,8 @@ import {
   StepLabel,
   Tooltip,
   CircularProgress,
+  Checkbox,
+  FormControlLabel,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -68,6 +70,9 @@ interface PeriodInput {
 
 function fmtQty(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 /** Landed-cost ratio for a batch: amount actually paid / Σ item line totals. */
 function batchLandedRatio(batch: any): number {
@@ -298,6 +303,11 @@ export default function ReconcileUsageDialog({
   const [committed, setCommitted] = useState(false);
   const [genDone, setGenDone] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Gate the destructive commit behind an explicit acknowledgement and prefill
+  // the first period from existing usage so a site's prior consumption is never
+  // silently dropped (it was — the 2026-06-13 incident).
+  const [confirmReplace, setConfirmReplace] = useState(false);
+  const [prefillDone, setPrefillDone] = useState(false);
 
   // Reset on open.
   useEffect(() => {
@@ -309,8 +319,40 @@ export default function ReconcileUsageDialog({
       setCommitted(false);
       setGenDone(false);
       setErr(null);
+      setConfirmReplace(false);
+      setPrefillDone(false);
     }
   }, [open, sites]);
+
+  // Prefill the (single) opening period with each site's CURRENTLY-RECORDED
+  // replaceable usage, so committing without edits reproduces the same totals
+  // instead of wiping a site that the user didn't re-type. Runs once, after the
+  // existing records load; only touches the untouched initial period.
+  useEffect(() => {
+    if (!open || prefillDone || existing.length === 0) return;
+    const perSite = new Map<string, number>();
+    for (const e of existing) {
+      if (e.settlementStatus === "settled" || e.settlementStatus === "in_settlement") continue;
+      perSite.set(e.usageSiteId, (perSite.get(e.usageSiteId) ?? 0) + e.quantity);
+    }
+    if (perSite.size === 0) {
+      setPrefillDone(true);
+      return;
+    }
+    setPeriods((ps) => {
+      if (ps.length !== 1) return ps; // user already edited structure
+      const p0 = ps[0];
+      const touched = Object.values(p0.bags).some((v) => v !== "");
+      if (touched) return ps;
+      const bags: Record<string, string> = { ...p0.bags };
+      for (const s of sites) {
+        const q = perSite.get(s.id) ?? 0;
+        bags[s.id] = q > 0 ? fmtQty(q) : "";
+      }
+      return [{ ...p0, bags }];
+    });
+    setPrefillDone(true);
+  }, [open, prefillDone, existing, sites]);
 
   const periodsForCalc: ReconcilePeriod[] = useMemo(
     () =>
@@ -351,6 +393,37 @@ export default function ReconcileUsageDialog({
     [pool]
   );
   const recordedSoFar = useMemo(() => existing.reduce((s, e) => s + e.quantity, 0), [existing]);
+
+  // Per-site BEFORE → AFTER diff for the replace, so the destructive commit is
+  // legible: how much each site has recorded now vs what it will have after.
+  const replaceDiff = useMemo(() => {
+    const deleteSet = new Set(preview.deleteIds);
+    const before = new Map<string, number>();
+    const after = new Map<string, number>();
+    const deletedQty = new Map<string, number>();
+    for (const e of existing) {
+      before.set(e.usageSiteId, (before.get(e.usageSiteId) ?? 0) + e.quantity);
+      if (deleteSet.has(e.id)) {
+        deletedQty.set(e.usageSiteId, (deletedQty.get(e.usageSiteId) ?? 0) + e.quantity);
+      } else {
+        after.set(e.usageSiteId, (after.get(e.usageSiteId) ?? 0) + e.quantity); // kept (settled etc.)
+      }
+    }
+    for (const a of preview.allocations) {
+      after.set(a.usageSiteId, (after.get(a.usageSiteId) ?? 0) + a.quantity);
+    }
+    const rows = sites.map((s) => ({
+      siteId: s.id,
+      name: s.name,
+      before: round2(before.get(s.id) ?? 0),
+      after: round2(after.get(s.id) ?? 0),
+    }));
+    // A site whose recorded usage would DROP (esp. to zero) is the silent-loss
+    // footgun — surface it explicitly.
+    const dropping = rows.filter((r) => r.after < r.before - 1e-6);
+    const totalDeleted = round2([...deletedQty.values()].reduce((a, b) => a + b, 0));
+    return { rows, dropping, totalDeleted };
+  }, [existing, preview.deleteIds, preview.allocations, sites]);
 
   // Per-site stock picture: own-site (dedicated) vs group held at that site.
   const stockBySite = useMemo(() => {
@@ -654,6 +727,49 @@ export default function ReconcileUsageDialog({
               Will replace {preview.deleteIds.length} pending log(s) in range · {lockedKept} settled log(s) kept · {preview.allocations.length} new allocation(s)
             </Typography>
 
+            {/* Destructive-change confirmation: this commit PERMANENTLY deletes
+                the in-range pending/self-use records and rebuilds them. Show the
+                per-site before→after so it's legible, flag any site whose usage
+                would drop, and require an explicit acknowledgement. */}
+            {preview.deleteIds.length > 0 && (
+              <Paper variant="outlined" sx={{ p: 1.5, mt: 1.5, borderColor: "warning.main", bgcolor: "warning.50" }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                  This permanently replaces {preview.deleteIds.length} existing usage record(s)
+                  {replaceDiff.totalDeleted > 0 ? ` (${fmtQty(replaceDiff.totalDeleted)} ${materialUnit})` : ""}.
+                </Typography>
+                <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", my: 1 }}>
+                  {replaceDiff.rows.map((r) => {
+                    const dropped = r.after < r.before - 1e-6;
+                    return (
+                      <Box
+                        key={r.siteId}
+                        sx={{
+                          px: 1, py: 0.5, borderRadius: 1, border: "1px solid",
+                          borderColor: dropped ? "error.main" : "divider",
+                          bgcolor: "background.paper",
+                        }}
+                      >
+                        <Typography variant="caption" color="text.secondary" component="div">{r.name}</Typography>
+                        <Typography variant="body2" component="div" sx={{ fontWeight: 600 }}>
+                          {fmtQty(r.before)} → <Box component="span" sx={{ color: dropped ? "error.main" : "success.main" }}>{fmtQty(r.after)}</Box> {materialUnit}
+                        </Typography>
+                      </Box>
+                    );
+                  })}
+                </Box>
+                {replaceDiff.dropping.length > 0 && (
+                  <Alert severity="error" sx={{ mb: 1, py: 0.25 }}>
+                    {replaceDiff.dropping.map((r) => `${r.name} drops from ${fmtQty(r.before)} to ${fmtQty(r.after)} ${materialUnit}`).join(" · ")}.
+                    {" "}If that site really used that material, go back and enter its usage before committing.
+                  </Alert>
+                )}
+                <FormControlLabel
+                  control={<Checkbox size="small" checked={confirmReplace} onChange={(e) => setConfirmReplace(e.target.checked)} />}
+                  label={<Typography variant="body2">I understand this permanently replaces those records (recoverable from the audit log).</Typography>}
+                />
+              </Paper>
+            )}
+
             <Box sx={{ overflowX: "auto", mt: 1 }}>
               <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", fontSize: 13, "& td, & th": { p: 0.75, borderBottom: "1px solid", borderColor: "divider", textAlign: "left", whiteSpace: "nowrap" } }}>
                 <Box component="thead">
@@ -743,9 +859,17 @@ export default function ReconcileUsageDialog({
         {step === 1 && (
           <>
             <Button onClick={() => setStep(0)}>Back</Button>
-            <Button variant="contained" onClick={handleCommit} disabled={recordReconcile.isPending}>
-              {recordReconcile.isPending ? <CircularProgress size={18} /> : "Record usage"}
-            </Button>
+            <Tooltip title={preview.deleteIds.length > 0 && !confirmReplace ? "Tick the confirmation to replace the existing records" : ""}>
+              <span>
+                <Button
+                  variant="contained"
+                  onClick={handleCommit}
+                  disabled={recordReconcile.isPending || (preview.deleteIds.length > 0 && !confirmReplace)}
+                >
+                  {recordReconcile.isPending ? <CircularProgress size={18} /> : "Record usage"}
+                </Button>
+              </span>
+            </Tooltip>
           </>
         )}
         {step === 2 && (

@@ -24,6 +24,7 @@ import UnifiedPurchaseOrderDialog from "@/components/materials/UnifiedPurchaseOr
 import RecordAndVerifyDeliveryDialog from "@/components/materials/RecordAndVerifyDeliveryDialog";
 import MaterialSettlementDialog from "@/components/materials/MaterialSettlementDialog";
 import WaterfallUsageDialog from "@/components/materials/WaterfallUsageDialog";
+import OwnSiteUsageDialog from "@/components/material-hub/OwnSiteUsageDialog";
 import { SpotPurchaseAllocatorDialog } from "@/components/materials/SpotPurchaseAllocatorDialog";
 import { usePurchaseOrder } from "@/hooks/queries/usePurchaseOrders";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
@@ -49,6 +50,16 @@ type OpenDialog =
       materialName?: string;
       materialUnit?: string;
       batchRefCode?: string;
+    }
+  // Own-site (pooled) usage: no batches/sibling sites — site + brand are locked.
+  | {
+      kind: "log-usage-own";
+      siteId: string;
+      materialId: string;
+      brandId?: string | null;
+      brandName?: string | null;
+      materialName?: string;
+      materialUnit?: string;
     }
   | { kind: "finalize-spot"; batchId: string; refCode: string; totalAmount: number };
 
@@ -126,6 +137,23 @@ export const HubDialogRouter = forwardRef<
       // pre-selects its variant; a multi-variant thread (e.g. TMT 3 sizes) lets
       // the engineer pick the size. batchRef just highlights the originating row.
       if (thread.stage === "settled" || thread.stage === "in-use") {
+        // Own-site purchases merge into a single pooled stock row with no
+        // batches and no cross-site sharing. Route them to the dedicated
+        // own-site dialog (site + brand locked) instead of the group-batch
+        // waterfall, which would otherwise list sibling sites and OTHER brands'
+        // batches and falsely report "no remaining stock".
+        if (thread.kind === "own") {
+          setDialog({
+            kind: "log-usage-own",
+            siteId: thread.site_id,
+            materialId: thread.material_id,
+            brandId: thread.brand_id ?? null,
+            brandName: thread.brand_name ?? null,
+            materialName: thread.material_name,
+            materialUnit: thread.material_unit,
+          });
+          return;
+        }
         const batchRef = thread.inventory?.batch && thread.inventory.batch !== "—"
           ? thread.inventory.batch
           : thread.settlement?.expense_ref ?? undefined;
@@ -222,6 +250,17 @@ export const HubDialogRouter = forwardRef<
         preselectedBatchRefCode={
           dialog?.kind === "log-usage" ? dialog.batchRefCode : undefined
         }
+      />
+
+      <OwnSiteUsageDialog
+        open={dialog?.kind === "log-usage-own"}
+        onClose={close}
+        siteId={dialog?.kind === "log-usage-own" ? dialog.siteId : ""}
+        materialId={dialog?.kind === "log-usage-own" ? dialog.materialId : ""}
+        materialName={dialog?.kind === "log-usage-own" ? dialog.materialName : undefined}
+        materialUnit={dialog?.kind === "log-usage-own" ? dialog.materialUnit : undefined}
+        brandId={dialog?.kind === "log-usage-own" ? dialog.brandId : undefined}
+        brandName={dialog?.kind === "log-usage-own" ? dialog.brandName : undefined}
       />
 
       <SpotPurchaseAllocatorDialog

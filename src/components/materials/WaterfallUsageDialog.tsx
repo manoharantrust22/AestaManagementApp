@@ -591,23 +591,27 @@ export default function WaterfallUsageDialog({
             />
           </Grid>
 
-          {/* Variant selector (only when the material has >1 variant) */}
-          {variants.length > 1 && (
+          {/* Brand selector — shown only when the brand wasn't pre-locked by the
+              caller AND this material genuinely has more than one brand across
+              its batches. (This dropdown selects by brand_id, not size; a
+              single-brand thread passes brandId so we hide it entirely instead
+              of confusingly offering one "Standard" / other-brand option.) */}
+          {brandId === undefined && variants.length > 1 && (
             <Grid size={12}>
               <TextField
                 select
                 fullWidth
-                label="Variant / size"
+                label="Brand"
                 value={selectedBrandKey}
                 onChange={(e) => {
                   setSelectedBrandKey(e.target.value);
                   setTotalQty(0);
                 }}
-                helperText="Each size keeps its own batches and remaining stock."
+                helperText="Each brand keeps its own batches and remaining stock."
               >
                 {variants.map((v) => (
                   <MenuItem key={brandKey(v.brandId)} value={brandKey(v.brandId)}>
-                    {v.brandName ?? "Standard"}
+                    {v.brandName ?? "Unbranded"}
                   </MenuItem>
                 ))}
               </TextField>
