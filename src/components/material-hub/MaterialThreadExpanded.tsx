@@ -48,6 +48,8 @@ import { hasEditPermission } from "@/lib/permissions";
 import UsageLogList from "@/components/inventory/UsageLogList";
 import type { UsageLogItem } from "@/hooks/queries/useUsageLog";
 import ThreadCorrectionMenu from "@/components/material-hub/ThreadCorrectionMenu";
+import RecordDeliveryButton from "@/components/material-hub/RecordDeliveryButton";
+import BatchCorrectionControl from "@/components/material-hub/BatchCorrectionControl";
 import PhotoLightbox from "@/components/dashboard/PhotoLightbox";
 import type { WorkPhoto } from "@/types/work-updates.types";
 import { normalizeImageUrl } from "@/lib/utils/storageUrl";
@@ -856,6 +858,15 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                           PENDING
                         </Box>
                       )}
+                      {/* Per-batch correction — fix or remove a wrongly-recorded
+                          installment right on its row (reverse & re-record). */}
+                      <BatchCorrectionControl
+                        thread={t}
+                        batch={b}
+                        batchLabel={`Batch ${i + 1}`}
+                        canEdit={canEdit}
+                        siteId={selectedSite?.id ?? t.site_id}
+                      />
                      </Box>
                      {/* Per-GRN consumption (FIFO-allocated from
                          batch_usage_delivery_allocations). Only shown once this
@@ -900,6 +911,16 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               Pending delivery.
             </Typography>
           )}
+
+          {/* Record the next delivery installment right where the batches are
+              listed — for an advance PO the vendor delivers part-by-part, so
+              this stays available until the order is fully received. Self-gates
+              (hidden once delivered / for spot / mirror threads). */}
+          <RecordDeliveryButton
+            thread={t}
+            canEdit={canEdit}
+            siteId={selectedSite?.id ?? t.site_id}
+          />
         </Box>
       </Box>
 

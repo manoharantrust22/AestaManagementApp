@@ -2642,6 +2642,21 @@ export function useRecordAndVerifyDelivery() {
         throw new Error("At least one photo is required for Record & Verify");
       }
 
+      // Guard: never create a delivery with no positively-received line. The
+      // dialog filters out 0-qty lines, so an all-zero submit arrives here as an
+      // empty items array. Because we insert the `deliveries` row first and the
+      // items second, an empty set would otherwise leave an orphaned 0-item GRN
+      // — the "phantom 0 bag batch" bug. Refuse up-front so no row is created,
+      // and build the items strictly from this filtered set below.
+      const positiveItems = (data.items ?? []).filter(
+        (i: any) => Number(i.received_qty) > 0
+      );
+      if (positiveItems.length === 0) {
+        throw new Error(
+          "Enter a received quantity greater than zero before recording the delivery."
+        );
+      }
+
       // Generate GRN number using UUID for collision resistance
       const generateGrn = () => {
         const uuid = crypto.randomUUID().replace(/-/g, '').substring(0, 12).toUpperCase();
@@ -2820,8 +2835,8 @@ export function useRecordAndVerifyDelivery() {
         throw lastError || new Error('Failed to create delivery after retries');
       }
 
-      // Insert delivery items
-      const deliveryItems = data.items.map((item: any) => ({
+      // Insert delivery items (from the positive-qty set only — see guard above)
+      const deliveryItems = positiveItems.map((item: any) => ({
         delivery_id: delivery.id,
         po_item_id: item.po_item_id || null,
         material_id: item.material_id,
@@ -2842,8 +2857,28 @@ export function useRecordAndVerifyDelivery() {
         .insert(deliveryItems);
 
       if (itemsError) {
+        // The `deliveries` row was already committed above. If the items insert
+        // fails (e.g. a stock trigger error), roll it back so we never leave an
+        // orphaned 0-item GRN behind — that was the source of the phantom
+        // "0 bag" batches. Best-effort: surface the original error regardless.
         console.error("[useRecordAndVerifyDelivery] Delivery items insert error:", itemsError);
-        throw itemsError;
+        try {
+          await supabase.from("deliveries").delete().eq("id", delivery.id);
+        } catch (rollbackErr) {
+          console.error(
+            "[useRecordAndVerifyDelivery] Failed to roll back orphaned delivery:",
+            rollbackErr
+          );
+        }
+        // PostgREST sometimes serializes to `{}` in the console; pull a real
+        // message out so the dialog shows something actionable.
+        const msg =
+          itemsError.message ||
+          itemsError.details ||
+          itemsError.hint ||
+          (itemsError.code ? `Database error ${itemsError.code}` : "") ||
+          JSON.stringify(itemsError);
+        throw new Error(`Could not save delivery items: ${msg}`);
       }
 
       // NOTE: purchase_order_items.received_qty is incremented by the DB trigger

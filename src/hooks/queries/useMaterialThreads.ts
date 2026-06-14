@@ -587,7 +587,7 @@ export function deriveStandardStage(
 
   // If a settlement row exists and is paid AND the PO is fully delivered,
   // advance to "settled". Partial deliveries (advance-paid bulk) stay in
-  // "ordered" so the engineer's next action remains "Record next batch" —
+  // "ordered" so the engineer's next action remains "Record next delivery" —
   // the pipeline still marks SETTLE as done via the advance-paid override.
   const isSettled = !!settlement && settlement.is_paid === true;
   if (isSettled && base === "delivered") {

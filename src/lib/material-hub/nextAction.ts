@@ -37,13 +37,15 @@ export function nextAction(t: MaterialThread): NextAction | null {
   if (t.stage === "approved") return { who: "admin", label: "Create PO →", verb: "Create PO" };
 
   // 'ordered' covers both no-delivery-yet AND partial-delivered. The next
-  // action is always to record the next batch.
+  // action is always to record the next delivery installment. (Labelled
+  // "delivery", not "batch" — "batch" is overloaded in this app: a delivery
+  // installment vs. a usage/stock batch vs. the parent MAT- batch code.)
   if (t.stage === "ordered") {
     const partial = t.po && t.po.received_qty > 0 && t.po.received_qty < t.po.qty;
     return {
       who: "engineer",
-      label: partial ? "Record next batch →" : "Record delivery →",
-      verb: partial ? "Record batch" : "Record delivery",
+      label: partial ? "Record next delivery →" : "Record delivery →",
+      verb: "Record delivery",
     };
   }
 

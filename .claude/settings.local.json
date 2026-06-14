@@ -471,7 +471,11 @@
       "PowerShell(git status --short; Write-Output \"---PORT CHECK---\"; $conn = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -First 1; if \\($conn\\) { Write-Output \"Port 3000 in use \\(PID $\\($conn.OwningProcess\\)\\)\" } else { Write-Output \"Port 3000 free\" })",
       "PowerShell(npm run dev:cloud)",
       "PowerShell(node c:\\\\tmp\\\\verify-deadlock-fix.cjs)",
-      "PowerShell(npm run test 2>$null)"
+      "PowerShell(npm run test 2>$null)",
+      "Bash(npx eslint *)",
+      "PowerShell($conns = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; foreach \\($c in $conns\\) { $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue; if \\($p\\) { $cmd = \\(Get-CimInstance Win32_Process -Filter \"ProcessId=$\\($p.Id\\)\"\\).CommandLine; \"PID $\\($p.Id\\): $cmd\" } })",
+      "PowerShell($child = Get-CimInstance Win32_Process -Filter \"ProcessId=10608\"; $parent = Get-CimInstance Win32_Process -Filter \"ProcessId=$\\($child.ParentProcessId\\)\"; \"PARENT PID $\\($parent.ProcessId\\): $\\($parent.CommandLine\\)\"; $gp = Get-CimInstance Win32_Process -Filter \"ProcessId=$\\($parent.ParentProcessId\\)\" -ErrorAction SilentlyContinue; if \\($gp\\) { \"GRANDPARENT: $\\($gp.CommandLine\\)\" })",
+      "PowerShell(try { Stop-Process -Id 28792 -Force -ErrorAction Stop; \"stopped next dev tree \\(28792\\)\" } catch { \"28792 not found: $_\" }; try { Stop-Process -Id 10608 -Force -ErrorAction Stop; \"stopped start-server \\(10608\\)\" } catch { \"10608 already gone: $_\" }; Start-Sleep -Milliseconds 800; $still = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($still\\) { \"PORT 3000 STILL LISTENING\" } else { \"port 3000 free\" })"
     ],
     "deny": [],
     "ask": [],
