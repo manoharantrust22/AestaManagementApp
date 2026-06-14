@@ -157,14 +157,19 @@ export const HubDialogRouter = forwardRef<
         const batchRef = thread.inventory?.batch && thread.inventory.batch !== "—"
           ? thread.inventory.batch
           : thread.settlement?.expense_ref ?? undefined;
-        const singleVariantBrand =
-          thread.variants && thread.variants.length === 1
-            ? thread.variants[0].brand_id ?? null
-            : undefined;
+        // Lock the brand to the thread's own brand for single-line/single-variant
+        // threads (so the waterfall dialog never shows a stray brand picker that
+        // can default to a SIBLING batch's brand and falsely report "no remaining
+        // stock"). Only a genuine multi-size thread (e.g. TMT 16/12/8mm) passes
+        // `undefined` to let the engineer pick the size. `null` = unbranded.
+        const lockedBrand =
+          thread.variants && thread.variants.length > 1
+            ? undefined
+            : thread.brand_id ?? null;
         setDialog({
           kind: "log-usage",
           materialId: thread.material_id,
-          brandId: singleVariantBrand,
+          brandId: lockedBrand,
           materialName: thread.material_name,
           materialUnit: thread.material_unit,
           batchRefCode: batchRef,

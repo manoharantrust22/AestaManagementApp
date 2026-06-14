@@ -37,6 +37,7 @@ import { useGroupMaterialPurchases } from "@/hooks/queries/useMaterialPurchases"
 import {
   useGroupBatchUsageRecords,
   useRecordBatchUsageWaterfall,
+  useRecordBatchUsageMultiSite,
 } from "@/hooks/queries/useBatchUsage";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatCurrency } from "@/lib/formatters";
@@ -44,6 +45,13 @@ import DateRangePicker from "@/components/common/DateRangePicker";
 import { useMaterialUsageLedger } from "@/hooks/queries/useMaterialUsageLedger";
 import UsedSoFarStrip from "@/components/materials/UsedSoFarStrip";
 import UsageDetailDrawer from "@/components/materials/UsageDetailDrawer";
+import {
+  NO_BRAND,
+  brandKey,
+  deriveBatchBrandKey,
+  summarizeSiteSplit,
+  validateSiteSplit,
+} from "@/lib/material-hub/batchUsageSplit";
 
 type Scope = "batch" | "all" | "range";
 
@@ -70,12 +78,7 @@ interface WaterfallUsageDialogProps {
   defaultScope?: "batch" | "all";
 }
 
-const NO_BRAND = "__none__";
 const QTY_EPS = 1e-6;
-
-function brandKey(brandId: string | null | undefined): string {
-  return brandId == null || brandId === "" ? NO_BRAND : brandId;
-}
 
 function round3(n: number): number {
   return Math.round(n * 1000) / 1000;
@@ -161,6 +164,7 @@ export default function WaterfallUsageDialog({
   const { data: usageRecords = [] } = useGroupBatchUsageRecords(groupId);
 
   const recordWaterfall = useRecordBatchUsageWaterfall();
+  const recordMultiSite = useRecordBatchUsageMultiSite();
 
   // ── Ledger data for "Used so far" strip + detail drawer ────────────────────
   const { data: ledgerRows = [] } = useMaterialUsageLedger({ site_id: siteId });
@@ -178,6 +182,9 @@ export default function WaterfallUsageDialog({
   const [rangeStart, setRangeStart] = useState<Date | null>(null);
   const [rangeEnd, setRangeEnd] = useState<Date | null>(null);
   const [rows, setRows] = useState<BatchRowState[]>([]);
+  // "This batch" scope only: per-consuming-site quantity split (e.g. Srinivasan
+  // 30 + Padmavathy 20 against one batch), keyed by site_id.
+  const [siteQty, setSiteQty] = useState<Record<string, number>>({});
   const [expandedLog, setExpandedLog] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string>("");
   const [sectionId, setSectionId] = useState<string | null>(null);
@@ -249,6 +256,20 @@ export default function WaterfallUsageDialog({
     }
     return Array.from(map.values());
   }, [activeBatches, materialId, materialUnit]);
+
+  // In "This batch" scope the brand is IMPLICIT — it's whatever the clicked
+  // batch is. Derive it from the preselected batch's item for THIS material so
+  // the candidate filter is locked to the right variant and never mismatches a
+  // SIBLING batch's brand (which would falsely report "no remaining stock").
+  const preselectedBatchBrandKey = useMemo<string | null>(
+    () =>
+      deriveBatchBrandKey(
+        activeBatches as any[],
+        preselectedBatchRefCode,
+        materialId
+      ),
+    [activeBatches, preselectedBatchRefCode, materialId]
+  );
 
   // Candidate batch rows for the selected variant + scope, oldest→newest.
   const candidateRows = useMemo<BatchRowState[]>(() => {
@@ -336,6 +357,19 @@ export default function WaterfallUsageDialog({
     setSelectedBrandKey((prev) => (prev ? prev : initial));
   }, [open, variants, brandId]);
 
+  // "This batch" scope: force the brand to the clicked batch's brand, overriding
+  // the "default to the most-recent variant" init above. Without this, a cluster
+  // that also bought the same material under a DIFFERENT brand (e.g. an unbranded
+  // sibling batch) makes the dialog default to the wrong brand and falsely report
+  // the clicked batch as having no remaining stock.
+  useEffect(() => {
+    if (!open || scope !== "batch") return;
+    if (preselectedBatchBrandKey == null) return;
+    setSelectedBrandKey((prev) =>
+      prev === preselectedBatchBrandKey ? prev : preselectedBatchBrandKey
+    );
+  }, [open, scope, preselectedBatchBrandKey]);
+
   // Set the initial scope once per open (Hub → batch, Inventory → all).
   useEffect(() => {
     if (!open) return;
@@ -361,6 +395,7 @@ export default function WaterfallUsageDialog({
     setRangeStart(null);
     setRangeEnd(null);
     setRows([]);
+    setSiteQty({});
     setExpandedLog(new Set());
     setError("");
     setSectionId(null);
@@ -403,6 +438,7 @@ export default function WaterfallUsageDialog({
     if (!val) return;
     setScope(val);
     setTotalQty(0); // rows rebuild via candidateSig effect
+    setSiteQty({}); // per-site split is batch-scope only
     setError("");
   }, []);
 
@@ -441,34 +477,114 @@ export default function WaterfallUsageDialog({
     return { selfUse, interSite, owedCount: owedSites.size };
   }, [rows, consumingSiteId]);
 
+  // ── "This batch" per-site split ────────────────────────────────────────────
+  // The cluster sites that can consume this batch, current site first.
+  const clusterSites = useMemo(() => {
+    const all = (groupMembership?.allSites ?? []) as Array<{ id: string; name: string }>;
+    return [...all].sort((a, b) =>
+      a.id === siteId ? -1 : b.id === siteId ? 1 : 0
+    );
+  }, [groupMembership, siteId]);
+
+  // The single preselected batch (batch scope only) drives remaining + payer.
+  const batchRow = scope === "batch" ? candidateRows[0] ?? null : null;
+  const batchRemaining = batchRow?.remaining ?? 0;
+
+  const siteSplitEntries = useMemo(
+    () => clusterSites.map((st) => ({ siteId: st.id, qty: siteQty[st.id] || 0 })),
+    [clusterSites, siteQty]
+  );
+  const splitSummary = useMemo(
+    () =>
+      summarizeSiteSplit(
+        siteSplitEntries,
+        batchRow?.payingSiteId ?? null,
+        batchRow?.landedUnitCost ?? 0
+      ),
+    [siteSplitEntries, batchRow]
+  );
+  const splitValidation = useMemo(
+    () => validateSiteSplit(splitSummary.total, batchRemaining, QTY_EPS),
+    [splitSummary.total, batchRemaining]
+  );
+
+  const onSiteQtyChange = useCallback((id: string, value: number) => {
+    setSiteQty((prev) => ({
+      ...prev,
+      [id]: Number.isFinite(value) && value > 0 ? round3(value) : 0,
+    }));
+    setError("");
+  }, []);
+
   const selectedBrandName = variants.find((v) => brandKey(v.brandId) === selectedBrandKey)?.brandName;
 
   const noBatches = candidateRows.length === 0;
-  const canSubmit = isMulti
-    ? !noBatches && isBalanced && !overLocked
-    : !noBatches && allocated > QTY_EPS;
+  const canSubmit =
+    scope === "batch"
+      ? !noBatches && splitValidation.canSubmit
+      : !noBatches && isBalanced && !overLocked;
+
+  // Self-use / inter-site cost — per-site split in batch scope, per-batch
+  // allocation in the multi-batch scopes.
+  const activeCost =
+    scope === "batch"
+      ? {
+          selfUse: splitSummary.selfUse,
+          interSite: splitSummary.interSite,
+          owedCount: splitSummary.owedSiteIds.length,
+        }
+      : costSummary;
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     setError("");
     if (!materialId) return setError("Missing material");
-    if (!consumingSiteId) return setError("Select which site used the material");
-
-    if (isMulti) {
-      if (totalQty <= 0) return setError("Enter the total quantity to record");
-      if (overLocked)
-        return setError("Pinned rows already exceed the total — lower a pinned batch or raise the total");
-      if (!isBalanced)
-        return setError(
-          leftToAssign > 0
-            ? `${leftToAssign} ${unit} still unassigned (only ${totalAvailable} ${unit} available)`
-            : `Allocated ${allocated} ${unit} exceeds the total of ${totalQty} ${unit}`
-        );
-    } else if (allocated <= 0) {
-      return setError("Enter how much of this batch was used");
-    }
 
     const selectedBrandId = selectedBrandKey === NO_BRAND ? null : selectedBrandKey;
+
+    // "This batch" scope: a per-site split against the one batch (atomic RPC).
+    if (scope === "batch") {
+      if (!batchRow) return setError("This batch has no remaining stock");
+      if (splitSummary.total <= 0)
+        return setError("Enter how much each site used");
+      if (splitValidation.over)
+        return setError(
+          `Allocated ${splitSummary.total} ${unit} exceeds the ${batchRemaining} ${unit} left in this batch`
+        );
+
+      const entries = siteSplitEntries
+        .filter((e) => e.qty > 0)
+        .map((e) => ({ usage_site_id: e.siteId, quantity: e.qty }));
+      try {
+        await recordMultiSite.mutateAsync({
+          batch_ref_code: batchRow.refCode,
+          material_id: materialId,
+          brand_id: selectedBrandId,
+          usage_date: usageDate,
+          work_description: workDescription || undefined,
+          section_id: sectionId,
+          created_by: user?.id,
+          entries,
+        });
+        onClose();
+      } catch (err: any) {
+        setError(err?.message || "Failed to record usage");
+      }
+      return;
+    }
+
+    // Multi-batch scopes (All / By date): one consuming site, waterfall batches.
+    if (!consumingSiteId) return setError("Select which site used the material");
+    if (totalQty <= 0) return setError("Enter the total quantity to record");
+    if (overLocked)
+      return setError("Pinned rows already exceed the total — lower a pinned batch or raise the total");
+    if (!isBalanced)
+      return setError(
+        leftToAssign > 0
+          ? `${leftToAssign} ${unit} still unassigned (only ${totalAvailable} ${unit} available)`
+          : `Allocated ${allocated} ${unit} exceeds the total of ${totalQty} ${unit}`
+      );
+
     const allocations = rows
       .filter((r) => r.assigned > 0)
       .map((r) => ({ batch_ref_code: r.refCode, quantity: r.assigned }));
@@ -491,6 +607,7 @@ export default function WaterfallUsageDialog({
   };
 
   const shortMaterial = (materialName ?? "material").split(" ")[0];
+  const isSaving = recordWaterfall.isPending || recordMultiSite.isPending;
 
   return (
   <>
@@ -561,26 +678,29 @@ export default function WaterfallUsageDialog({
             />
           </Grid>
 
-          {/* Consuming site */}
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <TextField
-              select
-              fullWidth
-              label="Which site used it?"
-              value={consumingSiteId}
-              onChange={(e) => setConsumingSiteId(e.target.value)}
-            >
-              {(groupMembership?.allSites ?? []).map((site) => (
-                <MenuItem key={site.id} value={site.id}>
-                  {site.name}
-                  {site.id === siteId ? " (Current)" : ""}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Grid>
+          {/* Consuming site — multi-batch scopes only. In "This batch" scope the
+              per-site split table below captures who used the batch instead. */}
+          {isMulti && (
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                select
+                fullWidth
+                label="Which site used it?"
+                value={consumingSiteId}
+                onChange={(e) => setConsumingSiteId(e.target.value)}
+              >
+                {(groupMembership?.allSites ?? []).map((site) => (
+                  <MenuItem key={site.id} value={site.id}>
+                    {site.name}
+                    {site.id === siteId ? " (Current)" : ""}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+          )}
 
           {/* Usage date */}
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={{ xs: 12, sm: isMulti ? 6 : 12 }}>
             <TextField
               fullWidth
               label="Usage date"
@@ -595,8 +715,10 @@ export default function WaterfallUsageDialog({
               caller AND this material genuinely has more than one brand across
               its batches. (This dropdown selects by brand_id, not size; a
               single-brand thread passes brandId so we hide it entirely instead
-              of confusingly offering one "Standard" / other-brand option.) */}
-          {brandId === undefined && variants.length > 1 && (
+              of confusingly offering one "Standard" / other-brand option.)
+              Never shown in "This batch" scope — there the brand is implicit
+              (it's the clicked batch's brand) and a picker would be confusing. */}
+          {scope !== "batch" && brandId === undefined && variants.length > 1 && (
             <Grid size={12}>
               <TextField
                 select
@@ -728,8 +850,142 @@ export default function WaterfallUsageDialog({
             </Grid>
           )}
 
-          {/* Per-batch rows */}
-          {rows.map((r, idx) => {
+          {/* "This batch" scope: the batch is fixed (brand implicit) — capture a
+              per-consuming-site split (e.g. Srinivasan 30 + Padmavathy 20) and
+              record it in one atomic submit. */}
+          {scope === "batch" && batchRow && (
+            <>
+              {/* Batch header */}
+              <Grid size={12}>
+                <Paper
+                  variant="outlined"
+                  sx={{ p: 1.25, borderColor: "primary.main", borderWidth: 2 }}
+                >
+                  <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, flexWrap: "wrap" }}>
+                    <Typography variant="body2" fontWeight={600} noWrap>
+                      Bought {batchRow.purchaseDate || "—"}
+                      {batchRow.vendorName ? ` · ${batchRow.vendorName}` : ""}
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{ fontFamily: "monospace", color: "text.disabled" }}
+                    >
+                      {batchRow.refCode}
+                    </Typography>
+                  </Box>
+                  <Typography variant="caption" color="text.secondary" component="div">
+                    {batchRow.used} used / {batchRow.original} {batchRow.unit} · {batchRow.remaining} left
+                  </Typography>
+                  {(usageEntriesByBatch.get(batchRow.refCode)?.length ?? 0) > 0 && (
+                    <>
+                      <Button
+                        size="small"
+                        onClick={() => toggleLog(batchRow.refCode)}
+                        endIcon={
+                          expandedLog.has(batchRow.refCode) ? <ExpandLessIcon /> : <ExpandMoreIcon />
+                        }
+                        sx={{ minWidth: 0, py: 0, px: 0.5, mt: 0.25, textTransform: "none" }}
+                      >
+                        {usageEntriesByBatch.get(batchRow.refCode)!.length} prior
+                      </Button>
+                      <Collapse in={expandedLog.has(batchRow.refCode)} unmountOnExit>
+                        <Box sx={{ mt: 0.5, pl: 1, borderLeft: "2px solid", borderColor: "divider" }}>
+                          {(usageEntriesByBatch.get(batchRow.refCode) ?? []).map((e, i) => (
+                            <Typography key={i} variant="caption" color="text.secondary" component="div">
+                              {e.date} · {e.site} · {e.qty} {batchRow.unit}
+                            </Typography>
+                          ))}
+                        </Box>
+                      </Collapse>
+                    </>
+                  )}
+                </Paper>
+              </Grid>
+
+              {/* Per-site quantity table */}
+              <Grid size={12}>
+                <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
+                  How much did each site use?
+                </Typography>
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  {clusterSites.map((st) => {
+                    const selfUse = !!batchRow.payingSiteId && batchRow.payingSiteId === st.id;
+                    return (
+                      <Box key={st.id} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography variant="body2" noWrap>
+                            {st.name}
+                            {st.id === siteId ? " (Current)" : ""}
+                          </Typography>
+                          <Chip
+                            label={
+                              selfUse
+                                ? "Self-use"
+                                : batchRow.payingSiteName
+                                ? `Owes ${batchRow.payingSiteName}`
+                                : "Inter-site"
+                            }
+                            size="small"
+                            color={selfUse ? "success" : "warning"}
+                            variant="outlined"
+                            sx={{ height: 20 }}
+                          />
+                        </Box>
+                        <TextField
+                          type="number"
+                          size="small"
+                          label="Used"
+                          value={siteQty[st.id] ? siteQty[st.id] : ""}
+                          onChange={(e) => onSiteQtyChange(st.id, Number(e.target.value))}
+                          inputProps={{ min: 0, step: "any" }}
+                          sx={{ width: 110 }}
+                        />
+                      </Box>
+                    );
+                  })}
+                </Box>
+              </Grid>
+
+              {/* Allocated / remaining balance */}
+              <Grid size={12}>
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    px: 1.5,
+                    py: 1,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    borderColor: splitValidation.over
+                      ? "error.main"
+                      : splitSummary.total > 0
+                      ? "success.main"
+                      : "divider",
+                    bgcolor: splitValidation.over
+                      ? "error.50"
+                      : splitSummary.total > 0
+                      ? "success.50"
+                      : undefined,
+                  }}
+                >
+                  <Typography variant="body2" fontWeight={600}>
+                    Allocated {splitSummary.total} / {batchRemaining} {batchRow.unit}
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    color={splitValidation.over ? "error.main" : "success.main"}
+                  >
+                    {splitValidation.over
+                      ? `${round3(splitSummary.total - batchRemaining)} ${batchRow.unit} over`
+                      : `${splitValidation.remainingAfter} ${batchRow.unit} left`}
+                  </Typography>
+                </Paper>
+              </Grid>
+            </>
+          )}
+
+          {/* Per-batch rows (multi-batch scopes only) */}
+          {isMulti && rows.map((r, idx) => {
             const selfUse = !!r.payingSiteId && r.payingSiteId === consumingSiteId;
             const fillPct = r.remaining > 0 ? (r.assigned / r.remaining) * 100 : 0;
             const isPreselected = preselectedBatchRefCode && r.refCode === preselectedBatchRefCode;
@@ -831,7 +1087,7 @@ export default function WaterfallUsageDialog({
           })}
 
           {/* Cost summary */}
-          {(costSummary.selfUse > 0 || costSummary.interSite > 0) && (
+          {(activeCost.selfUse > 0 || activeCost.interSite > 0) && (
             <Grid size={12}>
               <Paper variant="outlined" sx={{ p: 1.25 }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between" }}>
@@ -839,22 +1095,24 @@ export default function WaterfallUsageDialog({
                     Self-use (no settlement)
                   </Typography>
                   <Typography variant="body2" color="info.main" fontWeight={600}>
-                    {formatCurrency(costSummary.selfUse)}
+                    {formatCurrency(activeCost.selfUse)}
                   </Typography>
                 </Box>
                 <Divider sx={{ my: 0.5 }} />
                 <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                   <Typography variant="caption" color="text.secondary">
                     Inter-site debt
-                    {costSummary.owedCount > 0
-                      ? ` (${costSummary.owedCount} site${costSummary.owedCount === 1 ? "" : "s"})`
+                    {activeCost.owedCount > 0
+                      ? ` (${activeCost.owedCount} site${activeCost.owedCount === 1 ? "" : "s"})`
                       : ""}
                   </Typography>
                   <Typography variant="body2" color="warning.main" fontWeight={600}>
-                    {formatCurrency(costSummary.interSite)}
+                    {formatCurrency(activeCost.interSite)}
                   </Typography>
                 </Box>
-                {rows.some((r) => r.assigned > 0 && r.hasTransport) && (
+                {(scope === "batch"
+                  ? !!batchRow?.hasTransport && splitSummary.total > 0
+                  : rows.some((r) => r.assigned > 0 && r.hasTransport)) && (
                   <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
                     Incl. proportional transport — landed cost.
                   </Typography>
@@ -904,15 +1162,15 @@ export default function WaterfallUsageDialog({
       </DialogContent>
 
       <DialogActions sx={{ px: 3, py: 2 }}>
-        <Button onClick={onClose} disabled={recordWaterfall.isPending}>
+        <Button onClick={onClose} disabled={isSaving}>
           Cancel
         </Button>
         <Button
           variant="contained"
           onClick={handleSubmit}
-          disabled={recordWaterfall.isPending || !canSubmit}
+          disabled={isSaving || !canSubmit}
         >
-          {recordWaterfall.isPending ? "Recording…" : "Record usage"}
+          {isSaving ? "Recording…" : "Record usage"}
         </Button>
       </DialogActions>
     </Dialog>

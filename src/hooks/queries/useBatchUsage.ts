@@ -1372,6 +1372,103 @@ export function useRecordBatchUsageWaterfall() {
 }
 
 /**
+ * Atomically record a per-site usage SPLIT against a SINGLE group-stock batch in
+ * ONE transaction — the engine behind the Hub "This batch" log-usage dialog (e.g.
+ * a 50-bag batch where Srinivasan used 30 and Padmavathy used 20). The mirror of
+ * {@link useRecordBatchUsageWaterfall}: that spreads ONE site across many batches;
+ * this spreads ONE batch across many consuming sites. Calls the insert-only
+ * record_batch_usage_multi_site RPC, which loops record_batch_usage_waterfall per
+ * site — all-or-nothing, with the cumulative total capped at the batch remaining.
+ */
+export function useRecordBatchUsageMultiSite() {
+  const queryClient = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    retry: false, // not idempotent — modifies stock + usage records
+    mutationFn: async (data: {
+      batch_ref_code: string;
+      material_id: string;
+      brand_id?: string | null;
+      usage_date: string;
+      work_description?: string;
+      created_by?: string;
+      section_id?: string | null;
+      entries: Array<{ usage_site_id: string; quantity: number }>;
+    }) => {
+      if (!data.material_id) {
+        throw new Error("material_id is required to record usage");
+      }
+      if (!data.batch_ref_code) {
+        throw new Error("batch_ref_code is required to record usage");
+      }
+      const positive = data.entries.filter(
+        (e) => e.usage_site_id && e.quantity > 0
+      );
+      if (positive.length === 0) {
+        throw new Error("Enter a quantity for at least one site");
+      }
+
+      const { data: result, error } = await (supabase as any).rpc(
+        "record_batch_usage_multi_site",
+        {
+          p_batch_ref_code: data.batch_ref_code,
+          p_material_id: data.material_id,
+          p_brand_id: data.brand_id ?? null,
+          p_usage_date: data.usage_date,
+          p_work_description: data.work_description || null,
+          p_section_id: data.section_id ?? null,
+          p_created_by: data.created_by || null,
+          p_entries: positive,
+        }
+      );
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      return result as string[]; // array of usage ids
+    },
+    onSuccess: (_result, variables) => {
+      // One batch, many consuming sites — invalidate the batch's caches plus
+      // every consuming site's, mirroring useRecordBatchUsageWaterfall so the
+      // Hub INVENTORY·STOCK / INTER-SITE / usage-log blocks + ledger refresh.
+      const ref = variables.batch_ref_code;
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.batchUsage.byBatch(ref),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.batchUsage.summary(ref),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.materialPurchases.byRefCode(ref),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["batch-variant-summary", ref],
+      });
+      for (const e of variables.entries) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.batchUsage.bySite(e.usage_site_id),
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.batchUsage.all });
+      queryClient.invalidateQueries({ queryKey: ["material-purchases", "batches"] });
+      queryClient.invalidateQueries({ queryKey: ["material-purchases"] });
+      queryClient.invalidateQueries({ queryKey: ["all-expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["material-threads"] });
+      queryClient.invalidateQueries({ queryKey: ["usage-history"] });
+      queryClient.invalidateQueries({ queryKey: ["batch-usage-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["stock-inventory"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.materialStock.all });
+      queryClient.invalidateQueries({ queryKey: ["inter-site-settlements"] });
+      queryClient.invalidateQueries({ queryKey: ["material-usage"] });
+      queryClient.invalidateQueries({ queryKey: ["delivery-usage-allocations"] });
+    },
+  });
+}
+
+/**
  * Atomic "delete & refill" bulk reconciliation for ONE material across a
  * cluster's group-stock pool — the commit step of the Reconcile dialog.
  * Deletes the named pending/self_use records (reversing stock) and inserts the
