@@ -23,13 +23,9 @@ import {
 } from "@mui/icons-material";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { fmtQty } from "@/lib/formatters";
-import {
-  summarizeScopedMaterial,
-  type OwnUsageRow,
-} from "@/lib/material-hub/scopedMaterialSummary";
+import { summarizeScopedMaterial } from "@/lib/material-hub/scopedMaterialSummary";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 import { useOwnMaterialStock } from "@/hooks/queries/useOwnMaterialStock";
-import { useSiteBatchUsageRecords } from "@/hooks/queries/useBatchUsage";
 import { useGroupMaterialPurchases } from "@/hooks/queries/useMaterialPurchases";
 import PerSiteUsageBar from "@/components/material-hub/PerSiteUsageBar";
 import { assignSiteAccents } from "@/lib/material-hub/siteAccents";
@@ -131,12 +127,11 @@ export default function HubFilteredSummary({
 
   // Own (viewing-site) stock for the material family — drives OWN remaining and
   // gives the family ids used to filter the site's usage rows.
-  const { ownStockRows, familyIds } = useOwnMaterialStock({
+  const { ownStockRows, ownUsageRows } = useOwnMaterialStock({
     siteId: viewingSiteId,
     materialId,
     enabled: !isBrand,
   });
-  const { data: siteUsage = [] } = useSiteBatchUsageRecords(viewingSiteId);
   const { data: groupBatches = [] } = useGroupMaterialPurchases(siteGroupId ?? undefined);
 
   // Group batch ref-codes — authoritative from group purchases, with a fallback
@@ -151,14 +146,6 @@ export default function HubFilteredSummary({
     }
     return set;
   }, [groupBatches, threads]);
-
-  const ownUsageRows = useMemo<OwnUsageRow[]>(() => {
-    if (isBrand || familyIds.length === 0) return [];
-    const fam = new Set(familyIds);
-    return (siteUsage as Array<{ material_id?: string; quantity?: number; batch_ref_code?: string | null }>)
-      .filter((r) => r.material_id && fam.has(r.material_id))
-      .map((r) => ({ quantity: Number(r.quantity) || 0, batch_ref_code: r.batch_ref_code ?? null }));
-  }, [siteUsage, familyIds, isBrand]);
 
   const s = useMemo(
     () =>

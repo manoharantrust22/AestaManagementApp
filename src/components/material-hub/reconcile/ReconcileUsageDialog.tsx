@@ -658,12 +658,12 @@ export default function ReconcileUsageDialog({
                   return (
                     <Box sx={{ mt: 1 }}>
                       <Typography variant="caption" color={over ? "error" : "text.secondary"} sx={{ fontWeight: over ? 700 : 400 }}>
-                        Group available as of {p.asOfDate || "—"}: <strong>{fmtQty(cap)} {materialUnit}</strong>
+                        Group delivered as of {p.asOfDate || "—"}: <strong>{fmtQty(cap)} {materialUnit}</strong>
                         {" · "}allocated {fmtQty(entered)} / {fmtQty(cap)}
                       </Typography>
                       {over && (
                         <Typography variant="caption" color="error" component="div">
-                          Exceeds available stock for this period by {fmtQty(entered - cap)} {materialUnit} — reduce the
+                          Exceeds delivered stock for this period by {fmtQty(entered - cap)} {materialUnit} — reduce the
                           quantity or extend the “used as of” date.
                         </Typography>
                       )}
