@@ -73,6 +73,15 @@ export function buildMaterialPipeline(thread: MaterialThread): MaterialPipelineM
     thread.stage === "rejected" ||
     thread.stage === "in-use" ||
     thread.stage === "exhausted";
+
+  // The material is fully consumed but the cross-site debt is still unsettled —
+  // the thread is NOT done. The terminal node becomes a pending INTER-SITE step
+  // (amber) instead of a premature green DONE. (Same condition as the chip's old
+  // 'active' state.)
+  const interSiteActive =
+    !!thread.inter_site_applicable &&
+    !!thread.inter_site_pending &&
+    thread.stage === "exhausted";
   const nextKey =
     !isTerminal && idx + 1 < M_STAGES.length ? M_STAGES[idx + 1] : null;
 
@@ -124,12 +133,21 @@ export function buildMaterialPipeline(thread: MaterialThread): MaterialPipelineM
     let label = s.label;
     let success = false;
 
-    // IN USE: exhausted → terminal green DONE; still being consumed → pulsing.
+    // IN USE: exhausted → terminal DONE, EXCEPT when a cross-site debt is still
+    // unsettled — then the thread isn't actually finished, so the terminal node
+    // becomes a pending INTER-SITE step (amber pulse) rather than a green DONE.
     if (stageKey === "in-use" && thread.stage === "exhausted") {
-      success = true;
-      done = true;
-      current = false;
-      label = "DONE";
+      if (interSiteActive) {
+        current = true;
+        done = false;
+        success = false;
+        label = "INTER-SITE";
+      } else {
+        success = true;
+        done = true;
+        current = false;
+        label = "DONE";
+      }
     } else if (stageKey === "in-use" && thread.stage === "in-use") {
       done = false;
       current = true;
@@ -176,6 +194,10 @@ export function buildMaterialPipeline(thread: MaterialThread): MaterialPipelineM
 
   // Inter-site (synthetic): settled → green · pending+exhausted → amber pulse
   // (now your next action) · pending+in-use → faint (debt exists but not due).
+  // The exhausted+pending state is ALSO carried on the rail's terminal node
+  // (amber INTER-SITE); the chip is kept as the action-labelled echo ("Settle
+  // inter-site") — it's the only inter-site cue on the mobile segment bar, which
+  // has no node labels.
   let interSite: InterSiteChipState | null = null;
   if (thread.inter_site_applicable) {
     const pending = !!thread.inter_site_pending;
@@ -183,10 +205,14 @@ export function buildMaterialPipeline(thread: MaterialThread): MaterialPipelineM
     interSite = !pending ? "settled" : activePending ? "active" : "dormant";
   }
 
+  // When the terminal node is the amber INTER-SITE step, recolour the rail
+  // (node pulse + reached line) to warn. Safe: an exhausted thread has no other
+  // `current` node, so nothing else turns amber.
   return {
     steps,
-    accent: hubTokens.primary,
-    softAccent: hubTokens.primarySoft,
+    accent: interSiteActive ? hubTokens.warn : hubTokens.primary,
+    softAccent: interSiteActive ? hubTokens.warnSoft : hubTokens.primarySoft,
+    lineActiveColor: interSiteActive ? hubTokens.warn : undefined,
     interSite,
   };
 }

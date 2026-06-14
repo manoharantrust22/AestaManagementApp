@@ -50,6 +50,7 @@ import type { UsageLogItem } from "@/hooks/queries/useUsageLog";
 import ThreadCorrectionMenu from "@/components/material-hub/ThreadCorrectionMenu";
 import RecordDeliveryButton from "@/components/material-hub/RecordDeliveryButton";
 import BatchCorrectionControl from "@/components/material-hub/BatchCorrectionControl";
+import PerSiteUsageBar from "@/components/material-hub/PerSiteUsageBar";
 import PhotoLightbox from "@/components/dashboard/PhotoLightbox";
 import type { WorkPhoto } from "@/types/work-updates.types";
 import { normalizeImageUrl } from "@/lib/utils/storageUrl";
@@ -428,6 +429,12 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
   const receivedQty = t.po?.received_qty ?? 0;
   const isPartialDelivered = receivedQty > 0 && receivedQty < orderedQty;
   const isFullyDelivered = receivedQty > 0 && receivedQty >= orderedQty;
+
+  // A shared group batch consumed across >1 cluster site — drives the segmented
+  // per-site usage bar (replacing the per-GRN bar, which undercounts cross-site
+  // usage). per_site is ledger-true (batch_usage_records by usage_site_id).
+  const sharedUsage = !!t.inventory?.per_site && t.inventory.per_site.length > 1;
+  const viewingSiteId = selectedSite?.id ?? t.site_id;
 
   // Advance-paid implicit settlement: advance POs settle the vendor at PO time.
   const isAdvancePaid =
@@ -871,8 +878,11 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                      {/* Per-GRN consumption (FIFO-allocated from
                          batch_usage_delivery_allocations). Only shown once this
                          delivery has been drawn from; unused installments stay
-                         quiet. Capped at received for multi-material rows. */}
-                     {b.received_qty > 0 && (b.used_qty ?? 0) > 0 && (
+                         quiet. Capped at received for multi-material rows.
+                         Suppressed for shared cross-site batches — the per-GRN
+                         FIFO undercounts usage that landed at another site, so
+                         the batch-level segmented bar below is the truth. */}
+                     {!sharedUsage && b.received_qty > 0 && (b.used_qty ?? 0) > 0 && (
                        <Box sx={{ display: "flex", alignItems: "center", gap: "6px", paddingLeft: "2px" }}>
                          <Box sx={{ flex: 1, height: 4, borderRadius: 2, background: hubTokens.chip, overflow: "hidden" }}>
                            <Box
@@ -890,6 +900,28 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                      )}
                     </Box>
                   ))}
+                  {/* Batch-level per-site consumption (ledger-true). Shown once
+                      for a shared cross-site batch, in place of the per-GRN bars
+                      above which can't see usage that landed at another site. */}
+                  {sharedUsage && t.inventory && (
+                    <Box
+                      sx={{
+                        marginTop: "4px",
+                        paddingTop: "8px",
+                        borderTop: `1px dashed ${hubTokens.border}`,
+                      }}
+                    >
+                      <PerSiteUsageBar
+                        perSite={t.inventory.per_site!}
+                        received={t.inventory.received}
+                        remaining={t.inventory.remaining}
+                        unit={t.material_unit}
+                        viewingSiteId={viewingSiteId}
+                        label="Usage across sites"
+                        compact
+                      />
+                    </Box>
+                  )}
                 </Box>
               )}
 
@@ -1246,48 +1278,22 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                 }
               />
               <DetailRow label="Received" value={`${t.inventory.received} ${t.material_unit}`} />
-              {/* Per-site received/used split for shared group batches whose
-                  deliveries landed at more than one cluster site — so the
-                  cluster-wide Received total above reconciles to each site. */}
-              {t.inventory.per_site && t.inventory.per_site.length > 1 && (
-                <Box
-                  sx={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: "4px",
-                    marginLeft: "12px",
-                    marginTop: "-2px",
-                    marginBottom: "6px",
-                  }}
-                >
-                  {t.inventory.per_site.map((ps) => (
-                    <Box
-                      key={ps.site_id}
-                      component="span"
-                      sx={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "4px",
-                        padding: "1px 7px",
-                        borderRadius: "5px",
-                        background: hubTokens.chip,
-                        color: hubTokens.muted,
-                        fontSize: 10.5,
-                        fontWeight: 600,
-                        lineHeight: "15px",
-                      }}
-                    >
-                      {ps.site_name}: {fmtQty(ps.received)} recv · {fmtQty(ps.used)} used
-                    </Box>
-                  ))}
+              <DetailRow label="Used" value={`${t.inventory.used} ${t.material_unit}`} />
+              {/* Segmented per-site usage split for a shared group batch
+                  consumed across >1 cluster site — replaces the old text chips
+                  so who-used-how-much (and the unused remainder) reads at a
+                  glance. Ledger-true (batch_usage_records by usage_site_id). */}
+              {sharedUsage && (
+                <Box sx={{ margin: "6px 0 2px" }}>
+                  <PerSiteUsageBar
+                    perSite={t.inventory.per_site!}
+                    received={t.inventory.received}
+                    remaining={t.inventory.remaining}
+                    unit={t.material_unit}
+                    viewingSiteId={viewingSiteId}
+                  />
                 </Box>
               )}
-              <DetailRow label="Used" value={`${t.inventory.used} ${t.material_unit}`} />
-              {/* The per-site split under Received above carries the accurate
-                  physical used-per-site figures (from stock transactions). The
-                  old settlement-allocation chips were removed here: they read
-                  from the settlement self_used_qty, which could disagree with
-                  the physical split and break the ledger cross-check. */}
               <DetailRow
                 label="Remaining"
                 value={`${t.inventory.remaining} ${t.material_unit}`}
