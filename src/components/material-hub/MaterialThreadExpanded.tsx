@@ -143,7 +143,11 @@ function DetailRow({ label, value, emphasis, tone = "default" }: DetailRowProps)
         padding: "4px 0",
       }}
     >
-      <Typography sx={{ fontSize: 11, color: hubTokens.muted }}>{label}</Typography>
+      <Typography
+        sx={{ fontSize: 11, color: hubTokens.muted, flexShrink: 0, whiteSpace: "nowrap" }}
+      >
+        {label}
+      </Typography>
       <Typography
         sx={{
           fontSize: emphasis ? 13 : 12,
@@ -151,6 +155,10 @@ function DetailRow({ label, value, emphasis, tone = "default" }: DetailRowProps)
           color: valueColor,
           fontFamily: emphasis ? hubTokens.mono : hubTokens.font,
           textAlign: "right",
+          // Allow long values (vendor names, PO numbers, notes) to wrap within
+          // the column instead of forcing horizontal overflow on narrow screens.
+          minWidth: 0,
+          overflowWrap: "anywhere",
         }}
       >
         {value ?? "—"}
@@ -468,6 +476,10 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
         display: "grid",
         gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr" },
         gap: "16px",
+        // Grid/flex items default to min-width:auto; pin to 0 so columns shrink
+        // to the available width instead of overflowing on a narrow mobile sheet.
+        minWidth: 0,
+        "& > *": { minWidth: 0 },
       }}
     >
       {t.is_mirror && (
@@ -770,7 +782,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                         fontSize: 11,
                       }}
                     >
-                     <Box sx={{ display: "flex", alignItems: "center", gap: "8px", width: "100%" }}>
+                     <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px", width: "100%", minWidth: 0 }}>
                       {/* Child index under the parent MAT- batch so installments
                           read as Batch 1 / 2 / 3 rather than opaque GRN codes. */}
                       <Box
@@ -811,7 +823,13 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                       </Box>
                       <Box
                         component="span"
-                        sx={{ color: hubTokens.subtle, flex: 1, fontSize: 10.5 }}
+                        sx={{
+                          color: hubTokens.subtle,
+                          flex: 1,
+                          minWidth: 0,
+                          fontSize: 10.5,
+                          overflowWrap: "anywhere",
+                        }}
                       >
                         {b.grn_number}
                       </Box>
@@ -1335,10 +1353,19 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center",
+                        gap: "8px",
                         fontSize: 11.5,
                       }}
                     >
-                      <Box component="span" sx={{ color: hubTokens.text, fontWeight: 500 }}>
+                      <Box
+                        component="span"
+                        sx={{
+                          color: hubTokens.text,
+                          fontWeight: 500,
+                          minWidth: 0,
+                          overflowWrap: "anywhere",
+                        }}
+                      >
                         {v.material_name}
                         {v.brand_name ? (
                           <Box
@@ -1353,7 +1380,15 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                           </Box>
                         ) : null}
                       </Box>
-                      <Box component="span" sx={{ color: hubTokens.muted, fontFamily: hubTokens.mono }}>
+                      <Box
+                        component="span"
+                        sx={{
+                          color: hubTokens.muted,
+                          fontFamily: hubTokens.mono,
+                          flexShrink: 0,
+                          textAlign: "right",
+                        }}
+                      >
                         <Box component="span" sx={{ color: hubTokens.text }}>
                           {v.used_qty}
                         </Box>

@@ -49,6 +49,9 @@ export default function MaterialThreadDetailSheet({
           maxHeight: "92vh",
           display: "flex",
           flexDirection: "column",
+          // Clip at the Paper so the inner body is the sole scroller — keeps the
+          // sticky header pinned and stops the Paper itself from scrolling.
+          overflow: "hidden",
         },
       }}
     >
@@ -149,8 +152,19 @@ export default function MaterialThreadDetailSheet({
           </Box>
 
           {/* Scrollable body — MaterialThreadExpanded supplies its own padding
-              and reflows to a single column at the xs breakpoint. */}
-          <Box sx={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+              and reflows to a single column at the xs breakpoint. `minHeight: 0`
+              lets this flex child shrink below its content so `overflowY: auto`
+              actually engages (without it the body grows to content height and
+              the sheet can't be scrolled). */}
+          <Box
+            sx={{
+              flex: 1,
+              minHeight: 0,
+              overflowY: "auto",
+              overflowX: "hidden",
+              overscrollBehavior: "contain",
+            }}
+          >
             <MaterialThreadExpanded thread={thread} />
           </Box>
         </>

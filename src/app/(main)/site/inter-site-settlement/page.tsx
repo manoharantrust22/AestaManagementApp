@@ -286,6 +286,8 @@ export default function InterSiteSettlementPage() {
         year: balance.year,
         weekNumber: balance.week_number,
         materialIds,
+        // created_by FKs public.users(id) → use the public-users id, not the auth id
+        userId: userProfile?.id,
       })
     } catch (error: any) {
       const errorMessage = error?.message || 'Failed to generate settlement'

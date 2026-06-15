@@ -9,9 +9,10 @@
  *     that date can be consumed — never the ordered qty),
  *   - own-paid-batches-first FIFO (a site consumes batches it paid for, oldest
  *     first, then borrows from sibling batches),
- *   - replace-within-range semantics (pending/self_use usage inside a period's
- *     [from, asOf] range is marked for deletion and rebuilt; settled records are
- *     locked and only reduce capacity).
+ *   - additive-by-default semantics (new usage ADDS on top of the existing
+ *     ledger; existing records are kept and occupy capacity). Replacing is an
+ *     explicit opt-in: only the record ids passed in `replaceIds` are deleted and
+ *     rebuilt. Settled/in-settlement records are never deletable, even if listed.
  *
  * No I/O — fully unit-testable. The dialog feeds it data and ships the result
  * to the `record_reconciliation_usage` RPC.
@@ -138,7 +139,7 @@ export interface ReconcilePreview {
   net: NetResult;
   /** siteId → balance (positive = owed to them / creditor, negative = owes). */
   netBySite: Record<string, number>;
-  /** Pending/self_use record ids inside a period range — replaced on commit. */
+  /** Pending/self_use record ids the user selected to replace — deleted on commit. */
   deleteIds: string[];
   shortfalls: SiteShortfall[];
   /** Group pool still available after this run (across all sites). */
@@ -158,21 +159,23 @@ function deliveredAsOf(b: BatchPoolRow, asOf: string): number {
   return Math.min(sum, b.originalQty);
 }
 
-function inRange(date: string, from: string | null, to: string): boolean {
-  return (from == null || date >= from) && date <= to;
-}
-
 export function computeReconcileAllocations(
   periods: ReconcilePeriod[],
   pool: BatchPoolRow[],
-  existing: ExistingUsage[]
+  existing: ExistingUsage[],
+  /** Existing record ids the user EXPLICITLY chose to replace. Empty = pure
+   *  additive: nothing is deleted, new usage adds on top of the ledger. */
+  replaceIds: string[] = []
 ): ReconcilePreview {
-  // 1. Decide which existing records get replaced (deleted) vs kept.
+  // 1. Decide which existing records get replaced (deleted) vs kept. Deletion is
+  //    now an explicit user choice — by default NOTHING is deleted. A record is
+  //    only deleted if it was selected AND is still replaceable (pending/self_use);
+  //    settled/in-settlement records are never deletable, even if selected.
+  const replaceSet = new Set(replaceIds);
   const deleteIds: string[] = [];
   for (const e of existing) {
     const replaceable = !LOCKED_STATUSES.has(e.settlementStatus); // pending | self_use
-    const insideSomeRange = periods.some((p) => inRange(e.usageDate, p.fromDate, p.asOfDate));
-    if (replaceable && insideSomeRange) deleteIds.push(e.id);
+    if (replaceable && replaceSet.has(e.id)) deleteIds.push(e.id);
   }
   const deleted = new Set(deleteIds);
 
@@ -321,4 +324,86 @@ export function computeReconcileAllocations(
   }
 
   return { allocations, perBatch, grossFlows, net, netBySite, deleteIds, shortfalls, poolRemaining, periodCapacity };
+}
+
+/** One directed creditor→debtor cross-site flow, split into qty/cost that is NEW
+ *  this reconcile vs ALREADY on the ledger (batch-logged earlier). Same direction
+ *  collapses to one row so the net is read as a whole. */
+export interface ReconcileFlowSummary {
+  /** Site that PAID (is owed). */
+  creditorSiteId: string;
+  /** Site that USED someone else's stock (owes). */
+  debtorSiteId: string;
+  newQty: number;
+  newAmount: number;
+  existingQty: number;
+  existingAmount: number;
+}
+
+/** Per-site split of NEW allocations into self-use (own group stock, never
+ *  settles) vs borrowed (cross-site, settles). Explains why a big typed total
+ *  collapses to a small net. */
+export interface ReconcileSiteSelfUse {
+  siteId: string;
+  selfUse: number;
+  borrowed: number;
+}
+
+export interface ReconcileUsageSummary {
+  flows: ReconcileFlowSummary[];
+  bySite: ReconcileSiteSelfUse[];
+}
+
+/**
+ * Presentation summary that reconciles the dialog's Net-settlement card with the
+ * allocator's `net`/`grossFlows`. Folds NEW allocations (`allocations`) and the
+ * KEPT existing ledger records (`existingKept` = existing minus deleted) into one
+ * directed-flow view, tagging each leg new-vs-existing, and reports per-site
+ * self-use vs borrowed for the new allocations.
+ *
+ * Uses the EXACT same flow direction (creditor = paying site, debtor = usage
+ * site) and cross-site predicate (`!isSelfUse && usageSiteId !== payingSiteId`)
+ * as `computeReconcileAllocations`, so the totals always agree with the net.
+ */
+export function summarizeReconcileUsage(
+  allocations: ReconcileAllocationChunk[],
+  existingKept: ExistingUsage[]
+): ReconcileUsageSummary {
+  // Per-site self vs borrowed (new allocations only).
+  const siteMap = new Map<string, ReconcileSiteSelfUse>();
+  const bumpSite = (siteId: string, self: number, borrow: number) => {
+    const s = siteMap.get(siteId) ?? { siteId, selfUse: 0, borrowed: 0 };
+    s.selfUse = round3(s.selfUse + self);
+    s.borrowed = round3(s.borrowed + borrow);
+    siteMap.set(siteId, s);
+  };
+  for (const a of allocations) {
+    if (a.isSelfUse) bumpSite(a.usageSiteId, a.quantity, 0);
+    else bumpSite(a.usageSiteId, 0, a.quantity);
+  }
+
+  // Per directed flow (creditor = payer, debtor = user), new + existing.
+  const flowMap = new Map<string, ReconcileFlowSummary>();
+  const flow = (creditorSiteId: string, debtorSiteId: string): ReconcileFlowSummary => {
+    const key = `${creditorSiteId}__${debtorSiteId}`;
+    const f =
+      flowMap.get(key) ??
+      ({ creditorSiteId, debtorSiteId, newQty: 0, newAmount: 0, existingQty: 0, existingAmount: 0 } as ReconcileFlowSummary);
+    flowMap.set(key, f);
+    return f;
+  };
+  for (const a of allocations) {
+    if (a.isSelfUse) continue;
+    const f = flow(a.payingSiteId, a.usageSiteId);
+    f.newQty = round3(f.newQty + a.quantity);
+    f.newAmount = round2(f.newAmount + a.cost);
+  }
+  for (const e of existingKept) {
+    if (e.isSelfUse || e.usageSiteId === e.payingSiteId) continue;
+    const f = flow(e.payingSiteId, e.usageSiteId);
+    f.existingQty = round3(f.existingQty + e.quantity);
+    f.existingAmount = round2(f.existingAmount + e.totalCost);
+  }
+
+  return { flows: [...flowMap.values()], bySite: [...siteMap.values()] };
 }

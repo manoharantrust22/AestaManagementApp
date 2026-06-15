@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   computeReconcileAllocations,
+  summarizeReconcileUsage,
   type BatchPoolRow,
   type ExistingUsage,
+  type ReconcileAllocationChunk,
   type ReconcilePeriod,
 } from "./reconcileAllocator";
 
@@ -119,7 +121,7 @@ describe("computeReconcileAllocations", () => {
     expect(r.allocations.map((a) => a.batchRefCode)).toEqual(["EARLY"]);
   });
 
-  it("marks pending usage inside a period range for deletion and frees its capacity", () => {
+  it("deletes a record only when explicitly selected for replacement, freeing its capacity", () => {
     const pool = [batch({ refCode: "S1", payingSiteId: SRINI, originalQty: 30, purchaseDate: "2025-12-01" })];
     const existing: ExistingUsage[] = [
       {
@@ -134,11 +136,12 @@ describe("computeReconcileAllocations", () => {
         settlementStatus: "pending",
       },
     ];
-    // Re-declare the same range: 30 bags by Srini. The old 20 is replaced, capacity freed.
+    // Declare 30 by Srini AND tick u-old for replacement → the old 20 is deleted,
+    // capacity freed, Srini self-uses all 30, the old cross-site debt is gone.
     const periods = [
-      period({ id: "p1", fromDate: "2025-12-01", asOfDate: "2025-12-31", bagsBySite: { [SRINI]: 30 } }),
+      period({ id: "p1", asOfDate: "2025-12-31", bagsBySite: { [SRINI]: 30 } }),
     ];
-    const r = computeReconcileAllocations(periods, pool, existing);
+    const r = computeReconcileAllocations(periods, pool, existing, ["u-old"]);
 
     expect(r.deleteIds).toEqual(["u-old"]);
     expect(r.allocations.reduce((s, a) => s + a.quantity, 0)).toBe(30);
@@ -147,7 +150,38 @@ describe("computeReconcileAllocations", () => {
     expect(r.net.amount).toBe(0);
   });
 
-  it("keeps (does not delete) pending usage outside the range and folds it into the net", () => {
+  it("by default ADDS to existing usage — nothing deleted, existing occupies capacity", () => {
+    const pool = [batch({ refCode: "S1", payingSiteId: SRINI, originalQty: 30, purchaseDate: "2025-12-01" })];
+    const existing: ExistingUsage[] = [
+      {
+        id: "u-old",
+        batchRefCode: "S1",
+        usageSiteId: PADMA,
+        payingSiteId: SRINI,
+        usageDate: "2025-12-10",
+        quantity: 20,
+        totalCost: 5600,
+        isSelfUse: false,
+        settlementStatus: "pending",
+      },
+    ];
+    // Same inputs as above but NO replaceIds: the old 20 stays on the ledger and
+    // occupies capacity → only 10 of the requested 30 can be added (short by 20),
+    // and the kept cross-site debt still shows in the net.
+    const periods = [
+      period({ id: "p1", asOfDate: "2025-12-31", bagsBySite: { [SRINI]: 30 } }),
+    ];
+    const r = computeReconcileAllocations(periods, pool, existing);
+
+    expect(r.deleteIds).toEqual([]);
+    expect(r.periodCapacity.p1).toBe(10); // 30 delivered − 20 already recorded
+    expect(r.allocations.reduce((s, a) => s + a.quantity, 0)).toBe(10);
+    expect(r.shortfalls[0]).toMatchObject({ usageSiteId: SRINI, shortBy: 20 });
+    // Kept baseline debt: Padma owes Srini ₹5,600
+    expect(r.net).toMatchObject({ fromSiteId: PADMA, toSiteId: SRINI, amount: 5600 });
+  });
+
+  it("keeps existing pending usage by default and folds it into the net", () => {
     const pool = [
       batch({ refCode: "S1", payingSiteId: SRINI, purchaseDate: "2025-11-21", originalQty: 50 }),
       batch({ refCode: "P1", payingSiteId: PADMA, purchaseDate: "2026-02-01", originalQty: 30 }),
@@ -176,7 +210,7 @@ describe("computeReconcileAllocations", () => {
     expect(r.net).toMatchObject({ fromSiteId: PADMA, toSiteId: SRINI, amount: 5600 });
   });
 
-  it("never deletes settled records and subtracts their qty from capacity", () => {
+  it("never deletes settled records even when selected, and subtracts their qty from capacity", () => {
     const pool = [batch({ refCode: "S1", payingSiteId: SRINI, originalQty: 30, purchaseDate: "2025-12-01" })];
     const existing: ExistingUsage[] = [
       {
@@ -192,9 +226,10 @@ describe("computeReconcileAllocations", () => {
       },
     ];
     const periods = [
-      period({ id: "p1", fromDate: "2025-12-01", asOfDate: "2025-12-31", bagsBySite: { [SRINI]: 30 } }),
+      period({ id: "p1", asOfDate: "2025-12-31", bagsBySite: { [SRINI]: 30 } }),
     ];
-    const r = computeReconcileAllocations(periods, pool, existing);
+    // Even though "locked" is explicitly selected for replacement, it must not be deleted.
+    const r = computeReconcileAllocations(periods, pool, existing, ["locked"]);
 
     expect(r.deleteIds).toEqual([]); // settled never deleted
     // Only 20 capacity left (30 - 10 locked) → Srini short by 10
@@ -255,5 +290,155 @@ describe("computeReconcileAllocations", () => {
     const r = computeReconcileAllocations(periods, pool, []);
     // Only 70 delivered as of 2026-06-01 — capacity is 70, not the ordered 200
     expect(r.periodCapacity.p1).toBe(70);
+  });
+});
+
+function chunk(over: Partial<ReconcileAllocationChunk> & { batchRefCode: string }): ReconcileAllocationChunk {
+  return {
+    periodId: "p1",
+    materialId: PPC,
+    brandId: null,
+    usageSiteId: SRINI,
+    payingSiteId: SRINI,
+    usageDate: "2025-12-31",
+    quantity: 0,
+    unitCost: 280,
+    cost: 0,
+    isSelfUse: true,
+    ...over,
+  };
+}
+
+describe("summarizeReconcileUsage", () => {
+  it("excludes self-use from flows but counts it in bySite", () => {
+    // Srini uses 40 from its own batches → no cross-site flow.
+    const r = computeReconcileAllocations(
+      [period({ id: "p1", asOfDate: "2026-01-01", bagsBySite: { [SRINI]: 40 } })],
+      [
+        batch({ refCode: "S1", payingSiteId: SRINI, purchaseDate: "2025-12-01" }),
+        batch({ refCode: "S2", payingSiteId: SRINI, purchaseDate: "2025-12-03" }),
+      ],
+      []
+    );
+    const s = summarizeReconcileUsage(r.allocations, []);
+    expect(s.flows).toEqual([]);
+    expect(s.bySite).toEqual([{ siteId: SRINI, selfUse: 40, borrowed: 0 }]);
+  });
+
+  it("records a NEW cross-site borrow as a newQty/newAmount flow", () => {
+    const r = computeReconcileAllocations(
+      [period({ id: "p1", asOfDate: "2025-11-30", bagsBySite: { [PADMA]: 20 } })],
+      [batch({ refCode: "S1", payingSiteId: SRINI, purchaseDate: "2025-11-21" })],
+      []
+    );
+    const s = summarizeReconcileUsage(r.allocations, []);
+    expect(s.flows).toEqual([
+      { creditorSiteId: SRINI, debtorSiteId: PADMA, newQty: 20, newAmount: 5600, existingQty: 0, existingAmount: 0 },
+    ]);
+    expect(s.bySite).toEqual([{ siteId: PADMA, selfUse: 0, borrowed: 20 }]);
+  });
+
+  it("records a KEPT existing cross-site record as an existingQty/existingAmount flow", () => {
+    const existingKept: ExistingUsage[] = [
+      {
+        id: "baseline",
+        batchRefCode: "S1",
+        usageSiteId: PADMA,
+        payingSiteId: SRINI,
+        usageDate: "2025-11-27",
+        quantity: 20,
+        totalCost: 5600,
+        isSelfUse: false,
+        settlementStatus: "pending",
+      },
+    ];
+    const s = summarizeReconcileUsage([], existingKept);
+    expect(s.flows).toEqual([
+      { creditorSiteId: SRINI, debtorSiteId: PADMA, newQty: 0, newAmount: 0, existingQty: 20, existingAmount: 5600 },
+    ]);
+    expect(s.bySite).toEqual([]);
+  });
+
+  it("folds new + existing in the same direction into one flow (the 65/20 case)", () => {
+    // Srini borrowed 65 new from Padma's batches; Padma had 20 already on the
+    // ledger from Srini's stock — opposite directions, two rows.
+    const allocations = [
+      chunk({ batchRefCode: "P968A", usageSiteId: SRINI, payingSiteId: PADMA, quantity: 50, cost: 14000, isSelfUse: false }),
+      chunk({ batchRefCode: "P817C", usageSiteId: SRINI, payingSiteId: PADMA, quantity: 15, cost: 4200, isSelfUse: false }),
+    ];
+    const existingKept: ExistingUsage[] = [
+      {
+        id: "9A6D-padma",
+        batchRefCode: "9A6D",
+        usageSiteId: PADMA,
+        payingSiteId: SRINI,
+        usageDate: "2025-11-27",
+        quantity: 20,
+        totalCost: 5600,
+        isSelfUse: false,
+        settlementStatus: "pending",
+      },
+    ];
+    const s = summarizeReconcileUsage(allocations, existingKept);
+    const sriniBorrow = s.flows.find((f) => f.creditorSiteId === PADMA && f.debtorSiteId === SRINI);
+    const padmaBorrow = s.flows.find((f) => f.creditorSiteId === SRINI && f.debtorSiteId === PADMA);
+    expect(sriniBorrow).toMatchObject({ newQty: 65, newAmount: 18200, existingQty: 0, existingAmount: 0 });
+    expect(padmaBorrow).toMatchObject({ newQty: 0, newAmount: 0, existingQty: 20, existingAmount: 5600 });
+  });
+
+  it("collapses new + existing of the SAME direction into one combined flow", () => {
+    const allocations = [
+      chunk({ batchRefCode: "P1", usageSiteId: SRINI, payingSiteId: PADMA, quantity: 65, cost: 18200, isSelfUse: false }),
+    ];
+    const existingKept: ExistingUsage[] = [
+      {
+        id: "old-same-dir",
+        batchRefCode: "P0",
+        usageSiteId: SRINI,
+        payingSiteId: PADMA,
+        usageDate: "2025-10-01",
+        quantity: 10,
+        totalCost: 2800,
+        isSelfUse: false,
+        settlementStatus: "pending",
+      },
+    ];
+    const s = summarizeReconcileUsage(allocations, existingKept);
+    expect(s.flows).toEqual([
+      { creditorSiteId: PADMA, debtorSiteId: SRINI, newQty: 65, newAmount: 18200, existingQty: 10, existingAmount: 2800 },
+    ]);
+  });
+
+  it("ignores existing self-use and same-site records", () => {
+    const existingKept: ExistingUsage[] = [
+      {
+        id: "selfuse",
+        batchRefCode: "S1",
+        usageSiteId: SRINI,
+        payingSiteId: SRINI,
+        usageDate: "2025-11-27",
+        quantity: 30,
+        totalCost: 8400,
+        isSelfUse: true,
+        settlementStatus: "self_use",
+      },
+    ];
+    const s = summarizeReconcileUsage([], existingKept);
+    expect(s.flows).toEqual([]);
+  });
+
+  it("new-flow amounts reconcile with computeReconcileAllocations grossFlows", () => {
+    // Invariant guard: the summary's NEW legs must match the allocator's gross
+    // flows for the same inputs (pins the creditor=payer/debtor=user convention).
+    const pool = [batch({ refCode: "S1", payingSiteId: SRINI, purchaseDate: "2025-11-21" })];
+    const periods = [period({ id: "p1", asOfDate: "2025-11-30", bagsBySite: { [PADMA]: 20 } })];
+    const r = computeReconcileAllocations(periods, pool, []);
+    const s = summarizeReconcileUsage(r.allocations, []);
+    for (const gf of r.grossFlows) {
+      const f = s.flows.find((x) => x.creditorSiteId === gf.creditorSiteId && x.debtorSiteId === gf.debtorSiteId);
+      expect(f).toBeDefined();
+      expect(f!.newAmount).toBe(gf.amount);
+      expect(f!.newQty).toBe(gf.qty);
+    }
   });
 });

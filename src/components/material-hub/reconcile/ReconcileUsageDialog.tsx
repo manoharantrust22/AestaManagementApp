@@ -22,6 +22,7 @@ import {
   CircularProgress,
   Checkbox,
   FormControlLabel,
+  Collapse,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -29,6 +30,7 @@ import {
   DeleteOutline as DeleteIcon,
   SwapHoriz as SwapIcon,
   CheckCircle as CheckIcon,
+  EditOutlined as EditIcon,
 } from "@mui/icons-material";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -43,6 +45,7 @@ import {
 import { useGenerateSettlement } from "@/hooks/queries/useInterSiteSettlements";
 import {
   computeReconcileAllocations,
+  summarizeReconcileUsage,
   type BatchPoolRow,
   type ExistingUsage,
   type ReconcilePeriod,
@@ -108,7 +111,7 @@ export default function ReconcileUsageDialog({
   materialUnit,
 }: ReconcileUsageDialogProps) {
   const isMobile = useIsMobile();
-  const { user } = useAuth();
+  const { user, userProfile } = useAuth();
   const supabase = createClient();
 
   const { data: membership } = useSiteGroupMembership(siteId);
@@ -140,9 +143,14 @@ export default function ReconcileUsageDialog({
   const familySet = useMemo(() => new Set(familyIds), [familyIds]);
 
   // Batches in this cluster whose items belong to the material family.
+  // Completed batches are excluded from the POOL only — the RPC rejects adding
+  // usage to a `status='completed'` batch, so the client must agree. (They stay
+  // in `batches` for payer/stock-picture maps; their existing usage records still
+  // feed the net.)
   const familyBatches = useMemo(() => {
     return (batches as any[])
       .map((b) => {
+        if (b.status === "completed") return null;
         const fams = (b.items ?? []).filter((it: any) => familySet.has(it.material_id));
         if (fams.length === 0) return null;
         // One family-item per batch for cement; if several, take the largest.
@@ -151,6 +159,17 @@ export default function ReconcileUsageDialog({
       })
       .filter(Boolean) as Array<{ b: any; item: any }>;
   }, [batches, familySet]);
+
+  // Family-relevant batches that WERE excluded because they're completed — so the
+  // user understands why the available pool may be smaller than expected (a
+  // mis-flagged completed batch with leftover stock should be reopened).
+  const excludedCompletedCount = useMemo(
+    () =>
+      (batches as any[]).filter(
+        (b) => b.status === "completed" && (b.items ?? []).some((it: any) => familySet.has(it.material_id))
+      ).length,
+    [batches, familySet]
+  );
 
   // All family stock across the cluster — powers the per-site "stock picture"
   // AND resolves item-less advance batches (no line items) to a variant.
@@ -187,7 +206,7 @@ export default function ReconcileUsageDialog({
   // delivered family stock — include at a derived cost so delivered qty is usable.
   const itemlessBatches = useMemo(() => {
     return (batches as any[])
-      .filter((b) => (b.items ?? []).every((it: any) => !familySet.has(it.material_id)))
+      .filter((b) => b.status !== "completed" && (b.items ?? []).every((it: any) => !familySet.has(it.material_id)))
       .map((b) => ({ b, variant: stockVariantByBatch.get(b.ref_code) }))
       .filter((x) => !!x.variant) as Array<{ b: any; variant: { material_id: string; brand_id: string | null } }>;
   }, [batches, familySet, stockVariantByBatch]);
@@ -303,11 +322,12 @@ export default function ReconcileUsageDialog({
   const [committed, setCommitted] = useState(false);
   const [genDone, setGenDone] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  // Gate the destructive commit behind an explicit acknowledgement and prefill
-  // the first period from existing usage so a site's prior consumption is never
-  // silently dropped (it was — the 2026-06-13 incident).
+  // Recording ADDS to the ledger by default — nothing is deleted unless the user
+  // explicitly ticks records to replace. `replaceIds` holds those choices; the
+  // destructive commit is still gated behind an acknowledgement (`confirmReplace`).
   const [confirmReplace, setConfirmReplace] = useState(false);
-  const [prefillDone, setPrefillDone] = useState(false);
+  const [replaceIds, setReplaceIds] = useState<string[]>([]);
+  const [showReplace, setShowReplace] = useState(false);
 
   // Reset on open.
   useEffect(() => {
@@ -320,39 +340,13 @@ export default function ReconcileUsageDialog({
       setGenDone(false);
       setErr(null);
       setConfirmReplace(false);
-      setPrefillDone(false);
+      setReplaceIds([]);
+      setShowReplace(false);
     }
   }, [open, sites]);
 
-  // Prefill the (single) opening period with each site's CURRENTLY-RECORDED
-  // replaceable usage, so committing without edits reproduces the same totals
-  // instead of wiping a site that the user didn't re-type. Runs once, after the
-  // existing records load; only touches the untouched initial period.
-  useEffect(() => {
-    if (!open || prefillDone || existing.length === 0) return;
-    const perSite = new Map<string, number>();
-    for (const e of existing) {
-      if (e.settlementStatus === "settled" || e.settlementStatus === "in_settlement") continue;
-      perSite.set(e.usageSiteId, (perSite.get(e.usageSiteId) ?? 0) + e.quantity);
-    }
-    if (perSite.size === 0) {
-      setPrefillDone(true);
-      return;
-    }
-    setPeriods((ps) => {
-      if (ps.length !== 1) return ps; // user already edited structure
-      const p0 = ps[0];
-      const touched = Object.values(p0.bags).some((v) => v !== "");
-      if (touched) return ps;
-      const bags: Record<string, string> = { ...p0.bags };
-      for (const s of sites) {
-        const q = perSite.get(s.id) ?? 0;
-        bags[s.id] = q > 0 ? fmtQty(q) : "";
-      }
-      return [{ ...p0, bags }];
-    });
-    setPrefillDone(true);
-  }, [open, prefillDone, existing, sites]);
+  // NO prefill: inputs start blank and mean "additional usage to record now".
+  // Recording adds on top of the existing ledger, so prefilling would double-count.
 
   const periodsForCalc: ReconcilePeriod[] = useMemo(
     () =>
@@ -369,9 +363,33 @@ export default function ReconcileUsageDialog({
   );
 
   const preview = useMemo(
-    () => computeReconcileAllocations(periodsForCalc, pool, existing),
-    [periodsForCalc, pool, existing]
+    () => computeReconcileAllocations(periodsForCalc, pool, existing, replaceIds),
+    [periodsForCalc, pool, existing, replaceIds]
   );
+
+  // Existing ledger records the allocator KEPT (the same set it nets over — those
+  // not selected for replacement). Feeds the Net card's combined breakdown so the
+  // batch-logged usage and this reconcile read as one whole.
+  const existingKept = useMemo(
+    () => existing.filter((e) => !preview.deleteIds.includes(e.id)),
+    [existing, preview.deleteIds]
+  );
+  const usageSummary = useMemo(
+    () => summarizeReconcileUsage(preview.allocations, existingKept),
+    [preview.allocations, existingKept]
+  );
+
+  // Existing records the user is ALLOWED to replace (pending/self_use — never
+  // settled). Drives the opt-in "Replace / correct existing records" checklist.
+  const replaceableExisting = useMemo(
+    () =>
+      existing
+        .filter((e) => e.settlementStatus !== "settled" && e.settlementStatus !== "in_settlement")
+        .sort((a, b) => a.usageDate.localeCompare(b.usageDate) || a.batchRefCode.localeCompare(b.batchRefCode)),
+    [existing]
+  );
+  const toggleReplace = (id: string) =>
+    setReplaceIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
 
   const totalEntered = periodsForCalc.reduce(
     (s, p) => s + Object.values(p.bagsBySite).reduce((a, b) => a + b, 0),
@@ -393,6 +411,18 @@ export default function ReconcileUsageDialog({
     [pool]
   );
   const recordedSoFar = useMemo(() => existing.reduce((s, e) => s + e.quantity, 0), [existing]);
+
+  // Live "group pool remaining after this reconcile". NOT clusterAvailable −
+  // entered: the first period is prefilled with replaceable usage and a period
+  // REPLACES the pending logs in its range, so the pool only drops by net-new
+  // usage. delivered − (usage kept on the ledger) − (entered) is correct in both
+  // the settled-locked case (degrades to 840 − entered) and the replaced case,
+  // and equals clusterAvailable on open (prefill reproduces the existing usage).
+  const keptUsageQty = useMemo(
+    () => existing.filter((e) => !preview.deleteIds.includes(e.id)).reduce((s, e) => s + e.quantity, 0),
+    [existing, preview.deleteIds]
+  );
+  const poolRemaining = round2(deliveredTotal - keptUsageQty - totalEntered);
 
   // Per-site BEFORE → AFTER diff for the replace, so the destructive commit is
   // legible: how much each site has recorded now vs what it will have after.
@@ -508,7 +538,10 @@ export default function ReconcileUsageDialog({
           fromSiteId: f.creditorSiteId, // creditor (paid)
           toSiteId: f.debtorSiteId, // debtor (used)
           materialIds: familyIds,
-          userId: user?.id,
+          // created_by on inter_site_material_settlements FKs public.users(id),
+          // so this must be the public-users id (userProfile.id), NOT the auth id
+          // (user.id) — the latter triggers inter_site_material_settlements_created_by_fkey.
+          userId: userProfile?.id,
         } as any);
       }
       setGenDone(true);
@@ -518,7 +551,8 @@ export default function ReconcileUsageDialog({
     }
   };
 
-  const canNext = totalEntered > 0 && preview.shortfalls.length === 0 && !anyOver;
+  const canNext =
+    (totalEntered > 0 || replaceIds.length > 0) && preview.shortfalls.length === 0 && !anyOver;
 
   const netLabel =
     preview.net.amount > 0 && preview.net.fromSiteId && preview.net.toSiteId
@@ -568,6 +602,12 @@ export default function ReconcileUsageDialog({
                   {pool.length} group batches · {fmtQty(deliveredTotal)} {materialUnit} delivered · {fmtQty(recordedSoFar)} used so far
                 </Typography>
               </Box>
+              {excludedCompletedCount > 0 && (
+                <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1, fontStyle: "italic" }}>
+                  {excludedCompletedCount} completed batch{excludedCompletedCount > 1 ? "es" : ""} excluded from the pool —
+                  reopen one from its batch card if it still has stock.
+                </Typography>
+              )}
               <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", mb: 1 }}>
                 {sites.map((s) => {
                   const sp = stockBySite.get(s.id) ?? { own: 0, groupHeld: 0 };
@@ -593,10 +633,11 @@ export default function ReconcileUsageDialog({
             </Paper>
 
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-              Enter how much each site consumed <strong>from the group pool</strong> in a period. A site uses its own
-              dedicated stock first (never settles), then its own group batches (self-use), then borrows from the
-              other site — only that last part is a debt. Each period <strong>replaces</strong> any pending logs in
-              its date range, oldest→newest, capped at delivered stock.
+              Enter how much each site <strong>additionally</strong> used <strong>from the group pool</strong>. This{" "}
+              <strong>adds</strong> to what&apos;s already recorded — existing logs are kept. A site uses its own group
+              batches first (self-use, never settles), then borrows from the other site — only that last part is a
+              debt. Made a mistake? Expand <strong>Replace / correct existing records</strong> below and tick the ones
+              to overwrite.
             </Typography>
 
             {periods.map((p, idx) => (
@@ -613,20 +654,13 @@ export default function ReconcileUsageDialog({
                 </Box>
                 <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", mb: 1.5 }}>
                   <TextField
-                    label="From (optional)"
-                    type="date"
-                    size="small"
-                    value={p.fromDate}
-                    onChange={(e) => updatePeriod(p.id, { fromDate: e.target.value })}
-                    InputLabelProps={{ shrink: true }}
-                  />
-                  <TextField
                     label="Used as of *"
                     type="date"
                     size="small"
                     value={p.asOfDate}
                     onChange={(e) => updatePeriod(p.id, { asOfDate: e.target.value })}
                     InputLabelProps={{ shrink: true }}
+                    helperText="Date stamped on the new usage + delivered-stock cap"
                   />
                   <TextField
                     label="Note (optional)"
@@ -640,7 +674,7 @@ export default function ReconcileUsageDialog({
                   {sites.map((s) => (
                     <TextField
                       key={s.id}
-                      label={`${s.name} used (from group)`}
+                      label={`${s.name} — add usage`}
                       type="number"
                       size="small"
                       value={p.bags[s.id] ?? ""}
@@ -650,12 +684,11 @@ export default function ReconcileUsageDialog({
                     />
                   ))}
                 </Box>
-                {/* Show the CURRENT available group pool — the same number as the
-                    "Shared group pool available now" header — so the period line
-                    never disagrees with it. (The over-allocation guard still uses
-                    the delivered cap internally: a period replaces prior usage, so
-                    its ceiling is delivered, not delivered−used; that only surfaces
-                    in the over-limit error below.) */}
+                {/* Per-period ceiling = what's still available to record as of this
+                    date (delivered − usage already on the ledger − earlier periods).
+                    In pure-add mode this equals the "Shared group pool available now"
+                    header; ticking records to replace below frees their qty and raises
+                    this number. */}
                 {(() => {
                   const cap = preview.periodCapacity[p.id] ?? 0;
                   const entered = periodEntered(p);
@@ -663,12 +696,21 @@ export default function ReconcileUsageDialog({
                   return (
                     <Box sx={{ mt: 1 }}>
                       <Typography variant="caption" color={over ? "error" : "text.secondary"} sx={{ fontWeight: over ? 700 : 400 }}>
-                        <strong>{fmtQty(clusterAvailable)} {materialUnit}</strong> available in the group pool
+                        <strong>{fmtQty(cap)} {materialUnit}</strong> available to record as of this date
                       </Typography>
+                      {/* Live remaining-after-entry feedback. Hidden once over the
+                          cap (the red over-limit warning below covers that), and
+                          hidden if it would go negative to avoid a confusing
+                          negative in green. */}
+                      {totalEntered > 0 && !over && poolRemaining >= -1e-6 && (
+                        <Typography variant="caption" component="div" color="success.main" sx={{ fontWeight: 600 }}>
+                          <strong>{fmtQty(poolRemaining)} {materialUnit}</strong> will remain after these entries
+                        </Typography>
+                      )}
                       {over && (
                         <Typography variant="caption" color="error" component="div">
-                          Exceeds delivered stock for this period by {fmtQty(entered - cap)} {materialUnit} — reduce the
-                          quantity or extend the “used as of” date.
+                          Exceeds available group stock by {fmtQty(entered - cap)} {materialUnit} — reduce the quantity,
+                          extend the “used as of” date, or replace an existing record below.
                         </Typography>
                       )}
                     </Box>
@@ -684,6 +726,74 @@ export default function ReconcileUsageDialog({
             >
               Add another period
             </Button>
+
+            {/* Live before→after per site, so adding on top of the ledger is legible
+                (and a typed total never silently doubles the recorded usage). */}
+            {(totalEntered > 0 || replaceIds.length > 0) && (
+              <Box sx={{ mt: 2, display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+                <Typography variant="caption" color="text.secondary">After recording:</Typography>
+                {replaceDiff.rows
+                  .filter((r) => r.before > 0 || r.after > 0)
+                  .map((r) => {
+                    const dropped = r.after < r.before - 1e-6;
+                    const grew = r.after > r.before + 1e-6;
+                    return (
+                      <Chip
+                        key={r.siteId}
+                        size="small"
+                        variant="outlined"
+                        color={dropped ? "error" : grew ? "success" : "default"}
+                        label={`${r.name}: ${fmtQty(r.before)} → ${fmtQty(r.after)} ${materialUnit}`}
+                      />
+                    );
+                  })}
+              </Box>
+            )}
+
+            {/* Opt-in replace: by default this is closed and nothing is deleted.
+                Ticking a record marks it for permanent replacement on commit. */}
+            {replaceableExisting.length > 0 && (
+              <Box sx={{ mt: 1.5 }}>
+                <Button
+                  size="small"
+                  color="warning"
+                  startIcon={<EditIcon fontSize="small" />}
+                  onClick={() => setShowReplace((v) => !v)}
+                >
+                  Replace / correct existing records
+                  {replaceIds.length > 0 ? ` (${replaceIds.length} selected)` : ""}
+                </Button>
+                <Collapse in={showReplace}>
+                  <Paper variant="outlined" sx={{ p: 1.5, mt: 1, borderColor: "warning.200" }}>
+                    <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>
+                      Recording adds on top of these by default. Tick a record only if it&apos;s wrong — it will be
+                      permanently replaced on commit (recoverable from the audit log).
+                    </Typography>
+                    {replaceableExisting.map((e) => (
+                      <FormControlLabel
+                        key={e.id}
+                        sx={{ display: "flex", m: 0, py: 0.25 }}
+                        control={
+                          <Checkbox
+                            size="small"
+                            checked={replaceIds.includes(e.id)}
+                            onChange={() => toggleReplace(e.id)}
+                          />
+                        }
+                        label={
+                          <Typography variant="body2" component="span">
+                            <Box component="span" sx={{ fontFamily: "monospace" }}>{e.batchRefCode}</Box>
+                            {" · "}{e.usageDate}{" · "}
+                            <strong>{siteName(e.usageSiteId)}</strong> used {fmtQty(e.quantity)} {materialUnit}
+                            {e.isSelfUse ? " (self-use)" : ""}
+                          </Typography>
+                        }
+                      />
+                    ))}
+                  </Paper>
+                </Collapse>
+              </Box>
+            )}
 
             {preview.shortfalls.length > 0 && (
               <Alert severity="warning" sx={{ mt: 2 }}>
@@ -716,19 +826,73 @@ export default function ReconcileUsageDialog({
                   </Box>
                 )}
               </Typography>
-              {preview.grossFlows.length > 0 && (
-                <Box sx={{ mt: 1, display: "flex", gap: 2, flexWrap: "wrap" }}>
-                  {preview.grossFlows.map((f) => (
-                    <Typography key={`${f.creditorSiteId}-${f.debtorSiteId}`} variant="caption" color="text.secondary">
-                      {siteName(f.debtorSiteId)} → {siteName(f.creditorSiteId)}: {formatCurrency(f.amount)} ({fmtQty(f.qty)} {materialUnit})
-                    </Typography>
+
+              {/* How this is calculated — only cross-site borrowed stock settles.
+                  Each leg is tagged "new this entry" vs "already logged on a
+                  batch" so the batch-logged usage and this reconcile read as one
+                  whole (and an existing record that isn't in the table below is
+                  no longer invisible). */}
+              {usageSummary.flows.length > 0 && (
+                <Box sx={{ mt: 1.5 }}>
+                  <Typography variant="overline" color="text.secondary" component="div">
+                    Only stock borrowed across sites settles
+                  </Typography>
+                  {usageSummary.flows.map((f) => (
+                    <Box key={`${f.creditorSiteId}-${f.debtorSiteId}`} sx={{ mb: 0.25 }}>
+                      {f.newQty > 0 && (
+                        <Typography variant="body2" component="div">
+                          {siteName(f.debtorSiteId)} used <strong>{fmtQty(f.newQty)} {materialUnit}</strong> paid by{" "}
+                          {siteName(f.creditorSiteId)} → {formatCurrency(f.newAmount)}
+                          <Chip size="small" color="primary" variant="outlined" label="new this entry" sx={{ ml: 1, height: 18 }} />
+                        </Typography>
+                      )}
+                      {f.existingQty > 0 && (
+                        <Typography variant="body2" component="div">
+                          {siteName(f.debtorSiteId)} used <strong>{fmtQty(f.existingQty)} {materialUnit}</strong> paid by{" "}
+                          {siteName(f.creditorSiteId)} → {formatCurrency(f.existingAmount)}
+                          <Chip size="small" variant="outlined" label="already logged on a batch" sx={{ ml: 1, height: 18 }} />
+                        </Typography>
+                      )}
+                    </Box>
                   ))}
+
+                  {/* Net formula (2-site cluster): bigger direction − smaller. */}
+                  {(() => {
+                    if (!(preview.net.amount > 0 && preview.net.fromSiteId && preview.net.toSiteId)) return null;
+                    const owedTo = preview.grossFlows.find(
+                      (f) => f.creditorSiteId === preview.net.toSiteId && f.debtorSiteId === preview.net.fromSiteId
+                    )?.amount ?? 0;
+                    const owedBack = preview.grossFlows.find(
+                      (f) => f.creditorSiteId === preview.net.fromSiteId && f.debtorSiteId === preview.net.toSiteId
+                    )?.amount ?? 0;
+                    if (owedBack <= 0) return null; // only one direction → net == that leg, no subtraction to show
+                    return (
+                      <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 600 }}>
+                        Net = {formatCurrency(owedTo)} − {formatCurrency(owedBack)} = {formatCurrency(preview.net.amount)} →{" "}
+                        {siteName(preview.net.fromSiteId)} owes {siteName(preview.net.toSiteId)}
+                      </Typography>
+                    );
+                  })()}
                 </Box>
+              )}
+
+              {/* Why a big typed total collapses to a small net: most of it is a
+                  site using its OWN group batches, which never settles. */}
+              {usageSummary.bySite.some((s) => s.selfUse > 0) && (
+                <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
+                  Own group stock (never settles):{" "}
+                  {usageSummary.bySite
+                    .filter((s) => s.selfUse > 0)
+                    .map((s) => `${siteName(s.siteId)} ${fmtQty(s.selfUse)}`)
+                    .join(" · ")}
+                </Typography>
               )}
             </Paper>
 
             <Typography variant="caption" color="text.secondary">
-              Will replace {preview.deleteIds.length} pending log(s) in range · {lockedKept} settled log(s) kept · {preview.allocations.length} new allocation(s)
+              {preview.allocations.length} new allocation(s) added on top of existing
+              {preview.deleteIds.length > 0 ? ` · replacing ${preview.deleteIds.length} selected record(s)` : ""}
+              {" · "}{lockedKept} settled log(s) kept
             </Typography>
 
             {/* Destructive-change confirmation: this commit PERMANENTLY deletes
@@ -803,6 +967,27 @@ export default function ReconcileUsageDialog({
                       <Box component="td" sx={{ textAlign: "right !important" }}>{formatCurrency(row.cost)}</Box>
                     </Box>
                   ))}
+                  {preview.perBatch.length > 0 && (
+                    <Box
+                      component="tr"
+                      sx={{ "& td": { fontWeight: 700, borderTop: "2px solid", borderColor: "text.secondary" } }}
+                    >
+                      <Box component="td">Total</Box>
+                      <Box component="td" />
+                      <Box component="td" />
+                      {sites.map((s) => {
+                        const colTotal = preview.perBatch.reduce((sum, row) => sum + (row.qtyBySite[s.id] ?? 0), 0);
+                        return (
+                          <Box component="td" key={s.id} sx={{ textAlign: "right !important" }}>
+                            {colTotal > 0 ? fmtQty(round2(colTotal)) : "—"}
+                          </Box>
+                        );
+                      })}
+                      <Box component="td" sx={{ textAlign: "right !important" }}>
+                        {formatCurrency(preview.perBatch.reduce((sum, row) => sum + row.cost, 0))}
+                      </Box>
+                    </Box>
+                  )}
                   {preview.perBatch.length === 0 && (
                     <Box component="tr">
                       <Box component="td" colSpan={3 + sites.length} sx={{ color: "text.secondary" }}>
@@ -834,9 +1019,48 @@ export default function ReconcileUsageDialog({
                   money changes hands.
                 </Alert>
               ) : (
-                <Button variant="contained" onClick={handleGenerate} disabled={generateSettlement.isPending}>
-                  {generateSettlement.isPending ? "Generating…" : "Generate settlement"}
-                </Button>
+                <Box sx={{ maxWidth: 440, mx: "auto", textAlign: "left" }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                    Generating creates a <strong>pending</strong> debt record in Inter-site
+                    settlements — <strong>no money moves now</strong>. You&apos;ll mark it paid there
+                    when the cash actually changes hands.
+                  </Typography>
+                  {preview.grossFlows.filter((f) => f.amount > 0).length > 0 && (
+                    <Paper variant="outlined" sx={{ p: 1.5, mb: 2 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                        Will record:
+                      </Typography>
+                      {preview.grossFlows
+                        .filter((f) => f.amount > 0)
+                        .map((f, i) => (
+                          <Typography
+                            key={i}
+                            variant="body2"
+                            sx={{ display: "flex", justifyContent: "space-between", gap: 1 }}
+                          >
+                            <span>
+                              {siteName(f.debtorSiteId)} → {siteName(f.creditorSiteId)}
+                            </span>
+                            <strong>{formatCurrency(f.amount)}</strong>
+                          </Typography>
+                        ))}
+                      {preview.net.amount > 0 && (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ display: "block", mt: 0.75, pt: 0.75, borderTop: 1, borderColor: "divider" }}
+                        >
+                          Net: {netLabel} {formatCurrency(preview.net.amount)}
+                        </Typography>
+                      )}
+                    </Paper>
+                  )}
+                  <Box sx={{ textAlign: "center" }}>
+                    <Button variant="contained" onClick={handleGenerate} disabled={generateSettlement.isPending}>
+                      {generateSettlement.isPending ? "Generating…" : "Generate settlement"}
+                    </Button>
+                  </Box>
+                </Box>
               )
             ) : (
               <Alert severity="success" sx={{ textAlign: "left" }}>
