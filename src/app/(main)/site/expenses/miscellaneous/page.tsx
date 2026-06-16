@@ -17,6 +17,7 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  Tooltip,
 } from "@mui/material";
 import {
   Add,
@@ -27,6 +28,7 @@ import {
   Receipt,
   Cancel as CancelIcon,
   Visibility as ViewIcon,
+  AccountBalanceWallet as WalletIcon,
 } from "@mui/icons-material";
 import DataTable, { type MRT_ColumnDef } from "@/components/common/DataTable";
 import { createClient } from "@/lib/supabase/client";
@@ -37,6 +39,7 @@ import PageHeader from "@/components/layout/PageHeader";
 import { hasEditPermission } from "@/lib/permissions";
 import MiscExpenseDialog from "@/components/expenses/MiscExpenseDialog";
 import MiscExpenseViewDialog from "@/components/expenses/MiscExpenseViewDialog";
+import WalletSettlementAuditDialog from "@/components/expenses/WalletSettlementAuditDialog";
 import { getMiscExpenses, getMiscExpenseStats, cancelMiscExpense } from "@/lib/services/miscExpenseService";
 import PayerSourceChip from "@/components/settlement/PayerSourceChip";
 import type { MiscExpenseWithDetails, MiscExpenseStatsWithBreakdown } from "@/types/misc-expense.types";
@@ -56,6 +59,8 @@ export default function MiscellaneousExpensesPage() {
   const [editingExpense, setEditingExpense] = useState<MiscExpenseWithDetails | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewingExpense, setViewingExpense] = useState<MiscExpenseWithDetails | null>(null);
+  const [walletAuditOpen, setWalletAuditOpen] = useState(false);
+  const [walletAuditExpense, setWalletAuditExpense] = useState<MiscExpenseWithDetails | null>(null);
 
   // Stats
   const [stats, setStats] = useState<MiscExpenseStatsWithBreakdown>({
@@ -147,6 +152,11 @@ export default function MiscellaneousExpensesPage() {
   const handleView = (expense: MiscExpenseWithDetails) => {
     setViewingExpense(expense);
     setViewDialogOpen(true);
+  };
+
+  const handleWalletAudit = (expense: MiscExpenseWithDetails) => {
+    setWalletAuditExpense(expense);
+    setWalletAuditOpen(true);
   };
 
   const handleCancelClick = (expense: MiscExpenseWithDetails) => {
@@ -254,15 +264,24 @@ export default function MiscellaneousExpensesPage() {
           // Wallet-funded rows carry the real funding source(s) derived from the
           // engineer's deposits (Amma / Trust / a split / a pending gap); the
           // chip renders single, multi-source breakdown, or amber "Pending".
+          // A violet wallet glyph flags rows settled via the engineer's wallet.
+          const viaWallet = Boolean(row.original.engineer_transaction_id);
           return (
-            <PayerSourceChip
-              row={{
-                payer_source: source,
-                payer_name: row.original.payer_name ?? null,
-                payer_source_split: row.original.payer_source_split ?? null,
-              }}
-              size="small"
-            />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              {viaWallet && (
+                <Tooltip title="Settled via engineer's wallet">
+                  <WalletIcon sx={{ color: "#6366f1", fontSize: 16 }} />
+                </Tooltip>
+              )}
+              <PayerSourceChip
+                row={{
+                  payer_source: source,
+                  payer_name: row.original.payer_name ?? null,
+                  payer_source_split: row.original.payer_source_split ?? null,
+                }}
+                size="small"
+              />
+            </Box>
           );
         },
       },
@@ -335,6 +354,16 @@ export default function MiscellaneousExpensesPage() {
             >
               <ViewIcon fontSize="small" />
             </IconButton>
+            {row.original.engineer_transaction_id && (
+              <IconButton
+                size="small"
+                onClick={() => handleWalletAudit(row.original)}
+                title="Settled via engineer's wallet — view audit"
+                sx={{ color: "#6366f1" }}
+              >
+                <WalletIcon fontSize="small" />
+              </IconButton>
+            )}
             <IconButton
               size="small"
               onClick={() => handleEdit(row.original)}
@@ -613,6 +642,16 @@ export default function MiscellaneousExpensesPage() {
           setViewingExpense(null);
         }}
         expense={viewingExpense}
+      />
+
+      {/* Wallet settlement audit (only for wallet-funded rows) */}
+      <WalletSettlementAuditDialog
+        open={walletAuditOpen}
+        onClose={() => {
+          setWalletAuditOpen(false);
+          setWalletAuditExpense(null);
+        }}
+        expense={walletAuditExpense}
       />
     </Box>
   );
