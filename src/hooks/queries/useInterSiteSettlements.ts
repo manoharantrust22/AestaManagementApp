@@ -527,6 +527,8 @@ export interface RaisedInterSiteSettlement {
   total_amount: number;
   paid_amount: number;
   pending_amount: number;
+  /** Distinct material name(s) on this settlement, e.g. "PPC Cement". */
+  materials: string;
 }
 
 export function useRaisedInterSiteSettlements(groupId: string | undefined) {
@@ -545,7 +547,8 @@ export function useRaisedInterSiteSettlements(groupId: string | undefined) {
           .select(
             `id, settlement_code, status, total_amount, paid_amount, pending_amount,
              from_site:sites!inter_site_material_settlements_from_site_id_fkey(id, name),
-             to_site:sites!inter_site_material_settlements_to_site_id_fkey(id, name)`
+             to_site:sites!inter_site_material_settlements_to_site_id_fkey(id, name),
+             items:inter_site_settlement_items(material:materials(name))`
           )
           .eq("site_group_id", groupId)
           .in("status", ["pending", "approved"])
@@ -566,6 +569,11 @@ export function useRaisedInterSiteSettlements(groupId: string | undefined) {
           total_amount: Number(s.total_amount ?? 0),
           paid_amount: Number(s.paid_amount ?? 0),
           pending_amount: Number(s.pending_amount ?? 0),
+          materials: Array.from(
+            new Set(
+              ((s.items ?? []) as any[]).map((it) => it.material?.name).filter(Boolean)
+            )
+          ).join(", "),
         }));
       } catch (err) {
         if (isQueryError(err)) return [];

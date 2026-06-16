@@ -180,6 +180,10 @@ export default function InterSiteSettlementV2Page() {
         owedToYouCount={cluster.owedToYouCount}
       />
 
+      {/* Already-raised settlements first — they're committed debts, more urgent
+          than the net-settle suggestion below (which covers not-yet-raised usage). */}
+      <RaisedSettlementsPanel groupId={cluster.groupId} />
+
       <NettingMathPanel
         debt={cluster.debt}
         mySiteId={mySite.id}
@@ -191,8 +195,6 @@ export default function InterSiteSettlementV2Page() {
         otherSiteAccent={cluster.otherSite?.accent ?? hubTokens.pink}
         onNetSettle={canSettle ? () => setSettleOpen(true) : undefined}
       />
-
-      <RaisedSettlementsPanel groupId={cluster.groupId} />
 
       <SiteChipsStrip
         mySite={mySite}

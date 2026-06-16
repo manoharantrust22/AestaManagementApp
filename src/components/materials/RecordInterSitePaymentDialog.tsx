@@ -111,6 +111,8 @@ export default function RecordInterSitePaymentDialog({
   // Adjustment-mode offset: which funded purchase, and the amount to apply.
   const [offsetPurchaseId, setOffsetPurchaseId] = useState<string>("");
   const [payAmountStr, setPayAmountStr] = useState<string>("");
+  // True once the user edits the amount, so the default stops tracking `pending`.
+  const [amountTouched, setAmountTouched] = useState<boolean>(false);
 
   // Get active subcontracts
   const activeSubcontracts = subcontracts.filter(
@@ -131,33 +133,35 @@ export default function RecordInterSitePaymentDialog({
       setSuccess(false);
       setOffsetPurchaseId("");
       setPayAmountStr("");
+      setAmountTouched(false);
     }
   }, [open]);
 
-  // Default the adjustment amount to the full outstanding balance once the
-  // settlement loads (leaves a user-entered value untouched).
+  // Default the (adjustment) amount to the outstanding balance, and keep it in
+  // sync if `pending` changes (e.g. after a reciprocal offset partially pays this
+  // settlement) — until the user edits it.
   useEffect(() => {
-    if (open && settlement && payAmountStr === "") {
-      setPayAmountStr(String(Number(settlement.pending_amount ?? settlement.total_amount ?? amount)));
+    if (open && settlement && !amountTouched) {
+      setPayAmountStr(String(pending));
     }
-  }, [open, settlement, payAmountStr, amount]);
+  }, [open, settlement, pending, amountTouched]);
 
   // Apply a chosen offset purchase: suggest the amount + fill the reference/note.
   const applyOffsetPurchase = (purchaseId: string) => {
     setOffsetPurchaseId(purchaseId);
     const p = offsetCandidates.find((c) => c.id === purchaseId);
     if (!p) return;
+    setAmountTouched(true);
     setPayAmountStr(String(suggestedOffsetAmount(Number(p.total_amount), pending)));
     setPaymentReference(offsetReference(p.ref_code));
     setNotes((prev) => (prev ? prev : offsetNote(p)));
   };
 
-  // Adjustment (offset) pays a user-chosen amount; cash/UPI/bank still settle the
-  // full balance as before. `fullySettles` drives the partial-vs-complete copy.
+  // Adjustment (offset) pays a user-chosen amount; cash/UPI/bank settle the
+  // outstanding balance (= total for a fresh settlement, the remainder after a
+  // partial offset). `fullySettles` drives the partial-vs-complete copy.
   const isAdjustment = paymentMode === "adjustment";
-  const payAmount = isAdjustment
-    ? Number(payAmountStr)
-    : Number(settlement?.total_amount ?? amount);
+  const payAmount = isAdjustment ? Number(payAmountStr) : pending;
   const fullySettles = payAmount >= pending - 0.005;
 
   // Handle submit
@@ -429,7 +433,10 @@ export default function RecordInterSitePaymentDialog({
                 type="number"
                 label="Offset amount"
                 value={payAmountStr}
-                onChange={(e) => setPayAmountStr(e.target.value)}
+                onChange={(e) => {
+                  setPayAmountStr(e.target.value);
+                  setAmountTouched(true);
+                }}
                 required
                 inputProps={{ min: 0, max: pending, step: "0.01" }}
                 helperText={`Outstanding: ${formatCurrency(pending)}`}
