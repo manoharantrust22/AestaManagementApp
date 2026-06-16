@@ -1665,6 +1665,9 @@ export interface SettlementPaymentFormData {
   payment_source?: string;
   reference_number?: string;
   notes?: string;
+  /** For payment_mode='adjustment' offsets: the material_purchase_expenses row
+   *  the debtor funded that this payment offsets against (audit + no double-use). */
+  offset_expense_id?: string | null;
 }
 
 // Form data for creating/updating price alerts

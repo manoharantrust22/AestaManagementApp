@@ -32,11 +32,13 @@ const OFFSETTABLE_STATUSES = new Set(["completed", "partial_used", "recorded"]);
 /**
  * Purchases the DEBTOR funded that can be offered as an offset: funded by the
  * debtor (paying site, falling back to owning site), with a positive value and a
- * usable status. Sorted newest first.
+ * usable status, EXCLUDING any already used as an offset (`usedOffsetIds`) so the
+ * same purchase can't clear two debts. Sorted newest first.
  */
 export function eligibleOffsetPurchases(
   purchases: OffsetPurchase[],
-  debtorSiteId: string
+  debtorSiteId: string,
+  usedOffsetIds?: ReadonlySet<string>
 ): OffsetPurchase[] {
   return purchases
     .filter((p) => {
@@ -44,6 +46,7 @@ export function eligibleOffsetPurchases(
       if (funder !== debtorSiteId) return false;
       if (Number(p.total_amount) <= 0) return false;
       if (p.status && !OFFSETTABLE_STATUSES.has(p.status)) return false;
+      if (usedOffsetIds?.has(p.id)) return false;
       return true;
     })
     .sort((a, b) => purchaseTime(b) - purchaseTime(a));

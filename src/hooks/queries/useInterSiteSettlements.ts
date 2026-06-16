@@ -576,6 +576,52 @@ export function useRaisedInterSiteSettlements(groupId: string | undefined) {
 }
 
 /**
+ * The set of material_purchase_expenses ids already used as an offset in this
+ * cluster (referenced by a settlement payment's offset_expense_id). The offset
+ * picker excludes these so the same purchase can't clear two debts.
+ */
+export function useUsedOffsetExpenseIds(groupId: string | undefined) {
+  const supabase = createClient();
+  return useQuery({
+    queryKey: groupId
+      ? ["inter-site-settlements", "used-offsets", groupId]
+      : ["inter-site-settlements", "used-offsets"],
+    enabled: !!groupId,
+    staleTime: 2 * 60 * 1000,
+    queryFn: async (): Promise<Set<string>> => {
+      if (!groupId) return new Set();
+      try {
+        const { data: settlements, error: sErr } = await (supabase as any)
+          .from("inter_site_material_settlements")
+          .select("id")
+          .eq("site_group_id", groupId);
+        if (sErr) {
+          if (isQueryError(sErr)) return new Set();
+          throw sErr;
+        }
+        const ids = ((settlements ?? []) as any[]).map((s) => s.id);
+        if (ids.length === 0) return new Set();
+        const { data: payments, error } = await (supabase as any)
+          .from("inter_site_settlement_payments")
+          .select("offset_expense_id")
+          .in("settlement_id", ids)
+          .not("offset_expense_id", "is", null);
+        if (error) {
+          if (isQueryError(error)) return new Set();
+          throw error;
+        }
+        return new Set(
+          ((payments ?? []) as any[]).map((p) => p.offset_expense_id).filter(Boolean)
+        );
+      } catch (err) {
+        if (isQueryError(err)) return new Set();
+        throw err;
+      }
+    },
+  });
+}
+
+/**
  * Get settlement summary for a site
  * Shows total owed to the site and total the site owes
  */
@@ -1185,6 +1231,7 @@ export function useRecordSettlementPayment() {
           reference_number: data.reference_number || null,
           notes: data.notes || null,
           recorded_by: data.userId || null,
+          offset_expense_id: data.offset_expense_id || null,
         })
         .select()
         .single();

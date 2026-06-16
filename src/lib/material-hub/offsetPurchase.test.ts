@@ -51,6 +51,12 @@ describe("eligibleOffsetPurchases", () => {
     ];
     expect(eligibleOffsetPurchases(rows, DEBTOR).map((p) => p.id)).toEqual(["new", "old"]);
   });
+
+  it("excludes purchases already used as an offset", () => {
+    const rows = [purchase({ id: "a" }), purchase({ id: "b" })];
+    const used = new Set(["a"]);
+    expect(eligibleOffsetPurchases(rows, DEBTOR, used).map((p) => p.id)).toEqual(["b"]);
+  });
 });
 
 describe("suggestedOffsetAmount", () => {

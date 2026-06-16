@@ -31,7 +31,11 @@ import {
   Receipt as ExpenseIcon,
 } from "@mui/icons-material";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useRecordSettlementPayment, useInterSiteSettlement } from "@/hooks/queries/useInterSiteSettlements";
+import {
+  useRecordSettlementPayment,
+  useInterSiteSettlement,
+  useUsedOffsetExpenseIds,
+} from "@/hooks/queries/useInterSiteSettlements";
 import { useGroupMaterialPurchases } from "@/hooks/queries/useMaterialPurchases";
 import { useSiteSubcontracts } from "@/hooks/queries/useSubcontracts";
 import {
@@ -81,9 +85,10 @@ export default function RecordInterSitePaymentDialog({
   // with a material purchase they funded for the creditor instead of cash.
   const groupId = (settlement?.site_group_id as string | undefined) ?? undefined;
   const { data: groupPurchases = [] } = useGroupMaterialPurchases(groupId);
+  const { data: usedOffsetIds } = useUsedOffsetExpenseIds(groupId);
   const offsetCandidates = useMemo(
-    () => eligibleOffsetPurchases(groupPurchases as any[], debtorSiteId),
-    [groupPurchases, debtorSiteId]
+    () => eligibleOffsetPurchases(groupPurchases as any[], debtorSiteId, usedOffsetIds),
+    [groupPurchases, debtorSiteId, usedOffsetIds]
   );
   // Amount still outstanding on this settlement (total − already paid).
   const pending = Number(
@@ -190,6 +195,8 @@ export default function RecordInterSitePaymentDialog({
         payment_mode: paymentMode as any,
         // Adjustments aren't a cash source, so don't attribute a payment source.
         payment_source: isAdjustment ? undefined : paymentSource || undefined,
+        // Hard-link the offsetting purchase (audit + prevents double-use).
+        offset_expense_id: isAdjustment ? offsetPurchaseId || undefined : undefined,
         reference_number: paymentReference || undefined,
         notes: notes ? `${notes}${subcontractId ? ` | Linked to subcontract` : ""}${paymentProof ? ` | Proof: ${paymentProof.url}` : ""}` : undefined,
         userId: userProfile?.id,
