@@ -335,7 +335,7 @@ export default function HubFilteredSummary({
             variant="contained"
             color="warning"
             endIcon={<ArrowForwardIcon fontSize="small" />}
-            onClick={() => router.push("/site/inter-site-settlement")}
+            onClick={() => router.push("/site/materials/inter-site")}
             sx={{ textTransform: "none", flexShrink: 0 }}
           >
             {interSite.hasRaised ? "Record payment" : "Settle inter-site"}

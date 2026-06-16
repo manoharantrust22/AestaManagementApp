@@ -35,6 +35,7 @@ import { useClusterInterSiteDebt } from "@/hooks/queries/useClusterInterSiteDebt
 import { useClusterSharedBatches } from "@/hooks/queries/useClusterSharedBatches";
 import InterSiteBalanceCard from "@/components/inter-site/InterSiteBalanceCard";
 import NettingMathPanel from "@/components/inter-site/NettingMathPanel";
+import RaisedSettlementsPanel from "@/components/inter-site/RaisedSettlementsPanel";
 import SiteChipsStrip from "@/components/inter-site/SiteChipsStrip";
 import SharedBatchCard from "@/components/inter-site/SharedBatchCard";
 import NetSettlementDialog from "@/components/materials/NetSettlementDialog";
@@ -190,6 +191,8 @@ export default function InterSiteSettlementV2Page() {
         otherSiteAccent={cluster.otherSite?.accent ?? hubTokens.pink}
         onNetSettle={canSettle ? () => setSettleOpen(true) : undefined}
       />
+
+      <RaisedSettlementsPanel groupId={cluster.groupId} />
 
       <SiteChipsStrip
         mySite={mySite}

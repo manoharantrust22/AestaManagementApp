@@ -511,6 +511,71 @@ export function useUnpaidInterSiteSettlements(groupId: string | undefined) {
 }
 
 /**
+ * Raised-but-unpaid inter-site settlements for a cluster, at the SETTLEMENT
+ * level (one row per settlement, vs useUnpaidInterSiteSettlements which expands
+ * to per-material legs). Feeds the "Raised · awaiting payment" panel on the
+ * latest inter-site page so a generated settlement can be paid/offset there.
+ */
+export interface RaisedInterSiteSettlement {
+  id: string;
+  settlement_code: string;
+  status: string;
+  creditor_site_id: string; // from_site — paid for the materials
+  creditor_site_name: string;
+  debtor_site_id: string; // to_site — used the materials, owes
+  debtor_site_name: string;
+  total_amount: number;
+  paid_amount: number;
+  pending_amount: number;
+}
+
+export function useRaisedInterSiteSettlements(groupId: string | undefined) {
+  const supabase = createClient();
+  return useQuery({
+    queryKey: groupId
+      ? ["inter-site-settlements", "raised", groupId]
+      : ["inter-site-settlements", "raised"],
+    enabled: !!groupId,
+    staleTime: 2 * 60 * 1000,
+    queryFn: async (): Promise<RaisedInterSiteSettlement[]> => {
+      if (!groupId) return [];
+      try {
+        const { data, error } = await (supabase as any)
+          .from("inter_site_material_settlements")
+          .select(
+            `id, settlement_code, status, total_amount, paid_amount, pending_amount,
+             from_site:sites!inter_site_material_settlements_from_site_id_fkey(id, name),
+             to_site:sites!inter_site_material_settlements_to_site_id_fkey(id, name)`
+          )
+          .eq("site_group_id", groupId)
+          .in("status", ["pending", "approved"])
+          .gt("pending_amount", 0)
+          .order("created_at", { ascending: false });
+        if (error) {
+          if (isQueryError(error)) return [];
+          throw error;
+        }
+        return ((data ?? []) as any[]).map((s) => ({
+          id: s.id as string,
+          settlement_code: s.settlement_code as string,
+          status: s.status as string,
+          creditor_site_id: s.from_site?.id as string,
+          creditor_site_name: (s.from_site?.name as string) ?? "Unknown",
+          debtor_site_id: s.to_site?.id as string,
+          debtor_site_name: (s.to_site?.name as string) ?? "Unknown",
+          total_amount: Number(s.total_amount ?? 0),
+          paid_amount: Number(s.paid_amount ?? 0),
+          pending_amount: Number(s.pending_amount ?? 0),
+        }));
+      } catch (err) {
+        if (isQueryError(err)) return [];
+        throw err;
+      }
+    },
+  });
+}
+
+/**
  * Get settlement summary for a site
  * Shows total owed to the site and total the site owes
  */

@@ -8,6 +8,7 @@
  * Mirrors `DirectionPanel` in docs/MaterialHub_Redesign/proto-screens.jsx.
  */
 
+import { useState } from "react";
 import { Box, Typography } from "@mui/material";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import { hubTokens } from "@/lib/material-hub/tokens";
@@ -46,6 +47,8 @@ export default function DirectionPanel({
   emptyReason,
   color,
 }: DirectionPanelProps) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? records : records.slice(0, 4);
   return (
     <Box
       sx={{
@@ -122,7 +125,7 @@ export default function DirectionPanel({
       </Typography>
       {records.length > 0 ? (
         <Box sx={{ display: "flex", flexDirection: "column", gap: "5px", marginTop: "4px" }}>
-          {records.slice(0, 4).map((r, i) => (
+          {visible.map((r, i) => (
             <Box
               key={i}
               sx={{
@@ -172,16 +175,23 @@ export default function DirectionPanel({
             </Box>
           ))}
           {records.length > 4 && (
-            <Typography
+            <Box
+              component="button"
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
               sx={{
+                alignSelf: "flex-start",
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
                 fontSize: 10.5,
-                color: hubTokens.subtle,
-                fontWeight: 600,
+                color: hubTokens.primary,
+                fontWeight: 700,
                 padding: "2px 8px",
               }}
             >
-              +{records.length - 4} more
-            </Typography>
+              {expanded ? "Show less" : `+${records.length - 4} more`}
+            </Box>
           )}
         </Box>
       ) : (

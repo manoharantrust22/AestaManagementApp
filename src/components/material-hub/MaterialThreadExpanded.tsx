@@ -1811,13 +1811,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                     <Box
                       component="button"
                       type="button"
-                      onClick={() =>
-                        router.push(
-                          `/site/inter-site-settlement?batch=${encodeURIComponent(
-                            groupBatchRefCode
-                          )}`
-                        )
-                      }
+                      onClick={() => router.push("/site/materials/inter-site")}
                       sx={{
                         alignSelf: "flex-start",
                         marginTop: "2px",
@@ -1857,13 +1851,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                     <Box
                       component="button"
                       type="button"
-                      onClick={() =>
-                        router.push(
-                          `/site/inter-site-settlement?batch=${encodeURIComponent(
-                            groupBatchRefCode
-                          )}`
-                        )
-                      }
+                      onClick={() => router.push("/site/materials/inter-site")}
                       sx={{
                         alignSelf: "flex-start",
                         display: "inline-flex",

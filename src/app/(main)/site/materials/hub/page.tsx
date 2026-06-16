@@ -195,16 +195,9 @@ export default function MaterialHubPage() {
     // inter-site settlement page (same destination as the expanded card's
     // "Settle this batch"). There's no usage dialog to open here.
     if (thread.stage === "exhausted" && thread.inter_site_pending) {
-      const batchRef =
-        thread.inventory?.batch && thread.inventory.batch !== "—"
-          ? thread.inventory.batch
-          : thread.settlement?.expense_ref ?? undefined;
-      if (batchRef) {
-        router.push(
-          `/site/inter-site-settlement?batch=${encodeURIComponent(batchRef)}`
-        );
-        return;
-      }
+      // Latest inter-site page: net-settle pending usage AND pay raised settlements.
+      router.push("/site/materials/inter-site");
+      return;
     }
 
     // Group batch fully self-used but not yet posted to all-site expenses →
@@ -396,7 +389,7 @@ export default function MaterialHubPage() {
         counts={counts}
         settlementDueAmount={settlementDueAmount}
         debt={debt}
-        onClickInterSite={() => router.push("/site/inter-site-settlement")}
+        onClickInterSite={() => router.push("/site/materials/inter-site")}
       />
 
       <AllocationsQueue siteGroupId={siteGroupId} />
