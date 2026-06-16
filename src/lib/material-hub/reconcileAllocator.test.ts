@@ -2,11 +2,26 @@ import { describe, it, expect } from "vitest";
 import {
   computeReconcileAllocations,
   summarizeReconcileUsage,
+  groupReplaceableUsage,
   type BatchPoolRow,
   type ExistingUsage,
   type ReconcileAllocationChunk,
   type ReconcilePeriod,
 } from "./reconcileAllocator";
+
+function existingUsage(over: Partial<ExistingUsage> & { id: string }): ExistingUsage {
+  return {
+    batchRefCode: "B1",
+    usageSiteId: SRINI,
+    payingSiteId: SRINI,
+    usageDate: "2026-01-01",
+    quantity: 10,
+    totalCost: 2800,
+    isSelfUse: true,
+    settlementStatus: "self_use",
+    ...over,
+  };
+}
 
 const SRINI = "site-srini";
 const PADMA = "site-padma";
@@ -440,5 +455,36 @@ describe("summarizeReconcileUsage", () => {
       expect(f!.newAmount).toBe(gf.amount);
       expect(f!.newQty).toBe(gf.qty);
     }
+  });
+});
+
+describe("groupReplaceableUsage", () => {
+  it("groups rows by batch and splits self-use vs cross-site", () => {
+    const rows = [
+      existingUsage({ id: "a", batchRefCode: "B2", usageSiteId: SRINI, payingSiteId: SRINI, isSelfUse: true, quantity: 30 }),
+      existingUsage({ id: "b", batchRefCode: "B2", usageSiteId: PADMA, payingSiteId: SRINI, isSelfUse: false, quantity: 20 }),
+      existingUsage({ id: "c", batchRefCode: "B1", usageSiteId: SRINI, payingSiteId: SRINI, isSelfUse: true, quantity: 15 }),
+    ];
+    const groups = groupReplaceableUsage(rows);
+    // sorted by batch ref → B1 then B2
+    expect(groups.map((g) => g.batchRefCode)).toEqual(["B1", "B2"]);
+    const b2 = groups.find((g) => g.batchRefCode === "B2")!;
+    expect(b2.selfUse.map((r) => r.id)).toEqual(["a"]);
+    expect(b2.crossSite.map((r) => r.id)).toEqual(["b"]);
+    expect(b2.totalQty).toBe(50);
+    expect(b2.payingSiteId).toBe(SRINI);
+  });
+
+  it("date-sorts rows within a bucket", () => {
+    const rows = [
+      existingUsage({ id: "late", batchRefCode: "B1", usageDate: "2026-02-01", isSelfUse: true }),
+      existingUsage({ id: "early", batchRefCode: "B1", usageDate: "2026-01-01", isSelfUse: true }),
+    ];
+    const [g] = groupReplaceableUsage(rows);
+    expect(g.selfUse.map((r) => r.id)).toEqual(["early", "late"]);
+  });
+
+  it("returns an empty array for no rows", () => {
+    expect(groupReplaceableUsage([])).toEqual([]);
   });
 });

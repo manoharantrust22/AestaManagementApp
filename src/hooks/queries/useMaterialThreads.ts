@@ -18,6 +18,11 @@ import type {
 } from "@/lib/material-hub/threadTypes";
 import type { PayerSourceSplitRow } from "@/types/settlement.types";
 import { parseGroupMeta } from "@/lib/material-hub/groupMeta";
+import {
+  deriveInterSiteStatus,
+  isInterSiteOutstanding,
+  type InterSiteStatus,
+} from "@/lib/material-hub/interSiteStatus";
 
 // ----------------------------------------------------------------------------
 // Deliveries per site (joined with delivery_items so we can group by PO + material)
@@ -289,6 +294,13 @@ export interface SettlementSnapshot {
    *  wallet funded the settlement, so the card can name the payer instead of a
    *  bare "wallet". Null for non-wallet settlements. */
   engineer_tx: { recorded_by: string | null } | null;
+  /** Audit: who marked this expense paid (auth.users id) and when (timestamp,
+   *  distinct from the paid_date business date). */
+  settled_by: string | null;
+  settled_at: string | null;
+  /** Resolved display name for settled_by (public.users.name via auth_id),
+   *  populated in useSiteSettlements since the auth schema can't be embedded. */
+  settled_by_name: string | null;
 }
 
 // ----------------------------------------------------------------------------
@@ -317,10 +329,19 @@ function useGroupSiteNames(siteGroupId: string | null | undefined) {
 }
 
 interface GroupBatchUsageSummary {
-  /** batch_ref_code → total ₹ of unsettled cross-site (non-self) usage. */
+  /** batch_ref_code → total ₹ of not-yet-raised cross-site usage
+   *  (settlement_status='pending'). 0/absent once a settlement is generated. */
   pendingCrossSiteByBatch: Map<string, number>;
   /** batch_ref_codes that have at least one cross-site (non-self) usage row. */
   hasCrossSiteByBatch: Set<string>;
+  /** batch_ref_code → inter-site lifecycle state (pending_usage / raised_unpaid
+   *  / settled), derived from its cross-site rows' settlement_status. The single
+   *  source of truth for the honest stepper chip — distinguishes a raised-but-
+   *  unpaid settlement from a genuinely settled one. */
+  interSiteStatusByBatch: Map<string, InterSiteStatus>;
+  /** batch_ref_code → ₹ of cross-site usage that's been RAISED but not paid
+   *  (settlement_status='in_settlement'). Feeds the true outstanding total. */
+  raisedUnpaidByBatch: Map<string, number>;
   /** batch_ref_code → (usage_site_id → qty used). The ledger-true per-site
    *  consumption (by usage_site_id), used for the per-site split + filtered
    *  summary. NOT derived from stock-row decrements, which for a group batch
@@ -340,8 +361,12 @@ function useGroupBatchUsageSummary(siteGroupId: string | null | undefined) {
         .eq("site_group_id", siteGroupId);
       if (error) throw error;
       const pendingCrossSiteByBatch = new Map<string, number>();
+      const raisedUnpaidByBatch = new Map<string, number>();
       const hasCrossSiteByBatch = new Set<string>();
       const usedBySiteByBatch = new Map<string, Map<string, number>>();
+      // Collect each batch's cross-site rows' settlement_status so we can derive
+      // the lifecycle state (pending_usage / raised_unpaid / settled) per batch.
+      const crossStatusesByBatch = new Map<string, string[]>();
       for (const r of (data ?? []) as Array<{
         batch_ref_code: string;
         usage_site_id: string;
@@ -361,15 +386,34 @@ function useGroupBatchUsageSummary(siteGroupId: string | null | undefined) {
 
         if (r.is_self_use) continue;
         hasCrossSiteByBatch.add(r.batch_ref_code);
+        const statuses = crossStatusesByBatch.get(r.batch_ref_code) ?? [];
+        statuses.push(r.settlement_status);
+        crossStatusesByBatch.set(r.batch_ref_code, statuses);
         if (r.settlement_status === "pending") {
           pendingCrossSiteByBatch.set(
             r.batch_ref_code,
             (pendingCrossSiteByBatch.get(r.batch_ref_code) ?? 0) +
               Number(r.total_cost ?? 0)
           );
+        } else if (r.settlement_status === "in_settlement") {
+          raisedUnpaidByBatch.set(
+            r.batch_ref_code,
+            (raisedUnpaidByBatch.get(r.batch_ref_code) ?? 0) +
+              Number(r.total_cost ?? 0)
+          );
         }
       }
-      return { pendingCrossSiteByBatch, hasCrossSiteByBatch, usedBySiteByBatch };
+      const interSiteStatusByBatch = new Map<string, InterSiteStatus>();
+      for (const [batchRef, statuses] of crossStatusesByBatch) {
+        interSiteStatusByBatch.set(batchRef, deriveInterSiteStatus(statuses));
+      }
+      return {
+        pendingCrossSiteByBatch,
+        raisedUnpaidByBatch,
+        hasCrossSiteByBatch,
+        interSiteStatusByBatch,
+        usedBySiteByBatch,
+      };
     },
     staleTime: 60000,
   });
@@ -476,7 +520,7 @@ function useSiteSettlements(
       let query = (supabase as any)
         .from("material_purchase_expenses")
         .select(
-          "id, ref_code, purchase_order_id, site_id, is_paid, paid_date, status, payment_channel, total_amount, amount_paid, payment_screenshot_url, bill_url, payment_mode, purchase_type, paying_site_id, settlement_payer_source, settlement_payer_name, payer_source_split, engineer_transaction_id, engineer_tx:site_engineer_transactions!material_purchase_expenses_engineer_tx_fkey(recorded_by)"
+          "id, ref_code, purchase_order_id, site_id, is_paid, paid_date, status, payment_channel, total_amount, amount_paid, payment_screenshot_url, bill_url, payment_mode, purchase_type, paying_site_id, settlement_payer_source, settlement_payer_name, payer_source_split, engineer_transaction_id, settled_by, settled_at, engineer_tx:site_engineer_transactions!material_purchase_expenses_engineer_tx_fkey(recorded_by)"
         )
         .not("purchase_order_id", "is", null);
 
@@ -488,7 +532,28 @@ function useSiteSettlements(
 
       const { data, error } = await query;
       if (error) throw error;
-      return (data ?? []) as SettlementSnapshot[];
+      const rows = (data ?? []) as SettlementSnapshot[];
+
+      // Resolve settled_by (auth.users id) -> public.users.name so the Hub can
+      // show "Settled by <name>". The auth schema can't be embedded via
+      // PostgREST, so map it in JS (same pattern as useUsageLog).
+      const authIds = Array.from(
+        new Set(rows.map((r) => r.settled_by).filter(Boolean))
+      ) as string[];
+      const nameByAuthId = new Map<string, string>();
+      if (authIds.length > 0) {
+        const { data: users } = await (supabase as any)
+          .from("users")
+          .select("auth_id, name")
+          .in("auth_id", authIds);
+        for (const u of (users ?? []) as Array<{ auth_id: string; name: string }>) {
+          if (u.auth_id) nameByAuthId.set(u.auth_id, u.name);
+        }
+      }
+      return rows.map((r) => ({
+        ...r,
+        settled_by_name: r.settled_by ? nameByAuthId.get(r.settled_by) ?? null : null,
+      }));
     },
     staleTime: 60000,
   });
@@ -677,6 +742,10 @@ interface StandardThreadDeps {
   /** Batches that have ANY cross-site (non-self) usage row, settled or not —
    *  distinguishes a truly own-used group buy from shared-and-settled. */
   hasCrossSiteByBatch: Set<string>;
+  /** batch_ref_code → inter-site lifecycle state. Drives the honest stepper:
+   *  a `raised_unpaid` batch (settlement generated, not paid) stays amber, not
+   *  green. Absent = no cross-site usage. */
+  interSiteStatusByBatch: Map<string, InterSiteStatus>;
   /** batch_ref_code → (usage_site_id → qty) — ledger-true per-site usage. */
   usedBySiteByBatch: Map<string, Map<string, number>>;
   /** delivery_id → qty consumed from that delivery (FIFO allocations). */
@@ -889,8 +958,14 @@ function mapStandardThread(
   // its batch_code equals the settlement ref_code and the batch_usage_records
   // batch_ref_code — all three share the MAT-/GSP- code.
   const batchRefForUsage = settlement?.ref_code ?? invMatch?.stock.batch_code ?? null;
-  const hasPendingInterSite =
-    !!batchRefForUsage && (deps.pendingInterSiteByBatch.get(batchRefForUsage) ?? 0) > 0;
+  // Full inter-site lifecycle state (pending_usage / raised_unpaid / settled).
+  // `inter_site_pending` is the derived "still needs action" alias — note it now
+  // stays true through `raised_unpaid` (a raised-but-unpaid settlement), so the
+  // Hub no longer reads DONE the instant Generate flips the usage rows.
+  const interSiteStatus: InterSiteStatus = batchRefForUsage
+    ? deps.interSiteStatusByBatch.get(batchRefForUsage) ?? "none"
+    : "none";
+  const hasPendingInterSite = isInterSiteOutstanding(interSiteStatus);
 
   // A group buy that was fully consumed by the paying site itself, with no
   // cross-site usage at all (distinct from shared-and-settled). Drives the
@@ -1040,6 +1115,7 @@ function mapStandardThread(
     self_use_expense: selfUseExpense,
     inter_site_applicable: interSiteApplicable || undefined,
     inter_site_pending: hasPendingInterSite || undefined,
+    inter_site_status: interSiteStatus === "none" ? undefined : interSiteStatus,
     advance: po?.payment_timing === "advance",
     material_id: primaryItem?.material_id ?? "",
     material_name: (primaryItem as any)?.material?.name ?? "—",
@@ -1101,7 +1177,10 @@ function mapStandardThread(
             settlement.payment_channel === "engineer_wallet"
               ? settlement.engineer_tx?.recorded_by ?? null
               : null,
-          settled_at: settlement.paid_date,
+          // Prefer the audit timestamp (who/when the row was actually marked
+          // paid); fall back to the business paid_date for pre-audit rows.
+          settled_at: settlement.settled_at ?? settlement.paid_date,
+          settled_by_name: settlement.settled_by_name,
           expense_ref: settlement.ref_code,
           expense_id: settlement.id,
           expense_on_ledger: settlement.purchase_type !== "group_stock",
@@ -1368,6 +1447,8 @@ export function useMaterialThreads(
         batchUsage.data?.pendingCrossSiteByBatch ?? new Map<string, number>(),
       hasCrossSiteByBatch:
         batchUsage.data?.hasCrossSiteByBatch ?? new Set<string>(),
+      interSiteStatusByBatch:
+        batchUsage.data?.interSiteStatusByBatch ?? new Map<string, InterSiteStatus>(),
       usedBySiteByBatch:
         batchUsage.data?.usedBySiteByBatch ?? new Map<string, Map<string, number>>(),
       usedByDelivery: deliveryUsage.data ?? new Map<string, number>(),

@@ -1133,7 +1133,14 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                 );
               })()}
               {t.settlement.settled_at && (
-                <DetailRow label="On" value={fmtDateShort(t.settlement.settled_at)} />
+                <DetailRow
+                  label={t.settlement.settled_by_name ? "Settled by" : "On"}
+                  value={
+                    t.settlement.settled_by_name
+                      ? `${t.settlement.settled_by_name} · ${fmtDateShort(t.settlement.settled_at)}`
+                      : fmtDateShort(t.settlement.settled_at)
+                  }
+                />
               )}
               {/* Linkage + Ref. Every settlement is traceable somewhere, but not
                   always as a single /site/expenses row:
@@ -1620,6 +1627,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               <Box sx={{ display: "flex", flexDirection: "column", gap: "5px" }}>
               {batchSummary.site_allocations.map((a) => {
                 const settled = a.settlement_status === "settled";
+                const raised = a.settlement_status === "in_settlement";
                 return (
                   <Box
                     key={a.site_id}
@@ -1640,7 +1648,9 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                           ? "self-use (paid for batch)"
                           : settled
                             ? `settled with ${batchSummary.paying_site_name}`
-                            : `owes ${batchSummary.paying_site_name}`}
+                            : raised
+                              ? `raised — owes ${batchSummary.paying_site_name} (awaiting payment)`
+                              : `owes ${batchSummary.paying_site_name}`}
                       </Box>
                     </Box>
                     <Box sx={{ display: "flex", gap: "8px", alignItems: "center", flexShrink: 0 }}>
@@ -1829,6 +1839,63 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                     </Box>
                   )}
                 </Box>
+              ) : t.inter_site_status === "raised_unpaid" ? (
+                <Box
+                  sx={{
+                    borderTop: `1px solid ${hubTokens.hairline}`,
+                    paddingTop: "8px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
+                  <Typography sx={{ fontSize: 11.5, color: hubTokens.warn, fontWeight: 600 }}>
+                    Settlement raised — awaiting payment. No money has moved yet, and the
+                    cost hasn&apos;t been split to each site&apos;s material expense.
+                  </Typography>
+                  {groupBatchRefCode && (
+                    <Box
+                      component="button"
+                      type="button"
+                      onClick={() =>
+                        router.push(
+                          `/site/inter-site-settlement?batch=${encodeURIComponent(
+                            groupBatchRefCode
+                          )}`
+                        )
+                      }
+                      sx={{
+                        alignSelf: "flex-start",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        padding: "5px 10px",
+                        border: "none",
+                        cursor: "pointer",
+                        borderRadius: "6px",
+                        background: hubTokens.primary,
+                        color: "#fff",
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                      }}
+                    >
+                      Record payment
+                      <ArrowForwardIcon sx={{ fontSize: 13 }} />
+                    </Box>
+                  )}
+                </Box>
+              ) : t.inter_site_status === "settled" ? (
+                <Typography
+                  sx={{
+                    fontSize: 11.5,
+                    color: hubTokens.success,
+                    fontWeight: 600,
+                    borderTop: `1px solid ${hubTokens.hairline}`,
+                    paddingTop: "8px",
+                  }}
+                >
+                  ✓ Inter-site settled — cost split to each site&apos;s material expense.
+                </Typography>
               ) : null}
             </Box>
           ) : (

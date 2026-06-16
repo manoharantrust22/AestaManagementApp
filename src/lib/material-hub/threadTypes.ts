@@ -11,6 +11,7 @@
  */
 
 import type { PayerSourceSplitRow } from "@/types/settlement.types";
+import type { InterSiteStatus } from "@/lib/material-hub/interSiteStatus";
 
 export type ThreadStage =
   | "requested"
@@ -114,6 +115,11 @@ export interface ThreadSettlement {
    *  "Paid by wallet · Ajith Kumar" instead of an anonymous wallet. */
   paid_by_engineer_name?: string | null;
   settled_at?: string | null;
+  /** Audit: display name of the user who marked the expense paid (from
+   *  material_purchase_expenses.settled_by, resolved to public.users.name).
+   *  Null for pre-audit historical rows. Lets the card read
+   *  "Settled by Ajith Kumar · 12 Jun 26" instead of an anonymous date. */
+  settled_by_name?: string | null;
   /** Human-readable ref_code on the material_purchase_expenses row (e.g. "MAT-260214-6805").
    *  Surfaced in the Expenses block so the user can find the row on /site/expenses. */
   expense_ref?: string | null;
@@ -323,9 +329,16 @@ export interface MaterialThread {
   /** Group thread that has ANY cross-site usage on its batch (settled or not).
    *  Drives whether the synthetic "INTER-SITE" pipeline step renders. */
   inter_site_applicable?: boolean;
-  /** Cross-site debt on this batch is still unsettled (batch_usage_records
-   *  with settlement_status='pending'). Drives the amber step + settle action. */
+  /** Cross-site debt on this batch is still unfinished — i.e. not fully settled
+   *  (`inter_site_status` is `pending_usage` or `raised_unpaid`). Derived alias
+   *  of `inter_site_status`; kept for the routing/KPI callers that only need a
+   *  boolean. Drives the amber step + "needs action" gate. */
   inter_site_pending?: boolean;
+  /** Full inter-site lifecycle state of this batch's cross-site debt. Unlike the
+   *  old boolean, this distinguishes a settlement that was merely RAISED
+   *  (`raised_unpaid` — no money moved, no per-site expense) from one that is
+   *  actually `settled`. Drives the honest stepper chip + next-action label. */
+  inter_site_status?: InterSiteStatus;
 
   // Spot-only
   bought_at?: string;

@@ -73,7 +73,12 @@ export function nextAction(t: MaterialThread): NextAction | null {
   // Consumption is done (exhausted), but a group batch's cross-site portion is
   // still owed. Settling is independent of usage — surface it as the next step
   // so the row stays actionable instead of showing a dead "Log usage" button.
+  // Two distinct steps: raise the settlement (reconcile), then pay it. A raised-
+  // but-unpaid settlement is NOT done — keep it actionable as "Record payment".
   if (t.stage === "exhausted" && t.inter_site_pending) {
+    if (t.inter_site_status === "raised_unpaid") {
+      return { who: "office", label: "Record payment →", verb: "Record payment" };
+    }
     return { who: "office", label: "Settle inter-site →", verb: "Settle inter-site" };
   }
 

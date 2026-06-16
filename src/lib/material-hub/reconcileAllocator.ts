@@ -407,3 +407,52 @@ export function summarizeReconcileUsage(
 
   return { flows: [...flowMap.values()], bySite: [...siteMap.values()] };
 }
+
+/**
+ * One source batch's existing usage rows, split into own-stock (self-use, never
+ * settles) and cross-site (settles) — so the "Replace / correct existing
+ * records" checklist reads as a scannable per-batch grouping instead of a flat
+ * wall of MAT-… numbers.
+ */
+export interface ReplaceUsageGroup {
+  batchRefCode: string;
+  payingSiteId: string;
+  /** Own-stock usage on this batch (usage site == paying site). */
+  selfUse: ExistingUsage[];
+  /** Cross-site usage on this batch (a sibling used the payer's stock). */
+  crossSite: ExistingUsage[];
+  /** Σ quantity across both buckets — for the group header. */
+  totalQty: number;
+}
+
+/**
+ * Group replaceable existing usage rows by their source batch, splitting each
+ * batch's rows into self-use vs cross-site. Rows are date-sorted within a
+ * bucket; groups are sorted by batch ref so the list is stable and scannable.
+ */
+export function groupReplaceableUsage(rows: ExistingUsage[]): ReplaceUsageGroup[] {
+  const byBatch = new Map<string, ReplaceUsageGroup>();
+  for (const r of rows) {
+    const g =
+      byBatch.get(r.batchRefCode) ?? {
+        batchRefCode: r.batchRefCode,
+        payingSiteId: r.payingSiteId,
+        selfUse: [],
+        crossSite: [],
+        totalQty: 0,
+      };
+    if (r.isSelfUse) g.selfUse.push(r);
+    else g.crossSite.push(r);
+    g.totalQty += r.quantity;
+    byBatch.set(r.batchRefCode, g);
+  }
+  const byDate = (a: ExistingUsage, b: ExistingUsage) =>
+    a.usageDate.localeCompare(b.usageDate);
+  const groups = [...byBatch.values()];
+  for (const g of groups) {
+    g.selfUse.sort(byDate);
+    g.crossSite.sort(byDate);
+  }
+  groups.sort((a, b) => a.batchRefCode.localeCompare(b.batchRefCode));
+  return groups;
+}

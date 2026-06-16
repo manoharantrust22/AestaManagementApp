@@ -23,6 +23,7 @@ import {
   Checkbox,
   FormControlLabel,
   Collapse,
+  Link,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -46,9 +47,11 @@ import { useGenerateSettlement } from "@/hooks/queries/useInterSiteSettlements";
 import {
   computeReconcileAllocations,
   summarizeReconcileUsage,
+  groupReplaceableUsage,
   type BatchPoolRow,
   type ExistingUsage,
   type ReconcilePeriod,
+  type ReconcileUsageSummary,
 } from "@/lib/material-hub/reconcileAllocator";
 
 interface ReconcileUsageDialogProps {
@@ -316,6 +319,17 @@ export default function ReconcileUsageDialog({
       }));
   }, [usageRecords, familySet, payerByRef]);
 
+  // Batch context (bought date · qty) keyed by ref, for the grouped replace list.
+  const batchMetaByRef = useMemo(() => {
+    const m = new Map<string, { purchaseDate?: string; originalQty: number; unit: string }>();
+    for (const b of pool) {
+      const e = m.get(b.refCode);
+      if (e) e.originalQty += b.originalQty;
+      else m.set(b.refCode, { purchaseDate: b.purchaseDate, originalQty: b.originalQty, unit: b.unit });
+    }
+    return m;
+  }, [pool]);
+
   // ── Local state ──
   const [step, setStep] = useState(0);
   const [periods, setPeriods] = useState<PeriodInput[]>([]);
@@ -328,6 +342,9 @@ export default function ReconcileUsageDialog({
   const [confirmReplace, setConfirmReplace] = useState(false);
   const [replaceIds, setReplaceIds] = useState<string[]>([]);
   const [showReplace, setShowReplace] = useState(false);
+  // Snapshot of "what this entry recorded", frozen at commit so the Done step
+  // keeps showing it after the post-commit refetch changes `existing`/`preview`.
+  const [committedSummary, setCommittedSummary] = useState<ReconcileUsageSummary | null>(null);
 
   // Reset on open.
   useEffect(() => {
@@ -342,6 +359,7 @@ export default function ReconcileUsageDialog({
       setConfirmReplace(false);
       setReplaceIds([]);
       setShowReplace(false);
+      setCommittedSummary(null);
     }
   }, [open, sites]);
 
@@ -520,6 +538,8 @@ export default function ReconcileUsageDialog({
         delete_ids: preview.deleteIds,
         entries: [...byEntry.values()],
       });
+      // Freeze the "what this entry recorded" summary before the refetch lands.
+      setCommittedSummary(usageSummary);
       setCommitted(true);
       setStep(2);
     } catch (e: any) {
@@ -767,29 +787,70 @@ export default function ReconcileUsageDialog({
                   <Paper variant="outlined" sx={{ p: 1.5, mt: 1, borderColor: "warning.200" }}>
                     <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>
                       Recording adds on top of these by default. Tick a record only if it&apos;s wrong — it will be
-                      permanently replaced on commit (recoverable from the audit log).
+                      permanently replaced on commit (recoverable from the audit log). Grouped by source batch;
+                      own-stock usage never settles between sites.
                     </Typography>
-                    {replaceableExisting.map((e) => (
-                      <FormControlLabel
-                        key={e.id}
-                        sx={{ display: "flex", m: 0, py: 0.25 }}
-                        control={
-                          <Checkbox
-                            size="small"
-                            checked={replaceIds.includes(e.id)}
-                            onChange={() => toggleReplace(e.id)}
-                          />
-                        }
-                        label={
-                          <Typography variant="body2" component="span">
-                            <Box component="span" sx={{ fontFamily: "monospace" }}>{e.batchRefCode}</Box>
-                            {" · "}{e.usageDate}{" · "}
-                            <strong>{siteName(e.usageSiteId)}</strong> used {fmtQty(e.quantity)} {materialUnit}
-                            {e.isSelfUse ? " (self-use)" : ""}
-                          </Typography>
-                        }
-                      />
-                    ))}
+                    {groupReplaceableUsage(replaceableExisting).map((g) => {
+                      const meta = batchMetaByRef.get(g.batchRefCode);
+                      const renderRow = (e: ExistingUsage) => (
+                        <FormControlLabel
+                          key={e.id}
+                          sx={{ display: "flex", m: 0, py: 0.25 }}
+                          control={
+                            <Checkbox
+                              size="small"
+                              checked={replaceIds.includes(e.id)}
+                              onChange={() => toggleReplace(e.id)}
+                            />
+                          }
+                          label={
+                            <Typography variant="body2" component="span">
+                              {e.usageDate} · <strong>{siteName(e.usageSiteId)}</strong> used{" "}
+                              {fmtQty(e.quantity)} {materialUnit}
+                            </Typography>
+                          }
+                        />
+                      );
+                      return (
+                        <Box
+                          key={g.batchRefCode}
+                          sx={{
+                            mb: 1,
+                            pb: 1,
+                            borderBottom: 1,
+                            borderColor: "divider",
+                            "&:last-of-type": { borderBottom: 0, pb: 0, mb: 0 },
+                          }}
+                        >
+                          <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, flexWrap: "wrap" }}>
+                            <Box component="span" sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: 12 }}>
+                              {g.batchRefCode}
+                            </Box>
+                            <Typography variant="caption" color="text.secondary">
+                              {meta?.purchaseDate ? `bought ${meta.purchaseDate} · ` : ""}
+                              paid by {siteName(g.payingSiteId)}
+                              {meta ? ` · ${fmtQty(meta.originalQty)} ${meta.unit}` : ""}
+                            </Typography>
+                          </Box>
+                          {g.crossSite.length > 0 && (
+                            <Box sx={{ pl: 1.5, mt: 0.25 }}>
+                              <Typography variant="caption" sx={{ color: "warning.main", fontWeight: 700 }}>
+                                Cross-site · settles
+                              </Typography>
+                              {g.crossSite.map(renderRow)}
+                            </Box>
+                          )}
+                          {g.selfUse.length > 0 && (
+                            <Box sx={{ pl: 1.5, mt: 0.25 }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                                Own stock · never settles
+                              </Typography>
+                              {g.selfUse.map(renderRow)}
+                            </Box>
+                          )}
+                        </Box>
+                      );
+                    })}
                   </Paper>
                 </Collapse>
               </Box>
@@ -1012,6 +1073,31 @@ export default function ReconcileUsageDialog({
               {netLabel}
               {preview.net.amount > 0 && <strong> {formatCurrency(preview.net.amount)}</strong>}
             </Typography>
+            {(() => {
+              const sum = committedSummary ?? usageSummary;
+              const selfSites = sum.bySite.filter((s) => s.selfUse > 0);
+              const flows = sum.flows.filter((f) => f.newQty > 0);
+              if (selfSites.length === 0 && flows.length === 0) return null;
+              return (
+                <Paper variant="outlined" sx={{ p: 1.5, mb: 2, textAlign: "left", maxWidth: 440, mx: "auto" }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                    What this entry recorded
+                  </Typography>
+                  {flows.map((f) => (
+                    <Typography key={`${f.creditorSiteId}-${f.debtorSiteId}`} variant="body2">
+                      {siteName(f.debtorSiteId)} used <strong>{fmtQty(f.newQty)} {materialUnit}</strong> paid by{" "}
+                      {siteName(f.creditorSiteId)} → {formatCurrency(f.newAmount)}
+                    </Typography>
+                  ))}
+                  {selfSites.map((s) => (
+                    <Typography key={s.siteId} variant="body2" color="text.secondary">
+                      {siteName(s.siteId)} used <strong>{fmtQty(s.selfUse)} {materialUnit}</strong> from its own stock
+                      <Box component="span" sx={{ color: "text.disabled" }}> · doesn&apos;t settle</Box>
+                    </Typography>
+                  ))}
+                </Paper>
+              );
+            })()}
             {preview.net.amount > 0 ? (
               genDone ? (
                 <Alert severity="success" sx={{ textAlign: "left" }}>
@@ -1067,6 +1153,13 @@ export default function ReconcileUsageDialog({
                 Nothing to settle between sites for this material.
               </Alert>
             )}
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 2 }}>
+              See every entry on the{" "}
+              <Link href="/site/materials/usage-ledger" underline="hover">
+                Usage Ledger
+              </Link>
+              . A pending settlement can be undone by deleting it on the Inter-site page.
+            </Typography>
           </Box>
         )}
       </DialogContent>

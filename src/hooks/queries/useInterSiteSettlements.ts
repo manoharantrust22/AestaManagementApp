@@ -397,6 +397,120 @@ export function useInterSiteBalances(groupId: string | undefined) {
 }
 
 /**
+ * One material's outstanding share of a raised-but-unpaid inter-site settlement.
+ * `useInterSiteBalances` deliberately reads only `pending` usage, so once a
+ * settlement is generated (usage rows → `in_settlement`) its debt disappears
+ * from the balance. This hook surfaces that raised-but-unpaid debt — display
+ * only, NEVER fed back into the settle-write path (which settles fresh balances)
+ * — so the Hub KPI/strip can show the true outstanding (the "+₹0" bug fix).
+ */
+export interface UnpaidInterSiteSettlementLeg {
+  settlement_id: string;
+  settlement_code: string;
+  status: string;
+  creditor_site_id: string; // from_site — paid for the materials
+  creditor_site_name: string;
+  debtor_site_id: string; // to_site — used the materials, owes
+  debtor_site_name: string;
+  material_id: string;
+  material_name: string;
+  /** Outstanding ₹ for this material (settlement pending_amount, prorated by item cost). */
+  amount: number;
+}
+
+export function useUnpaidInterSiteSettlements(groupId: string | undefined) {
+  const supabase = createClient();
+  return useQuery({
+    queryKey: groupId
+      ? ["inter-site-settlements", "unpaid", groupId]
+      : ["inter-site-settlements", "unpaid"],
+    enabled: !!groupId,
+    staleTime: 2 * 60 * 1000,
+    queryFn: async (): Promise<UnpaidInterSiteSettlementLeg[]> => {
+      if (!groupId) return [];
+      try {
+        const { data: settlements, error } = await (supabase as any)
+          .from("inter_site_material_settlements")
+          .select(
+            `id, settlement_code, status, total_amount, paid_amount, pending_amount,
+             from_site:sites!inter_site_material_settlements_from_site_id_fkey(id, name),
+             to_site:sites!inter_site_material_settlements_to_site_id_fkey(id, name)`
+          )
+          .eq("site_group_id", groupId)
+          .in("status", ["pending", "approved"])
+          .gt("pending_amount", 0);
+        if (error) {
+          if (isQueryError(error)) return [];
+          throw error;
+        }
+        const list = (settlements ?? []) as any[];
+        if (list.length === 0) return [];
+
+        const { data: items, error: itemsErr } = await (supabase as any)
+          .from("inter_site_settlement_items")
+          .select("settlement_id, material_id, total_cost, material:materials(id, name)")
+          .in(
+            "settlement_id",
+            list.map((s) => s.id)
+          );
+        if (itemsErr) {
+          if (isQueryError(itemsErr)) return [];
+          throw itemsErr;
+        }
+        const itemsBySettlement = new Map<string, any[]>();
+        for (const it of (items ?? []) as any[]) {
+          const arr = itemsBySettlement.get(it.settlement_id) ?? [];
+          arr.push(it);
+          itemsBySettlement.set(it.settlement_id, arr);
+        }
+
+        const legs: UnpaidInterSiteSettlementLeg[] = [];
+        for (const s of list) {
+          const total = Number(s.total_amount ?? 0);
+          const pending = Number(s.pending_amount ?? 0);
+          const ratio = total > 0 ? pending / total : 1;
+          const base = {
+            settlement_id: s.id as string,
+            settlement_code: s.settlement_code as string,
+            status: s.status as string,
+            creditor_site_id: s.from_site?.id as string,
+            creditor_site_name: (s.from_site?.name as string) ?? "Unknown",
+            debtor_site_id: s.to_site?.id as string,
+            debtor_site_name: (s.to_site?.name as string) ?? "Unknown",
+          };
+          // Sum item cost per material, then prorate by the unpaid ratio.
+          const byMat = new Map<string, { name: string; cost: number }>();
+          for (const it of itemsBySettlement.get(s.id) ?? []) {
+            const prev = byMat.get(it.material_id) ?? {
+              name: it.material?.name ?? "Unknown",
+              cost: 0,
+            };
+            prev.cost += Number(it.total_cost ?? 0);
+            byMat.set(it.material_id, prev);
+          }
+          if (byMat.size === 0) {
+            legs.push({ ...base, material_id: "", material_name: "—", amount: pending });
+            continue;
+          }
+          for (const [materialId, m] of byMat) {
+            legs.push({
+              ...base,
+              material_id: materialId,
+              material_name: m.name,
+              amount: Math.round(m.cost * ratio * 100) / 100,
+            });
+          }
+        }
+        return legs;
+      } catch (err) {
+        if (isQueryError(err)) return [];
+        throw err;
+      }
+    },
+  });
+}
+
+/**
  * Get settlement summary for a site
  * Shows total owed to the site and total the site owes
  */

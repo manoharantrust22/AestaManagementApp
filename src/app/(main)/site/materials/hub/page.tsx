@@ -71,8 +71,17 @@ import {
 import {
   nextAction,
   threadCounts,
-  interSiteDebt,
+  type InterSiteDebt,
 } from "@/lib/material-hub/nextAction";
+import {
+  useInterSiteBalances,
+  useUnpaidInterSiteSettlements,
+} from "@/hooks/queries/useInterSiteSettlements";
+import {
+  legsFromBalances,
+  legsFromUnpaidSettlements,
+  summarizeOutstanding,
+} from "@/lib/material-hub/interSiteOutstanding";
 import { hubTokens, HUB_BREAKPOINT_PX } from "@/lib/material-hub/tokens";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 
@@ -233,10 +242,23 @@ export default function MaterialHubPage() {
   };
 
   const counts = useMemo(() => threadCounts(threads), [threads]);
-  const debt = useMemo(
-    () => interSiteDebt(threads, siteId ?? ""),
-    [threads, siteId]
+  // Inter-site net (KPI) — sourced from the settlement engine's real tables:
+  // not-yet-raised pending balances PLUS raised-but-unpaid settlements. The old
+  // thread projection (interSiteDebt) only covered spot purchases, so it read
+  // ~₹0 for standard group POs — and any pending-only source zeroes out the
+  // moment a settlement is generated. This stays honest through both states.
+  const { data: kpiBalances = [] } = useInterSiteBalances(siteGroupId ?? undefined);
+  const { data: kpiUnpaidLegs = [] } = useUnpaidInterSiteSettlements(
+    siteGroupId ?? undefined
   );
+  const debt = useMemo<InterSiteDebt>(() => {
+    const legs = [
+      ...legsFromBalances(kpiBalances),
+      ...legsFromUnpaidSettlements(kpiUnpaidLegs),
+    ];
+    const sum = summarizeOutstanding(legs, { viewerSiteId: siteId ?? undefined });
+    return { iOwe: sum.iOwe, othersOwe: sum.othersOwe, net: sum.net, detail: [] };
+  }, [kpiBalances, kpiUnpaidLegs, siteId]);
 
   const { data: parentMap } = useMaterialParentMap();
   const emptyParentMap = useMemo<ParentMap>(() => new Map(), []);
@@ -374,7 +396,7 @@ export default function MaterialHubPage() {
         counts={counts}
         settlementDueAmount={settlementDueAmount}
         debt={debt}
-        onClickInterSite={() => router.push("/site/materials/inter-site")}
+        onClickInterSite={() => router.push("/site/inter-site-settlement")}
       />
 
       <AllocationsQueue siteGroupId={siteGroupId} />

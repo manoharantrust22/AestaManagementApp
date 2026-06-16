@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -32,7 +32,14 @@ import {
 } from "@mui/icons-material";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useRecordSettlementPayment, useInterSiteSettlement } from "@/hooks/queries/useInterSiteSettlements";
+import { useGroupMaterialPurchases } from "@/hooks/queries/useMaterialPurchases";
 import { useSiteSubcontracts } from "@/hooks/queries/useSubcontracts";
+import {
+  eligibleOffsetPurchases,
+  suggestedOffsetAmount,
+  offsetReference,
+  offsetNote,
+} from "@/lib/material-hub/offsetPurchase";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import FileUploader, { UploadedFile } from "@/components/common/FileUploader";
@@ -70,6 +77,20 @@ export default function RecordInterSitePaymentDialog({
   // Fetch subcontracts for debtor site (payment source)
   const { data: subcontracts = [] } = useSiteSubcontracts(debtorSiteId);
 
+  // Offset-against-a-purchase (adjustment mode): the debtor can clear the debt
+  // with a material purchase they funded for the creditor instead of cash.
+  const groupId = (settlement?.site_group_id as string | undefined) ?? undefined;
+  const { data: groupPurchases = [] } = useGroupMaterialPurchases(groupId);
+  const offsetCandidates = useMemo(
+    () => eligibleOffsetPurchases(groupPurchases as any[], debtorSiteId),
+    [groupPurchases, debtorSiteId]
+  );
+  // Amount still outstanding on this settlement (total − already paid).
+  const pending = Number(
+    settlement?.pending_amount ??
+      Number(settlement?.total_amount ?? amount) - Number(settlement?.paid_amount ?? 0)
+  );
+
   // Form state
   const [paymentMode, setPaymentMode] = useState<string>("upi");
   const [paymentSource, setPaymentSource] = useState<string>("company");
@@ -82,6 +103,9 @@ export default function RecordInterSitePaymentDialog({
   const [notes, setNotes] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [success, setSuccess] = useState<boolean>(false);
+  // Adjustment-mode offset: which funded purchase, and the amount to apply.
+  const [offsetPurchaseId, setOffsetPurchaseId] = useState<string>("");
+  const [payAmountStr, setPayAmountStr] = useState<string>("");
 
   // Get active subcontracts
   const activeSubcontracts = subcontracts.filter(
@@ -100,8 +124,36 @@ export default function RecordInterSitePaymentDialog({
       setNotes("");
       setError("");
       setSuccess(false);
+      setOffsetPurchaseId("");
+      setPayAmountStr("");
     }
   }, [open]);
+
+  // Default the adjustment amount to the full outstanding balance once the
+  // settlement loads (leaves a user-entered value untouched).
+  useEffect(() => {
+    if (open && settlement && payAmountStr === "") {
+      setPayAmountStr(String(Number(settlement.pending_amount ?? settlement.total_amount ?? amount)));
+    }
+  }, [open, settlement, payAmountStr, amount]);
+
+  // Apply a chosen offset purchase: suggest the amount + fill the reference/note.
+  const applyOffsetPurchase = (purchaseId: string) => {
+    setOffsetPurchaseId(purchaseId);
+    const p = offsetCandidates.find((c) => c.id === purchaseId);
+    if (!p) return;
+    setPayAmountStr(String(suggestedOffsetAmount(Number(p.total_amount), pending)));
+    setPaymentReference(offsetReference(p.ref_code));
+    setNotes((prev) => (prev ? prev : offsetNote(p)));
+  };
+
+  // Adjustment (offset) pays a user-chosen amount; cash/UPI/bank still settle the
+  // full balance as before. `fullySettles` drives the partial-vs-complete copy.
+  const isAdjustment = paymentMode === "adjustment";
+  const payAmount = isAdjustment
+    ? Number(payAmountStr)
+    : Number(settlement?.total_amount ?? amount);
+  const fullySettles = payAmount >= pending - 0.005;
 
   // Handle submit
   const handleSubmit = async () => {
@@ -115,6 +167,16 @@ export default function RecordInterSitePaymentDialog({
       setError("Please select a payment date");
       return;
     }
+    if (isAdjustment) {
+      if (!payAmount || payAmount <= 0) {
+        setError("Enter the amount this offset covers");
+        return;
+      }
+      if (payAmount > pending + 0.005) {
+        setError(`Offset can't exceed the ${formatCurrency(pending)} still owed`);
+        return;
+      }
+    }
     if ((paymentMode === "upi" || paymentMode === "bank_transfer") && !paymentProof) {
       setError("Please upload payment proof for UPI/Bank Transfer");
       return;
@@ -123,10 +185,11 @@ export default function RecordInterSitePaymentDialog({
     try {
       await recordPayment.mutateAsync({
         settlement_id: settlementId,
-        amount: settlement?.total_amount || amount,
+        amount: payAmount,
         payment_date: paymentDate,
         payment_mode: paymentMode as any,
-        payment_source: paymentSource || undefined,
+        // Adjustments aren't a cash source, so don't attribute a payment source.
+        payment_source: isAdjustment ? undefined : paymentSource || undefined,
         reference_number: paymentReference || undefined,
         notes: notes ? `${notes}${subcontractId ? ` | Linked to subcontract` : ""}${paymentProof ? ` | Proof: ${paymentProof.url}` : ""}` : undefined,
         userId: userProfile?.id,
@@ -145,10 +208,12 @@ export default function RecordInterSitePaymentDialog({
         <DialogContent sx={{ textAlign: "center", py: 4 }}>
           <SuccessIcon color="success" sx={{ fontSize: 64, mb: 2 }} />
           <Typography variant="h5" gutterBottom fontWeight={600}>
-            Payment Recorded!
+            {fullySettles ? "Settlement Completed!" : "Payment Recorded"}
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
-            The settlement has been completed successfully.
+            {fullySettles
+              ? `${isAdjustment ? "Offset" : "Payment"} recorded — the settlement is fully cleared.`
+              : `${formatCurrency(payAmount)} applied. ${formatCurrency(Math.max(0, pending - payAmount))} is still owed.`}
           </Typography>
 
           <Box sx={{ display: "flex", justifyContent: "center", gap: 2, alignItems: "center", mb: 2 }}>
@@ -158,20 +223,27 @@ export default function RecordInterSitePaymentDialog({
           </Box>
 
           <Typography variant="h5" fontWeight={600} color="success.main" sx={{ mb: 2 }}>
-            {formatCurrency(settlement?.total_amount || amount)}
+            {formatCurrency(payAmount)}
           </Typography>
 
           <Divider sx={{ my: 2 }} />
 
-          <Alert severity="success" sx={{ textAlign: "left" }}>
-            <strong>What was created:</strong>
-            <ul style={{ margin: "8px 0 0 0", paddingLeft: "20px" }}>
-              <li>Settlement marked as completed</li>
-              <li>Material expense added to {debtorSiteName}</li>
-              <li>Payment record with proof stored</li>
-              <li>Visible in All-Site Expenses under Materials</li>
-            </ul>
-          </Alert>
+          {fullySettles ? (
+            <Alert severity="success" sx={{ textAlign: "left" }}>
+              <strong>What was created:</strong>
+              <ul style={{ margin: "8px 0 0 0", paddingLeft: "20px" }}>
+                <li>Settlement marked as completed</li>
+                <li>Material expense added to {debtorSiteName}</li>
+                <li>Payment record{isAdjustment ? " (offset)" : " with proof"} stored</li>
+                <li>Visible in All-Site Expenses under Materials</li>
+              </ul>
+            </Alert>
+          ) : (
+            <Alert severity="info" sx={{ textAlign: "left" }}>
+              Partial {isAdjustment ? "offset" : "payment"} recorded. The settlement stays{" "}
+              <strong>raised · awaiting payment</strong> until the balance is cleared.
+            </Alert>
+          )}
         </DialogContent>
 
         <DialogActions sx={{ justifyContent: "center", pb: 3 }}>
@@ -342,23 +414,75 @@ export default function RecordInterSitePaymentDialog({
             </TextField>
           </Grid>
 
-          {/* Payment Source */}
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <TextField
-              select
-              fullWidth
-              label="Payment Source"
-              value={paymentSource}
-              onChange={(e) => setPaymentSource(e.target.value)}
-              required
-            >
-              <MenuItem value="company">Company</MenuItem>
-              <MenuItem value="amma_money">Amma Money</MenuItem>
-              <MenuItem value="engineer_own">Engineer Own</MenuItem>
-              <MenuItem value="client_money">Client Money</MenuItem>
-              <MenuItem value="other">Other</MenuItem>
-            </TextField>
-          </Grid>
+          {/* Adjustment → editable offset amount; cash paths → payment source. */}
+          {isAdjustment ? (
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                fullWidth
+                type="number"
+                label="Offset amount"
+                value={payAmountStr}
+                onChange={(e) => setPayAmountStr(e.target.value)}
+                required
+                inputProps={{ min: 0, max: pending, step: "0.01" }}
+                helperText={`Outstanding: ${formatCurrency(pending)}`}
+              />
+            </Grid>
+          ) : (
+            <Grid size={{ xs: 12, sm: 6 }}>
+              <TextField
+                select
+                fullWidth
+                label="Payment Source"
+                value={paymentSource}
+                onChange={(e) => setPaymentSource(e.target.value)}
+                required
+              >
+                <MenuItem value="company">Company</MenuItem>
+                <MenuItem value="amma_money">Amma Money</MenuItem>
+                <MenuItem value="engineer_own">Engineer Own</MenuItem>
+                <MenuItem value="client_money">Client Money</MenuItem>
+                <MenuItem value="other">Other</MenuItem>
+              </TextField>
+            </Grid>
+          )}
+
+          {/* Offset against a purchase (adjustment only) */}
+          {isAdjustment && (
+            <>
+              <Grid size={12}>
+                <TextField
+                  select
+                  fullWidth
+                  label="Offset against a purchase (optional)"
+                  value={offsetPurchaseId}
+                  onChange={(e) => applyOffsetPurchase(e.target.value)}
+                  helperText={
+                    offsetCandidates.length === 0
+                      ? `No purchases funded by ${debtorSiteName} found to offset against`
+                      : `Pick a purchase ${debtorSiteName} funded for ${creditorSiteName}`
+                  }
+                >
+                  <MenuItem value="">
+                    <em>None — manual adjustment</em>
+                  </MenuItem>
+                  {offsetCandidates.map((p) => (
+                    <MenuItem key={p.id} value={p.id}>
+                      {p.ref_code} · {(p.vendor_name ?? p.vendor?.name) || "vendor"} ·{" "}
+                      {formatCurrency(Number(p.total_amount))}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid size={12}>
+                <Alert severity="warning" sx={{ fontSize: "0.85rem" }}>
+                  Use an offset only for a purchase <strong>{debtorSiteName}</strong> funded for{" "}
+                  <strong>{creditorSiteName}</strong> that isn&apos;t already settling as group stock —
+                  otherwise the debt is counted twice. No cash is recorded as leaving; this just clears the debt.
+                </Alert>
+              </Grid>
+            </>
+          )}
 
           {/* Payment Date */}
           <Grid size={12}>
@@ -449,13 +573,21 @@ export default function RecordInterSitePaymentDialog({
           <Grid size={12}>
             <Alert severity="info" icon={<ExpenseIcon />} sx={{ fontSize: "0.85rem" }}>
               <strong>What will happen:</strong>
-              <ul style={{ margin: "8px 0 0 0", paddingLeft: "20px" }}>
-                <li>Settlement will be marked as <strong>Completed</strong></li>
-                <li>A <strong>Material Expense</strong> record will be created for <strong>{debtorSiteName}</strong></li>
-                <li>This expense will appear in <strong>All-Site Expenses</strong> under the Materials category</li>
-                <li>Payment proof and reference will be stored with the expense record</li>
-                <li>Settlement details including all material usage will be linked to the expense</li>
-              </ul>
+              {fullySettles ? (
+                <ul style={{ margin: "8px 0 0 0", paddingLeft: "20px" }}>
+                  <li>Settlement will be marked as <strong>Completed</strong></li>
+                  <li>A <strong>Material Expense</strong> record will be created for <strong>{debtorSiteName}</strong></li>
+                  <li>This expense will appear in <strong>All-Site Expenses</strong> under the Materials category</li>
+                  <li>Payment {isAdjustment ? "offset" : "proof"} and reference will be stored with the expense record</li>
+                  <li>Settlement details including all material usage will be linked to the expense</li>
+                </ul>
+              ) : (
+                <ul style={{ margin: "8px 0 0 0", paddingLeft: "20px" }}>
+                  <li><strong>{formatCurrency(payAmount)}</strong> will be applied; <strong>{formatCurrency(Math.max(0, pending - payAmount))}</strong> will remain owed</li>
+                  <li>The settlement stays <strong>raised · awaiting payment</strong> until fully cleared</li>
+                  <li>The material expense is created only when the balance reaches zero</li>
+                </ul>
+              )}
             </Alert>
           </Grid>
         </Grid>

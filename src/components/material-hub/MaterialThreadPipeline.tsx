@@ -23,13 +23,27 @@ import { hubTokens } from "@/lib/material-hub/tokens";
 import { fmtQty } from "@/lib/formatters";
 import { M_STAGES, getVisibleStages, stageIndex } from "@/lib/material-hub/stageHelpers";
 import type { MaterialThread, ThreadStage } from "@/lib/material-hub/threadTypes";
+import {
+  type InterSiteStatus,
+  isInterSiteOutstanding,
+} from "@/lib/material-hub/interSiteStatus";
 import HubPipelineStepper, {
   hubPulse,
   type HubStep,
   type HubStepState,
 } from "@/components/common/HubPipelineStepper";
 
-export type InterSiteChipState = "settled" | "active" | "dormant";
+/**
+ * Inter-site chip sub-state (more granular than the rail node, which is just
+ * "outstanding/amber" vs "done/green"):
+ *  - `settled`  → green ✓, debt paid + per-site expense posted.
+ *  - `settle`   → amber pulse, cross-site usage logged but no settlement raised
+ *                 yet (your next step is to reconcile / generate).
+ *  - `awaiting` → blue, a settlement WAS raised but is not yet paid (your next
+ *                 step is to record the payment / net it). NOT "settled".
+ *  - `dormant`  → faint, debt exists but the material isn't exhausted yet.
+ */
+export type InterSiteChipState = "settled" | "settle" | "awaiting" | "dormant";
 
 export interface MaterialPipelineModel {
   steps: HubStep[];
@@ -38,6 +52,19 @@ export interface MaterialPipelineModel {
   lineActiveColor?: string;
   /** Inter-site chip state, or null when the thread has no cross-site debt. */
   interSite: InterSiteChipState | null;
+}
+
+/**
+ * Resolve a thread's inter-site lifecycle state. Prefers the explicit
+ * `inter_site_status` set by the thread builder; falls back to the legacy
+ * `inter_site_applicable`/`inter_site_pending` booleans for older callers and
+ * tests. The fallback can only distinguish settled-vs-not, so an unpaid raised
+ * settlement degrades to `pending_usage` — still "outstanding", never "settled".
+ */
+function resolveInterSiteStatus(thread: MaterialThread): InterSiteStatus {
+  if (thread.inter_site_status) return thread.inter_site_status;
+  if (!thread.inter_site_applicable) return "none";
+  return thread.inter_site_pending ? "pending_usage" : "settled";
 }
 
 /** Derive the full stage model for a thread (shared by desktop rail + mobile bar). */
@@ -74,14 +101,15 @@ export function buildMaterialPipeline(thread: MaterialThread): MaterialPipelineM
     thread.stage === "in-use" ||
     thread.stage === "exhausted";
 
-  // The material is fully consumed but the cross-site debt is still unsettled —
-  // the thread is NOT done. The terminal node becomes a pending INTER-SITE step
-  // (amber) instead of a premature green DONE. (Same condition as the chip's old
-  // 'active' state.)
+  // The material is fully consumed but the cross-site debt is still unfinished
+  // (either no settlement raised yet, OR one raised but not paid) — the thread
+  // is NOT done. The terminal node becomes a pending INTER-SITE step (amber)
+  // instead of a premature green DONE. Crucially this stays amber through the
+  // `raised_unpaid` state: generating a settlement moves no money, so the card
+  // must not flip to green until it is actually paid + the expense is split.
+  const interSiteStatus = resolveInterSiteStatus(thread);
   const interSiteActive =
-    !!thread.inter_site_applicable &&
-    !!thread.inter_site_pending &&
-    thread.stage === "exhausted";
+    isInterSiteOutstanding(interSiteStatus) && thread.stage === "exhausted";
   const nextKey =
     !isTerminal && idx + 1 < M_STAGES.length ? M_STAGES[idx + 1] : null;
 
@@ -192,17 +220,24 @@ export function buildMaterialPipeline(thread: MaterialThread): MaterialPipelineM
     return { key: s.key, label, caption, progress, state };
   });
 
-  // Inter-site (synthetic): settled → green · pending+exhausted → amber pulse
-  // (now your next action) · pending+in-use → faint (debt exists but not due).
-  // The exhausted+pending state is ALSO carried on the rail's terminal node
-  // (amber INTER-SITE); the chip is kept as the action-labelled echo ("Settle
-  // inter-site") — it's the only inter-site cue on the mobile segment bar, which
-  // has no node labels.
+  // Inter-site (synthetic chip below the rail):
+  //   settled       → green ✓
+  //   raised_unpaid → blue "Raised · awaiting payment" (settlement exists, unpaid)
+  //   pending+exhausted → amber pulse "Settle inter-site" (raise it now)
+  //   pending+in-use    → faint "Inter-site pending" (debt exists but not yet due)
+  // The exhausted+outstanding state is ALSO carried on the rail's terminal node
+  // (amber INTER-SITE) — the chip is the action-labelled echo, the only
+  // inter-site cue on the mobile segment bar, which has no node labels.
   let interSite: InterSiteChipState | null = null;
-  if (thread.inter_site_applicable) {
-    const pending = !!thread.inter_site_pending;
-    const activePending = pending && thread.stage === "exhausted";
-    interSite = !pending ? "settled" : activePending ? "active" : "dormant";
+  if (interSiteStatus !== "none") {
+    interSite =
+      interSiteStatus === "settled"
+        ? "settled"
+        : interSiteStatus === "raised_unpaid"
+          ? "awaiting"
+          : thread.stage === "exhausted"
+            ? "settle"
+            : "dormant";
   }
 
   // When the terminal node is the amber INTER-SITE step, recolour the rail
@@ -244,9 +279,11 @@ export function InterSiteChip({ state }: { state: InterSiteChipState }) {
   const spec =
     state === "settled"
       ? { bg: hubTokens.successSoft, fg: hubTokens.success, label: "Inter-site settled" }
-      : state === "active"
+      : state === "settle"
         ? { bg: hubTokens.warnSoft, fg: hubTokens.warn, label: "Settle inter-site" }
-        : { bg: hubTokens.chip, fg: hubTokens.subtle, label: "Inter-site pending" };
+        : state === "awaiting"
+          ? { bg: hubTokens.primarySoft, fg: hubTokens.primary, label: "Raised · awaiting payment" }
+          : { bg: hubTokens.chip, fg: hubTokens.subtle, label: "Inter-site pending" };
 
   return (
     <Box
@@ -276,8 +313,10 @@ export function InterSiteChip({ state }: { state: InterSiteChipState }) {
             height: 6,
             borderRadius: "50%",
             background: spec.fg,
+            // Only the un-raised "settle" state pulses (it's the step you must
+            // start). "awaiting" is raised and in-progress → steady dot.
             animation:
-              state === "active"
+              state === "settle"
                 ? `${hubPulse} 1.6s ease-in-out infinite`
                 : "none",
           }}

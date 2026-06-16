@@ -15,18 +15,31 @@
  */
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Box, Typography, Button, Collapse } from "@mui/material";
 import {
   SwapHoriz as SwapIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
+  Link as LinkIcon,
+  ArrowForward as ArrowForwardIcon,
 } from "@mui/icons-material";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { fmtQty } from "@/lib/formatters";
+import { inr } from "@/lib/material-hub/formatters";
 import { summarizeScopedMaterial } from "@/lib/material-hub/scopedMaterialSummary";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 import { useOwnMaterialStock } from "@/hooks/queries/useOwnMaterialStock";
 import { useGroupMaterialPurchases } from "@/hooks/queries/useMaterialPurchases";
+import {
+  useInterSiteBalances,
+  useUnpaidInterSiteSettlements,
+} from "@/hooks/queries/useInterSiteSettlements";
+import {
+  legsFromBalances,
+  legsFromUnpaidSettlements,
+  summarizeOutstanding,
+} from "@/lib/material-hub/interSiteOutstanding";
 import PerSiteUsageBar from "@/components/material-hub/PerSiteUsageBar";
 import { assignSiteAccents } from "@/lib/material-hub/siteAccents";
 
@@ -168,6 +181,33 @@ export default function HubFilteredSummary({
   const groupHeldTotal = s.group.perSite.reduce((sum, p) => sum + p.held, 0);
   const canExpand = s.group.perSite.length > 0 || s.own.present;
 
+  // Consolidated inter-site outstanding for THIS material family across all its
+  // batches — the "how much do I owe for PPC, all together" number. Combines
+  // not-yet-raised pending usage with raised-but-unpaid settlements so it stays
+  // honest after a Generate (which the pending-only balance would zero out).
+  const router = useRouter();
+  const { data: interSiteBalances = [] } = useInterSiteBalances(siteGroupId ?? undefined);
+  const { data: unpaidSettlementLegs = [] } = useUnpaidInterSiteSettlements(
+    siteGroupId ?? undefined
+  );
+  const familyMaterialIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of threads) if (t.material_id) set.add(t.material_id);
+    return set;
+  }, [threads]);
+  const interSite = useMemo(() => {
+    if (!siteGroupId) return null;
+    const legs = [
+      ...legsFromBalances(interSiteBalances),
+      ...legsFromUnpaidSettlements(unpaidSettlementLegs),
+    ];
+    const summary = summarizeOutstanding(legs, {
+      familyMaterialIds,
+      viewerSiteId: viewingSiteId,
+    });
+    return summary.total > 0 ? summary : null;
+  }, [siteGroupId, interSiteBalances, unpaidSettlementLegs, familyMaterialIds, viewingSiteId]);
+
   if (threads.length === 0) return null;
 
   return (
@@ -238,6 +278,68 @@ export default function HubFilteredSummary({
           <Metric label="Delivered" value={s.own.delivered} unit={s.unit} />
           <Metric label="Used" value={s.own.used} unit={s.unit} />
           <Metric label="On hand" value={s.own.remaining} unit={s.unit} tone={hubTokens.success} />
+        </Box>
+      )}
+
+      {/* Consolidated inter-site outstanding for this material family */}
+      {interSite && (
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            flexWrap: "wrap",
+            background: hubTokens.warnSoft,
+            borderRadius: "8px",
+            padding: "8px 12px",
+          }}
+        >
+          <Box
+            component="span"
+            sx={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "5px",
+              color: hubTokens.warn,
+              fontWeight: 800,
+              fontSize: 10.5,
+              letterSpacing: "0.4px",
+              textTransform: "uppercase",
+              flexShrink: 0,
+            }}
+          >
+            <LinkIcon sx={{ fontSize: 13 }} /> Inter-site
+          </Box>
+          <Box sx={{ display: "flex", flexDirection: "column", mr: "auto", minWidth: 0 }}>
+            {interSite.netLines.map((n) => (
+              <Typography
+                key={`${n.owerSiteId}-${n.owedSiteId}`}
+                sx={{ fontSize: 12, color: hubTokens.text, fontWeight: 600 }}
+              >
+                <strong>{n.owerName}</strong> owes <strong>{n.owedName}</strong>{" "}
+                <Box component="span" sx={{ fontFamily: hubTokens.mono, fontWeight: 800 }}>
+                  {inr(n.amount)}
+                </Box>
+              </Typography>
+            ))}
+            <Typography sx={{ fontSize: 10.5, color: hubTokens.muted }}>
+              {interSite.hasRaised
+                ? interSite.hasUnraised
+                  ? "Settlement raised — awaiting payment · plus usage not yet raised"
+                  : "Settlement raised — awaiting payment (no money has moved yet)"
+                : "Cross-site usage not yet put into a settlement"}
+            </Typography>
+          </Box>
+          <Button
+            size="small"
+            variant="contained"
+            color="warning"
+            endIcon={<ArrowForwardIcon fontSize="small" />}
+            onClick={() => router.push("/site/inter-site-settlement")}
+            sx={{ textTransform: "none", flexShrink: 0 }}
+          >
+            {interSite.hasRaised ? "Record payment" : "Settle inter-site"}
+          </Button>
         </Box>
       )}
 

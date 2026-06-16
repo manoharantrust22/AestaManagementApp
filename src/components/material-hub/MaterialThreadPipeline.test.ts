@@ -29,26 +29,42 @@ const finalNode = (t: MaterialThread) =>
   buildMaterialPipeline(t).steps.find((s) => s.key === "in-use")!;
 
 describe("buildMaterialPipeline — terminal inter-site state", () => {
-  it("exhausted + pending inter-site → amber INTER-SITE node (not green DONE)", () => {
+  it("exhausted + pending_usage → amber INTER-SITE node + 'settle' chip", () => {
     const t = thread({
       stage: "exhausted",
       inter_site_applicable: true,
-      inter_site_pending: true,
+      inter_site_status: "pending_usage",
     });
     const model = buildMaterialPipeline(t);
     const node = model.steps.find((s) => s.key === "in-use")!;
     expect(node.label).toBe("INTER-SITE");
     expect(node.state).toBe("current");
     expect(model.accent).toBe(hubTokens.warn);
-    // The chip echoes the action on the (label-less) mobile bar.
-    expect(model.interSite).toBe("active");
+    expect(model.interSite).toBe("settle");
+  });
+
+  it("exhausted + raised_unpaid → amber INTER-SITE node (NOT green DONE) + 'awaiting' chip", () => {
+    // The core bug: a settlement was Generated (usage rows → in_settlement) but
+    // not paid. The card must NOT read as done/settled.
+    const t = thread({
+      stage: "exhausted",
+      inter_site_applicable: true,
+      inter_site_status: "raised_unpaid",
+    });
+    const model = buildMaterialPipeline(t);
+    const node = model.steps.find((s) => s.key === "in-use")!;
+    expect(node.label).toBe("INTER-SITE");
+    expect(node.state).toBe("current");
+    expect(node.state).not.toBe("success");
+    expect(model.accent).toBe(hubTokens.warn);
+    expect(model.interSite).toBe("awaiting");
   });
 
   it("exhausted + inter-site settled → green DONE + settled chip", () => {
     const t = thread({
       stage: "exhausted",
       inter_site_applicable: true,
-      inter_site_pending: false,
+      inter_site_status: "settled",
     });
     const model = buildMaterialPipeline(t);
     const node = model.steps.find((s) => s.key === "in-use")!;
@@ -65,11 +81,11 @@ describe("buildMaterialPipeline — terminal inter-site state", () => {
     expect(buildMaterialPipeline(thread({ stage: "exhausted" })).interSite).toBeNull();
   });
 
-  it("still in-use + pending inter-site → blue IN USE pulse + dormant chip", () => {
+  it("still in-use + pending_usage → blue IN USE pulse + dormant chip", () => {
     const t = thread({
       stage: "in-use",
       inter_site_applicable: true,
-      inter_site_pending: true,
+      inter_site_status: "pending_usage",
     });
     const model = buildMaterialPipeline(t);
     const node = model.steps.find((s) => s.key === "in-use")!;
@@ -77,5 +93,17 @@ describe("buildMaterialPipeline — terminal inter-site state", () => {
     expect(node.state).toBe("current");
     expect(model.accent).toBe(hubTokens.primary);
     expect(model.interSite).toBe("dormant");
+  });
+
+  it("legacy boolean fallback (no inter_site_status) → outstanding stays amber", () => {
+    const t = thread({
+      stage: "exhausted",
+      inter_site_applicable: true,
+      inter_site_pending: true,
+    });
+    const model = buildMaterialPipeline(t);
+    const node = model.steps.find((s) => s.key === "in-use")!;
+    expect(node.label).toBe("INTER-SITE");
+    expect(model.interSite).toBe("settle");
   });
 });
