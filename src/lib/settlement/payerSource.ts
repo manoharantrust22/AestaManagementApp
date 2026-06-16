@@ -15,9 +15,12 @@ const LABEL_BY_SOURCE: Record<PayerSource, string> = {
   mothers_money: "Mother's Money",
 };
 
-function labelFor(row: { source: PayerSource; name?: string | null }): string {
+function labelFor(row: { source: PayerSource | string; name?: string | null }): string {
+  // 'pending' is the unfunded portion an engineer fronted before deposits
+  // covered it (see src/lib/wallet/walletAllocation.ts). Not a real source.
+  if (row.source === "pending") return "Pending";
   if (requiresPayerName(row.source) && row.name) return row.name;
-  return LABEL_BY_SOURCE[row.source] ?? row.source;
+  return LABEL_BY_SOURCE[row.source as PayerSource] ?? row.source;
 }
 
 const inr = (n: number) =>

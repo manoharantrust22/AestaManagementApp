@@ -18,10 +18,10 @@ describe("WalletBalancePreview", () => {
     expect(screen.getByText("₹10,000")).toBeInTheDocument();
     expect(screen.getByText("−₹330")).toBeInTheDocument();
     expect(screen.getByText("₹9,670")).toBeInTheDocument();
-    expect(screen.queryByText(/Wallet overdraft/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/will be pending/i)).not.toBeInTheDocument();
   });
 
-  it("renders overdraft warning when after-balance goes negative", () => {
+  it("renders a pending warning when after-balance goes negative", () => {
     render(
       <WalletBalancePreview
         engineerName="Ajith"
@@ -31,11 +31,11 @@ describe("WalletBalancePreview", () => {
       />
     );
     expect(screen.getByText("−₹500")).toBeInTheDocument();
-    expect(screen.getByText(/Wallet overdraft/i)).toBeInTheDocument();
-    expect(screen.getByText(/company will owe you ₹500/i)).toBeInTheDocument();
+    expect(screen.getByText(/will be pending/i)).toBeInTheDocument();
+    expect(screen.getByText(/₹500 will be pending/i)).toBeInTheDocument();
   });
 
-  it("treats a zero-balance + any spend as overdraft", () => {
+  it("treats a zero-balance + any spend as pending", () => {
     render(
       <WalletBalancePreview
         engineerName="Ajith"
@@ -44,7 +44,7 @@ describe("WalletBalancePreview", () => {
         amount={100}
       />
     );
-    expect(screen.getByText(/Wallet overdraft/i)).toBeInTheDocument();
+    expect(screen.getByText(/will be pending/i)).toBeInTheDocument();
   });
 
   it("does not render a negative sign on the expense row when amount is zero", () => {

@@ -117,6 +117,9 @@ describe("prettyPayerSource", () => {
   it("labels a multi-source split", () => {
     expect(prettyPayerSource("split", null)).toBe("Multiple sources");
   });
+  it("labels an unfunded gap as Pending", () => {
+    expect(prettyPayerSource("pending", null)).toBe("Pending");
+  });
   it("falls back to the raw key when unknown", () => {
     expect(prettyPayerSource("site_cash", null)).toBe("site_cash");
   });

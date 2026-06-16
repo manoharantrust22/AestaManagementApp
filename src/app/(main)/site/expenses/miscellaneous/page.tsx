@@ -38,9 +38,8 @@ import { hasEditPermission } from "@/lib/permissions";
 import MiscExpenseDialog from "@/components/expenses/MiscExpenseDialog";
 import MiscExpenseViewDialog from "@/components/expenses/MiscExpenseViewDialog";
 import { getMiscExpenses, getMiscExpenseStats, cancelMiscExpense } from "@/lib/services/miscExpenseService";
-import { getPayerSourceLabel } from "@/components/settlement/PayerSourceSelector";
+import PayerSourceChip from "@/components/settlement/PayerSourceChip";
 import type { MiscExpenseWithDetails, MiscExpenseStatsWithBreakdown } from "@/types/misc-expense.types";
-import type { PayerSource } from "@/types/settlement.types";
 import dayjs from "dayjs";
 
 export default function MiscellaneousExpensesPage() {
@@ -248,16 +247,21 @@ export default function MiscellaneousExpensesPage() {
       {
         accessorKey: "payer_source",
         header: "Payer Source",
-        size: 130,
+        size: 160,
         Cell: ({ row }) => {
-          const source = row.original.payer_source as PayerSource | null;
-          const customName = row.original.payer_name;
+          const source = row.original.payer_source;
           if (!source) return "-";
+          // Wallet-funded rows carry the real funding source(s) derived from the
+          // engineer's deposits (Amma / Trust / a split / a pending gap); the
+          // chip renders single, multi-source breakdown, or amber "Pending".
           return (
-            <Chip
-              label={getPayerSourceLabel(source, customName || undefined)}
+            <PayerSourceChip
+              row={{
+                payer_source: source,
+                payer_name: row.original.payer_name ?? null,
+                payer_source_split: row.original.payer_source_split ?? null,
+              }}
               size="small"
-              variant="outlined"
             />
           );
         },

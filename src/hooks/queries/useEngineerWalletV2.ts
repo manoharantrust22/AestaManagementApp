@@ -52,7 +52,7 @@ export interface WalletPool {
   user_id: string;
   site_id: string;
   payer_source: string;
-  kind: "source" | "overdraft";
+  kind: "source" | "pending";
   deposited: number;
   spent: number;
   available: number;
@@ -100,7 +100,7 @@ export function useEngineerWalletBalance(
  * Per-source pool balances for an engineer at one site. Drives the
  * WalletSourcePoolsCard breakdown on /site/my-wallet — one row per
  * payer_source (amma_money, client_money, trust_account, …) plus an optional
- * 'overdraft' pseudo-row.
+ * 'pending' pseudo-row (the engineer-fronted, not-yet-funded total).
  */
 export function useEngineerWalletPools(
   userId: string | undefined,
@@ -129,7 +129,7 @@ export function useEngineerWalletPools(
         user_id: r.user_id as string,
         site_id: r.site_id as string,
         payer_source: r.payer_source as string,
-        kind: r.kind as "source" | "overdraft",
+        kind: r.kind as "source" | "pending",
         deposited: Number(r.deposited ?? 0),
         spent: Number(r.spent ?? 0),
         available: Number(r.available ?? 0),

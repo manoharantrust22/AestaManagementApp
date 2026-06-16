@@ -277,6 +277,9 @@ export function getPayerSourceLabel(source: PayerSource, customName?: string): s
     case "custom":
       return customName || "Other";
     default:
+      // 'pending' = unfunded portion an engineer fronted before deposits
+      // covered it (wallet FIFO allocation). Not a PayerSource union member.
+      if ((source as string) === "pending") return "Pending";
       return source;
   }
 }

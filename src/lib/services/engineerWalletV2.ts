@@ -373,29 +373,29 @@ export async function recordDeposit(
 
   const payerRpc = toRpcArgs(input.payer);
 
-  const { data, error } = await supabase
-    .from("site_engineer_transactions")
-    .insert({
-      user_id: input.engineer_id,
-      transaction_type: "deposit",
-      amount: input.amount,
-      transaction_date: input.transaction_date ?? new Date().toISOString().slice(0, 10),
-      site_id: input.site_id,
-      description: input.description ?? null,
-      payment_mode: input.payment_mode,
-      proof_url: input.proof_url ?? null,
-      payer_source: payerRpc.p_payer_source,
-      payer_name: payerRpc.p_payer_name,
-      payer_source_split: payerRpc.p_payer_source_split,
-      notes: input.notes ?? null,
-      recorded_by: input.recorded_by,
-      recorded_by_user_id: input.recorded_by_user_id,
-    })
-    .select("id")
-    .single();
+  // Record the deposit AND heal the oldest pending (engineer-fronted) spends
+  // with it, atomically under the per-(engineer,site) advisory lock. A bare
+  // INSERT would skip the healing, leaving earlier gaps without a real source.
+  // See migration 20260616100001_wallet_deposit_heal.sql.
+  const { data, error } = await supabase.rpc("atomic_record_wallet_deposit", {
+    p_engineer_id: input.engineer_id,
+    p_site_id: input.site_id,
+    p_amount: input.amount,
+    p_transaction_date:
+      input.transaction_date ?? new Date().toISOString().slice(0, 10),
+    p_payment_mode: input.payment_mode,
+    p_proof_url: input.proof_url ?? null,
+    p_notes: input.notes ?? null,
+    p_recorded_by: input.recorded_by,
+    p_recorded_by_user_id: input.recorded_by_user_id,
+    p_payer_source: payerRpc.p_payer_source,
+    p_payer_name: payerRpc.p_payer_name,
+    p_payer_source_split: payerRpc.p_payer_source_split,
+    p_description: input.description ?? null,
+  });
 
   if (error) throw error;
-  return { id: data!.id as string };
+  return { id: data as string };
 }
 
 export async function recordReturn(

@@ -6,6 +6,38 @@ import {
 } from "./payerSource";
 import type { PayerSourceInput } from "@/types/settlement.types";
 
+describe("formatPayerSource — pending gaps", () => {
+  it("labels a single pending source as Pending", () => {
+    expect(
+      formatPayerSource({
+        payer_source: "pending",
+        payer_name: null,
+        payer_source_split: null,
+      }),
+    ).toEqual({ kind: "single", label: "Pending" });
+  });
+
+  it("labels a pending row inside a split breakdown", () => {
+    const out = formatPayerSource({
+      payer_source: "split",
+      payer_name: null,
+      // 'pending' is a valid stored value though not a PayerSource union member.
+      payer_source_split: [
+        { source: "amma_money", amount: 150 },
+        { source: "pending", amount: 30 },
+      ] as unknown as never,
+    });
+    expect(out).toEqual({
+      kind: "split",
+      rows: [
+        { label: "Amma Money", amount: 150 },
+        { label: "Pending", amount: 30 },
+      ],
+      summary: "Split: Amma Money ₹150 · Pending ₹30",
+    });
+  });
+});
+
 describe("toRpcArgs", () => {
   it("maps single-source input to legacy RPC params", () => {
     const input: PayerSourceInput = { mode: "single", source: "amma_money" };

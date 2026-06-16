@@ -140,12 +140,18 @@ export async function createMiscExpense(
       description: formData.description || null,
       vendor_name: formData.vendor_name || null,
       payment_mode: formData.payment_mode,
-      payer_source: payerRpc.p_payer_source,
-      payer_name: payerRpc.p_payer_name,
+      // For an engineer WALLET spend the source is NOT a manual pick — it is
+      // derived from how the wallet was funded (FIFO over deposit sources). We
+      // store NULL here and let sync_misc_expense_source() fill the real
+      // source(s) from the spend's allocations (see the rpc call below). Only
+      // the company_direct path keeps the manually chosen payer source.
+      payer_source: engineerTransactionId ? null : payerRpc.p_payer_source,
+      payer_name: engineerTransactionId ? null : payerRpc.p_payer_name,
       // `payer_source_split` is `PayerSourceSplitRow[] | null`; the Supabase
       // JS client serialises it to JSONB on insert.
-      payer_source_split:
-        payerRpc.p_payer_source_split as PayerSourceSplitRow[] | null,
+      payer_source_split: engineerTransactionId
+        ? null
+        : (payerRpc.p_payer_source_split as PayerSourceSplitRow[] | null),
       payer_type: formData.payer_type,
       site_engineer_id: formData.payer_type === "site_engineer" ? formData.site_engineer_id : null,
       engineer_transaction_id: engineerTransactionId,
@@ -184,6 +190,13 @@ export async function createMiscExpense(
           settlement_reference: referenceNumber,
         })
         .eq("id", engineerTransactionId);
+
+      // 5b. Derive the misc expense's true payment source from the wallet
+      // spend's FIFO allocations (Amma / Trust / split / pending), replacing the
+      // NULL we inserted above. Keeps the displayed source honest and in sync.
+      await (supabase as any).rpc("sync_misc_expense_source", {
+        p_misc_id: expenseRecord.id,
+      });
     }
 
     return {

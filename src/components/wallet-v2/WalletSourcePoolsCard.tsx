@@ -36,7 +36,7 @@ const ICON_BY_SOURCE: Record<string, React.ReactNode> = {
   trust_account: <TrustIcon fontSize="small" />,
   other_site_money: <SiteIcon fontSize="small" />,
   custom: <CustomIcon fontSize="small" />,
-  overdraft: <OverdraftIcon fontSize="small" color="warning" />,
+  pending: <OverdraftIcon fontSize="small" color="warning" />,
 };
 
 const COLOR_BY_SOURCE: Record<string, string> = {
@@ -46,7 +46,7 @@ const COLOR_BY_SOURCE: Record<string, string> = {
   trust_account: "#0288d1",
   other_site_money: "#ed6c02",
   custom: "#616161",
-  overdraft: "#d32f2f",
+  pending: "#ed6c02",
 };
 
 interface WalletSourcePoolsCardProps {
@@ -73,12 +73,12 @@ export default function WalletSourcePoolsCard({
     return null;
   }
 
-  // Separate source pools from overdraft for layout. Source pools sorted by
-  // available descending (most-funded first).
+  // Separate source pools from the pending (engineer-fronted) total for layout.
+  // Source pools sorted by available descending (most-funded first).
   const sourcePools = pools
     .filter((p) => p.kind === "source")
     .sort((a, b) => b.available - a.available);
-  const overdraft = pools.find((p) => p.kind === "overdraft");
+  const pending = pools.find((p) => p.kind === "pending");
 
   const totalAvailable = sourcePools.reduce((acc, p) => acc + p.available, 0);
 
@@ -93,11 +93,11 @@ export default function WalletSourcePoolsCard({
           >
             By payment source
           </Typography>
-          {overdraft && overdraft.spent > 0 && (
+          {pending && pending.spent > 0 && (
             <Chip
               size="small"
               icon={<OverdraftIcon fontSize="small" />}
-              label={`Overdraft ₹${fmt(overdraft.spent)}`}
+              label={`Pending ₹${fmt(pending.spent)}`}
               color="warning"
               variant="outlined"
             />

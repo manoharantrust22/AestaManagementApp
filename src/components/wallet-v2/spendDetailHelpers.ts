@@ -81,6 +81,7 @@ export function prettyPayerSource(key: string, name: string | null): string {
     client_money: "Client Money",
     trust_account: "Trust Account",
     split: "Multiple sources",
+    pending: "Pending",
     other_site_money: name ?? "Other Site",
     custom: name ?? "Other",
   };

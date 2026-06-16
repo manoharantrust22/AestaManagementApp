@@ -92,11 +92,11 @@ export default function WalletBalancePreview({
           severity="warning"
           icon={<WarningAmber fontSize="inherit" />}
           role="status"
-          aria-label="Wallet overdraft after this expense"
+          aria-label="Pending amount after this expense"
           sx={{ mt: 1, "& .MuiAlert-message": { fontSize: "0.85rem" } }}
         >
-          Wallet overdraft — company will owe you ₹{fmt(afterBalance)} after this expense.
-          Future deposits will settle the negative first.
+          This is more than your wallet holds — ₹{fmt(afterBalance)} will be pending
+          (you&apos;ve fronted it). The next deposit will cover it first.
         </Alert>
       )}
     </Box>
