@@ -17,7 +17,7 @@ import {
   toRpcArgs,
 } from "@/lib/settlement/payerSource";
 import { recordWalletSpending } from "./walletService";
-import { recordSpend } from "./engineerWalletV2";
+import { recordSpend, cancelTransaction } from "./engineerWalletV2";
 
 /**
  * Create a new miscellaneous expense with full payment tracking.
@@ -39,22 +39,25 @@ export async function createMiscExpense(
       useV2Wallet,
     } = config;
     let engineerTransactionId: string | null = null;
-    let referenceNumber: string | undefined;
+
+    // Generate a fresh per-site reference (MISC-YYMMDD-NNN). Used for the initial
+    // attempt and re-invoked by the insert retry below if a reference collides.
+    const generateReference = async (): Promise<string> => {
+      const { data: refData, error: refError } = await supabase.rpc(
+        "generate_misc_expense_reference",
+        { p_site_id: siteId }
+      );
+      if (refError) {
+        console.warn("Could not generate misc expense reference:", refError);
+        // Fallback reference with UUID-based suffix for uniqueness
+        const uniqueSuffix = crypto.randomUUID().slice(0, 8).toUpperCase();
+        return `MISC-${dayjs().format("YYMMDD")}-${uniqueSuffix}`;
+      }
+      return refData as string;
+    };
 
     // 1. Generate reference number FIRST
-    const { data: refData, error: refError } = await supabase.rpc(
-      "generate_misc_expense_reference",
-      { p_site_id: siteId }
-    );
-
-    if (refError) {
-      console.warn("Could not generate misc expense reference:", refError);
-      // Fallback reference with UUID-based suffix for uniqueness
-      const uniqueSuffix = crypto.randomUUID().slice(0, 8).toUpperCase();
-      referenceNumber = `MISC-${dayjs().format("YYMMDD")}-${uniqueSuffix}`;
-    } else {
-      referenceNumber = refData as string;
-    }
+    let referenceNumber: string = await generateReference();
 
     // 2. Validate payer-source input + serialise for the insert.
     // Must run BEFORE the wallet spend below — otherwise a malformed split
@@ -172,14 +175,56 @@ export async function createMiscExpense(
       created_by_name: userName,
     };
 
-    const { data: expenseRecord, error: expenseError } = await (supabase
-      .from("misc_expenses") as any)
-      .insert(expenseData)
-      .select()
-      .single();
+    // Insert with retry on a unique-reference collision. The (site_id,
+    // reference_number) constraint normally prevents cross-site collisions, but a
+    // rare same-site concurrent insert can still race (the generator's advisory
+    // lock releases before this insert). On a 23505 we regenerate a fresh
+    // reference and retry, so a collision never surfaces to the engineer.
+    const MAX_INSERT_ATTEMPTS = 5;
+    let expenseRecord: any = null;
+    let lastInsertError: any = null;
+    for (let attempt = 0; attempt < MAX_INSERT_ATTEMPTS; attempt++) {
+      expenseData.reference_number = referenceNumber;
+      const { data, error } = await (supabase
+        .from("misc_expenses") as any)
+        .insert(expenseData)
+        .select()
+        .single();
+      if (!error) {
+        expenseRecord = data;
+        break;
+      }
+      lastInsertError = error;
+      const isUniqueViolation =
+        error.code === "23505" ||
+        /duplicate key value|unique constraint/i.test(error.message ?? "");
+      if (!isUniqueViolation || attempt === MAX_INSERT_ATTEMPTS - 1) break;
+      // Collision — regenerate a fresh reference and try again.
+      referenceNumber = await generateReference();
+    }
 
-    if (expenseError) {
-      throw expenseError;
+    if (!expenseRecord) {
+      // The insert ultimately failed. If we already debited the engineer's wallet
+      // (the spend is recorded BEFORE this insert), soft-cancel it so we don't
+      // leave an orphan phantom spend in the ledger. reverse_wallet_spend can't be
+      // used here — it rejects spends with no linked source — so cancel directly.
+      if (engineerTransactionId) {
+        try {
+          await cancelTransaction(supabase, {
+            id: engineerTransactionId,
+            reason:
+              "Auto-reversed: misc expense insert failed (reference collision)",
+            cancelled_by: userName,
+            cancelled_by_user_id: userId,
+          });
+        } catch (reverseErr) {
+          console.error(
+            "Failed to cancel orphan wallet spend after misc insert failure:",
+            reverseErr
+          );
+        }
+      }
+      throw lastInsertError ?? new Error("Failed to create miscellaneous expense");
     }
 
     // 5. Update engineer transaction with expense reference (if applicable)
