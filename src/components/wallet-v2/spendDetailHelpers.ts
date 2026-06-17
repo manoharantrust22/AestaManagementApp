@@ -3,6 +3,59 @@ import type { WorkPhoto } from "@/types/work-updates.types";
 
 export type SpendKind = "misc" | "salary" | "contract" | "other";
 
+/** Source a wallet spend was created from, as resolved by get_wallet_spend_source. */
+export type WalletSpendSourceType =
+  | "material"
+  | "misc"
+  | "rental"
+  | "tea"
+  | "salary"
+  | "none";
+
+/** Which reverse flow (if any) a spend supports in the Spend detail dialog. */
+export type SpendReverseMode = "settlement" | "cascade" | "none";
+
+/**
+ * Decide how a wallet spend can be reversed:
+ * - "settlement" — salary/contract settlements, handled by the existing
+ *   reverse_settlement RPC (cascades to attendance).
+ * - "cascade" — material/misc/rental/tea spends, handled by reverse_wallet_spend
+ *   (Undo settlement / Paid by company).
+ * - "none" — deposits, returns, already-cancelled rows, or ad-hoc spends with no
+ *   linked source.
+ *
+ * Pure so it can be unit-tested independently of the dialog and the async source
+ * lookup. `sourceType` comes from get_wallet_spend_source (null while loading).
+ */
+export function spendReverseMode(args: {
+  transactionType: string;
+  cancelledAt: string | null;
+  settlementGroupId: string | null;
+  kind: SpendKind;
+  sourceType: WalletSpendSourceType | null;
+}): SpendReverseMode {
+  const { transactionType, cancelledAt, settlementGroupId, kind, sourceType } = args;
+  if (transactionType !== "spend") return "none";
+  if (cancelledAt) return "none";
+  if (
+    settlementGroupId ||
+    kind === "salary" ||
+    kind === "contract" ||
+    sourceType === "salary"
+  ) {
+    return "settlement";
+  }
+  if (
+    sourceType === "material" ||
+    sourceType === "misc" ||
+    sourceType === "rental" ||
+    sourceType === "tea"
+  ) {
+    return "cascade";
+  }
+  return "none";
+}
+
 /**
  * Classify a wallet spend/return row from its description. Order matters:
  * contract-payment descriptions also contain a SET- reference, so they must be

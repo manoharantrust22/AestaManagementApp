@@ -235,6 +235,23 @@ export default function EditDepositDialog({
   const isSubmitting =
     updateMutation.isPending || cancelMutation.isPending || upload.isUploading;
 
+  // Human-readable explanation of why "Save changes" is disabled, so the user
+  // isn't stuck staring at a greyed-out button (the required "Reason for edit"
+  // field is far down the dialog and easy to miss).
+  const disabledReason = isSubmitting
+    ? null
+    : amountInvalid
+    ? "Enter a valid amount"
+    : wouldGoNegative
+    ? "Amount too low — the pool would go negative"
+    : upiProofMissing
+    ? "Upload the UPI proof"
+    : payerInvalid
+    ? "Fix the payer source"
+    : reasonMissing
+    ? "Enter a reason for the edit"
+    : null;
+
   if (!deposit) return null;
 
   return (
@@ -291,27 +308,25 @@ export default function EditDepositDialog({
           </Box>
 
           {balanceQuery.data && (
-            <Box
-              sx={{
-                px: 1.5,
-                py: 1,
-                bgcolor: previewAfter < 0 ? "error.light" : "action.hover",
-                borderRadius: 1,
-              }}
+            // Use an MUI Alert so the negative-pool state has accessible
+            // contrast (dark text on a light-red tint) instead of the old
+            // red-#d32f2f-on-red-background that was unreadable.
+            <Alert
+              severity={previewAfter < 0 ? "error" : "info"}
+              icon={false}
+              sx={{ py: 0.5, "& .MuiAlert-message": { width: "100%" } }}
             >
               <Typography variant="caption" component="div">
                 Current pool: <strong>₹ {fmt(currentBalance)}</strong>
                 {delta !== 0 && (
                   <>
                     {" "}→ after this edit:{" "}
-                    <strong style={{ color: previewAfter < 0 ? "#d32f2f" : "inherit" }}>
-                      ₹ {fmt(previewAfter)}
-                    </strong>
+                    <strong>₹ {fmt(previewAfter)}</strong>
                     {" "}({delta > 0 ? "+" : ""}₹{fmt(delta)})
                   </>
                 )}
               </Typography>
-            </Box>
+            </Alert>
           )}
 
           <TextField
@@ -492,18 +507,28 @@ export default function EditDepositDialog({
         </Stack>
       </DialogContent>
 
-      <DialogActions sx={{ px: 3, py: 2 }}>
-        <Button onClick={handleClose} disabled={isSubmitting}>
-          Close
-        </Button>
-        <Button
-          onClick={handleSubmit}
-          variant="contained"
-          disabled={!canSubmit || isSubmitting}
-          startIcon={updateMutation.isPending ? <CircularProgress size={16} /> : null}
-        >
-          {updateMutation.isPending ? "Saving…" : "Save changes"}
-        </Button>
+      <DialogActions sx={{ px: 3, py: 2, justifyContent: "space-between" }}>
+        {disabledReason ? (
+          <Typography variant="caption" color="warning.main" sx={{ flex: 1, mr: 1 }}>
+            {disabledReason} to save
+          </Typography>
+        ) : (
+          <Box sx={{ flex: 1 }} />
+        )}
+        <Box>
+          <Button onClick={handleClose} disabled={isSubmitting}>
+            Close
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            variant="contained"
+            disabled={!canSubmit || isSubmitting}
+            startIcon={updateMutation.isPending ? <CircularProgress size={16} /> : null}
+            sx={{ ml: 1 }}
+          >
+            {updateMutation.isPending ? "Saving…" : "Save changes"}
+          </Button>
+        </Box>
       </DialogActions>
     </Dialog>
   );

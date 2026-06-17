@@ -26,9 +26,12 @@ import { useMiscExpenseForTransaction } from "@/hooks/queries/useMiscExpenseForT
 import { useSettlementLinkage } from "@/hooks/queries/useSettlementLinkage";
 import { usePossibleDuplicate } from "@/hooks/queries/usePossibleDuplicate";
 import { useReverseSettlement } from "@/hooks/mutations/useReverseSettlement";
+import { useReverseWalletSpend } from "@/hooks/mutations/useReverseWalletSpend";
+import { useWalletSpendSource } from "@/hooks/queries/useWalletSpendSource";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   classifySpend,
+  spendReverseMode,
   parseMiscReference,
   buildSpendPhotos,
   prettyPayerSource,
@@ -64,6 +67,8 @@ export default function SpendDetailDialog({ open, onClose, row }: SpendDetailDia
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [confirmReverse, setConfirmReverse] = useState(false);
   const [reverseReason, setReverseReason] = useState("");
+  const [cascadeMode, setCascadeMode] = useState<"undo" | "company_paid" | null>(null);
+  const [cascadeReason, setCascadeReason] = useState("");
   const { userProfile } = useAuth();
 
   const kind = classifySpend(row?.description);
@@ -89,6 +94,16 @@ export default function SpendDetailDialog({ open, onClose, row }: SpendDetailDia
   const dupQuery = usePossibleDuplicate(open && linkedGroupId ? linkedGroupId : null);
   const reverseMutation = useReverseSettlement();
 
+  // Cascade reverse (material/misc/rental/tea). Resolve the source only for
+  // non-settlement spends so the dialog knows which actions to offer.
+  const cascadeEnabled =
+    open &&
+    !looksLikeSettlement &&
+    row?.transaction_type === "spend" &&
+    !row?.cancelled_at;
+  const sourceQuery = useWalletSpendSource(cascadeEnabled ? row?.id ?? null : null);
+  const reverseSpendMutation = useReverseWalletSpend();
+
   if (!row) return null;
 
   const misc = miscQuery.data ?? null;
@@ -112,6 +127,34 @@ export default function SpendDetailDialog({ open, onClose, row }: SpendDetailDia
     !isReturn &&
     (role === "admin" || role === "office" || isRecorder);
 
+  // Cascade reverse eligibility for material/misc/rental/tea spends.
+  const sourceType = sourceQuery.data?.source_type ?? null;
+  const reverseMode = spendReverseMode({
+    transactionType: row.transaction_type,
+    cancelledAt: row.cancelled_at ?? null,
+    settlementGroupId: row.settlement_group_id ?? null,
+    kind,
+    sourceType,
+  });
+  const canCascade =
+    reverseMode === "cascade" &&
+    (role === "admin" || role === "office" || isRecorder);
+  // Rental "undo" isn't supported yet — offer only "Paid by company" for rentals.
+  const cascadeAllowsUndo = sourceType !== "rental";
+
+  const handleCascade = (mode: "undo" | "company_paid") => {
+    reverseSpendMutation.mutate(
+      { spendId: row.id, mode, reason: cascadeReason.trim() || null },
+      {
+        onSuccess: () => {
+          setCascadeMode(null);
+          setCascadeReason("");
+          onClose();
+        },
+      }
+    );
+  };
+
   const handleReverse = () => {
     if (!linkedGroupId) return;
     reverseMutation.mutate(
@@ -131,9 +174,11 @@ export default function SpendDetailDialog({ open, onClose, row }: SpendDetailDia
   };
 
   const handleClose = () => {
-    if (reverseMutation.isPending) return;
+    if (reverseMutation.isPending || reverseSpendMutation.isPending) return;
     setConfirmReverse(false);
     setReverseReason("");
+    setCascadeMode(null);
+    setCascadeReason("");
     onClose();
   };
 
@@ -339,6 +384,85 @@ export default function SpendDetailDialog({ open, onClose, row }: SpendDetailDia
                     disabled={reverseMutation.isPending}
                   >
                     {reverseMutation.isPending ? "Reversing…" : "Confirm reverse"}
+                  </Button>
+                </Stack>
+              </Stack>
+            )}
+          </DialogActions>
+        )}
+
+        {/* Cascade reverse — material/misc/rental/tea spends (recorder or office/admin). */}
+        {canCascade && (
+          <DialogActions sx={{ px: 3, py: 2, display: "block" }}>
+            {!cascadeMode ? (
+              <Stack spacing={1}>
+                <Typography variant="caption" color="text.secondary">
+                  Paid from the wallet. If that&apos;s wrong, fix it:
+                </Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap">
+                  {cascadeAllowsUndo && (
+                    <Button
+                      color="error"
+                      size="small"
+                      startIcon={<Undo />}
+                      onClick={() => setCascadeMode("undo")}
+                    >
+                      Undo settlement
+                    </Button>
+                  )}
+                  <Button
+                    color="warning"
+                    size="small"
+                    onClick={() => setCascadeMode("company_paid")}
+                  >
+                    Paid by company instead
+                  </Button>
+                </Stack>
+              </Stack>
+            ) : (
+              <Stack spacing={1.25} sx={{ width: "100%" }}>
+                <Typography
+                  variant="body2"
+                  color={cascadeMode === "undo" ? "error" : "warning.main"}
+                  fontWeight={700}
+                >
+                  {cascadeMode === "undo" ? "Undo this settlement?" : "Mark as company-paid?"}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {cascadeMode === "undo"
+                    ? "Removes the wallet debit and returns the source to unsettled (ready to re-settle)."
+                    : "Removes the wallet debit; the source stays paid but recorded as company/office-paid."}
+                </Typography>
+                <TextField
+                  size="small"
+                  label="Reason (optional)"
+                  value={cascadeReason}
+                  onChange={(e) => setCascadeReason(e.target.value)}
+                  fullWidth
+                  disabled={reverseSpendMutation.isPending}
+                />
+                {reverseSpendMutation.isError && (
+                  <Typography variant="caption" color="error">
+                    {(reverseSpendMutation.error as Error)?.message ||
+                      "Couldn't reverse the spend."}
+                  </Typography>
+                )}
+                <Stack direction="row" spacing={1} justifyContent="flex-end">
+                  <Button
+                    size="small"
+                    onClick={() => setCascadeMode(null)}
+                    disabled={reverseSpendMutation.isPending}
+                  >
+                    Keep
+                  </Button>
+                  <Button
+                    size="small"
+                    color={cascadeMode === "undo" ? "error" : "warning"}
+                    variant="contained"
+                    onClick={() => handleCascade(cascadeMode)}
+                    disabled={reverseSpendMutation.isPending}
+                  >
+                    {reverseSpendMutation.isPending ? "Working…" : "Confirm"}
                   </Button>
                 </Stack>
               </Stack>

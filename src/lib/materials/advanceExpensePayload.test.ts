@@ -96,6 +96,36 @@ describe("buildAdvanceExpensePayload", () => {
     expect(expenseRow.subcontract_id).toBeNull();
   });
 
+  it("keeps engineer_wallet channel for an OWN-SITE engineer advance (the Fly Ash fix)", () => {
+    // Regression: own-site PO advances by a site engineer used to fall through
+    // to payment_channel='direct' (gated behind isGroupStockAdvancePO in the
+    // dialog), so the spend never debited the wallet. Once the dialog passes
+    // the wallet fields, useRecordAdvancePayment sets payment_channel
+    // ='engineer_wallet' — this asserts the payload faithfully carries it on a
+    // NON-group (own-site) PO.
+    const ownPo = { ...groupPo, internal_notes: null };
+    const { expenseRow, isGroupStock } = buildAdvanceExpensePayload(
+      ownPo,
+      {
+        amount_paid: 6900,
+        payment_date: "2026-06-12",
+        payment_mode: "cash",
+        payer_source: "own_money",
+        payer_name: null,
+        payer_source_split: null,
+        is_complete: true,
+        payment_channel: "engineer_wallet",
+      },
+      "MAT-FLYASH",
+      "auth-ajith",
+    );
+    expect(isGroupStock).toBe(false);
+    expect(expenseRow.purchase_type).toBe("own_site");
+    expect(expenseRow.payment_channel).toBe("engineer_wallet");
+    expect(expenseRow.is_paid).toBe(true);
+    expect(expenseRow.paid_date).toBe("2026-06-12");
+  });
+
   it("carries the PO's cluster id even without the group-stock notes marker", () => {
     // Regression: group POs created without internal_notes' is_group_stock
     // marker settled with site_group_id=null — settled on the recording site

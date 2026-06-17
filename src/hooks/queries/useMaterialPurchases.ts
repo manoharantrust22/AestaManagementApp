@@ -890,6 +890,15 @@ export interface SettleMaterialPurchaseData {
    * back so the row stays unpaid. Defaults to "direct" — no wallet debit.
    */
   payment_channel?: "direct" | "engineer_wallet";
+  /**
+   * Defense-in-depth: set true when a site engineer is performing a FRESH
+   * settlement (not an edit). The mutation then refuses to write unless
+   * payment_channel === "engineer_wallet", so an engineer payment can never
+   * silently fall through to "direct" (which bypasses My Wallet — the Fly Ash
+   * bug). The DB trigger mpe_enforce_engineer_wallet is the authoritative
+   * guard; this just fails loud client-side with a clear message.
+   */
+  enforce_engineer_wallet?: boolean;
   /** Required when payment_channel === "engineer_wallet". */
   engineer_id?: string;
   /** Required when payment_channel === "engineer_wallet". The site whose wallet pool to draw from. */
@@ -936,6 +945,14 @@ export function useSettleMaterialPurchase() {
   return useMutation({
     mutationFn: async (data: SettleMaterialPurchaseData) => {
       await ensureFreshSession();
+
+      // Engineer settlements must always draw from the wallet — never "direct".
+      // Fail loud (clear message) before writing; the DB trigger is the backstop.
+      if (data.enforce_engineer_wallet && data.payment_channel !== "engineer_wallet") {
+        throw new Error(
+          "Engineer settlements must be paid from your wallet. No wallet was available for this site — please contact the office.",
+        );
+      }
 
       // For vendor-only payment (group stock), don't set settlement_reference.
       // EDIT mode: reuse the existing ref so corrections don't mint a new code.

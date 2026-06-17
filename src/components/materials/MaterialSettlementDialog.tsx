@@ -315,8 +315,14 @@ export default function MaterialSettlementDialog({
           payer_source_split: advancePayerRpc.p_payer_source_split,
           subcontract_id: subcontractId,
           is_complete: isGroupStockAdvancePO,
-          // Pass wallet fields for group_stock POs settled by site engineer
-          ...(isSiteEngineer && isGroupStockAdvancePO && engineerId && effectiveWalletSiteId ? {
+          actor_is_site_engineer: isSiteEngineer,
+          // Pass wallet fields so EVERY site-engineer settlement debits the
+          // engineer wallet — NOT just group_stock. Own-site advances used to be
+          // gated behind isGroupStockAdvancePO, so they fell through to
+          // payment_channel="direct" with no recordSpend() and never showed in
+          // My Wallet (the Fly Ash ₹6,900 bug). The group-stock-only fields
+          // (site_group_id / paying_site_id) are null-safe for own-site POs.
+          ...(isSiteEngineer && engineerId && effectiveWalletSiteId ? {
             engineer_id: engineerId,
             wallet_site_id: effectiveWalletSiteId,
             recorded_by_user_id: engineerId,
@@ -389,6 +395,8 @@ export default function MaterialSettlementDialog({
         amount_paid: finalAmountPaid,
         isVendorPaymentOnly,
         paying_site_id: isGroupStockParent && payingSiteId ? payingSiteId : undefined,
+        // A fresh engineer settlement must be wallet-paid (edits skip re-post).
+        enforce_engineer_wallet: isSiteEngineer && !isEditMode,
         ...(useWallet
           ? {
               payment_channel: "engineer_wallet" as const,

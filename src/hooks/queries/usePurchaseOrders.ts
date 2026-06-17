@@ -1754,6 +1754,14 @@ export function useRecordAdvancePayment() {
       is_complete?: boolean;
       /** Optional subcontract this material was bought under (null = unlinked). */
       subcontract_id?: string | null;
+      /**
+       * Defense-in-depth: true when a site engineer is recording this payment.
+       * The mutation then refuses to proceed unless the wallet fields resolved
+       * (isWalletPath), so an engineer payment can never silently land as
+       * "direct" and skip My Wallet. DB trigger mpe_enforce_engineer_wallet is
+       * the authoritative backstop; this just fails loud with a clear message.
+       */
+      actor_is_site_engineer?: boolean;
     }) => {
       await ensureFreshSession();
 
@@ -1763,6 +1771,12 @@ export function useRecordAdvancePayment() {
         data.recorded_by_user_id &&
         data.recorded_by_name
       );
+
+      if (data.actor_is_site_engineer && !isWalletPath) {
+        throw new Error(
+          "Engineer payments must be made from your wallet. No wallet was available for this site — please contact the office.",
+        );
+      }
 
       // Fetch PO details needed to materialize the expense row.
       const { data: po } = await supabase
@@ -1789,6 +1803,10 @@ export function useRecordAdvancePayment() {
       let expenseId: string | null = existingExpense?.id ?? null;
       const insertedThisCall = !existingExpense;
       let walletDebited = false;
+      // Describe the wallet spend per purchase type — own-site advances now also
+      // debit the wallet, so the old hardcoded "Group stock advance payment"
+      // would mislabel them in My Wallet.
+      let walletDescription = "Material payment";
 
       if (po) {
         // Only mint a new ref code when we're actually inserting a row.
@@ -1818,6 +1836,10 @@ export function useRecordAdvancePayment() {
           refCode || `MAT-${Date.now()}`,
           authUserId,
         );
+
+        walletDescription = built.isGroupStock
+          ? "Group stock advance payment"
+          : `Material payment: ${po.vendor?.name ?? "vendor"}${po.po_number ? ` (${po.po_number})` : ""}`;
 
         if (expenseId) {
           // Idempotent update: refresh paid + payer fields on the existing row.
@@ -1888,7 +1910,7 @@ export function useRecordAdvancePayment() {
             notes: data.notes || null,
             recorded_by: data.recorded_by_name!,
             recorded_by_user_id: data.recorded_by_user_id!,
-            description: `Group stock advance payment`,
+            description: walletDescription,
           });
 
           if (spend?.id) {
