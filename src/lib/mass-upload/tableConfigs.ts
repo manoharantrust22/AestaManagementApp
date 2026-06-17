@@ -23,6 +23,19 @@ const EMPLOYMENT_TYPES = ['daily_wage', 'contract', 'specialist'];
 // Transaction type enum values
 const TRANSACTION_TYPES = ['advance', 'extra'];
 
+// misc_expenses.payment_mode CHECK allows only these (no 'other')
+const MISC_PAYMENT_MODES = ['cash', 'upi', 'bank_transfer', 'cheque'];
+
+// misc_expenses.payer_source CHECK values (who funded the expense)
+const PAYER_SOURCES = [
+  'own_money',
+  'amma_money',
+  'client_money',
+  'trust_account',
+  'other_site_money',
+  'custom',
+];
+
 /**
  * Daily Attendance Configuration
  */
@@ -615,9 +628,116 @@ const teaShopEntriesConfig: TableConfig = {
 };
 
 /**
+ * Legacy Miscellaneous Expenses Configuration
+ *
+ * The historical "money-out" ledger for the pre-app (Legacy band) period. Imports
+ * land in misc_expenses (company_direct, cleared) and surface in both the
+ * Miscellaneous page and All-Site Expenses. The whole upload is revocable as a
+ * unit (see import_batches). category + subcontract are OPTIONAL lookups — an
+ * unmatched name is a WARNING, not a blocker (the row imports with a null link).
+ */
+const legacyMiscExpensesConfig: TableConfig = {
+  tableName: 'legacy_misc_expenses',
+  displayName: 'Legacy Expenses (Bulk)',
+  description:
+    'Bulk import historical expenses for the legacy period (material, labor settlements, rentals, tea & snacks, subcontract payments). Revocable as a batch.',
+  requiredContext: ['site_id', 'user_id'],
+  fields: [
+    {
+      dbField: 'date',
+      csvHeader: 'date',
+      required: true,
+      type: 'date',
+      description: 'Expense date (YYYY-MM-DD). Legacy = before the site cutoff.',
+    },
+    {
+      dbField: 'amount',
+      csvHeader: 'amount',
+      required: true,
+      type: 'number',
+      description: 'Amount spent (₹).',
+    },
+    {
+      dbField: 'category_id',
+      csvHeader: 'category',
+      required: false,
+      type: 'uuid_lookup',
+      lookupTable: 'expense_categories',
+      lookupField: 'name',
+      lookupDisplayField: 'category',
+      description:
+        'One of: Daily Labor Settlement, Contract Labor Settlement, Material Settlement, Material Purchasing, Rental Settlement, Tea & Snacks Settlement, General Expense.',
+    },
+    {
+      dbField: 'subcontract_id',
+      csvHeader: 'subcontract',
+      required: false,
+      type: 'uuid_lookup',
+      lookupTable: 'subcontracts',
+      lookupField: 'title',
+      lookupDisplayField: 'subcontract',
+      description: 'Exact subcontract title to link this expense to (optional).',
+    },
+    {
+      dbField: 'vendor_name',
+      csvHeader: 'vendor_name',
+      required: false,
+      type: 'string',
+    },
+    {
+      dbField: 'description',
+      csvHeader: 'description',
+      required: false,
+      type: 'string',
+    },
+    {
+      dbField: 'payment_mode',
+      csvHeader: 'payment_mode',
+      required: false,
+      type: 'enum',
+      enumValues: MISC_PAYMENT_MODES,
+      defaultValue: 'cash',
+    },
+    {
+      dbField: 'payer_source',
+      csvHeader: 'payer_source',
+      required: false,
+      type: 'enum',
+      enumValues: PAYER_SOURCES,
+    },
+    {
+      dbField: 'payer_name',
+      csvHeader: 'payer_name',
+      required: false,
+      type: 'string',
+      description: 'Free-text payer name (used when payer_source is custom/other site).',
+    },
+    {
+      dbField: 'notes',
+      csvHeader: 'notes',
+      required: false,
+      type: 'string',
+    },
+  ],
+  exampleRow: {
+    date: '2024-03-12',
+    amount: '15000',
+    category: 'Material Settlement',
+    subcontract: 'Ground Floor Construction',
+    vendor_name: 'Sri Balaji Cement',
+    description: '50 bags cement',
+    payment_mode: 'cash',
+    payer_source: 'own_money',
+    payer_name: '',
+    notes: 'Legacy paper record',
+  },
+};
+
+/**
  * All table configurations indexed by table name
  */
 export const TABLE_CONFIGS: Record<MassUploadTableName, TableConfig> = {
+  legacy_misc_expenses: legacyMiscExpensesConfig,
   daily_attendance: dailyAttendanceConfig,
   market_laborer_attendance: marketLaborerAttendanceConfig,
   expenses: expensesConfig,

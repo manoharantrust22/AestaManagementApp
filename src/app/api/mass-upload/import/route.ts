@@ -1,15 +1,123 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { canPerformMassUpload } from "@/lib/permissions";
-import { MassUploadTableName, ImportRequest, ImportResult } from "@/types/mass-upload.types";
+import { ImportRequest, ImportResult } from "@/types/mass-upload.types";
 import { getTableConfig } from "@/lib/mass-upload/tableConfigs";
 import {
   prepareBatchForInsert,
   getUpsertConfig,
   splitIntoBatches,
 } from "@/lib/mass-upload/transformers";
+import { validateRowsServerSide } from "@/lib/mass-upload/serverValidate";
 
 const BATCH_SIZE = 50; // Process 50 rows at a time
+
+// Fields the import_misc_expense_batch RPC reads from each row.
+const LEGACY_RPC_FIELDS = [
+  "date",
+  "amount",
+  "category_id",
+  "subcontract_id",
+  "description",
+  "vendor_name",
+  "payment_mode",
+  "payer_source",
+  "payer_name",
+  "notes",
+] as const;
+
+/**
+ * Revocable atomic import path for legacy_misc_expenses.
+ * Re-validates the raw rows server-side (never trusts the client payload), then
+ * commits the whole batch in one transaction via the import_misc_expense_batch RPC.
+ */
+async function importLegacyMiscExpenses(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  siteId: string,
+  rawRows: Record<string, string>[],
+  file: ImportRequest["file"],
+  requiredFields: string[]
+): Promise<{ status: number; body: ImportResult | { success: false; error: string } }> {
+  if (!siteId) {
+    return { status: 400, body: { success: false, error: "Site is required for legacy import" } };
+  }
+
+  // Re-validate from the original CSV values (security: ignore any client-resolved ids),
+  // enforcing the user's per-import required-field overrides server-side too.
+  const { parsedRows, legacySummary, summary } = await validateRowsServerSide(
+    supabase,
+    "legacy_misc_expenses",
+    siteId,
+    rawRows,
+    requiredFields
+  );
+
+  if (summary.errors > 0) {
+    const firstError = parsedRows.find((r) => r.status === "error")?.errors[0];
+    return {
+      status: 400,
+      body: {
+        success: false,
+        error: `Import blocked: ${summary.errors} row(s) failed re-validation${
+          firstError ? ` (row ${firstError.rowNumber}: ${firstError.message})` : ""
+        }. Fix them in the preview and try again.`,
+      },
+    };
+  }
+
+  const rpcRows = parsedRows
+    .filter((r) => r.status !== "error")
+    .map((r) => {
+      const out: Record<string, unknown> = {};
+      for (const f of LEGACY_RPC_FIELDS) out[f] = r.transformedData[f] ?? null;
+      return out;
+    });
+
+  if (rpcRows.length === 0) {
+    return { status: 400, body: { success: false, error: "No importable rows" } };
+  }
+
+  // import_misc_expense_batch is a new RPC not yet in the generated Database types.
+  const { data, error } = await (supabase.rpc as any)("import_misc_expense_batch", {
+    p_site_id: siteId,
+    p_rows: rpcRows,
+    p_file: file ?? {},
+    p_summary: legacySummary ?? null,
+  });
+
+  if (error) {
+    // Duplicate live file-hash -> the idempotency guard fired.
+    const isDuplicate =
+      error.code === "23505" ||
+      /uq_import_batches_live_hash|duplicate key/i.test(error.message || "");
+    return {
+      status: isDuplicate ? 409 : 500,
+      body: {
+        success: false,
+        error: isDuplicate
+          ? "This exact file was already imported (still live). Revoke or purge the earlier batch first, or upload a different file."
+          : error.message || "Import failed",
+      },
+    };
+  }
+
+  const result = data as { batch_id: string; inserted_count: number };
+  return {
+    status: 200,
+    body: {
+      success: true,
+      importLogId: result.batch_id,
+      summary: {
+        total: result.inserted_count,
+        inserted: result.inserted_count,
+        updated: 0,
+        skipped: 0,
+        errors: 0,
+      },
+      errors: [],
+    },
+  };
+}
 
 /**
  * Verify mass upload access
@@ -69,7 +177,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: ImportRequest = await request.json();
-    const { tableName, siteId, rows, userId, userName } = body;
+    const { tableName, siteId, rows, userId, userName, file, requiredFields } = body;
 
     if (!tableName || !rows || !Array.isArray(rows) || rows.length === 0) {
       return NextResponse.json(
@@ -92,6 +200,19 @@ export async function POST(request: NextRequest) {
         { success: false, error: "Site ID is required for this table" },
         { status: 400 }
       );
+    }
+
+    // Revocable atomic path: legacy expenses go through the batch RPC, not the
+    // generic per-50 insert loop below.
+    if (tableName === "legacy_misc_expenses") {
+      const { status, body: resultBody } = await importLegacyMiscExpenses(
+        supabase,
+        siteId,
+        rows as Record<string, string>[],
+        file,
+        requiredFields ?? []
+      );
+      return NextResponse.json(resultBody, { status });
     }
 
     // Prepare rows for insert

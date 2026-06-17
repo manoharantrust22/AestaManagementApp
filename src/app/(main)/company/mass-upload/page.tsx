@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import NextLink from "next/link";
 import {
   Box,
   Typography,
@@ -8,8 +9,12 @@ import {
   Alert,
   CircularProgress,
   Stack,
+  Button,
 } from "@mui/material";
-import { UploadFile as UploadIcon } from "@mui/icons-material";
+import {
+  UploadFile as UploadIcon,
+  History as HistoryIcon,
+} from "@mui/icons-material";
 import { useAuth } from "@/contexts/AuthContext";
 import { canPerformMassUpload } from "@/lib/permissions";
 import { MassUploadWizard } from "@/components/mass-upload/MassUploadWizard";
@@ -98,16 +103,28 @@ export default function MassUploadPage() {
           color: "white",
         }}
       >
-        <Stack direction="row" alignItems="center" spacing={2}>
-          <UploadIcon sx={{ fontSize: 40 }} />
-          <Box>
-            <Typography variant="h4" fontWeight="bold">
-              Mass Upload
-            </Typography>
-            <Typography variant="body1" sx={{ opacity: 0.9 }}>
-              Bulk import data using CSV files
-            </Typography>
-          </Box>
+        <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Stack direction="row" alignItems="center" spacing={2}>
+            <UploadIcon sx={{ fontSize: 40 }} />
+            <Box>
+              <Typography variant="h4" fontWeight="bold">
+                Mass Upload
+              </Typography>
+              <Typography variant="body1" sx={{ opacity: 0.9 }}>
+                Bulk import data using CSV files
+              </Typography>
+            </Box>
+          </Stack>
+          <Button
+            component={NextLink}
+            href="/company/mass-upload/history"
+            startIcon={<HistoryIcon />}
+            variant="contained"
+            color="inherit"
+            sx={{ color: "#1976d2", bgcolor: "white" }}
+          >
+            Import History
+          </Button>
         </Stack>
       </Paper>
 

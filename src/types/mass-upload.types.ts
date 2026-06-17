@@ -49,7 +49,8 @@ export type MassUploadTableName =
   | 'subcontracts'
   | 'subcontract_payments'
   | 'tea_shop_entries'
-  | 'advances';
+  | 'advances'
+  | 'legacy_misc_expenses';
 
 // Validation error for a single field
 export interface ValidationError {
@@ -93,6 +94,9 @@ export interface LookupCache {
   teams: Map<string, { id: string; name: string }>;
   teaShops: Map<string, { id: string; name: string }>;
   expenseCategories: Map<string, { id: string; name: string }>;
+  // Subcontracts indexed by lowercased title (ambiguous/duplicate titles are
+  // intentionally NOT added, so they resolve as "unmatched" -> a warning).
+  subcontracts: Map<string, { id: string; title: string; total_value: number | null }>;
 }
 
 // Server-side validation request
@@ -100,6 +104,48 @@ export interface ValidateRequest {
   tableName: MassUploadTableName;
   siteId: string;
   rows: Record<string, string>[];
+  // dbField names of normally-optional fields the user chose to require for THIS
+  // import (see TemplateDownloader toggles). Blank/unmatched -> error, not warning.
+  requiredFields?: string[];
+}
+
+// Financial summary of a legacy-expense batch (computed server-side, shown in the
+// preview step and frozen into import_batches.summary at commit).
+export interface LegacyExpenseSummary {
+  totalSpent: number;
+  count: number;
+  byCategory: Array<{ categoryId: string | null; name: string; total: number; count: number }>;
+  bySubcontract: Array<{
+    subcontractId: string | null;
+    title: string;
+    matched: boolean;
+    value: number | null;     // contract total_value (null when unmatched)
+    importedSpend: number;     // spend in THIS batch (indicative, not a live rollup)
+    balance: number | null;    // value - importedSpend (null when unmatched)
+  }>;
+  byPayerSource: Array<{ payerSource: string; total: number; count: number }>;
+  dateRange: { min: string | null; max: string | null };
+  rowsOnOrAfterCutoff: number; // rows dated >= the site cutoff (a "warn but allow" flag)
+}
+
+// A persisted bulk-import batch (one row per upload). Drives the Import History UI.
+export interface ImportBatch {
+  id: string;
+  site_id: string;
+  site_name?: string | null;
+  target_table: string;
+  status: 'committed' | 'reverted' | 'purged';
+  file_name: string | null;
+  original_csv_path: string | null;
+  file_hash: string | null;
+  total_count: number;
+  inserted_count: number;
+  summary: LegacyExpenseSummary | null;
+  notes: string | null;
+  created_by_name: string | null;
+  created_at: string;
+  reverted_at: string | null;
+  revert_reason: string | null;
 }
 
 // Server-side validation response
@@ -113,6 +159,8 @@ export interface ValidateResponse {
     warnings: number;
     errors: number;
   };
+  // Only present for legacy_misc_expenses — drives the preview summary panel.
+  legacySummary?: LegacyExpenseSummary;
 }
 
 // Import request
@@ -122,6 +170,15 @@ export interface ImportRequest {
   rows: Record<string, unknown>[];
   userId: string;
   userName: string;
+  // Provenance for revocable imports (legacy_misc_expenses): the retained CSV in the
+  // 'imports' bucket + its sha256 (for the duplicate-upload guard).
+  file?: {
+    file_name?: string;
+    original_csv_path?: string;
+    file_hash?: string;
+  };
+  // dbField names of normally-optional fields the user chose to require for THIS import.
+  requiredFields?: string[];
 }
 
 // Import result

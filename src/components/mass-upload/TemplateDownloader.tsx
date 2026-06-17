@@ -14,11 +14,12 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
+  Checkbox,
+  Tooltip,
 } from "@mui/material";
 import {
   Download as DownloadIcon,
   CheckCircle as CheckIcon,
-  RadioButtonUnchecked as OptionalIcon,
   LinkRounded as LookupIcon,
 } from "@mui/icons-material";
 import { MassUploadTableName } from "@/types/mass-upload.types";
@@ -27,11 +28,18 @@ import { getTableConfig } from "@/lib/mass-upload/tableConfigs";
 interface TemplateDownloaderProps {
   tableName: MassUploadTableName;
   showFieldInfo?: boolean;
+  /** dbField names of optional fields the user has marked required for this import. */
+  requiredOverrides?: string[];
+  /** Toggle an optional field's "required for this import" state. When provided, the
+   *  optional-field rows render an interactive checkbox instead of a static marker. */
+  onToggleRequired?: (dbField: string) => void;
 }
 
 export function TemplateDownloader({
   tableName,
   showFieldInfo = true,
+  requiredOverrides = [],
+  onToggleRequired,
 }: TemplateDownloaderProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +125,19 @@ export function TemplateDownloader({
             Template Fields
           </Typography>
 
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            The downloaded template already includes <strong>every</strong> column below —
+            fill in the ones you have and leave the rest blank. Nothing here needs to be
+            selected to download.
+            {onToggleRequired && (
+              <>
+                {" "}
+                Want a field filled on every row? <strong>Tick it below</strong> to make it
+                required for this import.
+              </>
+            )}
+          </Typography>
+
           <Stack direction="row" spacing={1} mb={2} flexWrap="wrap" useFlexGap>
             <Chip
               icon={<CheckIcon fontSize="small" />}
@@ -126,11 +147,18 @@ export function TemplateDownloader({
               variant="outlined"
             />
             <Chip
-              icon={<OptionalIcon fontSize="small" />}
               label={`${optionalFields.length} Optional`}
               size="small"
               variant="outlined"
             />
+            {requiredOverrides.length > 0 && (
+              <Chip
+                icon={<CheckIcon fontSize="small" />}
+                label={`${requiredOverrides.length} required for this import`}
+                color="warning"
+                size="small"
+              />
+            )}
             {lookupFields.length > 0 && (
               <Chip
                 icon={<LookupIcon fontSize="small" />}
@@ -164,43 +192,64 @@ export function TemplateDownloader({
           {optionalFields.length > 0 && (
             <>
               <Typography variant="subtitle2" color="text.secondary" gutterBottom sx={{ mt: 2 }}>
-                Optional Fields
+                Optional Fields{onToggleRequired ? " — tick to require for this import" : ""}
               </Typography>
               <List dense disablePadding>
-                {optionalFields.map((field) => (
-                  <ListItem key={field.dbField} disableGutters>
-                    <ListItemIcon sx={{ minWidth: 32 }}>
-                      <OptionalIcon color="disabled" fontSize="small" />
-                    </ListItemIcon>
-                    <ListItemText
-                      primaryTypographyProps={{ component: "div" }}
-                      primary={
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <span>{field.csvHeader}</span>
-                          {field.type === "uuid_lookup" && (
-                            <Chip
-                              label="lookup"
+                {optionalFields.map((field) => {
+                  const isMarkedRequired = requiredOverrides.includes(field.dbField);
+                  return (
+                    <ListItem key={field.dbField} disableGutters>
+                      <ListItemIcon sx={{ minWidth: 40 }}>
+                        {onToggleRequired ? (
+                          <Tooltip title="Require this field on every row in this import">
+                            <Checkbox
+                              edge="start"
                               size="small"
-                              color="info"
-                              variant="outlined"
-                              sx={{ height: 18, fontSize: "0.65rem" }}
+                              checked={isMarkedRequired}
+                              onChange={() => onToggleRequired(field.dbField)}
+                              inputProps={{ "aria-label": `Require ${field.csvHeader}` }}
                             />
-                          )}
-                          {field.defaultValue !== undefined && (
-                            <Chip
-                              label={`default: ${field.defaultValue}`}
-                              size="small"
-                              variant="outlined"
-                              sx={{ height: 18, fontSize: "0.65rem" }}
-                            />
-                          )}
-                        </Stack>
-                      }
-                      secondary={field.description}
-                      secondaryTypographyProps={{ variant: "caption" }}
-                    />
-                  </ListItem>
-                ))}
+                          </Tooltip>
+                        ) : null}
+                      </ListItemIcon>
+                      <ListItemText
+                        primaryTypographyProps={{ component: "div" }}
+                        primary={
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <span>{field.csvHeader}</span>
+                            {isMarkedRequired && (
+                              <Chip
+                                label="required"
+                                size="small"
+                                color="warning"
+                                sx={{ height: 18, fontSize: "0.65rem" }}
+                              />
+                            )}
+                            {field.type === "uuid_lookup" && (
+                              <Chip
+                                label="lookup"
+                                size="small"
+                                color="info"
+                                variant="outlined"
+                                sx={{ height: 18, fontSize: "0.65rem" }}
+                              />
+                            )}
+                            {field.defaultValue !== undefined && (
+                              <Chip
+                                label={`default: ${field.defaultValue}`}
+                                size="small"
+                                variant="outlined"
+                                sx={{ height: 18, fontSize: "0.65rem" }}
+                              />
+                            )}
+                          </Stack>
+                        }
+                        secondary={field.description}
+                        secondaryTypographyProps={{ variant: "caption" }}
+                      />
+                    </ListItem>
+                  );
+                })}
               </List>
             </>
           )}

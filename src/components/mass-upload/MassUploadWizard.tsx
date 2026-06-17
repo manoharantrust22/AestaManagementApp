@@ -22,7 +22,9 @@ import {
   WizardStep,
   ImportProgress,
   ImportResult,
+  ImportRequest,
   ValidateResponse,
+  LegacyExpenseSummary,
 } from "@/types/mass-upload.types";
 import { getTableConfig } from "@/lib/mass-upload/tableConfigs";
 import {
@@ -32,12 +34,30 @@ import {
   updateRowCell,
   getRowsForImport,
 } from "@/lib/mass-upload/csvParser";
+import { createClient } from "@/lib/supabase/client";
+import { hardenedUpload } from "@/lib/storage/uploadHelpers";
 import { TableSelector } from "./TableSelector";
 import { TemplateDownloader } from "./TemplateDownloader";
 import { CSVUploader } from "./CSVUploader";
 import { ValidationSummary } from "./ValidationSummary";
 import { DataPreviewTable } from "./DataPreviewTable";
 import { ImportProgressDialog } from "./ImportProgressDialog";
+import { LegacyExpenseSummaryPanel } from "./LegacyExpenseSummaryPanel";
+
+const LEGACY_TABLE: MassUploadTableName = "legacy_misc_expenses";
+
+/** sha256 (hex) of a file's bytes — used for the duplicate-upload guard. */
+async function sha256Hex(file: File): Promise<string | undefined> {
+  try {
+    const buf = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", buf);
+    return Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  } catch {
+    return undefined;
+  }
+}
 
 interface MassUploadWizardProps {
   sites: Array<{ id: string; name: string }>;
@@ -73,10 +93,14 @@ export function MassUploadWizard({
     errorCount: 0,
   });
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [legacySummary, setLegacySummary] = useState<LegacyExpenseSummary | null>(null);
+  // dbField names of normally-optional fields the user toggled "required" for this import.
+  const [requiredOverrides, setRequiredOverrides] = useState<string[]>([]);
 
   const currentStep = STEPS[activeStep].key;
   const config = selectedTable ? getTableConfig(selectedTable) : null;
   const requiresSite = config?.requiredContext.includes("site_id");
+  const isLegacy = selectedTable === LEGACY_TABLE;
 
   // Get counts excluding skipped rows
   const getImportableRowCount = useCallback(() => {
@@ -124,6 +148,7 @@ export function MassUploadWizard({
             tableName: selectedTable,
             siteId: selectedSiteId,
             rows: rowsToValidate,
+            requiredFields: requiredOverrides,
           }),
         });
 
@@ -154,6 +179,9 @@ export function MassUploadWizard({
           warningRows: updatedRows.filter((r) => r.status === "warning" && !r.isSkipped).length,
           errorRows: updatedRows.filter((r) => r.status === "error" && !r.isSkipped).length,
         });
+
+        // Legacy expenses: capture the server-computed financial summary for preview.
+        setLegacySummary(data.legacySummary ?? null);
       } catch (err) {
         console.error("Validation error:", err);
         // Continue anyway - server validation is optional
@@ -180,6 +208,8 @@ export function MassUploadWizard({
     setParseResult(null);
     setError(null);
     setImportResult(null);
+    setLegacySummary(null);
+    setRequiredOverrides([]);
     setImportProgress({
       status: "idle",
       currentRow: 0,
@@ -187,6 +217,19 @@ export function MassUploadWizard({
       successCount: 0,
       errorCount: 0,
     });
+  };
+
+  // Changing the data type clears any per-import required-field choices (the fields differ).
+  const handleSelectTable = (table: MassUploadTableName | null) => {
+    setSelectedTable(table);
+    setRequiredOverrides([]);
+  };
+
+  // Toggle an optional field's "required for this import" state.
+  const handleToggleRequired = (dbField: string) => {
+    setRequiredOverrides((prev) =>
+      prev.includes(dbField) ? prev.filter((f) => f !== dbField) : [...prev, dbField]
+    );
   };
 
   // Handle CSV parse complete
@@ -254,19 +297,67 @@ export function MassUploadWizard({
     });
 
     try {
+      // Legacy path: retain the raw CSV + a sha256 (duplicate guard), and send the
+      // ORIGINAL CSV values so the server re-validates and commits via the batch RPC.
+      let filePayload: ImportRequest["file"] | undefined;
+      if (isLegacy && uploadedFile) {
+        const fileHash = await sha256Hex(uploadedFile);
+        let originalCsvPath: string | undefined;
+        try {
+          const supabase = createClient();
+          const safeId =
+            (crypto.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`);
+          const { path } = await hardenedUpload({
+            supabase,
+            bucketName: "imports",
+            filePath: `${selectedSiteId}/${safeId}.csv`,
+            file: uploadedFile,
+            contentType: "text/csv",
+          });
+          originalCsvPath = path;
+        } catch (uploadErr) {
+          // CSV retention is best-effort; proceed with the import either way.
+          console.warn("CSV retention upload failed (continuing):", uploadErr);
+        }
+        filePayload = {
+          file_name: uploadedFile.name,
+          original_csv_path: originalCsvPath,
+          file_hash: fileHash,
+        };
+      }
+
       const response = await fetch("/api/mass-upload/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tableName: selectedTable,
           siteId: selectedSiteId,
-          rows: importableRows.map((r) => r.transformedData),
+          // Legacy re-validates from original CSV values; generic path uses transformed.
+          rows: isLegacy
+            ? importableRows.map((r) => r.originalData)
+            : importableRows.map((r) => r.transformedData),
           userId,
           userName,
+          requiredFields: requiredOverrides,
+          ...(filePayload ? { file: filePayload } : {}),
         }),
       });
 
-      const result: ImportResult = await response.json();
+      const result = (await response.json()) as ImportResult & { error?: string };
+
+      // Error responses (e.g. duplicate file, blocked re-validation) carry no summary.
+      if (!response.ok || !result.success || !result.summary) {
+        setImportResult(result.summary ? result : null);
+        setImportProgress({
+          status: "error",
+          currentRow: 0,
+          totalRows: importableRows.length,
+          successCount: result.summary?.inserted ?? 0,
+          errorCount: result.summary?.errors ?? importableRows.length,
+          message: result.error || "Import failed",
+        });
+        return;
+      }
 
       setImportResult(result);
       setImportProgress({
@@ -317,7 +408,7 @@ export function MassUploadWizard({
         {currentStep === "select-table" && (
           <TableSelector
             selectedTable={selectedTable}
-            onSelectTable={setSelectedTable}
+            onSelectTable={handleSelectTable}
             selectedSiteId={selectedSiteId}
             onSelectSite={setSelectedSiteId}
             sites={sites}
@@ -326,7 +417,11 @@ export function MassUploadWizard({
 
         {currentStep === "upload" && selectedTable && (
           <Stack spacing={3}>
-            <TemplateDownloader tableName={selectedTable} />
+            <TemplateDownloader
+              tableName={selectedTable}
+              requiredOverrides={requiredOverrides}
+              onToggleRequired={handleToggleRequired}
+            />
             <CSVUploader
               tableName={selectedTable}
               onParseComplete={handleParseComplete}
@@ -349,6 +444,9 @@ export function MassUploadWizard({
               tableName={selectedTable}
               onRemoveInvalidRows={handleRemoveInvalidRows}
             />
+            {isLegacy && legacySummary && (
+              <LegacyExpenseSummaryPanel summary={legacySummary} />
+            )}
             <DataPreviewTable
               parseResult={parseResult}
               tableName={selectedTable}
