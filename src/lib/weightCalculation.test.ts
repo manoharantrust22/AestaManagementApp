@@ -5,6 +5,13 @@ import {
   convertWeight,
   formatWeightWithUnit,
   formatQuantityWithWeight,
+  estimatePieceWeight,
+  extractGstFromGross,
+  addGstToNet,
+  computeLineAmount,
+  weightVariancePct,
+  isLargeWeightVariance,
+  WEIGHT_VARIANCE_WARN_PCT,
   TMT_WEIGHTS,
   TMT_RODS_PER_BUNDLE,
   TMT_STANDARD_LENGTH,
@@ -165,6 +172,125 @@ describe('Weight Calculations', () => {
 
     it('has correct standard length', () => {
       expect(TMT_STANDARD_LENGTH).toBe(40);
+    });
+  });
+
+  describe('estimatePieceWeight', () => {
+    it('prefers the last actual delivered kg/piece when available', () => {
+      const result = estimatePieceWeight({
+        lastActualPerPiece: 7.6,
+        weightPerMeter: 0.617,
+        lengthPerPiece: 40,
+        lengthUnit: 'ft',
+      });
+      expect(result).toBe(7.6);
+    });
+
+    it('falls back to the theoretical formula when no actual history', () => {
+      // 10mm @ 40ft = 0.617 kg/m × (40 × 0.3048) m
+      const result = estimatePieceWeight({
+        lastActualPerPiece: null,
+        weightPerMeter: 0.617,
+        lengthPerPiece: 40,
+        lengthUnit: 'ft',
+      });
+      expect(result).toBeCloseTo(0.617 * 40 * 0.3048, 3);
+    });
+
+    it('ignores a zero/negative last-actual and uses the formula', () => {
+      const result = estimatePieceWeight({
+        lastActualPerPiece: 0,
+        weightPerMeter: 0.395,
+        lengthPerPiece: 40,
+        lengthUnit: 'ft',
+      });
+      expect(result).toBeCloseTo(0.395 * 40 * 0.3048, 3);
+    });
+
+    it('returns null when nothing is known', () => {
+      expect(estimatePieceWeight({})).toBeNull();
+    });
+  });
+
+  describe('GST helpers', () => {
+    it('extracts GST from a gross (inclusive) amount at 18%', () => {
+      const { net, gst, gross } = extractGstFromGross(10800, 18);
+      expect(gross).toBe(10800);
+      expect(net).toBeCloseTo(9152.54, 2);
+      expect(gst).toBeCloseTo(1647.46, 2);
+      // round-trips back to the gross
+      expect(net + gst).toBeCloseTo(10800, 6);
+    });
+
+    it('adds GST on top of a net (exclusive) amount at 18%', () => {
+      const { net, gst, gross } = addGstToNet(10000, 18);
+      expect(net).toBe(10000);
+      expect(gst).toBeCloseTo(1800, 6);
+      expect(gross).toBeCloseTo(11800, 6);
+    });
+
+    it('treats a zero/empty rate as no GST', () => {
+      expect(extractGstFromGross(500, 0)).toEqual({ net: 500, gst: 0, gross: 500 });
+      expect(addGstToNet(500, null)).toEqual({ net: 500, gst: 0, gross: 500 });
+    });
+  });
+
+  describe('computeLineAmount', () => {
+    it('per_kg uses actual weight × rate when present', () => {
+      expect(
+        computeLineAmount({ pricing_mode: 'per_kg', unit_price: 74.9, actual_weight: 95.3 })
+      ).toBeCloseTo(7137.97, 2);
+    });
+
+    it('per_kg falls back to the calculated estimate at PO time', () => {
+      expect(
+        computeLineAmount({ pricing_mode: 'per_kg', unit_price: 73.7, calculated_weight: 49.4 })
+      ).toBeCloseTo(3640.78, 2);
+    });
+
+    it('per_piece uses qty × unit price', () => {
+      expect(
+        computeLineAmount({ pricing_mode: 'per_piece', unit_price: 350, quantity: 20 })
+      ).toBe(7000);
+    });
+  });
+
+  describe('weight variance (the delivery-time mismatch warning)', () => {
+    it('computes the % difference of actual vs expected kg/piece', () => {
+      expect(weightVariancePct(8.25, 7.5)).toBeCloseTo(10, 6);
+      expect(weightVariancePct(7.5, 7.5)).toBe(0);
+      expect(weightVariancePct(6.75, 7.5)).toBeCloseTo(-10, 6);
+    });
+
+    it('returns null when not computable', () => {
+      expect(weightVariancePct(null, 7.5)).toBeNull();
+      expect(weightVariancePct(8, 0)).toBeNull();
+    });
+
+    it('flags a drastic mismatch beyond the threshold', () => {
+      expect(WEIGHT_VARIANCE_WARN_PCT).toBe(10);
+      expect(isLargeWeightVariance(15)).toBe(true);
+      expect(isLargeWeightVariance(-12)).toBe(true);
+      expect(isLargeWeightVariance(5)).toBe(false);
+      expect(isLargeWeightVariance(null)).toBe(false);
+    });
+  });
+
+  describe('yellow-bill sample end-to-end (M Karuppiah & Co)', () => {
+    it('reproduces the bill: lines, sum, and GST split', () => {
+      const line8mm = computeLineAmount({ pricing_mode: 'per_kg', unit_price: 74.9, actual_weight: 95.3 });
+      const line10mm = computeLineAmount({ pricing_mode: 'per_kg', unit_price: 73.7, actual_weight: 49.4 });
+      expect(line8mm).toBeCloseTo(7137.97, 2);
+      expect(line10mm).toBeCloseTo(3640.78, 2);
+
+      const lineSum = line8mm + line10mm;
+      expect(lineSum).toBeCloseTo(10778.75, 2);
+
+      // handling/rounding on the bill → gross total 10,800
+      const billTotal = 10800;
+      const { net, gst } = extractGstFromGross(billTotal, 18);
+      expect(net).toBeCloseTo(9152.54, 2);
+      expect(gst).toBeCloseTo(1647.46, 2);
     });
   });
 });

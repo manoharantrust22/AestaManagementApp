@@ -2776,6 +2776,10 @@ export function useRecordAndVerifyDelivery() {
         driver_name: data.driver_name || null,
         driver_phone: data.driver_phone || null,
         notes: data.notes || null,
+        // Yellow-bill capture (weight-based / TMT): gross bill total + GST treatment
+        bill_total: data.bill_total != null ? data.bill_total : null,
+        bill_includes_gst: data.bill_includes_gst != null ? data.bill_includes_gst : null,
+        bill_gst_rate: data.bill_gst_rate != null ? data.bill_gst_rate : null,
       };
 
       // OVER-RECEIPT GUARD — runs BEFORE any insert so a fully/over-delivered PO
@@ -2870,6 +2874,10 @@ export function useRecordAndVerifyDelivery() {
         rejection_reason: item.rejection_reason || null,
         unit_price: item.unit_price,
         notes: item.notes || null,
+        // Weight-based (TMT) actuals from the yellow bill — drive stock weight + expense
+        pricing_mode: item.pricing_mode ?? "per_piece",
+        actual_weight: item.actual_weight ?? null,
+        line_amount: item.line_amount ?? null,
       }));
 
       console.log("[useRecordAndVerifyDelivery] Inserting delivery items:", deliveryItems);
@@ -2901,6 +2909,31 @@ export function useRecordAndVerifyDelivery() {
           (itemsError.code ? `Database error ${itemsError.code}` : "") ||
           JSON.stringify(itemsError);
         throw new Error(`Could not save delivery items: ${msg}`);
+      }
+
+      // ESTIMATE LEARNING: write the actual kg/piece back onto the PO item so the
+      // NEXT PO's weight estimate uses real delivered data, not the theoretical spec.
+      // Only touches weight columns — NEVER received_qty (the trigger owns that).
+      try {
+        for (const item of positiveItems) {
+          if (item.pricing_mode !== "per_kg") continue;
+          if (!item.po_item_id) continue;
+          const acceptedQty = Number(item.accepted_qty ?? item.received_qty ?? 0);
+          const actualWeight = Number(item.actual_weight ?? 0);
+          if (acceptedQty <= 0 || actualWeight <= 0) continue;
+          await supabase
+            .from("purchase_order_items")
+            .update({
+              actual_weight: actualWeight,
+              actual_weight_per_piece: actualWeight / acceptedQty,
+            })
+            .eq("id", item.po_item_id);
+        }
+      } catch (weightWriteErr) {
+        console.warn(
+          "[useRecordAndVerifyDelivery] Failed to write back actual weight (non-fatal):",
+          weightWriteErr
+        );
       }
 
       // NOTE: purchase_order_items.received_qty is incremented by the DB trigger
@@ -2948,7 +2981,8 @@ export function useRecordAndVerifyDelivery() {
                     *,
                     vendor:vendors(id, name),
                     items:purchase_order_items(
-                      id, material_id, brand_id, quantity, unit_price, tax_rate
+                      id, material_id, brand_id, quantity, unit_price, tax_rate,
+                      pricing_mode, calculated_weight
                     )
                   `)
                   .eq("id", data.po_id)
@@ -2985,14 +3019,85 @@ export function useRecordAndVerifyDelivery() {
                     );
                     const refCode = generatedRefCode || `MPE-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 5).toUpperCase()}`;
 
-                    // Calculate total amount from items
+                    // Pull EVERY delivery line of this PO (all installments) so the
+                    // expense reflects the actual yellow-bill weights, not the PO
+                    // estimate. For TMT (per_kg) the value is actual_weight × rate.
+                    const { data: poDeliveries } = await (supabase as any)
+                      .from("deliveries")
+                      .select("id, bill_total")
+                      .eq("po_id", data.po_id);
+                    const poDeliveryIds = (poDeliveries ?? []).map((d: any) => d.id);
+                    let poDeliveryItems: any[] = [];
+                    if (poDeliveryIds.length > 0) {
+                      const { data: di } = await (supabase as any)
+                        .from("delivery_items")
+                        .select(
+                          "po_item_id, accepted_qty, received_qty, unit_price, pricing_mode, actual_weight, line_amount"
+                        )
+                        .in("delivery_id", poDeliveryIds);
+                      poDeliveryItems = di ?? [];
+                    }
+
+                    const hasWeightActuals = poDeliveryItems.some(
+                      (d: any) => d.pricing_mode === "per_kg" && d.actual_weight != null
+                    );
+                    const sumBillTotals = (poDeliveries ?? []).reduce(
+                      (s: number, d: any) => s + (Number(d.bill_total) || 0),
+                      0
+                    );
+                    const allHaveBillTotal =
+                      poDeliveryIds.length > 0 &&
+                      (poDeliveries ?? []).every((d: any) => Number(d.bill_total) > 0);
+
+                    // Aggregate delivered weight + rate per PO item (for per_kg expense items).
+                    const deliveredWeightByPoItem: Record<string, number> = {};
+                    const rateByPoItem: Record<string, number> = {};
+                    const deliveredQtyByPoItem: Record<string, number> = {};
+                    for (const di of poDeliveryItems) {
+                      if (!di.po_item_id) continue;
+                      const qty = Number(di.accepted_qty ?? di.received_qty ?? 0);
+                      deliveredQtyByPoItem[di.po_item_id] =
+                        (deliveredQtyByPoItem[di.po_item_id] || 0) + qty;
+                      if (di.pricing_mode === "per_kg") {
+                        deliveredWeightByPoItem[di.po_item_id] =
+                          (deliveredWeightByPoItem[di.po_item_id] || 0) +
+                          (Number(di.actual_weight) || 0);
+                      }
+                      if (di.unit_price != null) rateByPoItem[di.po_item_id] = Number(di.unit_price);
+                    }
+
+                    // Calculate total amount.
                     let totalAmount = 0;
                     let totalQuantity = 0;
-                    for (const item of po.items || []) {
-                      const itemSubtotal = (item.quantity || 0) * (item.unit_price || 0);
-                      const itemTax = item.tax_rate ? itemSubtotal * (item.tax_rate / 100) : 0;
-                      totalAmount += itemSubtotal + itemTax;
-                      totalQuantity += Number(item.quantity || 0);
+                    if (hasWeightActuals || allHaveBillTotal) {
+                      // TMT path: total comes from the bill (gross). The editable bill
+                      // total wins when present on every delivery (handling/rounding).
+                      if (allHaveBillTotal) {
+                        totalAmount = sumBillTotals;
+                      } else {
+                        for (const di of poDeliveryItems) {
+                          const lineAmt =
+                            di.line_amount != null
+                              ? Number(di.line_amount)
+                              : di.pricing_mode === "per_kg"
+                                ? (Number(di.actual_weight) || 0) * (Number(di.unit_price) || 0)
+                                : (Number(di.accepted_qty ?? di.received_qty) || 0) *
+                                  (Number(di.unit_price) || 0);
+                          totalAmount += lineAmt;
+                        }
+                      }
+                      totalQuantity = poDeliveryItems.reduce(
+                        (s: number, d: any) => s + Number(d.accepted_qty ?? d.received_qty ?? 0),
+                        0
+                      );
+                    } else {
+                      // Legacy / non-weight path: PO estimate with GST on top (unchanged).
+                      for (const item of po.items || []) {
+                        const itemSubtotal = (item.quantity || 0) * (item.unit_price || 0);
+                        const itemTax = item.tax_rate ? itemSubtotal * (item.tax_rate / 100) : 0;
+                        totalAmount += itemSubtotal + itemTax;
+                        totalQuantity += Number(item.quantity || 0);
+                      }
                     }
 
                     // Create the expense record with group stock fields if applicable
@@ -3051,15 +3156,32 @@ export function useRecordAndVerifyDelivery() {
                         }
                       }
 
-                      // Create expense items
+                      // Create expense items.
+                      // total_price is a GENERATED column = quantity × unit_price. For
+                      // per_kg (TMT) lines we therefore store quantity = delivered KG and
+                      // unit_price = rate/kg, so the generated total = kg × rate (correct).
+                      // For per_piece lines, quantity = pieces, unit_price = rate as before.
                       if (po.items?.length > 0) {
-                        const expenseItems = po.items.map((item: any) => ({
-                          purchase_expense_id: expense.id,
-                          material_id: item.material_id,
-                          brand_id: item.brand_id || null,
-                          quantity: item.quantity,
-                          unit_price: item.unit_price,
-                        }));
+                        const expenseItems = po.items.map((item: any) => {
+                          if (item.pricing_mode === "per_kg") {
+                            const kg =
+                              deliveredWeightByPoItem[item.id] ?? item.calculated_weight ?? 0;
+                            return {
+                              purchase_expense_id: expense.id,
+                              material_id: item.material_id,
+                              brand_id: item.brand_id || null,
+                              quantity: kg,
+                              unit_price: rateByPoItem[item.id] ?? item.unit_price,
+                            };
+                          }
+                          return {
+                            purchase_expense_id: expense.id,
+                            material_id: item.material_id,
+                            brand_id: item.brand_id || null,
+                            quantity: deliveredQtyByPoItem[item.id] ?? item.quantity,
+                            unit_price: rateByPoItem[item.id] ?? item.unit_price,
+                          };
+                        });
 
                         const { error: itemsInsertError } = await (supabase as any)
                           .from("material_purchase_expense_items")
@@ -3075,6 +3197,14 @@ export function useRecordAndVerifyDelivery() {
 
                           for (const item of po.items) {
                             try {
+                              // For per_kg (TMT) group batches the unit is KG (group_stock_inventory
+                              // has no separate weight column) so qty = delivered kg, cost = rate/kg.
+                              const isPerKg = item.pricing_mode === "per_kg";
+                              const effQty = isPerKg
+                                ? (deliveredWeightByPoItem[item.id] ?? item.calculated_weight ?? 0)
+                                : (deliveredQtyByPoItem[item.id] ?? item.quantity);
+                              const effRate = rateByPoItem[item.id] ?? item.unit_price;
+
                               // Check if inventory record exists
                               let invQuery = (supabase as any)
                                 .from("group_stock_inventory")
@@ -3093,11 +3223,11 @@ export function useRecordAndVerifyDelivery() {
 
                               if (existingInv) {
                                 inventoryId = existingInv.id;
-                                const newQty = Number(existingInv.current_qty) + Number(item.quantity);
+                                const newQty = Number(existingInv.current_qty) + Number(effQty);
                                 const newAvgCost = newQty > 0
                                   ? ((Number(existingInv.current_qty) * Number(existingInv.avg_unit_cost || 0)) +
-                                     (Number(item.quantity) * Number(item.unit_price))) / newQty
-                                  : Number(item.unit_price);
+                                     (Number(effQty) * Number(effRate))) / newQty
+                                  : Number(effRate);
 
                                 await (supabase as any)
                                   .from("group_stock_inventory")
@@ -3116,8 +3246,8 @@ export function useRecordAndVerifyDelivery() {
                                     site_group_id: siteGroupId,
                                     material_id: item.material_id,
                                     brand_id: item.brand_id || null,
-                                    current_qty: Number(item.quantity),
-                                    avg_unit_cost: Number(item.unit_price),
+                                    current_qty: Number(effQty),
+                                    avg_unit_cost: Number(effRate),
                                     last_received_date: new Date().toISOString().split("T")[0],
                                     batch_code: refCode,
                                   })
@@ -3131,8 +3261,8 @@ export function useRecordAndVerifyDelivery() {
                                 inventoryId = newInv.id;
                               }
 
-                              const unitCost = Number(item.unit_price) || 0;
-                              const totalCost = Number(item.quantity) * unitCost;
+                              const unitCost = Number(effRate) || 0;
+                              const totalCost = Number(effQty) * unitCost;
 
                               transactionsToInsert.push({
                                 site_group_id: siteGroupId,
@@ -3141,7 +3271,7 @@ export function useRecordAndVerifyDelivery() {
                                 transaction_date: po.order_date || new Date().toISOString().split("T")[0],
                                 material_id: item.material_id,
                                 brand_id: item.brand_id || null,
-                                quantity: Number(item.quantity),
+                                quantity: Number(effQty),
                                 unit_cost: unitCost,
                                 total_cost: totalCost,
                                 payment_source_site_id: data.site_id,

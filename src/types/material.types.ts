@@ -793,6 +793,10 @@ export interface Delivery {
   delivery_photos: string[] | null;
   recorded_by: string | null;
   recorded_at: string | null;
+  // Yellow-bill capture (weight-based / TMT): gross bill total + GST treatment
+  bill_total: number | null;
+  bill_includes_gst: boolean | null;
+  bill_gst_rate: number | null;
 }
 
 export interface DeliveryItem {
@@ -811,6 +815,10 @@ export interface DeliveryItem {
   expiry_date: string | null;
   notes: string | null;
   created_at: string;
+  // Weight-based (TMT) delivery actuals — from the yellow bill, this installment
+  pricing_mode: 'per_piece' | 'per_kg';
+  actual_weight: number | null;
+  line_amount: number | null;
 }
 
 export interface PurchasePayment {
@@ -1511,6 +1519,12 @@ export interface DeliveryItemFormData {
   rejection_reason?: string;
   unit_price?: number;
   notes?: string;
+  // Weight-based (TMT) actuals captured at delivery from the yellow bill
+  pricing_mode?: 'per_piece' | 'per_kg';
+  actual_weight?: number | null;
+  calculated_weight?: number | null;
+  line_amount?: number | null;
+  tax_rate?: number | null;
 }
 
 /**
@@ -1543,6 +1557,10 @@ export interface RecordAndVerifyDeliveryFormData {
   // If issues are flagged, creates "disputed" status instead of "verified"
   issues?: DeliveryDiscrepancy[];
   hasIssues: boolean;
+  // Yellow-bill capture for weight-based (TMT) deliveries — gross bill + GST
+  bill_total?: number;
+  bill_includes_gst?: boolean;
+  bill_gst_rate?: number;
 }
 
 export interface StockTransferFormData {

@@ -73,7 +73,12 @@ import type {
   RequestItemForConversion,
 } from "@/types/material.types";
 import { formatCurrency } from "@/lib/formatters";
-import { calculatePieceWeight } from "@/lib/weightCalculation";
+import {
+  calculatePieceWeight,
+  computeLineAmount,
+  extractGstFromGross,
+  addGstToNet,
+} from "@/lib/weightCalculation";
 import { PRIORITY_LABELS, PRIORITY_COLORS } from "@/types/material.types";
 import { useToast } from "@/contexts/ToastContext";
 import FileUploader from "@/components/common/FileUploader";
@@ -603,6 +608,12 @@ export default function UnifiedPurchaseOrderDialog({
   useEffect(() => {
     if (isRequestMode && requestItems.length > 0 && requestItemsState.length === 0) {
       setRequestItemsState(requestItems);
+      // TMT/weight-based bills are gross (GST-inclusive) by default — no TMT vendor
+      // sells without GST. Seed the dialog into inclusive mode so the office user
+      // enters the rate exactly as the vendor quotes it.
+      if (requestItems.some((it: RequestItemForConversion) => it.weight_per_unit)) {
+        setPriceIncludesGst(true);
+      }
     }
   }, [isRequestMode, requestItems, requestItemsState.length]);
 
@@ -671,19 +682,31 @@ export default function UnifiedPurchaseOrderDialog({
     if (latestPrice && !hasAutofilledPrice.current && !newItemPrice) {
       hasAutofilledPrice.current = true;
       setNewItemPrice(latestPrice.price.toString());
-      if ('pricing_mode' in latestPrice && latestPrice.pricing_mode) {
+      // Weight-based (TMT) materials are always per kg — never downgrade their mode
+      // from the vendor's stored default.
+      if ('pricing_mode' in latestPrice && latestPrice.pricing_mode && !effectiveMaterial?.weight_per_unit) {
         setNewItemPricingMode(latestPrice.pricing_mode as 'per_piece' | 'per_kg');
       }
       if (latestPrice.transport_cost && !transportCost) {
         setTransportCost(latestPrice.transport_cost.toString());
       }
     }
-  }, [latestPrice, selectedVendor, selectedMaterial, selectedVariant, selectedBrandName, selectedBrandVariant, newItemPrice, transportCost]);
+  }, [latestPrice, selectedVendor, selectedMaterial, selectedVariant, selectedBrandName, selectedBrandVariant, newItemPrice, transportCost, effectiveMaterial?.weight_per_unit]);
 
   // Reset auto-fill flag when selection changes
   useEffect(() => {
     hasAutofilledPrice.current = false;
   }, [selectedVendor, selectedMaterial, selectedVariant, selectedBrandName, selectedBrandVariant]);
+
+  // TMT/weight-based materials are always priced per kg and quoted GST-inclusive
+  // (no vendor sells TMT without GST). Lock the add-item form accordingly so the
+  // office user never has to pick the mode or flip the GST switch for steel.
+  useEffect(() => {
+    if (effectiveMaterial?.weight_per_unit) {
+      setNewItemPricingMode("per_kg");
+      setPriceIncludesGst(true);
+    }
+  }, [effectiveMaterial?.weight_per_unit]);
 
   // Update payingSiteId when siteId changes
   useEffect(() => {
@@ -805,9 +828,10 @@ export default function UnifiedPurchaseOrderDialog({
         return {
           ...item,
           quantity_to_order: validQty,
+          // PO stage carries only the ESTIMATE; the exact weight is captured at
+          // delivery from the yellow bill, so actual_weight stays null here.
           calculated_weight: calculatedWeight,
-          // Also update actual_weight to match (user can override later)
-          actual_weight: calculatedWeight,
+          actual_weight: null,
         };
       })
     );
@@ -879,15 +903,6 @@ export default function UnifiedPurchaseOrderDialog({
     setRequestItemsState((prev) =>
       prev.map((item) =>
         item.id === itemId ? { ...item, pricing_mode: value } : item
-      )
-    );
-  };
-
-  const handleRequestItemActualWeightChange = (itemId: string, value: string) => {
-    const weight = parseFloat(value) || 0;
-    setRequestItemsState((prev) =>
-      prev.map((item) =>
-        item.id === itemId ? { ...item, actual_weight: weight > 0 ? weight : null } : item
       )
     );
   };
@@ -1226,7 +1241,14 @@ export default function UnifiedPurchaseOrderDialog({
       onSuccess?.(result?.id || "");
 
       const totalAmount = allItems.reduce((sum, item) => {
-        return sum + item.quantity * item.unit_price;
+        // per-kg lines value = weight × rate, not pieces × rate
+        return sum + computeLineAmount({
+          pricing_mode: item.pricing_mode,
+          unit_price: item.unit_price,
+          quantity: item.quantity,
+          actual_weight: item.actual_weight,
+          calculated_weight: item.calculated_weight,
+        });
       }, 0);
       showSuccess(
         `Purchase Order ${result?.po_number || ""} created successfully! Total: ₹${totalAmount.toLocaleString()}`,
@@ -1593,7 +1615,9 @@ export default function UnifiedPurchaseOrderDialog({
                           GST %
                         </TableCell>
                         <TableCell align="right">Subtotal</TableCell>
-                        <TableCell align="right">Total</TableCell>
+                        <TableCell align="right">
+                          {hasWeightBasedRequestItems ? "Approx Total" : "Total"}
+                        </TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -1614,9 +1638,6 @@ export default function UnifiedPurchaseOrderDialog({
                           }
                           onPricingModeChange={(value) =>
                             handleRequestItemPricingModeChange(item.id, value)
-                          }
-                          onActualWeightChange={(value) =>
-                            handleRequestItemActualWeightChange(item.id, value)
                           }
                           showPricingModeColumn={hasWeightBasedRequestItems}
                           priceIncludesGst={priceIncludesGst}
@@ -2156,20 +2177,13 @@ export default function UnifiedPurchaseOrderDialog({
             />
           </Grid>
 
-          {/* Pricing Mode Toggle */}
+          {/* TMT/weight-based materials are always priced per kg — the mode is
+              locked (no toggle). A small chip makes that explicit. */}
           {effectiveMaterial?.weight_per_unit && (
             <Grid size={{ xs: 4, md: 1.5 }}>
-              <TextField
-                fullWidth
-                select
-                size="small"
-                label="Price Per"
-                value={newItemPricingMode}
-                onChange={(e) => setNewItemPricingMode(e.target.value as 'per_piece' | 'per_kg')}
-              >
-                <MenuItem value="per_piece">Per Piece</MenuItem>
-                <MenuItem value="per_kg">Per Kg</MenuItem>
-              </TextField>
+              <Box sx={{ display: "flex", alignItems: "center", height: 40 }}>
+                <Chip label="Priced per kg" size="small" color="info" variant="outlined" />
+              </Box>
             </Grid>
           )}
 
@@ -2207,16 +2221,19 @@ export default function UnifiedPurchaseOrderDialog({
                   </TableHead>
                   <TableBody>
                     {items.map((item, index) => {
-                      let itemTotal: number;
-                      if (item.pricing_mode === 'per_kg') {
-                        const weight = item.actual_weight ?? item.calculated_weight ?? 0;
-                        itemTotal = weight * item.unit_price;
-                      } else {
-                        itemTotal = item.quantity * item.unit_price;
-                      }
-                      const itemTax = item.tax_rate
-                        ? (itemTotal * item.tax_rate) / 100
-                        : 0;
+                      // Line amount is gross when the dialog is GST-inclusive (the
+                      // unit price already carries GST), else net. Split accordingly
+                      // so the Total column never double-counts GST.
+                      const lineAmount = computeLineAmount({
+                        pricing_mode: item.pricing_mode,
+                        unit_price: item.unit_price,
+                        quantity: item.quantity,
+                        actual_weight: item.actual_weight,
+                        calculated_weight: item.calculated_weight,
+                      });
+                      const { net: itemNet, gross: itemGross } = priceIncludesGst
+                        ? extractGstFromGross(lineAmount, item.tax_rate)
+                        : addGstToNet(lineAmount, item.tax_rate);
                       return (
                         <TableRow key={index}>
                           <TableCell>
@@ -2261,66 +2278,17 @@ export default function UnifiedPurchaseOrderDialog({
                                   )}
                                 </Typography>
                               )}
-                              {/* Weight section for weight-based materials */}
+                              {/* Weight section for weight-based materials — at PO time
+                                  this is an ESTIMATE only. The exact weight (and the
+                                  weight-variance check) happen at delivery, from the bill. */}
                               {item.calculated_weight && item.standard_piece_weight && (
                                 <Box sx={{ mt: 0.5, p: 1, bgcolor: "grey.50", borderRadius: 1 }}>
                                   <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
                                     Std: ~{item.standard_piece_weight.toFixed(2)} kg/pc × {item.quantity} = ~{item.calculated_weight.toFixed(2)} kg
                                   </Typography>
-                                  <TextField
-                                    size="small"
-                                    type="number"
-                                    label="Actual kg (from bill)"
-                                    value={item.actual_weight ?? item.calculated_weight}
-                                    onChange={(e) => {
-                                      const newItems = [...items];
-                                      newItems[index].actual_weight = e.target.value ? parseFloat(e.target.value) : null;
-                                      setItems(newItems);
-                                    }}
-                                    slotProps={{
-                                      input: { inputProps: { min: 0, step: 0.01 } },
-                                    }}
-                                    sx={{ mt: 0.5, width: 130 }}
-                                  />
-                                  {item.actual_weight && item.quantity > 0 && (() => {
-                                    const actualKgPerPiece = item.actual_weight / item.quantity;
-                                    const deviation = item.standard_piece_weight
-                                      ? ((actualKgPerPiece - item.standard_piece_weight) / item.standard_piece_weight) * 100
-                                      : 0;
-                                    const isLargeDeviation = Math.abs(deviation) > 10;
-
-                                    return (
-                                      <Box sx={{ mt: 0.5 }}>
-                                        <Typography
-                                          variant="caption"
-                                          sx={{
-                                            display: "block",
-                                            fontWeight: 600,
-                                            color: isLargeDeviation ? "warning.main" : "text.primary"
-                                          }}
-                                        >
-                                          Actual: {actualKgPerPiece.toFixed(2)} kg/pc
-                                        </Typography>
-                                        {deviation !== 0 && (
-                                          <Typography
-                                            variant="caption"
-                                            sx={{
-                                              display: "block",
-                                              color: isLargeDeviation
-                                                ? "error.main"
-                                                : deviation > 0
-                                                  ? "warning.main"
-                                                  : "success.main",
-                                              fontWeight: isLargeDeviation ? 600 : 400,
-                                            }}
-                                          >
-                                            {isLargeDeviation && "⚠️ "}
-                                            {deviation > 0 ? "+" : ""}{deviation.toFixed(1)}% from std
-                                          </Typography>
-                                        )}
-                                      </Box>
-                                    );
-                                  })()}
+                                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", fontStyle: "italic", mt: 0.25 }}>
+                                    Estimate — exact weight captured at delivery
+                                  </Typography>
                                 </Box>
                               )}
                             </Box>
@@ -2373,10 +2341,10 @@ export default function UnifiedPurchaseOrderDialog({
                             )}
                           </TableCell>
                           <TableCell align="right">
-                            {formatCurrency(itemTotal)}
+                            {formatCurrency(itemNet)}
                           </TableCell>
                           <TableCell align="right">
-                            {formatCurrency(itemTotal + itemTax)}
+                            {formatCurrency(itemGross)}
                           </TableCell>
                           <TableCell>
                             {editingItemIndex === index ? (

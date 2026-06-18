@@ -12,6 +12,7 @@ import {
   Box,
   Typography,
   IconButton,
+  InputAdornment,
   Alert,
   Table,
   TableHead,
@@ -45,6 +46,13 @@ import type {
   DeliveryDiscrepancy,
 } from "@/types/material.types";
 import { formatCurrency } from "@/lib/formatters";
+import {
+  extractGstFromGross,
+  addGstToNet,
+  weightVariancePct,
+  isLargeWeightVariance,
+  WEIGHT_VARIANCE_WARN_PCT,
+} from "@/lib/weightCalculation";
 
 interface RecordAndVerifyDeliveryDialogProps {
   open: boolean;
@@ -100,6 +108,15 @@ export default function RecordAndVerifyDeliveryDialog({
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<DeliveryItemRow[]>([]);
 
+  // Weight-based (TMT) yellow-bill capture
+  // editRate: rate/kg is read-only by default (it was agreed at PO time); the
+  // engineer can opt in to correct it in the rare case the vendor changed it.
+  const [editRate, setEditRate] = useState(false);
+  // billTotal: editable gross total to absorb handling/rounding on the bill.
+  const [billTotal, setBillTotal] = useState("");
+  // TMT bills are gross/inclusive of GST by default.
+  const [billIncludesGst, setBillIncludesGst] = useState(true);
+
   // Photos (required for unified flow)
   const [photos, setPhotos] = useState<UploadedFile[]>([]);
 
@@ -128,6 +145,17 @@ export default function RecordAndVerifyDeliveryDialog({
           // For batch deliveries (partial_delivered), start at 0 so engineer enters
           // only today's batch qty rather than accidentally submitting full pending
           const defaultReceivedQty = isBatchDelivery ? 0 : pendingQty;
+          // Weight-based (TMT): pre-seed this installment's weight from the PO
+          // estimate (est kg/pc × qty arriving) so the field starts close to reality;
+          // the engineer overwrites it with the exact figure from the yellow bill.
+          const estPerPiece =
+            item.calculated_weight && item.quantity
+              ? item.calculated_weight / item.quantity
+              : null;
+          const seedActualWeight =
+            item.pricing_mode === "per_kg" && estPerPiece
+              ? Number((defaultReceivedQty * estPerPiece).toFixed(3))
+              : null;
           return {
           po_item_id: item.id,
           material_id: item.material_id,
@@ -143,7 +171,7 @@ export default function RecordAndVerifyDeliveryDialog({
           pendingQty: item.quantity - (item.received_qty || 0),
           pricing_mode: item.pricing_mode,
           calculated_weight: item.calculated_weight,
-          actual_weight: item.actual_weight,
+          actual_weight: seedActualWeight,
           tax_rate: item.tax_rate,
           hasIssue: false,
           issueType: undefined,
@@ -167,6 +195,9 @@ export default function RecordAndVerifyDeliveryDialog({
     setNotes("");
     setError("");
     setPhotos([]);
+    setEditRate(false);
+    setBillTotal("");
+    setBillIncludesGst(true);
     setInspectionChecklist({
       qualityOk: true,
       quantityMatches: true,
@@ -183,7 +214,9 @@ export default function RecordAndVerifyDeliveryDialog({
       | "rejected_qty"
       | "rejection_reason"
       | "hasIssue"
-      | "issueType",
+      | "issueType"
+      | "actual_weight"
+      | "unit_price",
     value: string | number | boolean
   ) => {
     setItems((prev) =>
@@ -219,15 +252,19 @@ export default function RecordAndVerifyDeliveryDialog({
     return items.some((item) => item.hasIssue && (item.rejected_qty ?? 0) > 0);
   }, [items]);
 
-  // Calculate totals
+  // Calculate totals.
+  // For weight-based (per_kg) lines the value is the ACTUAL delivered weight (from
+  // the yellow bill, this installment) × rate/kg. The bill is gross/inclusive by
+  // default, so GST is extracted from each line; otherwise it's added on top.
   const totals = useMemo(() => {
     let totalReceivedPcs = 0;
     let totalAcceptedPcs = 0;
     let totalRejectedPcs = 0;
     let totalReceivedKg = 0;
     let totalAcceptedKg = 0;
-    let subtotal = 0;
-    let taxAmount = 0;
+    let netSum = 0;
+    let gstSum = 0;
+    let grossSum = 0;
     let hasPerKgItems = false;
     let hasMixedUnits = false;
 
@@ -240,24 +277,24 @@ export default function RecordAndVerifyDeliveryDialog({
       totalAcceptedPcs += acceptedQty;
       totalRejectedPcs += rejectedQty;
 
-      let itemSubtotal = 0;
+      let lineAmount = 0;
       if (item.pricing_mode === "per_kg") {
         hasPerKgItems = true;
-        const originalQty = item.orderedQty || 1;
-        const weightPerPiece =
-          (item.actual_weight ?? item.calculated_weight ?? 0) / originalQty;
-        totalReceivedKg += receivedQty * weightPerPiece;
-        totalAcceptedKg += acceptedQty * weightPerPiece;
-        itemSubtotal = acceptedQty * weightPerPiece * (item.unit_price || 0);
+        const lineWeight = item.actual_weight ?? 0; // installment weight from the bill
+        totalReceivedKg += lineWeight;
+        totalAcceptedKg += lineWeight;
+        lineAmount = lineWeight * (item.unit_price || 0);
       } else {
         if (hasPerKgItems) hasMixedUnits = true;
-        itemSubtotal = acceptedQty * (item.unit_price || 0);
+        lineAmount = acceptedQty * (item.unit_price || 0);
       }
 
-      subtotal += itemSubtotal;
-      if (item.tax_rate) {
-        taxAmount += (itemSubtotal * item.tax_rate) / 100;
-      }
+      const split = billIncludesGst
+        ? extractGstFromGross(lineAmount, item.tax_rate)
+        : addGstToNet(lineAmount, item.tax_rate);
+      netSum += split.net;
+      gstSum += split.gst;
+      grossSum += split.gross;
     });
 
     const allPerKg =
@@ -265,17 +302,48 @@ export default function RecordAndVerifyDeliveryDialog({
       !hasMixedUnits &&
       items.every((i) => i.pricing_mode === "per_kg");
 
+    // The editable gross bill total wins when set (handling/rounding); else use
+    // the computed line sum.
+    const billTotalNum = billTotal ? parseFloat(billTotal) : NaN;
+    const effectiveGross =
+      !isNaN(billTotalNum) && billTotalNum > 0 ? billTotalNum : grossSum;
+
     return {
       totalReceived: allPerKg ? totalReceivedKg : totalReceivedPcs,
       totalAccepted: allPerKg ? totalAcceptedKg : totalAcceptedPcs,
       totalRejected: totalRejectedPcs,
-      subtotal,
-      taxAmount,
-      totalValue: subtotal + taxAmount,
+      subtotal: netSum,
+      taxAmount: gstSum,
+      totalValue: effectiveGross,
+      lineSum: grossSum,
       unit: allPerKg ? "kg" : "pcs",
       hasPerKgItems,
     };
-  }, [items]);
+  }, [items, billIncludesGst, billTotal]);
+
+  // Per-line weight variance vs the PO estimate, and whether ANY line is drastically
+  // off (likely a wrong order / weighing error) — surfaced as a banner the engineer
+  // can't miss. Informational only: the bill is the source of truth.
+  const weightVariances = useMemo(
+    () =>
+      items.map((item) => {
+        if (item.pricing_mode !== "per_kg") return null;
+        const expectedPerPiece =
+          item.calculated_weight && item.orderedQty
+            ? item.calculated_weight / item.orderedQty
+            : null;
+        const actualPerPiece =
+          item.actual_weight && item.received_qty
+            ? item.actual_weight / item.received_qty
+            : null;
+        return weightVariancePct(actualPerPiece, expectedPerPiece);
+      }),
+    [items]
+  );
+  const anyLargeVariance = useMemo(
+    () => weightVariances.some((v) => isLargeWeightVariance(v)),
+    [weightVariances]
+  );
 
   const handlePhotoUpload = useCallback((file: UploadedFile) => {
     setPhotos((prev) => [...prev, file]);
@@ -353,20 +421,39 @@ export default function RecordAndVerifyDeliveryDialog({
         notes: notes || undefined,
         items: items
           .filter((item) => item.received_qty > 0)
-          .map((item) => ({
-            po_item_id: item.po_item_id,
-            material_id: item.material_id,
-            brand_id: item.brand_id,
-            ordered_qty: item.orderedQty,
-            received_qty: item.received_qty,
-            accepted_qty: item.accepted_qty,
-            rejected_qty: item.rejected_qty,
-            rejection_reason: item.rejection_reason,
-            unit_price: item.unit_price,
-          })),
+          .map((item) => {
+            const acceptedQty = item.accepted_qty ?? item.received_qty;
+            const lineAmount =
+              item.pricing_mode === "per_kg"
+                ? (item.actual_weight ?? 0) * (item.unit_price || 0)
+                : acceptedQty * (item.unit_price || 0);
+            return {
+              po_item_id: item.po_item_id,
+              material_id: item.material_id,
+              brand_id: item.brand_id,
+              ordered_qty: item.orderedQty,
+              received_qty: item.received_qty,
+              accepted_qty: item.accepted_qty,
+              rejected_qty: item.rejected_qty,
+              rejection_reason: item.rejection_reason,
+              unit_price: item.unit_price,
+              // Weight-based (TMT) actuals from the yellow bill
+              pricing_mode: item.pricing_mode,
+              actual_weight: item.actual_weight ?? null,
+              calculated_weight: item.calculated_weight ?? null,
+              line_amount: Number(lineAmount.toFixed(2)),
+              tax_rate: item.tax_rate ?? null,
+            };
+          }),
         inspectionChecklist,
         issues: discrepancies.length > 0 ? discrepancies : undefined,
         hasIssues: flagIssues || hasAnyIssues,
+        // Gross bill total + GST treatment (weight-based / TMT deliveries)
+        bill_total: billTotal ? parseFloat(billTotal) : undefined,
+        bill_includes_gst: billIncludesGst,
+        bill_gst_rate:
+          items.find((i) => i.pricing_mode === "per_kg" && i.tax_rate)?.tax_rate ??
+          undefined,
       };
 
       console.log(
@@ -710,6 +797,29 @@ export default function RecordAndVerifyDeliveryDialog({
             </Divider>
           </Grid>
 
+          {/* TMT: enter the exact weight from the yellow bill. Rate is read-only
+              (agreed at PO time) unless the engineer opts in to correct it. */}
+          {totals.hasPerKgItems && (
+            <Grid size={12}>
+              <Box sx={{ display: "flex", justifyContent: "flex-end", mb: -0.5 }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      size="small"
+                      checked={editRate}
+                      onChange={(e) => setEditRate(e.target.checked)}
+                    />
+                  }
+                  label={
+                    <Typography variant="caption" color="text.secondary">
+                      Edit rate/kg (only if the vendor changed it)
+                    </Typography>
+                  }
+                />
+              </Box>
+            </Grid>
+          )}
+
           <Grid size={12}>
             <Paper variant="outlined">
               <Table size="small">
@@ -724,6 +834,19 @@ export default function RecordAndVerifyDeliveryDialog({
                     <TableCell align="right" sx={{ width: 90 }}>
                       Accepted
                     </TableCell>
+                    {totals.hasPerKgItems && (
+                      <>
+                        <TableCell align="right" sx={{ width: 110 }}>
+                          Actual kg
+                        </TableCell>
+                        <TableCell align="right" sx={{ width: 95 }}>
+                          Rate ₹/kg
+                        </TableCell>
+                        <TableCell align="right" sx={{ width: 100 }}>
+                          Line ₹
+                        </TableCell>
+                      </>
+                    )}
                     <TableCell align="center" sx={{ width: 100 }}>
                       Issue?
                     </TableCell>
@@ -732,7 +855,7 @@ export default function RecordAndVerifyDeliveryDialog({
                 <TableBody>
                   {items.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} align="center">
+                      <TableCell colSpan={totals.hasPerKgItems ? 9 : 6} align="center">
                         <Typography
                           variant="body2"
                           color="text.secondary"
@@ -835,6 +958,104 @@ export default function RecordAndVerifyDeliveryDialog({
                             error={(item.rejected_qty || 0) > 0}
                           />
                         </TableCell>
+                        {totals.hasPerKgItems && (
+                          <>
+                            {/* Actual weight (kg) from the yellow bill + variance vs estimate */}
+                            <TableCell align="right">
+                              {item.pricing_mode === "per_kg" ? (
+                                <Box>
+                                  <TextField
+                                    size="small"
+                                    type="number"
+                                    value={item.actual_weight ?? ""}
+                                    onChange={(e) =>
+                                      handleItemChange(
+                                        index,
+                                        "actual_weight",
+                                        parseFloat(e.target.value) || 0
+                                      )
+                                    }
+                                    placeholder="kg"
+                                    slotProps={{
+                                      input: {
+                                        endAdornment: (
+                                          <InputAdornment position="end" sx={{ fontSize: "0.7rem" }}>kg</InputAdornment>
+                                        ),
+                                        inputProps: { min: 0, step: 0.01, style: { textAlign: "right" } },
+                                      },
+                                    }}
+                                    sx={{ width: 100 }}
+                                  />
+                                  {(() => {
+                                    const v = weightVariances[index];
+                                    if (v == null) return null;
+                                    const large = isLargeWeightVariance(v);
+                                    return (
+                                      <Typography
+                                        variant="caption"
+                                        sx={{
+                                          display: "block",
+                                          mt: 0.25,
+                                          fontWeight: large ? 600 : 400,
+                                          color: large
+                                            ? "error.main"
+                                            : Math.abs(v) > 4
+                                              ? "warning.main"
+                                              : "success.main",
+                                        }}
+                                      >
+                                        {large && "⚠️ "}
+                                        {v > 0 ? "+" : ""}
+                                        {v.toFixed(1)}% vs est
+                                      </Typography>
+                                    );
+                                  })()}
+                                </Box>
+                              ) : (
+                                <Typography variant="caption" color="text.secondary">—</Typography>
+                              )}
+                            </TableCell>
+                            {/* Rate ₹/kg — read-only unless the engineer unlocked editing */}
+                            <TableCell align="right">
+                              {item.pricing_mode === "per_kg" ? (
+                                <TextField
+                                  size="small"
+                                  type="number"
+                                  value={item.unit_price ?? ""}
+                                  disabled={!editRate}
+                                  onChange={(e) =>
+                                    handleItemChange(
+                                      index,
+                                      "unit_price",
+                                      parseFloat(e.target.value) || 0
+                                    )
+                                  }
+                                  slotProps={{
+                                    input: {
+                                      startAdornment: (
+                                        <InputAdornment position="start">₹</InputAdornment>
+                                      ),
+                                      inputProps: { min: 0, step: 0.01, style: { textAlign: "right" } },
+                                    },
+                                  }}
+                                  sx={{ width: 85 }}
+                                />
+                              ) : (
+                                <Typography variant="caption" color="text.secondary">—</Typography>
+                              )}
+                            </TableCell>
+                            {/* Line amount = actual kg × rate */}
+                            <TableCell align="right">
+                              {item.pricing_mode === "per_kg" ? (
+                                <Typography variant="body2" fontWeight={500}>
+                                  {formatCurrency((item.actual_weight ?? 0) * (item.unit_price || 0))}
+                                </Typography>
+                              ) : (
+                                <Typography variant="caption" color="text.secondary">—</Typography>
+                              )}
+                            </TableCell>
+                          </>
+                        )}
                         <TableCell align="center">
                           {item.hasIssue ? (
                             <Stack spacing={0.5}>
@@ -906,6 +1127,69 @@ export default function RecordAndVerifyDeliveryDialog({
             </Paper>
           </Grid>
 
+          {/* Weight mismatch warning — a drastic variance usually means a wrong
+              item or a weighing error. Informational: the bill is the source of truth. */}
+          {anyLargeVariance && (
+            <Grid size={12}>
+              <Alert severity="warning" icon={<WarningIcon />}>
+                <Typography variant="body2" fontWeight={600}>
+                  Delivered weight is more than {WEIGHT_VARIANCE_WARN_PCT}% off the estimate
+                </Typography>
+                <Typography variant="caption">
+                  Double-check the bill and the order before confirming — a large gap usually
+                  means a wrong item or a weighing error. You can still confirm if the bill is correct.
+                </Typography>
+              </Alert>
+            </Grid>
+          )}
+
+          {/* TMT: editable gross bill total (handling/rounding) + GST treatment */}
+          {totals.hasPerKgItems && (
+            <Grid size={12}>
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  alignItems: "flex-start",
+                  gap: 2,
+                  flexWrap: "wrap",
+                }}
+              >
+                <FormControlLabel
+                  control={
+                    <Switch
+                      size="small"
+                      checked={billIncludesGst}
+                      onChange={(e) => setBillIncludesGst(e.target.checked)}
+                    />
+                  }
+                  label={
+                    <Typography variant="caption">Bill incl. GST</Typography>
+                  }
+                  sx={{ mt: 0.5 }}
+                />
+                <TextField
+                  size="small"
+                  type="number"
+                  label="Bill total (₹)"
+                  value={billTotal}
+                  onChange={(e) => setBillTotal(e.target.value)}
+                  placeholder={totals.lineSum.toFixed(2)}
+                  helperText={`Line sum: ${formatCurrency(totals.lineSum)}${billIncludesGst ? " · incl GST" : ""}`}
+                  slotProps={{
+                    input: {
+                      startAdornment: (
+                        <InputAdornment position="start">₹</InputAdornment>
+                      ),
+                      inputProps: { min: 0, step: 0.01, style: { textAlign: "right" } },
+                    },
+                  }}
+                  sx={{ width: 200 }}
+                />
+              </Box>
+            </Grid>
+          )}
+
           {/* Summary */}
           {items.length > 0 && (
             <Grid size={12}>
@@ -956,6 +1240,11 @@ export default function RecordAndVerifyDeliveryDialog({
                   <Typography variant="h6">
                     {formatCurrency(totals.totalValue)}
                   </Typography>
+                  {totals.hasPerKgItems && totals.taxAmount > 0 && (
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      incl. {formatCurrency(totals.taxAmount)} GST
+                    </Typography>
+                  )}
                 </Box>
               </Box>
             </Grid>

@@ -1306,6 +1306,36 @@ export function useVendorMaterialPrice(
         lastPurchaseDate = lastHistory[0].recorded_date;
       }
 
+      // For weight-based (per-kg) materials like TMT, learn the last ACTUAL
+      // kg/piece from the most recent delivered PO for this vendor+material+brand.
+      // A rod's real weight varies batch to batch, so a recent measured weight is
+      // a far better estimate than the theoretical spec. Falls back to null when
+      // there's no delivery history yet (caller then uses the theoretical formula).
+      let lastActualWeightPerPiece: number | null = null;
+      if ((item.pricing_mode || "per_piece") === "per_kg") {
+        let awQuery = (supabase as any)
+          .from("purchase_order_items")
+          .select(
+            "actual_weight_per_piece, created_at, purchase_orders!inner(vendor_id)"
+          )
+          .eq("material_id", materialId!)
+          .eq("purchase_orders.vendor_id", vendorId!)
+          .not("actual_weight_per_piece", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        if (brandId) {
+          awQuery = awQuery.eq("brand_id", brandId);
+        } else {
+          awQuery = awQuery.is("brand_id", null);
+        }
+
+        const { data: awRows } = await awQuery;
+        if (awRows && awRows.length > 0) {
+          lastActualWeightPerPiece = awRows[0].actual_weight_per_piece;
+        }
+      }
+
       return {
         price: item.current_price,
         pricing_mode: item.pricing_mode || 'per_piece',
@@ -1321,6 +1351,7 @@ export function useVendorMaterialPrice(
           (item.unloading_cost || 0),
         recorded_date: item.updated_at,
         last_purchase_date: lastPurchaseDate,
+        last_actual_weight_per_piece: lastActualWeightPerPiece,
       };
     },
     enabled: !!vendorId && !!materialId,

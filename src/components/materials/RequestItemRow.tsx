@@ -12,7 +12,6 @@ import {
   InputAdornment,
   Tooltip,
   CircularProgress,
-  MenuItem,
   IconButton,
   Collapse,
 } from "@mui/material";
@@ -33,7 +32,6 @@ interface RequestItemRowProps {
   onVariantChange: (variantId: string | null, variantName: string | null) => void;
   onBrandChange: (brandId: string | null, brandName: string | null) => void;
   onPricingModeChange: (value: "per_piece" | "per_kg") => void;
-  onActualWeightChange: (value: string) => void;
   showPricingModeColumn: boolean; // Whether to show the pricing mode column (for table alignment)
   priceIncludesGst?: boolean; // Whether the unit price input is in GST-inclusive mode
 }
@@ -48,11 +46,12 @@ export default function RequestItemRow({
   onVariantChange,
   onBrandChange,
   onPricingModeChange,
-  onActualWeightChange,
   showPricingModeColumn,
   priceIncludesGst = false,
 }: RequestItemRowProps) {
   const isDisabled = item.remaining_qty <= 0;
+  // Weight-based materials (TMT rods): ordered in pieces, priced per kg.
+  const isWeightBased = !!item.weight_per_unit;
   const [showChart, setShowChart] = useState(false);
   const hasAutoFilled = useRef(false);
   const [localPrice, setLocalPrice] = useState<string>("");
@@ -160,8 +159,10 @@ export default function RequestItemRow({
       if (priceData.gst_rate && item.tax_rate === 0) {
         onTaxRateChange(priceData.gst_rate.toString());
       }
-      if (priceData.pricing_mode && item.weight_per_unit && item.pricing_mode !== priceData.pricing_mode) {
-        onPricingModeChange(priceData.pricing_mode as "per_piece" | "per_kg");
+      // TMT/weight-based materials are always priced per kg — lock the mode
+      // regardless of the vendor's stored default.
+      if (item.weight_per_unit && item.pricing_mode !== "per_kg") {
+        onPricingModeChange("per_kg");
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -525,6 +526,9 @@ export default function RequestItemRow({
             startAdornment: (
               <InputAdornment position="start">₹</InputAdornment>
             ),
+            endAdornment: isWeightBased ? (
+              <InputAdornment position="end" sx={{ fontSize: "0.7rem" }}>/kg</InputAdornment>
+            ) : undefined,
           }}
         />
         {/* Show last price hint if available with unit context */}
@@ -559,65 +563,49 @@ export default function RequestItemRow({
         )}
       </TableCell>
 
-      {/* Price Per Mode - show column for alignment when any items have weight data */}
+      {/* Price Per / Weight — show column for alignment when any items have weight data.
+          TMT is always priced per kg, so the mode is locked (no toggle) and the weight
+          shown here is an ESTIMATE; the exact weight is captured at delivery from the bill. */}
       {showPricingModeColumn && (
         <TableCell align="right" sx={{ minWidth: 130 }}>
           {item.weight_per_unit ? (
             <Box>
-              <TextField
-                select
-                size="small"
-                value={item.pricing_mode}
-                onChange={(e) =>
-                  onPricingModeChange(e.target.value as "per_piece" | "per_kg")
-                }
-                disabled={isDisabled || !item.selected}
-                sx={{ width: 140 }}
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: "block", fontWeight: 600 }}
               >
-                <MenuItem value="per_piece">Per Piece</MenuItem>
-                <MenuItem value="per_kg">Per Kilogram</MenuItem>
-              </TextField>
-              {/* Show weight per piece */}
+                Per kg
+              </Typography>
+              {/* Standard weight per piece */}
               {item.standard_piece_weight && item.selected && (
                 <Typography
                   variant="caption"
                   color="text.secondary"
-                  sx={{ display: "block", mt: 0.5, fontSize: "0.65rem" }}
+                  sx={{ display: "block", mt: 0.25, fontSize: "0.65rem" }}
                 >
                   ~{item.standard_piece_weight.toFixed(2)} kg/pc
                 </Typography>
               )}
-              {/* Actual Weight input for per_kg mode */}
-              {item.pricing_mode === "per_kg" && item.selected && item.calculated_weight && (
-                <Box sx={{ mt: 1 }}>
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ display: "block", fontSize: "0.65rem" }}
-                  >
-                    Est: {item.calculated_weight.toFixed(1)} kg
-                  </Typography>
-                  <TextField
-                    type="number"
-                    size="small"
-                    value={item.actual_weight ?? item.calculated_weight ?? ""}
-                    onChange={(e) => onActualWeightChange(e.target.value)}
-                    disabled={isDisabled}
-                    placeholder="Actual kg"
-                    inputProps={{
-                      min: 0,
-                      step: 0.1,
-                      style: { textAlign: "right", width: 70 },
-                    }}
-                    InputProps={{
-                      endAdornment: (
-                        <InputAdornment position="end" sx={{ fontSize: "0.7rem" }}>kg</InputAdornment>
-                      ),
-                    }}
-                    sx={{ mt: 0.5 }}
-                  />
-                </Box>
-              )}
+              {/* Estimated total weight (read-only) — exact kg comes from the bill at delivery */}
+              {item.pricing_mode === "per_kg" && item.selected && item.calculated_weight ? (
+                <Typography
+                  variant="caption"
+                  sx={{ display: "block", mt: 0.25, fontWeight: 500 }}
+                >
+                  ≈ {item.calculated_weight.toFixed(1)} kg (est)
+                </Typography>
+              ) : null}
+              {/* Real-world reference: kg/pc actually delivered last time from this vendor */}
+              {priceData?.last_actual_weight_per_piece && item.selected ? (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: "block", fontSize: "0.6rem" }}
+                >
+                  last del. ~{priceData.last_actual_weight_per_piece.toFixed(2)} kg/pc
+                </Typography>
+              ) : null}
             </Box>
           ) : (
             <Typography variant="caption" color="text.secondary">
