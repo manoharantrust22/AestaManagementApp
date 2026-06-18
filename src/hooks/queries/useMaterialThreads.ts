@@ -1053,6 +1053,11 @@ function mapStandardThread(
       vendor_id: po.vendor_id,
       vendor_name: (po as any).vendor?.name ?? undefined,
       amount: Number(po.total_amount ?? 0),
+      // Weight-priced (TMT) PO → amount is the bill actual once delivered, and
+      // the estimate-vs-actual delta is weight variance, not a discount.
+      weight_based: (po.items ?? []).some(
+        (it: any) => it.pricing_mode === "per_kg"
+      ),
       qty: orderedQty,
       received_qty: receivedQty,
       expected: po.expected_delivery_date,

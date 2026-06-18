@@ -38,6 +38,12 @@ export interface ThreadPO {
   vendor_id: string;
   vendor_name?: string;
   amount: number;
+  /** True when any PO line is weight-priced (pricing_mode='per_kg', e.g. TMT).
+   *  For these, `amount` becomes the delivered bill ACTUAL once delivered (the
+   *  PO total is overwritten on delivery), and the estimate-vs-actual delta is
+   *  weight variance — NOT a negotiated discount — so the Hub must NOT render a
+   *  "BARGAINED · saved" badge for them. */
+  weight_based: boolean;
   qty: number;
   /** Total received across all delivery batches (sum of PO items' received_qty). */
   received_qty: number;

@@ -12,6 +12,7 @@ function po(overrides: Partial<ThreadPO> = {}): ThreadPO {
     po_number: "PO-1",
     vendor_id: "v",
     amount: 1000,
+    weight_based: false,
     qty: 100,
     received_qty: 100,
     expected: null,

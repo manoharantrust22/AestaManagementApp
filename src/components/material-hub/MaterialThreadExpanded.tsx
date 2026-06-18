@@ -1019,7 +1019,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
                   amount struck through next to the paid amount. Surfaces the
                   savings without forcing the engineer to cross-reference the
                   PO block. Threshold of ₹1 ignores cosmetic rounding. */}
-              {t.po && t.po.amount - t.settlement.amount > 1 ? (
+              {t.po && !t.po.weight_based && t.po.amount - t.settlement.amount > 1 ? (
                 <Box
                   sx={{
                     display: "flex",
@@ -1058,7 +1058,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               ) : (
                 <DetailRow label="Amount" value={inr(t.settlement.amount)} emphasis />
               )}
-              {t.po && t.po.amount - t.settlement.amount > 1 && (
+              {t.po && !t.po.weight_based && t.po.amount - t.settlement.amount > 1 && (
                 <Box
                   sx={{
                     display: "flex",

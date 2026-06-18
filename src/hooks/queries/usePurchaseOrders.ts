@@ -1722,6 +1722,15 @@ async function updatePOTotals(
 }
 
 /**
+ * Generate a settlement reference code (PSET-…). Mirrors the format used by the
+ * canonical settle path (useMaterialPurchases.generateSettlementRef) so a final
+ * settlement made via the advance path reads "settled" on SettlementsTab.
+ */
+function generateSettlementRef(): string {
+  return `PSET-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+}
+
+/**
  * Record advance payment for a PO
  * Updates the advance_paid field and marks payment details
  */
@@ -1815,6 +1824,11 @@ export function useRecordAdvancePayment() {
           const { data: generatedRef } = await supabase.rpc("generate_material_purchase_reference");
           refCode = generatedRef ?? null;
         }
+        // A FINAL settlement (is_complete — full bulk OR a delivered-PO bargain)
+        // mints a fresh settlement reference so the row reads "settled", not just
+        // "paid". A re-settle after a reverse mints a NEW code — the reverse
+        // nulled the old one. Genuine partial advances get none.
+        const settlementReference = data.is_complete ? generateSettlementRef() : null;
         const built = buildAdvanceExpensePayload(
           po,
           {
@@ -1828,6 +1842,7 @@ export function useRecordAdvancePayment() {
             payer_name: data.payer_name ?? null,
             payer_source_split: data.payer_source_split ?? null,
             is_complete: data.is_complete,
+            settlement_reference: settlementReference,
             payment_channel: isWalletPath ? "engineer_wallet" : "direct",
             paying_site_id: data.paying_site_id ?? null,
             site_group_id: data.site_group_id ?? null,
@@ -1852,6 +1867,11 @@ export function useRecordAdvancePayment() {
               payment_reference: built.expenseRow.payment_reference,
               payment_screenshot_url: built.expenseRow.payment_screenshot_url,
               amount_paid: built.expenseRow.amount_paid,
+              // Promote a FINAL settlement to "settled" everywhere: stamp the ref
+              // + date (null for a partial advance). Without this a re-settle via
+              // the Hub stayed "pending" because the advance path never set them.
+              settlement_reference: built.expenseRow.settlement_reference,
+              settlement_date: built.expenseRow.settlement_date,
               settlement_payer_source: built.expenseRow.settlement_payer_source,
               settlement_payer_name: built.expenseRow.settlement_payer_name,
               payer_source_split: built.expenseRow.payer_source_split,
@@ -1860,6 +1880,11 @@ export function useRecordAdvancePayment() {
               // settle/edit path, which preserves an existing link when omitted).
               subcontract_id: built.expenseRow.subcontract_id,
               payment_channel: built.expenseRow.payment_channel,
+              // Clear a STALE audit stamp left by a prior (reversed) settle so the
+              // BEFORE-UPDATE mpe_stamp_settled trigger re-stamps WHO/WHEN on this
+              // fresh false->true transition. Only when (re)marking paid; a still-
+              // unpaid advance writes the same NULLs the reverse already left.
+              ...(built.expenseRow.is_paid ? { settled_at: null, settled_by: null } : {}),
               updated_at: new Date().toISOString(),
             })
             .eq("id", expenseId);
@@ -3129,6 +3154,30 @@ export function useRecordAndVerifyDelivery() {
                     } else if (expense) {
                       console.log("[useRecordAndVerifyDelivery] Material expense created:", refCode);
 
+                      // Weight-based (TMT) PO: the delivery bill is the REAL cost — the PO
+                      // total_amount was only an estimate (Σ calculated_weight × rate). Replace
+                      // it with the actual so PO list / detail / Hub all show the figure the
+                      // engineer entered from the bill, and the Hub stops mislabelling the
+                      // estimate-vs-actual weight variance as a "BARGAINED · saved" discount.
+                      // Gated to weight-based POs on the actual/bill path so genuine per_piece
+                      // negotiated discounts (estimate > settled) are preserved, and the legacy
+                      // no-weight path (totalAmount = estimate) never overwrites with garbage.
+                      const isWeightBasedPO = (po.items || []).some(
+                        (it: any) => it.pricing_mode === "per_kg"
+                      );
+                      if (isWeightBasedPO && (hasWeightActuals || allHaveBillTotal)) {
+                        const { error: poAmountErr } = await (supabase as any)
+                          .from("purchase_orders")
+                          .update({ total_amount: totalAmount })
+                          .eq("id", data.po_id);
+                        if (poAmountErr) {
+                          console.warn(
+                            "[useRecordAndVerifyDelivery] Failed to write back PO actual total (non-fatal):",
+                            poAmountErr
+                          );
+                        }
+                      }
+
                       // FIX: Update stock_inventory records (created by DB trigger) with batch_code
                       // The trigger fires on delivery_items INSERT and creates stock WITHOUT batch_code
                       // because the expense (which provides the ref_code) doesn't exist yet at trigger time.
@@ -3161,8 +3210,12 @@ export function useRecordAndVerifyDelivery() {
                       // per_kg (TMT) lines we therefore store quantity = delivered KG and
                       // unit_price = rate/kg, so the generated total = kg × rate (correct).
                       // For per_piece lines, quantity = pieces, unit_price = rate as before.
+                      // quantity_in_unit ALWAYS holds the count in the material's stocking
+                      // unit (PIECES) so the "By variant" breakdown shows pieces, not the KG
+                      // stored in `quantity` for per_kg lines (see get_batch_variant_summary).
                       if (po.items?.length > 0) {
                         const expenseItems = po.items.map((item: any) => {
+                          const pieces = deliveredQtyByPoItem[item.id] ?? item.quantity;
                           if (item.pricing_mode === "per_kg") {
                             const kg =
                               deliveredWeightByPoItem[item.id] ?? item.calculated_weight ?? 0;
@@ -3171,6 +3224,7 @@ export function useRecordAndVerifyDelivery() {
                               material_id: item.material_id,
                               brand_id: item.brand_id || null,
                               quantity: kg,
+                              quantity_in_unit: pieces,
                               unit_price: rateByPoItem[item.id] ?? item.unit_price,
                             };
                           }
@@ -3178,7 +3232,8 @@ export function useRecordAndVerifyDelivery() {
                             purchase_expense_id: expense.id,
                             material_id: item.material_id,
                             brand_id: item.brand_id || null,
-                            quantity: deliveredQtyByPoItem[item.id] ?? item.quantity,
+                            quantity: pieces,
+                            quantity_in_unit: pieces,
                             unit_price: rateByPoItem[item.id] ?? item.unit_price,
                           };
                         });

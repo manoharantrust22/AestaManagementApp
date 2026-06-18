@@ -8,6 +8,7 @@ function makePO(overrides: Partial<ThreadPO> = {}): ThreadPO {
     po_number: "PO-TEST-1",
     vendor_id: "v-1",
     amount: 8400,
+    weight_based: false,
     qty: 30,
     received_qty: 30,
     expected: null,
