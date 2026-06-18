@@ -63,6 +63,15 @@ describe("spendReverseMode", () => {
     );
   });
 
+  it("returns 'none' for an ORPHAN misc spend (MISC description but no linked record)", () => {
+    // The duplicate-reference bug left spends described 'Misc expense MISC-…' with
+    // no misc_expenses row. classifySpend → 'misc' but the source lookup → 'none',
+    // so no reverse flow applies and the admin hard-delete path takes over.
+    expect(spendReverseMode({ ...base, kind: "misc", sourceType: "none" })).toBe(
+      "none"
+    );
+  });
+
   it("treats null sourceType (lookup not loaded yet) as none, not cascade", () => {
     expect(spendReverseMode({ ...base, sourceType: null })).toBe("none");
   });

@@ -49,3 +49,30 @@ export async function reverseWalletSpend(
   if (error) throw new Error(error.message);
   return data as ReverseWalletSpendResult;
 }
+
+export interface DeleteOrphanWalletSpendResult {
+  deleted_spend_id: string;
+  deleted_allocations: number;
+  amount: number;
+  user_id: string;
+  site_id: string | null;
+}
+
+/**
+ * Admin-only HARD delete of an ORPHAN wallet spend (a spend row with no linked
+ * expense/settlement). Use only for stuck phantom debits — reverse_wallet_spend
+ * is the right tool for any spend still linked to a source. The RPC enforces
+ * admin role and refuses linked spends; it writes an audit_log breadcrumb before
+ * physically deleting the spend and its allocation rows.
+ */
+export async function deleteOrphanWalletSpend(
+  supabase: SupabaseClient,
+  args: { spendId: string; reason?: string | null }
+): Promise<DeleteOrphanWalletSpendResult> {
+  const { data, error } = await supabase.rpc("delete_orphan_wallet_spend", {
+    p_spend_id: args.spendId,
+    p_reason: args.reason ?? null,
+  });
+  if (error) throw new Error(error.message);
+  return data as DeleteOrphanWalletSpendResult;
+}

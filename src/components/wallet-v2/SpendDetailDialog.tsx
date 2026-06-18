@@ -17,7 +17,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { Close, ReceiptLong, Undo, WarningAmber } from "@mui/icons-material";
+import { Close, DeleteOutline, ReceiptLong, Undo, WarningAmber } from "@mui/icons-material";
 import dayjs from "dayjs";
 import type { WalletLedgerEntry } from "@/types/engineer-wallet-v2.types";
 import type { WorkPhoto } from "@/types/work-updates.types";
@@ -27,6 +27,7 @@ import { useSettlementLinkage } from "@/hooks/queries/useSettlementLinkage";
 import { usePossibleDuplicate } from "@/hooks/queries/usePossibleDuplicate";
 import { useReverseSettlement } from "@/hooks/mutations/useReverseSettlement";
 import { useReverseWalletSpend } from "@/hooks/mutations/useReverseWalletSpend";
+import { useDeleteOrphanWalletSpend } from "@/hooks/mutations/useDeleteOrphanWalletSpend";
 import { useWalletSpendSource } from "@/hooks/queries/useWalletSpendSource";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -69,6 +70,7 @@ export default function SpendDetailDialog({ open, onClose, row }: SpendDetailDia
   const [reverseReason, setReverseReason] = useState("");
   const [cascadeMode, setCascadeMode] = useState<"undo" | "company_paid" | null>(null);
   const [cascadeReason, setCascadeReason] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const { userProfile } = useAuth();
 
   const kind = classifySpend(row?.description);
@@ -103,6 +105,7 @@ export default function SpendDetailDialog({ open, onClose, row }: SpendDetailDia
     !row?.cancelled_at;
   const sourceQuery = useWalletSpendSource(cascadeEnabled ? row?.id ?? null : null);
   const reverseSpendMutation = useReverseWalletSpend();
+  const deleteOrphanMutation = useDeleteOrphanWalletSpend();
 
   if (!row) return null;
 
@@ -142,6 +145,18 @@ export default function SpendDetailDialog({ open, onClose, row }: SpendDetailDia
   // Rental "undo" isn't supported yet — offer only "Paid by company" for rentals.
   const cascadeAllowsUndo = sourceType !== "rental";
 
+  // Admin-only HARD delete for an ORPHAN spend — one with no linked source, which
+  // reverse_wallet_spend refuses. Gated on sourceType === "none" (resolved, not
+  // loading) so it never appears for a linked spend; reverseMode "none" guarantees
+  // the settlement/cascade blocks above stay hidden.
+  const canDeleteOrphan =
+    reverseMode === "none" &&
+    row.transaction_type === "spend" &&
+    !row.cancelled_at &&
+    !linkedGroupId &&
+    sourceType === "none" &&
+    role === "admin";
+
   const handleCascade = (mode: "undo" | "company_paid") => {
     reverseSpendMutation.mutate(
       { spendId: row.id, mode, reason: cascadeReason.trim() || null },
@@ -173,12 +188,30 @@ export default function SpendDetailDialog({ open, onClose, row }: SpendDetailDia
     );
   };
 
+  const handleDeleteOrphan = () => {
+    deleteOrphanMutation.mutate(
+      { spendId: row.id, reason: null },
+      {
+        onSuccess: () => {
+          setConfirmDelete(false);
+          onClose();
+        },
+      }
+    );
+  };
+
   const handleClose = () => {
-    if (reverseMutation.isPending || reverseSpendMutation.isPending) return;
+    if (
+      reverseMutation.isPending ||
+      reverseSpendMutation.isPending ||
+      deleteOrphanMutation.isPending
+    )
+      return;
     setConfirmReverse(false);
     setReverseReason("");
     setCascadeMode(null);
     setCascadeReason("");
+    setConfirmDelete(false);
     onClose();
   };
 
@@ -463,6 +496,61 @@ export default function SpendDetailDialog({ open, onClose, row }: SpendDetailDia
                     disabled={reverseSpendMutation.isPending}
                   >
                     {reverseSpendMutation.isPending ? "Working…" : "Confirm"}
+                  </Button>
+                </Stack>
+              </Stack>
+            )}
+          </DialogActions>
+        )}
+
+        {/* Admin-only hard delete — orphan spend with no linked record. */}
+        {canDeleteOrphan && (
+          <DialogActions sx={{ px: 3, py: 2, display: "block" }}>
+            {!confirmDelete ? (
+              <Stack spacing={1}>
+                <Typography variant="caption" color="text.secondary">
+                  This spend isn&apos;t linked to any expense or settlement.
+                </Typography>
+                <Button
+                  color="error"
+                  size="small"
+                  startIcon={<DeleteOutline />}
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  Delete spend
+                </Button>
+              </Stack>
+            ) : (
+              <Stack spacing={1.25} sx={{ width: "100%" }}>
+                <Typography variant="body2" color="error" fontWeight={700}>
+                  Permanently delete this spend?
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Removes this ₹{fmt(row.amount)} debit and its allocation rows. It has
+                  no linked expense and can&apos;t be recovered.
+                </Typography>
+                {deleteOrphanMutation.isError && (
+                  <Typography variant="caption" color="error">
+                    {(deleteOrphanMutation.error as Error)?.message ||
+                      "Couldn't delete the spend."}
+                  </Typography>
+                )}
+                <Stack direction="row" spacing={1} justifyContent="flex-end">
+                  <Button
+                    size="small"
+                    onClick={() => setConfirmDelete(false)}
+                    disabled={deleteOrphanMutation.isPending}
+                  >
+                    Keep
+                  </Button>
+                  <Button
+                    size="small"
+                    color="error"
+                    variant="contained"
+                    onClick={handleDeleteOrphan}
+                    disabled={deleteOrphanMutation.isPending}
+                  >
+                    {deleteOrphanMutation.isPending ? "Deleting…" : "Delete permanently"}
                   </Button>
                 </Stack>
               </Stack>
