@@ -14,19 +14,29 @@ import {
   Tabs,
   Typography,
 } from "@mui/material";
-import { Close as CloseIcon, Edit as EditIcon } from "@mui/icons-material";
+import {
+  Close as CloseIcon,
+  Edit as EditIcon,
+  CheckCircle as CheckCircleIcon,
+  Replay as ReplayIcon,
+  Payments as PaymentsIcon,
+} from "@mui/icons-material";
+import dayjs from "dayjs";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useAuth } from "@/contexts/AuthContext";
 import { hasEditPermission } from "@/lib/permissions";
 import { computeProfitability } from "@/lib/taskWork/profitability";
 import { useTaskWorkProfitability } from "@/hooks/queries/useTaskWorkProfitability";
+import { useUpdateTaskWorkPackage } from "@/hooks/queries/useTaskWorkPackages";
 import {
   TASK_WORK_STATUS_LABEL,
   TASK_WORK_UNIT_LABEL,
   type TaskWorkPackageWithMeta,
+  type TaskWorkStatus,
 } from "@/types/taskWork.types";
 import TaskWorkEffortPanel from "./TaskWorkEffortPanel";
 import TaskWorkPaymentsPanel from "./TaskWorkPaymentsPanel";
+import TaskWorkPaymentDialog from "./TaskWorkPaymentDialog";
 
 interface Props {
   open: boolean;
@@ -63,11 +73,25 @@ export default function TaskWorkDetailDrawer({ open, onClose, pkg, onEdit }: Pro
   const { userProfile } = useAuth();
   const canEdit = hasEditPermission(userProfile?.role);
   const [tab, setTab] = useState(0);
+  const [payOpen, setPayOpen] = useState(false);
   const { data: prof } = useTaskWorkProfitability(pkg?.id);
+  const updateMut = useUpdateTaskWorkPackage();
 
   if (!pkg) return null;
 
   const hasActuals = !!prof && prof.actual_man_days > 0;
+
+  const paid = prof?.paid ?? 0;
+  const balanceDue = prof?.balance ?? (pkg.total_value || 0);
+  const isClosed = pkg.status === "completed" || pkg.status === "cancelled";
+
+  const setStatus = (status: TaskWorkStatus) => {
+    const data: Record<string, unknown> = { status };
+    if (status === "completed" && !pkg.actual_end_date) {
+      data.actual_end_date = dayjs().format("YYYY-MM-DD");
+    }
+    updateMut.mutate({ id: pkg.id, siteId: pkg.site_id, data });
+  };
 
   const estManDays = (pkg.estimated_crew_size || 0) * (pkg.estimated_days || 0);
   const preview = computeProfitability({
@@ -311,8 +335,42 @@ export default function TaskWorkDetailDrawer({ open, onClose, pkg, onEdit }: Pro
             </Typography>
           )}
 
-          {onEdit && (
-            <Box sx={{ mt: 3 }}>
+          <Box sx={{ mt: 3, display: "flex", flexDirection: "column", gap: 1 }}>
+            {canEdit && !isClosed && balanceDue > 0 && (
+              <Button
+                fullWidth
+                variant="outlined"
+                color="success"
+                startIcon={<PaymentsIcon />}
+                onClick={() => setPayOpen(true)}
+              >
+                Record final settlement ({inr(balanceDue)})
+              </Button>
+            )}
+            {canEdit && !isClosed && (
+              <Button
+                fullWidth
+                variant="contained"
+                color="success"
+                startIcon={<CheckCircleIcon />}
+                disabled={updateMut.isPending}
+                onClick={() => setStatus("completed")}
+              >
+                Mark as completed
+              </Button>
+            )}
+            {canEdit && pkg.status === "completed" && (
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<ReplayIcon />}
+                disabled={updateMut.isPending}
+                onClick={() => setStatus("active")}
+              >
+                Reopen
+              </Button>
+            )}
+            {onEdit && (
               <Button
                 fullWidth
                 variant="outlined"
@@ -321,8 +379,8 @@ export default function TaskWorkDetailDrawer({ open, onClose, pkg, onEdit }: Pro
               >
                 Edit package
               </Button>
-            </Box>
-          )}
+            )}
+          </Box>
         </Box>
       )}
 
@@ -331,6 +389,14 @@ export default function TaskWorkDetailDrawer({ open, onClose, pkg, onEdit }: Pro
       )}
 
       {tab === 2 && <TaskWorkPaymentsPanel pkg={pkg} canEdit={canEdit} />}
+
+      <TaskWorkPaymentDialog
+        open={payOpen}
+        onClose={() => setPayOpen(false)}
+        pkg={pkg}
+        balanceDue={balanceDue}
+        defaultType="final_settlement"
+      />
     </Drawer>
   );
 }

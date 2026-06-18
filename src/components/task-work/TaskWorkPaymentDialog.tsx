@@ -13,17 +13,23 @@ import {
   Grid,
   InputLabel,
   MenuItem,
+  Paper,
   Select,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
+  Typography,
 } from "@mui/material";
+import { AccountBalanceWallet as WalletIcon } from "@mui/icons-material";
 import dayjs from "dayjs";
-import { useQuery } from "@tanstack/react-query";
-import { createClient } from "@/lib/supabase/client";
-import { wrapQueryFn } from "@/lib/utils/timeout";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  ReceiptCapture,
+  type ReceiptCaptureValue,
+} from "@/components/common/ReceiptCapture";
 import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
 import { useCreateTaskWorkPayment } from "@/hooks/queries/useTaskWorkPayments";
+import { blurOnWheel } from "@/lib/utils/numberInput";
 import type { PayerSource } from "@/types/settlement.types";
 import {
   TASK_WORK_PAYMENT_TYPE_LABEL,
@@ -42,26 +48,6 @@ interface Props {
   onSaved?: () => void;
 }
 
-function useSiteEngineers() {
-  const supabase = createClient();
-  return useQuery({
-    queryKey: ["task-work", "site-engineers"],
-    staleTime: 5 * 60 * 1000,
-    queryFn: wrapQueryFn(
-      async () => {
-        const { data, error } = await supabase
-          .from("users")
-          .select("id, name, role")
-          .in("role", ["site_engineer", "admin", "office"])
-          .order("name");
-        if (error) throw error;
-        return (data ?? []) as { id: string; name: string; role: string }[];
-      },
-      { operationName: "useSiteEngineers" }
-    ),
-  });
-}
-
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 
 export default function TaskWorkPaymentDialog({
@@ -72,8 +58,13 @@ export default function TaskWorkPaymentDialog({
   defaultType = "advance",
   onSaved,
 }: Props) {
-  const { data: engineers = [] } = useSiteEngineers();
+  const { userProfile } = useAuth();
   const createMut = useCreateTaskWorkPayment();
+
+  // Only a site engineer can pay from a wallet — and only from their OWN wallet.
+  // Admins / office record company-direct payments, so the wallet channel and the
+  // engineer picker are hidden for them entirely.
+  const isSiteEngineer = userProfile?.role === "site_engineer";
 
   const [paymentType, setPaymentType] = useState<TaskWorkPaymentType>(defaultType);
   const [amount, setAmount] = useState<number>(0);
@@ -82,7 +73,7 @@ export default function TaskWorkPaymentDialog({
   const [channel, setChannel] = useState<TaskWorkPaymentChannel>("direct");
   const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
   const [payerName, setPayerName] = useState("");
-  const [engineerId, setEngineerId] = useState("");
+  const [screenshot, setScreenshot] = useState<ReceiptCaptureValue | null>(null);
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
 
@@ -95,7 +86,7 @@ export default function TaskWorkPaymentDialog({
     setChannel("direct");
     setPayerSource("own_money");
     setPayerName("");
-    setEngineerId("");
+    setScreenshot(null);
     setNotes("");
     setError("");
   }, [open, defaultType, balanceDue]);
@@ -105,13 +96,15 @@ export default function TaskWorkPaymentDialog({
     [balanceDue, amount]
   );
 
+  const isUpi = paymentMode === "upi";
+
   const handleSubmit = async () => {
     if (!(amount > 0)) {
       setError("Enter a valid amount.");
       return;
     }
-    if (channel === "engineer_wallet" && !engineerId) {
-      setError("Select which engineer paid from their wallet.");
+    if (channel === "engineer_wallet" && !userProfile?.id) {
+      setError("Could not identify your wallet — please re-login and try again.");
       return;
     }
     try {
@@ -129,8 +122,10 @@ export default function TaskWorkPaymentDialog({
           channel === "direct"
             ? { mode: "single", source: payerSource, name: payerName }
             : null,
-        engineerId: channel === "engineer_wallet" ? engineerId : null,
+        // Site engineers pay only from their own wallet.
+        engineerId: channel === "engineer_wallet" ? userProfile?.id ?? null : null,
         balanceAfterPayment: balanceAfter,
+        proofUrl: screenshot?.url ?? null,
         notes: notes.trim() || null,
       });
       onSaved?.();
@@ -182,6 +177,7 @@ export default function TaskWorkPaymentDialog({
                 type="number"
                 value={amount || ""}
                 onChange={(e) => setAmount(Number(e.target.value))}
+                onWheel={blurOnWheel}
                 slotProps={{ input: { startAdornment: "₹" } }}
               />
             </Grid>
@@ -225,20 +221,24 @@ export default function TaskWorkPaymentDialog({
             </Grid>
           </Grid>
 
-          <ToggleButtonGroup
-            value={channel}
-            exclusive
-            fullWidth
-            size="small"
-            onChange={(_e, v: TaskWorkPaymentChannel | null) => v && setChannel(v)}
-          >
-            <ToggleButton value="direct" sx={{ textTransform: "none" }}>
-              Paid directly
-            </ToggleButton>
-            <ToggleButton value="engineer_wallet" sx={{ textTransform: "none" }}>
-              From engineer wallet
-            </ToggleButton>
-          </ToggleButtonGroup>
+          {/* Wallet channel is available to site engineers only. Admins / office
+              always pay company-direct, so the toggle isn't shown for them. */}
+          {isSiteEngineer && (
+            <ToggleButtonGroup
+              value={channel}
+              exclusive
+              fullWidth
+              size="small"
+              onChange={(_e, v: TaskWorkPaymentChannel | null) => v && setChannel(v)}
+            >
+              <ToggleButton value="direct" sx={{ textTransform: "none" }}>
+                Paid directly
+              </ToggleButton>
+              <ToggleButton value="engineer_wallet" sx={{ textTransform: "none" }}>
+                From my wallet
+              </ToggleButton>
+            </ToggleButtonGroup>
+          )}
 
           {channel === "direct" ? (
             <PayerSourceSelector
@@ -249,21 +249,49 @@ export default function TaskWorkPaymentDialog({
               siteId={pkg.site_id}
             />
           ) : (
-            <FormControl fullWidth>
-              <InputLabel>Engineer (wallet)</InputLabel>
-              <Select
-                value={engineerId}
-                label="Engineer (wallet)"
-                onChange={(e) => setEngineerId(e.target.value)}
-              >
-                {engineers.map((u) => (
-                  <MenuItem key={u.id} value={u.id}>
-                    {u.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 1.5,
+                borderRadius: 2,
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                bgcolor: "action.hover",
+              }}
+            >
+              <WalletIcon fontSize="small" color="primary" />
+              <Box>
+                <Typography variant="body2" fontWeight={600}>
+                  From your wallet ({userProfile?.name || "you"})
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Debits your engineer wallet and posts the expense.
+                </Typography>
+              </Box>
+            </Paper>
           )}
+
+          {/* Payment proof — handy for UPI; optional for all modes. */}
+          <Box>
+            <ReceiptCapture
+              label={isUpi ? "UPI screenshot" : "Payment screenshot (optional)"}
+              value={screenshot}
+              onChange={setScreenshot}
+              folder="task-work-receipts"
+              bucket="settlement-proofs"
+            />
+            {isUpi && !screenshot && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ mt: 0.5, display: "block" }}
+              >
+                Attach the UPI payment screenshot — paste it straight from the
+                clipboard.
+              </Typography>
+            )}
+          </Box>
 
           <TextField
             fullWidth

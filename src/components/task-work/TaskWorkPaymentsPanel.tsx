@@ -14,7 +14,7 @@ import {
   Paper,
   Typography,
 } from "@mui/material";
-import { Add, Delete } from "@mui/icons-material";
+import { Add, Delete, ReceiptLong } from "@mui/icons-material";
 import dayjs from "dayjs";
 import {
   useTaskWorkPayments,
@@ -114,7 +114,8 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
         </Typography>
       ) : payments.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-          No advances or settlement recorded yet.
+          No advances or settlement recorded yet. You can record payments even
+          without a day log — handy for historical back-fill.
         </Typography>
       ) : (
         <List dense disablePadding>
@@ -129,23 +130,37 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
                 key={p.id}
                 disableGutters
                 secondaryAction={
-                  canEdit ? (
-                    <IconButton
-                      size="small"
-                      color="error"
-                      onClick={() => {
-                        if (!confirm("Delete this payment?")) return;
-                        deleteMut.mutate({
-                          paymentId: p.id,
-                          packageId: pkg.id,
-                          siteId: pkg.site_id,
-                          reason: "Removed by user",
-                        });
-                      }}
-                    >
-                      <Delete fontSize="small" />
-                    </IconButton>
-                  ) : undefined
+                  <Box sx={{ display: "flex", alignItems: "center" }}>
+                    {p.proof_url && (
+                      <IconButton
+                        size="small"
+                        component="a"
+                        href={p.proof_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="View payment screenshot"
+                      >
+                        <ReceiptLong fontSize="small" />
+                      </IconButton>
+                    )}
+                    {canEdit && (
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => {
+                          if (!confirm("Delete this payment?")) return;
+                          deleteMut.mutate({
+                            paymentId: p.id,
+                            packageId: pkg.id,
+                            siteId: pkg.site_id,
+                            reason: "Removed by user",
+                          });
+                        }}
+                      >
+                        <Delete fontSize="small" />
+                      </IconButton>
+                    )}
+                  </Box>
                 }
               >
                 <ListItemText

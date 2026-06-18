@@ -37,6 +37,7 @@ import {
   useUpdateTaskWorkPackage,
 } from "@/hooks/queries/useTaskWorkPackages";
 import { computeProfitability } from "@/lib/taskWork/profitability";
+import { blurOnWheel } from "@/lib/utils/numberInput";
 import type {
   TaskWorkMeasurementUnit,
   TaskWorkPackage,
@@ -460,6 +461,7 @@ export default function TaskWorkPackageDialog({
                     type="number"
                     value={form.rate_per_unit || ""}
                     onChange={(e) => set("rate_per_unit", Number(e.target.value))}
+                    onWheel={blurOnWheel}
                     slotProps={{ input: { startAdornment: "₹" } }}
                   />
                 </Grid>
@@ -470,6 +472,7 @@ export default function TaskWorkPackageDialog({
                     type="number"
                     value={form.total_units || ""}
                     onChange={(e) => set("total_units", Number(e.target.value))}
+                    onWheel={blurOnWheel}
                   />
                 </Grid>
               </Grid>
@@ -493,6 +496,7 @@ export default function TaskWorkPackageDialog({
               type="number"
               value={form.total_value || ""}
               onChange={(e) => set("total_value", Number(e.target.value))}
+              onWheel={blurOnWheel}
               slotProps={{ input: { startAdornment: "₹" } }}
               helperText="The single fixed amount you'll pay for the whole package"
             />
@@ -520,6 +524,7 @@ export default function TaskWorkPackageDialog({
                   onChange={(e) =>
                     set("estimated_crew_size", Number(e.target.value))
                   }
+                  onWheel={blurOnWheel}
                 />
               </Grid>
               <Grid size={{ xs: 4 }}>
@@ -529,6 +534,7 @@ export default function TaskWorkPackageDialog({
                   type="number"
                   value={form.estimated_days || ""}
                   onChange={(e) => set("estimated_days", Number(e.target.value))}
+                  onWheel={blurOnWheel}
                 />
               </Grid>
               <Grid size={{ xs: 4 }}>
@@ -540,6 +546,7 @@ export default function TaskWorkPackageDialog({
                   onChange={(e) =>
                     set("benchmark_daily_rate", Number(e.target.value))
                   }
+                  onWheel={blurOnWheel}
                   slotProps={{ input: { startAdornment: "₹" } }}
                 />
               </Grid>
@@ -603,6 +610,7 @@ export default function TaskWorkPackageDialog({
                 onChange={(e) =>
                   set("retention_percent", Number(e.target.value))
                 }
+                onWheel={blurOnWheel}
                 helperText="Held back for quality"
                 slotProps={{ input: { endAdornment: "%" } }}
               />
