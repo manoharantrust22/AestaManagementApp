@@ -3,6 +3,7 @@ import {
   collectMaterialOptions,
   matchesMaterial,
   matchesDateRange,
+  matchesSearch,
   type MaterialOption,
   type ParentMap,
 } from "./threadFilters";
@@ -103,6 +104,68 @@ describe("matchesMaterial", () => {
     expect(
       matchesMaterial(cementThread, opt({ kind: "brand", id: "b-karup" }), parentMap)
     ).toBe(false);
+  });
+});
+
+describe("matchesSearch", () => {
+  // A thread carrying every searchable id + name field.
+  const searchThread = {
+    material_name: "TMT Rods 16mm",
+    request_number: "MR-MQJH9YKR-462E1FE6",
+    po: { po_number: "PO-1M4TF65-KL2X", vendor_name: "Chennai Building Materials" },
+    settlement: {
+      expense_ref: "MAT-260214-6805",
+      expense_id: "a1b2c3d4-0000-4444-8888-deadbeef0001",
+    },
+    variants: [{ material_name: "TMT Rods 20mm" }],
+  };
+
+  it("passes everything for an empty / whitespace term", () => {
+    expect(matchesSearch(searchThread, "")).toBe(true);
+    expect(matchesSearch(searchThread, "   ")).toBe(true);
+  });
+
+  it("matches the PO number (case-insensitive, partial)", () => {
+    expect(matchesSearch(searchThread, "PO-1M4TF65-KL2X")).toBe(true);
+    expect(matchesSearch(searchThread, "po-1m4tf65")).toBe(true);
+    expect(matchesSearch(searchThread, "KL2X")).toBe(true);
+  });
+
+  it("matches the settlement / expense ref", () => {
+    expect(matchesSearch(searchThread, "MAT-260214-6805")).toBe(true);
+    expect(matchesSearch(searchThread, "260214")).toBe(true);
+  });
+
+  it("matches the expense UUID", () => {
+    expect(matchesSearch(searchThread, "deadbeef0001")).toBe(true);
+  });
+
+  it("matches the MR number", () => {
+    expect(matchesSearch(searchThread, "MR-MQJH9YKR-462E1FE6")).toBe(true);
+    expect(matchesSearch(searchThread, "mqjh9ykr")).toBe(true);
+  });
+
+  it("matches the vendor name", () => {
+    expect(matchesSearch(searchThread, "chennai building")).toBe(true);
+  });
+
+  it("matches the primary material name", () => {
+    expect(matchesSearch(searchThread, "tmt rods 16")).toBe(true);
+  });
+
+  it("matches a variant material name", () => {
+    expect(matchesSearch(searchThread, "20mm")).toBe(true);
+  });
+
+  it("returns false for a non-matching term", () => {
+    expect(matchesSearch(searchThread, "cement")).toBe(false);
+    expect(matchesSearch(searchThread, "PO-NOPE")).toBe(false);
+  });
+
+  it("tolerates threads missing po / settlement / variants", () => {
+    const bare = { material_name: "Cement", request_number: undefined };
+    expect(matchesSearch(bare, "cement")).toBe(true);
+    expect(matchesSearch(bare, "PO-123")).toBe(false);
   });
 });
 

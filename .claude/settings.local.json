@@ -529,7 +529,10 @@
       "PowerShell(Get-CimInstance Win32_Process -Filter \"name='node.exe'\" | Where-Object { $_.CommandLine -match \"next|dotenv\" } | Select-Object ProcessId, @{n='Cmd';e={ if \\($_.CommandLine.Length -gt 140\\) { $_.CommandLine.Substring\\(0,140\\) } else { $_.CommandLine } }} | Format-Table -AutoSize -Wrap)",
       "PowerShell(git add supabase/migrations/20260619170000_expense_item_unit_qty_and_variant_summary.sql src/hooks/queries/usePurchaseOrders.ts src/hooks/queries/useMaterialThreads.ts src/lib/material-hub/threadTypes.ts src/components/material-hub/MaterialThreadExpanded.tsx src/lib/material-hub/scopedMaterialSummary.test.ts src/components/material-hub/buildMaterialPipeline.test.ts)",
       "PowerShell(gh auth switch -u harrybabu1993 2>&1)",
-      "PowerShell($r = try { Invoke-WebRequest -Uri \"http://localhost:3000/dev-login\" -UseBasicParsing -TimeoutSec 5 } catch { $null }; if \\($r\\) { \"DEV SERVER UP \\($\\($r.StatusCode\\)\\)\" } else { \"NO DEV SERVER ON 3000\" })"
+      "PowerShell($r = try { Invoke-WebRequest -Uri \"http://localhost:3000/dev-login\" -UseBasicParsing -TimeoutSec 5 } catch { $null }; if \\($r\\) { \"DEV SERVER UP \\($\\($r.StatusCode\\)\\)\" } else { \"NO DEV SERVER ON 3000\" })",
+      "PowerShell(npm run test -- threadFilters --run)",
+      "PowerShell(npm run test -- \"src/lib/material-hub/threadFilters.test.ts\" \"src/lib/material-hub/hubFilterStorage.test.ts\" --run 2>&1)",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:3000\" -TimeoutSec 4 -UseBasicParsing; Write-Output \"PORT3000 UP $\\($r.StatusCode\\)\" } catch { Write-Output \"PORT3000 DOWN: $\\($_.Exception.Message\\)\" })"
     ],
     "deny": [],
     "ask": [],

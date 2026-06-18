@@ -46,6 +46,7 @@ import {
   collectMaterialOptions,
   matchesMaterial,
   matchesDateRange,
+  matchesSearch,
   type MaterialOption,
   type ParentMap,
 } from "@/lib/material-hub/threadFilters";
@@ -97,6 +98,7 @@ export default function MaterialHubPage() {
   const [selectedFilter, setSelectedFilter] = useState<MaterialOption | null>(
     null
   );
+  const [search, setSearch] = useState("");
   const [dateStart, setDateStart] = useState<Date | null>(null);
   const [dateEnd, setDateEnd] = useState<Date | null>(null);
   const [reconcileOpen, setReconcileOpen] = useState(false);
@@ -121,12 +123,14 @@ export default function MaterialHubPage() {
       // site's filters don't leak across.
       setFilter("all");
       setSelectedFilter(null);
+      setSearch("");
       setDateStart(null);
       setDateEnd(null);
       return;
     }
     setFilter(saved.filter);
     setSelectedFilter(saved.selectedFilter);
+    setSearch(saved.search ?? "");
     setDateStart(saved.dateStart ? new Date(saved.dateStart) : null);
     setDateEnd(saved.dateEnd ? new Date(saved.dateEnd) : null);
     setLayout(saved.layout);
@@ -140,11 +144,12 @@ export default function MaterialHubPage() {
     saveHubFilters(siteId, {
       filter,
       selectedFilter,
+      search,
       dateStart: dateStart?.toISOString() ?? null,
       dateEnd: dateEnd?.toISOString() ?? null,
       layout,
     });
-  }, [siteId, filter, selectedFilter, dateStart, dateEnd, layout]);
+  }, [siteId, filter, selectedFilter, search, dateStart, dateEnd, layout]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [newEntryOpen, setNewEntryOpen] = useState(false);
   const [backfillPicker, setBackfillPicker] = useState(false);
@@ -277,6 +282,7 @@ export default function MaterialHubPage() {
 
   const clearFilters = () => {
     setSelectedFilter(null);
+    setSearch("");
     setDateStart(null);
     setDateEnd(null);
   };
@@ -303,9 +309,18 @@ export default function MaterialHubPage() {
       list = list.filter((t) => !!t.is_historical);
 
     list = list.filter((t) => matchesMaterial(t, selectedFilter, resolvedParentMap));
+    list = list.filter((t) => matchesSearch(t, search));
     list = list.filter((t) => matchesDateRange(t, dateStart, dateEnd));
     return list;
-  }, [threads, filter, selectedFilter, resolvedParentMap, dateStart, dateEnd]);
+  }, [
+    threads,
+    filter,
+    selectedFilter,
+    search,
+    resolvedParentMap,
+    dateStart,
+    dateEnd,
+  ]);
 
   const isMobile = useMediaQuery(`(max-width:${HUB_BREAKPOINT_PX - 1}px)`);
 
@@ -407,27 +422,38 @@ export default function MaterialHubPage() {
 
       <AllocationsQueue siteGroupId={siteGroupId} />
 
-      <Box sx={{ mt: 2.5, mb: 1.5 }}>
+      <Box
+        sx={{
+          mt: 2.5,
+          mb: 1.5,
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          columnGap: 1.5,
+          rowGap: 1,
+        }}
+      >
         <MaterialHubFilterChips
           active={filter}
           onChange={setFilter}
           counts={counts}
         />
-      </Box>
-
-      <Box sx={{ mb: 1.5 }}>
-        <MaterialHubToolbar
-          materialOptions={materialOptions}
-          selected={selectedFilter}
-          onSelectedChange={setSelectedFilter}
-          dateStart={dateStart}
-          dateEnd={dateEnd}
-          onDateChange={(s, e) => {
-            setDateStart(s);
-            setDateEnd(e);
-          }}
-          onClear={clearFilters}
-        />
+        <Box sx={{ ml: { sm: "auto" }, width: { xs: "100%", sm: "auto" } }}>
+          <MaterialHubToolbar
+            materialOptions={materialOptions}
+            selected={selectedFilter}
+            onSelectedChange={setSelectedFilter}
+            search={search}
+            onSearchChange={setSearch}
+            dateStart={dateStart}
+            dateEnd={dateEnd}
+            onDateChange={(s, e) => {
+              setDateStart(s);
+              setDateEnd(e);
+            }}
+            onClear={clearFilters}
+          />
+        </Box>
       </Box>
 
       {selectedFilter && (

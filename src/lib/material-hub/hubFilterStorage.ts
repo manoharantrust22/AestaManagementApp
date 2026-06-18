@@ -9,6 +9,9 @@ import type { FilterGroup, FilterKind, MaterialOption } from "./threadFilters";
 export interface HubFilterSnapshot {
   filter: HubFilterKey;
   selectedFilter: MaterialOption | null;
+  /** Free-text search term (IDs + names). Optional so older snapshots that
+   *  predate the search box still restore. */
+  search?: string;
   /** ISO strings — Date objects don't survive JSON. */
   dateStart: string | null;
   dateEnd: string | null;
@@ -70,6 +73,7 @@ export function loadHubFilters(siteId: string): HubFilterSnapshot | null {
     return {
       filter: parsed.filter as HubFilterKey,
       selectedFilter: (parsed.selectedFilter ?? null) as MaterialOption | null,
+      search: typeof parsed.search === "string" ? parsed.search : "",
       dateStart: (parsed.dateStart ?? null) as string | null,
       dateEnd: (parsed.dateEnd ?? null) as string | null,
       layout: parsed.layout,

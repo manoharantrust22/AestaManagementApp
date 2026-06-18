@@ -2,12 +2,22 @@
 
 /**
  * Filter toolbar row for the Material Hub, rendered directly under the kind
- * chips. Holds a single-select material Autocomplete + the standalone compact
- * DateRangePicker (by request date) + a "Clear filters" link. Stateless — the
- * Hub page owns the filter state and AND-combines these with the active chip.
+ * chips. Holds a free-text search box (matches IDs + names), a single-select
+ * material Autocomplete, the standalone compact DateRangePicker (by request
+ * date) + a "Clear filters" link. Stateless — the Hub page owns the filter
+ * state and AND-combines these with the active chip.
  */
 
-import { Autocomplete, Box, Button, TextField } from "@mui/material";
+import {
+  Autocomplete,
+  Box,
+  Button,
+  IconButton,
+  InputAdornment,
+  TextField,
+} from "@mui/material";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
 import DateRangePicker from "@/components/common/DateRangePicker";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import type { MaterialOption } from "@/lib/material-hub/threadFilters";
@@ -16,6 +26,8 @@ export interface MaterialHubToolbarProps {
   materialOptions: MaterialOption[];
   selected: MaterialOption | null;
   onSelectedChange: (sel: MaterialOption | null) => void;
+  search: string;
+  onSearchChange: (value: string) => void;
   dateStart: Date | null;
   dateEnd: Date | null;
   onDateChange: (start: Date | null, end: Date | null) => void;
@@ -26,12 +38,15 @@ export default function MaterialHubToolbar({
   materialOptions,
   selected,
   onSelectedChange,
+  search,
+  onSearchChange,
   dateStart,
   dateEnd,
   onDateChange,
   onClear,
 }: MaterialHubToolbarProps) {
-  const hasActiveFilters = !!selected || (!!dateStart && !!dateEnd);
+  const hasActiveFilters =
+    !!selected || (!!dateStart && !!dateEnd) || !!search.trim();
 
   return (
     <Box
@@ -42,6 +57,34 @@ export default function MaterialHubToolbar({
         gap: 1,
       }}
     >
+      <TextField
+        size="small"
+        value={search}
+        onChange={(e) => onSearchChange(e.target.value)}
+        placeholder="Search PO / ref / expense / material…"
+        sx={{ width: { xs: "100%", sm: 240 } }}
+        inputProps={{ "aria-label": "Search threads by ID or name" }}
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start">
+              <SearchIcon sx={{ fontSize: 18, color: hubTokens.muted }} />
+            </InputAdornment>
+          ),
+          endAdornment: search ? (
+            <InputAdornment position="end">
+              <IconButton
+                size="small"
+                aria-label="Clear search"
+                onClick={() => onSearchChange("")}
+                edge="end"
+              >
+                <ClearIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </InputAdornment>
+          ) : null,
+        }}
+      />
+
       <Autocomplete
         size="small"
         options={materialOptions}

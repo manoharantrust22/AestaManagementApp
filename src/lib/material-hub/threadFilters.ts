@@ -42,6 +42,14 @@ type MaterialFilterable = Pick<
 };
 type DateFilterable = Pick<MaterialThread, "requested_at">;
 
+/** Fields the free-text search box scans: IDs + names. Narrowed so unit tests
+ *  can pass minimal objects. */
+type SearchFilterable = Pick<MaterialThread, "material_name" | "request_number"> & {
+  po?: { po_number?: string | null; vendor_name?: string | null } | null;
+  settlement?: { expense_ref?: string | null; expense_id?: string | null } | null;
+  variants?: { material_name: string }[];
+};
+
 /** All material lines on a thread (primary + variants), id + name. */
 function threadMaterials(
   t: MaterialFilterable
@@ -171,4 +179,25 @@ export function matchesDateRange(
   const s = dayjs(start).startOf("day").valueOf();
   const e = dayjs(end).startOf("day").valueOf();
   return d >= s && d <= e;
+}
+
+/**
+ * Case-insensitive substring match across the thread's IDs and names so an
+ * engineer can jump to a thread by typing a PO number, settlement/expense ref,
+ * expense UUID, MR number, vendor name, or material / variant name. An empty or
+ * whitespace-only term passes everything.
+ */
+export function matchesSearch(t: SearchFilterable, term: string): boolean {
+  const q = term.trim().toLowerCase();
+  if (!q) return true;
+  const fields = [
+    t.material_name,
+    t.request_number,
+    t.po?.po_number,
+    t.po?.vendor_name,
+    t.settlement?.expense_ref,
+    t.settlement?.expense_id,
+    ...(t.variants?.map((v) => v.material_name) ?? []),
+  ];
+  return fields.some((f) => f != null && f.toLowerCase().includes(q));
 }

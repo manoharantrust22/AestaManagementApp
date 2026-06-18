@@ -14,6 +14,7 @@ const snapshot: HubFilterSnapshot = {
     label: "TMT Rods",
     group: "Material",
   },
+  search: "PO-1M4TF65",
   dateStart: "2026-03-01T00:00:00.000Z",
   dateEnd: "2026-03-31T00:00:00.000Z",
   layout: "table",
@@ -33,6 +34,7 @@ describe("hubFilterStorage", () => {
     saveHubFilters("site-1", {
       filter: "all",
       selectedFilter: null,
+      search: "",
       dateStart: null,
       dateEnd: null,
       layout: "cards",
@@ -40,10 +42,25 @@ describe("hubFilterStorage", () => {
     expect(loadHubFilters("site-1")).toEqual({
       filter: "all",
       selectedFilter: null,
+      search: "",
       dateStart: null,
       dateEnd: null,
       layout: "cards",
     });
+  });
+
+  it("defaults search to '' when restoring a pre-search snapshot", () => {
+    window.sessionStorage.setItem(
+      hubFilterStorageKey("site-1"),
+      JSON.stringify({
+        filter: "own",
+        selectedFilter: null,
+        dateStart: null,
+        dateEnd: null,
+        layout: "cards",
+      })
+    );
+    expect(loadHubFilters("site-1")?.search).toBe("");
   });
 
   it("keys snapshots per site", () => {
