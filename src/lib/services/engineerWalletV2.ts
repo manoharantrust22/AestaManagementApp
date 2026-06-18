@@ -34,6 +34,7 @@ import {
   WalletInsufficientBalanceError,
 } from "@/types/engineer-wallet-v2.types";
 import { validatePayerSourceInput, toRpcArgs } from "@/lib/settlement/payerSource";
+import type { PayerSourceInput } from "@/types/settlement.types";
 
 const DEFAULT_LEDGER_PAGE = 30;
 
@@ -364,6 +365,37 @@ function validateProofForUpi(
   }
 }
 
+/**
+ * Guard: every chosen deposit payer source must be a non-hidden, configured
+ * source for the site. Closes the gap where the picker's fallback list could
+ * surface a source the site has hidden (e.g. Trust on a site curated to
+ * Own+Client) while there was no server-side check. If the site has no
+ * configured registry yet, we don't block (preserves legacy behaviour).
+ */
+async function assertPayerSourcesAllowed(
+  supabase: SupabaseClient,
+  siteId: string,
+  payer: PayerSourceInput
+): Promise<void> {
+  const { data, error } = await supabase
+    .from("payer_sources")
+    .select("key")
+    .eq("site_id", siteId)
+    .eq("is_hidden", false);
+  if (error) throw error;
+  const allowed = new Set((data ?? []).map((r: { key: string }) => r.key));
+  if (allowed.size === 0) return; // unconfigured site → don't block
+  const chosen =
+    payer.mode === "split" ? payer.rows.map((r) => r.source) : [payer.source];
+  const bad = chosen.find((key) => !allowed.has(key));
+  if (bad) {
+    throw new WalletValidationError(
+      "SOURCE_NOT_CONFIGURED",
+      `"${bad}" is not a payment source for this site`
+    );
+  }
+}
+
 export async function recordDeposit(
   supabase: SupabaseClient,
   input: RecordDepositInput
@@ -391,6 +423,7 @@ export async function recordDeposit(
     );
   }
   validateProofForUpi(input.payment_mode, input.proof_url, "deposit");
+  await assertPayerSourcesAllowed(supabase, input.site_id, input.payer);
 
   const payerRpc = toRpcArgs(input.payer);
 
@@ -597,6 +630,7 @@ export async function updateDeposit(
       "Cancelled deposits cannot be edited"
     );
   }
+  await assertPayerSourcesAllowed(supabase, row.site_id as string, input.payer);
 
   // If lowering the amount, ensure the resulting pool stays non-negative.
   const oldAmount = Number(row.amount);

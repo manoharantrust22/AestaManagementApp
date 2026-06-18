@@ -74,21 +74,25 @@ export default function PayerSourceSelector({
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
-  // Registry-aware option list. When siteId is provided and the
-  // registry has rows, prefer those; otherwise fall back to the
-  // hardcoded 6. The fallback covers (a) legacy callers that don't
-  // pass siteId, (b) the brief loading window on a fresh fetch, and
-  // (c) defensive recovery if the registry is somehow empty.
-  const { data: registryRows } = usePayerSources(siteId);
-  const options =
-    siteId && registryRows && registryRows.length > 0
+  // Registry-aware option list. When a site is in scope we show ONLY its
+  // configured (non-hidden) sources. Crucially we do NOT fall back to the
+  // hardcoded 6 while the registry is still loading — that brief window let a
+  // hidden source (e.g. Trust on an Own+Client-only site) flash and be picked.
+  // The hardcoded fallback is reserved for (a) legacy callers with no siteId,
+  // and (b) a site whose registry loaded genuinely empty (unconfigured).
+  const { data: registryRows, isLoading: registryLoading } = usePayerSources(siteId);
+  const options = !siteId
+    ? PAYER_OPTIONS
+    : registryRows && registryRows.length > 0
       ? registryRows.map((r) => ({
           value: r.key as PayerSource,
           label: r.label,
           shortLabel: r.label.split(" ")[0] ?? r.label,
           icon: r.icon ? ICON_BY_NAME[r.icon] ?? null : null,
         }))
-      : PAYER_OPTIONS;
+      : registryLoading
+        ? [] // still loading — show nothing rather than the hidden-inclusive fallback
+        : PAYER_OPTIONS; // loaded & empty → unconfigured site, safe to offer built-ins
 
   // Inline quick-add: admin/office can add a source to this site without
   // leaving the dialog. Only shown when a site is in scope (registry mode)
