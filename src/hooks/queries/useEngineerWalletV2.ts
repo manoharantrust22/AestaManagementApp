@@ -20,6 +20,7 @@ import {
   getEngineerSiteBalances,
   getLatestDepositPayerSource,
   getWalletBalance,
+  getUnlinkedWalletSpends,
   getWalletEnabledEngineers,
   getWalletLedger,
 } from "@/lib/services/engineerWalletV2";
@@ -27,6 +28,7 @@ import type {
   EngineerSiteBalance,
   WalletBalance,
   WalletEnabledEngineer,
+  WalletLedgerEntry,
   WalletLedgerFilters,
   WalletLedgerPage,
 } from "@/types/engineer-wallet-v2.types";
@@ -45,6 +47,8 @@ export const ENGINEER_WALLET_KEYS = {
     ["engineer-wallet", "enabled-engineers", companyId] as const,
   pools: (userId: string, siteId: string) =>
     ["engineer-wallet", "pools", userId, siteId] as const,
+  unlinkedSpends: (userIds: string[], siteId: string | null) =>
+    ["engineer-wallet", "unlinked-spends", userIds.slice().sort().join(","), siteId] as const,
 };
 
 /** One row of v_engineer_wallet_pools — per-source pool balance per (engineer, site). */
@@ -214,6 +218,31 @@ export function useCompanyWalletLedger(
         cursor: pageParam as WalletLedgerPage["next_cursor"],
       }),
     getNextPageParam: (lastPage) => lastPage.next_cursor,
+  });
+}
+
+/**
+ * Orphan wallet spends (no linked expense/settlement) for a scope. Returns the
+ * small full set — used to badge "Not linked" rows in the ledger and to power the
+ * "show only unlinked" filter. Disabled until userIds is non-empty.
+ */
+export function useUnlinkedWalletSpends(
+  userIds: string[],
+  siteId?: string | null
+) {
+  useCrossTabInvalidate();
+  const supabase = createClient();
+  const enabled = userIds.length > 0;
+  return useQuery<WalletLedgerEntry[]>({
+    queryKey: enabled
+      ? ENGINEER_WALLET_KEYS.unlinkedSpends(userIds, siteId ?? null)
+      : ["engineer-wallet", "unlinked-spends", "_disabled"],
+    enabled,
+    staleTime: 30_000,
+    queryFn: wrapQueryFn(
+      () => getUnlinkedWalletSpends(supabase, userIds, siteId ?? null),
+      { operationName: "useUnlinkedWalletSpends" }
+    ),
   });
 }
 

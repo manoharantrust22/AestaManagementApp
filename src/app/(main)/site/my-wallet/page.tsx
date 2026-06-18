@@ -22,7 +22,7 @@ import {
   useEngineerWalletPools,
 } from "@/hooks/queries/useEngineerWalletV2";
 import WalletBalanceCard from "@/components/wallet-v2/WalletBalanceCard";
-import WalletLedgerList from "@/components/wallet-v2/WalletLedgerList";
+import WalletLedgerWithUnlinked from "@/components/wallet-v2/WalletLedgerWithUnlinked";
 import WalletSourcePoolsCard from "@/components/wallet-v2/WalletSourcePoolsCard";
 import AddFundsDialog from "@/components/wallet-v2/AddFundsDialog";
 import SpendDetailDialog from "@/components/wallet-v2/SpendDetailDialog";
@@ -128,13 +128,14 @@ export default function MyWalletPage() {
           <Tab label="Returns" value="return" sx={{ minHeight: 40 }} />
         </Tabs>
 
-        <WalletLedgerList
+        <WalletLedgerWithUnlinked
           pages={ledgerQuery.data?.pages ?? []}
           isLoading={ledgerQuery.isLoading}
           hasNextPage={!!ledgerQuery.hasNextPage}
           isFetchingNextPage={ledgerQuery.isFetchingNextPage}
           onLoadMore={() => ledgerQuery.fetchNextPage()}
           onSpendClick={(row) => setDetailRow(row)}
+          unlinkedScope={{ userIds: [userProfile.id], siteId: selectedSite.id }}
         />
       </Stack>
 

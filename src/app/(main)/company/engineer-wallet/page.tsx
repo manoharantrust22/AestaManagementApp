@@ -31,7 +31,7 @@ import {
   useEngineerWalletPools,
   useWalletEnabledEngineers,
 } from "@/hooks/queries/useEngineerWalletV2";
-import WalletLedgerList from "@/components/wallet-v2/WalletLedgerList";
+import WalletLedgerWithUnlinked from "@/components/wallet-v2/WalletLedgerWithUnlinked";
 import WalletSourcePoolsCard from "@/components/wallet-v2/WalletSourcePoolsCard";
 import AddFundsDialog from "@/components/wallet-v2/AddFundsDialog";
 import EditDepositDialog from "@/components/wallet-v2/EditDepositDialog";
@@ -445,7 +445,7 @@ function AllEngineersOverview({
       </Tabs>
 
       <Box sx={{ mt: 1 }}>
-        <WalletLedgerList
+        <WalletLedgerWithUnlinked
           pages={ledger.data?.pages ?? []}
           isLoading={ledger.isLoading}
           hasNextPage={!!ledger.hasNextPage}
@@ -461,6 +461,7 @@ function AllEngineersOverview({
               : undefined
           }
           onSpendClick={onViewSpend}
+          unlinkedScope={{ userIds, siteId }}
         />
       </Box>
 
@@ -688,7 +689,7 @@ function EngineerDetailPanel({
       </Tabs>
 
       <Box sx={{ mt: 1 }}>
-        <WalletLedgerList
+        <WalletLedgerWithUnlinked
           pages={ledger.data?.pages ?? []}
           isLoading={ledger.isLoading}
           hasNextPage={!!ledger.hasNextPage}
@@ -703,6 +704,7 @@ function EngineerDetailPanel({
               : undefined
           }
           onSpendClick={onViewSpend}
+          unlinkedScope={{ userIds: [engineerId], siteId }}
         />
       </Box>
     </Box>

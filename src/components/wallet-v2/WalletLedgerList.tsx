@@ -20,6 +20,7 @@ import {
   ArrowUpward,
   ArrowDownward,
   KeyboardReturn,
+  LinkOff,
   ReceiptLong,
 } from "@mui/icons-material";
 import dayjs from "dayjs";
@@ -84,6 +85,9 @@ interface WalletLedgerListProps {
   /** When provided, renders a site chip on each row. Useful when the ledger is
    *  not already filtered to a single site. */
   siteNameBySiteId?: Map<string, string>;
+  /** Ids of spend rows that aren't linked to any expense/settlement (orphans).
+   *  Such rows get a "Not linked" warning chip so they're easy to spot. */
+  unlinkedSpendIds?: Set<string>;
 }
 
 export default function WalletLedgerList({
@@ -96,6 +100,7 @@ export default function WalletLedgerList({
   onSpendClick,
   engineerNameByUserId,
   siteNameBySiteId,
+  unlinkedSpendIds,
 }: WalletLedgerListProps) {
   // Server returns rows in transaction_date (keyed-in) order. Re-sort the loaded
   // rows by their settlement date so the feed reads sequentially for reconciliation.
@@ -201,6 +206,18 @@ export default function WalletLedgerList({
                       <Typography variant="body2" fontWeight={600}>
                         {meta.label}
                       </Typography>
+                      {row.transaction_type === "spend" &&
+                        unlinkedSpendIds?.has(row.id) && (
+                          <Chip
+                            size="small"
+                            icon={<LinkOff sx={{ fontSize: "0.85rem" }} />}
+                            label="Not linked"
+                            color="error"
+                            variant="filled"
+                            title="This spend isn't linked to any expense or settlement — it may be a stray/phantom debit."
+                            sx={{ height: 20, fontSize: "0.65rem" }}
+                          />
+                        )}
                       {engineerNameByUserId && engineerNameByUserId.get(row.user_id) && (
                         <Chip
                           size="small"

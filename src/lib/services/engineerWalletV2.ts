@@ -230,6 +230,27 @@ export async function getCompanyWalletLedger(
   return { rows: page, next_cursor };
 }
 
+/**
+ * Orphan wallet SPENDS for a scope (engineer ids + optional site) — spend rows
+ * not linked to any expense/settlement. Backed by the list_unlinked_wallet_spends
+ * RPC (mirrors get_wallet_spend_source's linkage checks). The set is small (these
+ * only arise from bugs), so no pagination. Powers the "Not linked" badge and the
+ * "show only unlinked" ledger filter.
+ */
+export async function getUnlinkedWalletSpends(
+  supabase: SupabaseClient,
+  userIds: string[],
+  siteId?: string | null
+): Promise<WalletLedgerEntry[]> {
+  if (userIds.length === 0) return [];
+  const { data, error } = await supabase.rpc("list_unlinked_wallet_spends", {
+    p_user_ids: userIds,
+    p_site_id: siteId ?? null,
+  });
+  if (error) throw error;
+  return (data ?? []) as WalletLedgerEntry[];
+}
+
 export async function getWalletEnabledEngineers(
   supabase: SupabaseClient,
   companyId: string
