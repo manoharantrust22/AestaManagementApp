@@ -21,6 +21,7 @@ import {
   Warning as LowStockIcon,
   ShoppingCart as BoughtIcon,
   Splitscreen as SplitIcon,
+  FactCheck as ChecklistIcon,
 } from "@mui/icons-material";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSelectedSite } from "@/contexts/SiteContext";
@@ -62,6 +63,13 @@ export default function SiteTodayPage() {
   );
 
   const tiles: TileSpec[] = [
+    {
+      label: "Daily checklist",
+      description: "Your duties for today — attendance, stock, usage, settlements",
+      href: "/site/checklist",
+      icon: <ChecklistIcon sx={{ fontSize: 36 }} />,
+      accent: "success",
+    },
     {
       label: "Request material",
       description: "Tell office what to buy",

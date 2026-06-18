@@ -78,6 +78,7 @@ import {
   Videocam as VideocamIcon,
   SmartToy as SmartToyIcon,
   CalculateRounded as CalculateRoundedIcon,
+  FactCheck as FactCheckIcon,
 } from "@mui/icons-material";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
@@ -196,6 +197,7 @@ const siteNavCategories: NavCategory[] = [
     label: "Site Operations",
     emoji: "🏗️",
     items: [
+      { text: "Daily Checklist", icon: <FactCheckIcon />, path: "/site/checklist" },
       { text: "Daily Work Log", icon: <NotesIcon />, path: "/site/work-log" },
       { text: "Site Reports", icon: <AssessmentIcon />, path: "/site/reports" },
     ],
@@ -432,6 +434,12 @@ const companyNavCategories: NavCategory[] = [
         path: "/company/construction-phases",
         adminOnly: true,
       },
+      {
+        text: "Checklist Setup",
+        icon: <FactCheckIcon />,
+        path: "/company/settings/checklist",
+        adminOnly: true,
+      },
     ],
   },
   {
@@ -449,6 +457,11 @@ const companyNavCategories: NavCategory[] = [
     label: "Reports",
     emoji: "📈",
     items: [
+      {
+        text: "Daily Compliance",
+        icon: <FactCheckIcon />,
+        path: "/company/compliance",
+      },
       {
         text: "Company Reports",
         icon: <AssessmentIcon />,

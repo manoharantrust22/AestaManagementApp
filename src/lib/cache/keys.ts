@@ -378,6 +378,26 @@ export const queryKeys = {
     company: () => ['stats', 'company'] as const,
     site: (siteId: string) => ['stats', 'site', siteId] as const,
   },
+
+  // ==================== DAILY COMPLIANCE CHECKLIST ====================
+
+  checklist: {
+    all: ['checklist'] as const,
+    // a user's own day (engineer view)
+    mine: (userId: string, siteId: string | undefined, date: string) =>
+      ['checklist', 'mine', userId, siteId ?? 'all', date] as const,
+    // office overview for a company + date range (+ optional filters)
+    company: (
+      companyId: string,
+      from: string,
+      to: string,
+      filters?: { siteId?: string | null; role?: string | null }
+    ) =>
+      ['checklist', 'company', companyId, { from, to, ...(filters ?? {}) }] as const,
+    // admin template config
+    templates: (companyId: string, role?: string | null) =>
+      ['checklist', 'templates', companyId, role ?? 'all'] as const,
+  },
 } as const;
 
 /**

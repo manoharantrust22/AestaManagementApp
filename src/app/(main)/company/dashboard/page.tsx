@@ -44,6 +44,7 @@ import dayjs from "dayjs";
 import { useCompanyStats, useSiteSummaries } from "@/hooks/queries/useCompanyData";
 import { useQueryClient } from "@tanstack/react-query";
 import DailyPeekSection from "@/components/dashboard/DailyPeekSection";
+import ComplianceTodayCard from "@/components/checklist/ComplianceTodayCard";
 
 export default function CompanyDashboardPage() {
   const { userProfile } = useAuth();
@@ -183,6 +184,11 @@ export default function CompanyDashboardPage() {
 
       {/* Daily Site Peek — multi-site daily attendance overview */}
       <DailyPeekSection />
+
+      {/* Daily compliance — who completed their checklist today */}
+      <Box sx={{ mb: 3 }}>
+        <ComplianceTodayCard />
+      </Box>
 
       {/* Monthly Summary Card */}
       <Paper
