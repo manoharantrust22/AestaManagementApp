@@ -191,10 +191,21 @@ export default function MaterialHubPage() {
   >(null);
 
   const handleAction = (thread: MaterialThread) => {
-    // Fully-consumed batch with an unsettled cross-site portion → route to the
-    // inter-site settlement page (same destination as the expanded card's
-    // "Settle this batch"). There's no usage dialog to open here.
-    if (thread.stage === "exhausted" && thread.inter_site_pending) {
+    // Dispatch off the SAME resolver that renders the row button's label
+    // (nextAction), so the action can never diverge from what the button says.
+    // A thread can satisfy several action conditions at once — e.g. a group
+    // batch whose DELIVERED portion is fully self-used (`is_group_self_used`,
+    // invRemaining <= 0) while more is still undelivered (`stage === "ordered"`,
+    // so the button reads "Record next delivery"). nextAction's priority order
+    // is the single source of truth for which verb wins; re-deriving the action
+    // here with independent guards (as before) fired "Push to expense" on that
+    // thread and the RPC rejected it ("isn't eligible to post as a self-use
+    // expense yet…"), instead of opening the delivery dialog the button promised.
+    const next = nextAction(thread);
+    if (!next) return;
+
+    // Inter-site steps (raise/settle/pay) live on a separate page, not a dialog.
+    if (next.verb === "Record payment" || next.verb === "Settle inter-site") {
       // Latest inter-site page: net-settle pending usage AND pay raised settlements.
       router.push("/site/materials/inter-site");
       return;
@@ -204,7 +215,7 @@ export default function MaterialHubPage() {
     // the row's "Push to expense" action. Post it here (the deliberate
     // replacement for the dropped silent auto-trigger), then surface a snackbar
     // with a "View" deep-link into the filtered expenses ledger.
-    if (thread.is_group_self_used && !thread.self_use_expense) {
+    if (next.verb === "Push to expense") {
       const batchRef =
         thread.inventory?.batch && thread.inventory.batch !== "—"
           ? thread.inventory.batch
@@ -231,6 +242,8 @@ export default function MaterialHubPage() {
       return;
     }
 
+    // Everything else (approve / create-PO / record-delivery / settle / log-usage
+    // / finalize-spot) opens an existing dialog via the router.
     dialogRouterRef.current?.openForThread(thread);
   };
 
