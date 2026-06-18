@@ -100,3 +100,63 @@ dev-server.log
 
 # Playwright MCP test artifacts
 .playwright-mcp/
+
+# Throwaway Playwright/MCP scratch artifacts left at repo root (screenshots,
+# a11y yml snapshots, scratch markdown). Enumerated rather than globbed so
+# intentional root screenshots/docs are never accidentally hidden.
+/after-ppc-type.yml
+/b1bd-fixed-expanded.png
+/daylog-dialog.yml
+/daylog2.yml
+/dialog-snap.md
+/drawer-overview.yml
+/drawer2.yml
+/effort1.yml
+/final-snap.md
+/hub-advance-filtered.png
+/hub-kpi-after-fix.png
+/hub-loaded.png
+/hub-po-expanded.png
+/hub-ppc-filtered.png
+/hub-r2-state.png
+/hub-r2.yml
+/intersite-full-check.png
+/intersite-page.png
+/latest-intersite.png
+/latest-snapshot.md
+/latest-with-raised.png
+/mode-options.md
+/net-snap.md
+/netbtn-snap.md
+/netsettle-confirm.png
+/offset-dialog.png
+/offset-options.png
+/offset-picker-mid.png
+/offset-picker.png
+/picker-snap.md
+/plus2more-expanded.png
+/ppc-cards-2.png
+/ppc-filter-options.yml
+/ppc-options.png
+/ppc-strip.png
+/ppc-summary-after.yml
+/raised-enhanced.png
+/raised-enhanced2.png
+/raised-snap.md
+/reconcile-declare.png
+/reconcile-preview.png
+/reconcile-r2-declare.png
+/reconcile-r2-over.png
+/reconcile-r2-preview.png
+/site-options.yml
+/srini-ppc-after.yml
+/srini-ppc-opt.yml
+/srini-ppc-summary.yml
+/verify-avail.yml
+/verify-own-final.yml
+/verify-own.yml
+/verify-pool.yml
+/verify-reconcile.yml
+/verify2.yml
+/verify3.yml
+/wallet-card-after-fix.png
