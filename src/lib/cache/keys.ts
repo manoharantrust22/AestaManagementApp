@@ -107,6 +107,18 @@ export const queryKeys = {
     active: (siteId: string) => ['subcontracts', 'site', siteId, 'active'] as const,
   },
 
+  taskWork: {
+    all: ['task-work'] as const,
+    bySite: (siteId: string) => ['task-work', 'site', siteId] as const,
+    byId: (id: string) => ['task-work', id] as const,
+    dayLogs: (packageId: string) => ['task-work', packageId, 'day-logs'] as const,
+    payments: (packageId: string) => ['task-work', packageId, 'payments'] as const,
+    profitability: (packageId: string) => ['task-work', packageId, 'profitability'] as const,
+    profitabilityBySite: (siteId: string) =>
+      ['task-work', 'profitability', 'site', siteId] as const,
+    rateBook: () => ['task-work', 'rate-book'] as const,
+  },
+
   // ==================== TRANSACTIONAL DATA (5min cache) ====================
   // Frequently updated, needs regular refresh
 

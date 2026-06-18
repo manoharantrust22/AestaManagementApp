@@ -116,6 +116,7 @@ interface NavItem {
   icon: React.ReactElement;
   path: string;
   adminOnly?: boolean;
+  adminOrOffice?: boolean; // visible to admin and office (management) roles
   badgeKey?: string; // maps to MaterialBadgeCounts field for sidebar badge
 }
 
@@ -298,6 +299,11 @@ const siteNavCategories: NavCategory[] = [
         icon: <DescriptionIcon />,
         path: "/site/subcontracts",
       },
+      {
+        text: "Task Work",
+        icon: <Engineering />,
+        path: "/site/task-work",
+      },
     ],
   },
   {
@@ -360,10 +366,15 @@ const companyNavCategories: NavCategory[] = [
         path: "/company/contracts",
       },
       {
+        text: "Task Work Rate Book",
+        icon: <ConstructionIcon />,
+        path: "/company/task-work-rates",
+      },
+      {
         text: "Engineer Wallet",
         icon: <PaymentIcon />,
         path: "/company/engineer-wallet",
-        adminOnly: true,
+        adminOrOffice: true,
       },
     ],
   },
@@ -630,10 +641,15 @@ export default function MainLayout({
 
   // Filter out categories based on permissions
   const isAdmin = userProfile?.role === "admin";
+  const isOffice = userProfile?.role === "office";
   const filteredNavCategories = currentNavCategories
     .map((category) => ({
       ...category,
-      items: category.items.filter((item) => !item.adminOnly || isAdmin),
+      items: category.items.filter((item) => {
+        if (item.adminOnly) return isAdmin;
+        if (item.adminOrOffice) return isAdmin || isOffice;
+        return true;
+      }),
     }))
     .filter((category) => category.items.length > 0); // Remove empty categories
 

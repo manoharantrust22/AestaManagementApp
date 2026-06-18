@@ -1,0 +1,241 @@
+// Task Work (piece-rate "naka" labour) module types.
+//
+// A Task Work package is a fixed-price chunk of work given to a maistry crew.
+// We pay ad-hoc advances during the work and a final settlement at completion —
+// never daily wages. The daily headcount log is for profitability analysis only
+// (man-days), NOT attendance, and is never paid.
+//
+// Hand-written (not from db.types.ts) so the module builds without a full type
+// regen; queries cast through `as any` / typed helpers where Supabase's generated
+// types don't yet know these tables.
+
+import type { PayerSourceSplitRow } from "@/types/settlement.types";
+
+export type TaskWorkStatus =
+  | "draft"
+  | "active"
+  | "on_hold"
+  | "completed"
+  | "cancelled";
+
+export type TaskWorkPricingMode = "lump_sum" | "rate_based";
+
+export type TaskWorkMeasurementUnit =
+  | "sqft"
+  | "rft"
+  | "nos"
+  | "lumpsum"
+  | "per_point";
+
+export type TaskWorkPaymentType =
+  | "advance"
+  | "part_payment"
+  | "final_settlement"
+  | "retention_release";
+
+export type TaskWorkPaymentChannel = "direct" | "engineer_wallet";
+
+export type TaskWorkPaymentMode =
+  | "cash"
+  | "upi"
+  | "bank_transfer"
+  | "cheque"
+  | "other";
+
+// ---------------------------------------------------------------------------
+// Row shapes (mirror the SQL tables)
+// ---------------------------------------------------------------------------
+
+export interface TaskWorkPackage {
+  id: string;
+  site_id: string;
+  package_number: string;
+  title: string;
+  scope_of_work: string | null;
+  labor_category_id: string | null;
+  maistry_laborer_id: string | null;
+  maistry_name: string | null;
+  maistry_phone: string | null;
+  pricing_mode: TaskWorkPricingMode;
+  total_value: number;
+  rate_per_unit: number | null;
+  measurement_unit: TaskWorkMeasurementUnit | null;
+  total_units: number | null;
+  estimated_crew_size: number | null;
+  estimated_days: number | null;
+  benchmark_daily_rate: number | null;
+  planned_start_date: string | null;
+  planned_end_date: string | null;
+  actual_start_date: string | null;
+  actual_end_date: string | null;
+  retention_percent: number;
+  status: TaskWorkStatus;
+  parent_subcontract_id: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Convenience: a package joined with a few display labels.
+export interface TaskWorkPackageWithMeta extends TaskWorkPackage {
+  category_name?: string | null;
+  parent_subcontract_title?: string | null;
+}
+
+export interface TaskWorkDayLog {
+  id: string;
+  package_id: string;
+  site_id: string;
+  log_date: string;
+  worker_count: number;
+  worker_note: string | null;
+  man_days: number;
+  recorded_by: string | null;
+  created_at: string;
+}
+
+export interface TaskWorkPayment {
+  id: string;
+  package_id: string;
+  site_id: string;
+  payment_type: TaskWorkPaymentType;
+  amount: number;
+  payment_date: string;
+  payment_mode: TaskWorkPaymentMode;
+  payment_channel: TaskWorkPaymentChannel | null;
+  payer_source: string | null;
+  payer_name: string | null;
+  payer_source_split: PayerSourceSplitRow[] | null;
+  engineer_transaction_id: string | null;
+  balance_after_payment: number | null;
+  reference_number: string | null;
+  proof_url: string | null;
+  is_deleted: boolean;
+  created_by: string | null;
+  created_by_name: string | null;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Profitability (v_task_work_profitability — one row per package)
+// ---------------------------------------------------------------------------
+
+export interface TaskWorkProfitability {
+  package_id: string;
+  site_id: string;
+  package_number: string;
+  title: string;
+  labor_category_id: string | null;
+  category_name: string | null;
+  status: TaskWorkStatus;
+  parent_subcontract_id: string | null;
+  total_value: number;
+  total_units: number | null;
+  measurement_unit: TaskWorkMeasurementUnit | null;
+  benchmark_daily_rate: number | null;
+  retention_percent: number;
+  estimated_days: number | null;
+  estimated_crew_size: number | null;
+  planned_start_date: string | null;
+  planned_end_date: string | null;
+  actual_start_date: string | null;
+  actual_end_date: string | null;
+  actual_man_days: number;
+  actual_working_days: number;
+  paid: number;
+  balance: number;
+  retention_held: number;
+  daywage_benchmark_cost: number;
+  company_saving: number;
+  saving_pct: number | null;
+  crew_effective_daily: number | null;
+  computed_rate_per_unit: number | null;
+  estimated_man_days: number;
+  estimated_daywage_cost: number;
+}
+
+// ---------------------------------------------------------------------------
+// Input shapes for mutations
+// ---------------------------------------------------------------------------
+
+export interface TaskWorkPackageInput {
+  site_id: string;
+  title: string;
+  scope_of_work?: string | null;
+  labor_category_id?: string | null;
+  maistry_laborer_id?: string | null;
+  maistry_name?: string | null;
+  maistry_phone?: string | null;
+  pricing_mode: TaskWorkPricingMode;
+  total_value: number;
+  rate_per_unit?: number | null;
+  measurement_unit?: TaskWorkMeasurementUnit | null;
+  total_units?: number | null;
+  estimated_crew_size?: number | null;
+  estimated_days?: number | null;
+  benchmark_daily_rate?: number | null;
+  planned_start_date?: string | null;
+  planned_end_date?: string | null;
+  actual_start_date?: string | null;
+  actual_end_date?: string | null;
+  retention_percent?: number;
+  status?: TaskWorkStatus;
+  parent_subcontract_id?: string | null;
+  notes?: string | null;
+}
+
+export interface TaskWorkDayLogInput {
+  package_id: string;
+  site_id: string;
+  log_date: string;
+  worker_count: number;
+  worker_note?: string | null;
+  man_days?: number | null; // defaults to worker_count when omitted
+}
+
+export interface TaskWorkPaymentInput {
+  package_id: string;
+  site_id: string;
+  payment_type: TaskWorkPaymentType;
+  amount: number;
+  payment_date: string;
+  payment_mode: TaskWorkPaymentMode;
+  payment_channel: TaskWorkPaymentChannel;
+  // Payer source — direct payments capture the source; wallet spends inherit it
+  // from the wallet deposit, so these may be omitted for the wallet channel.
+  payer_source?: string | null;
+  payer_name?: string | null;
+  payer_source_split?: PayerSourceSplitRow[] | null;
+  // Wallet channel context (engineer paying from their site wallet)
+  engineer_id?: string | null;
+  proof_url?: string | null;
+  notes?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Display helpers
+// ---------------------------------------------------------------------------
+
+export const TASK_WORK_STATUS_LABEL: Record<TaskWorkStatus, string> = {
+  draft: "Draft",
+  active: "Active",
+  on_hold: "On Hold",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+export const TASK_WORK_PAYMENT_TYPE_LABEL: Record<TaskWorkPaymentType, string> = {
+  advance: "Advance",
+  part_payment: "Part Payment",
+  final_settlement: "Final Settlement",
+  retention_release: "Retention Release",
+};
+
+export const TASK_WORK_UNIT_LABEL: Record<TaskWorkMeasurementUnit, string> = {
+  sqft: "sq ft",
+  rft: "rft",
+  nos: "nos",
+  lumpsum: "lump sum",
+  per_point: "point",
+};
