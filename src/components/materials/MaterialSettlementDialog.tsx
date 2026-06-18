@@ -154,6 +154,18 @@ export default function MaterialSettlementDialog({
 
   // Get the effective PO (either passed directly or from purchase)
   const effectivePO = purchaseOrder || purchase?.purchase_order;
+
+  // The Hub "Settle vendor" only appears for a DELIVERED PO (nextAction.ts gates
+  // it on stage === "delivered") and always opens this dialog with the PO alone
+  // (isPOAdvancePayment). Such a settlement is FINAL even when the engineer
+  // bargained below the PO total — so it must mark the row fully paid, not be
+  // treated as a partial advance. Match only "delivered": a "partial_delivered"
+  // PO settled via the advance path is a genuine pre-delivery partial.
+  // isPOAdvancePayment already guarantees purchaseOrder is set (and purchase is
+  // null), so read status off it directly — the lighter purchase.purchase_order
+  // projection has no `status`.
+  const isFinalDeliveredSettlement =
+    isPOAdvancePayment && purchaseOrder?.status === "delivered";
   const hasBill = !!effectivePO?.vendor_bill_url;
   const billVerified = !!effectivePO?.bill_verified;
 
@@ -314,7 +326,9 @@ export default function MaterialSettlementDialog({
           payer_name: advancePayerRpc.p_payer_name || undefined,
           payer_source_split: advancePayerRpc.p_payer_source_split,
           subcontract_id: subcontractId,
-          is_complete: isGroupStockAdvancePO,
+          // A delivered-PO settlement is final → force complete so a bargained
+          // amount (below total) still marks the row settled, not a partial advance.
+          is_complete: isGroupStockAdvancePO || isFinalDeliveredSettlement,
           actor_is_site_engineer: isSiteEngineer,
           // Pass wallet fields so EVERY site-engineer settlement debits the
           // engineer wallet — NOT just group_stock. Own-site advances used to be

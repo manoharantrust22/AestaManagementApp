@@ -41,6 +41,7 @@ describe("buildAdvanceExpensePayload", () => {
         payer_name: null,
         payer_source_split: null,
         is_complete: true,
+        settlement_reference: "PSET-GROUP",
         payment_channel: "direct",
         subcontract_id: "sc-1",
       },
@@ -55,6 +56,10 @@ describe("buildAdvanceExpensePayload", () => {
     expect(expenseRow.payer_source_split).toBeNull();
     expect(expenseRow.is_paid).toBe(true);
     expect(expenseRow.paid_date).toBe("2026-06-03");
+    // A completed settlement stamps the settlement ref + date so SettlementsTab
+    // reads "settled".
+    expect(expenseRow.settlement_reference).toBe("PSET-GROUP");
+    expect(expenseRow.settlement_date).toBe("2026-06-03");
     expect(expenseRow.payment_channel).toBe("direct");
     expect(expenseRow.site_group_id).toBe("g-1");
     expect(expenseRow.paying_site_id).toBe("site-A");
@@ -124,6 +129,85 @@ describe("buildAdvanceExpensePayload", () => {
     expect(expenseRow.payment_channel).toBe("engineer_wallet");
     expect(expenseRow.is_paid).toBe(true);
     expect(expenseRow.paid_date).toBe("2026-06-12");
+  });
+
+  it("marks a BARGAINED own-site final settlement fully paid and stamps the ref", () => {
+    // The Hub "Settle vendor" bug: a delivered own-site PO settled BELOW its
+    // total (engineer bargained 900 of 940) must still settle. The dialog passes
+    // is_complete=true for a delivered PO, so isFullyPaid bypasses the amount
+    // check and the row is marked paid + stamped settled.
+    const ownPo = { ...groupPo, internal_notes: null, total_amount: 940 };
+    const { expenseRow, isGroupStock } = buildAdvanceExpensePayload(
+      ownPo,
+      {
+        amount_paid: 900,
+        payment_date: "2026-06-18",
+        payment_mode: "cash",
+        payer_source: "own_money",
+        payer_name: null,
+        payer_source_split: null,
+        is_complete: true,
+        settlement_reference: "PSET-TEST",
+        payment_channel: "engineer_wallet",
+      },
+      "MAT-BARGAIN",
+      "auth-ajith",
+    );
+    expect(isGroupStock).toBe(false);
+    expect(expenseRow.purchase_type).toBe("own_site");
+    expect(expenseRow.amount_paid).toBe(900);
+    expect(expenseRow.total_amount).toBe(940);
+    expect(expenseRow.is_paid).toBe(true);
+    expect(expenseRow.paid_date).toBe("2026-06-18");
+    expect(expenseRow.settlement_reference).toBe("PSET-TEST");
+    expect(expenseRow.settlement_date).toBe("2026-06-18");
+  });
+
+  it("leaves a genuine partial pre-delivery advance unpaid with no ref/date", () => {
+    // Regression guard: a real partial advance (PO not delivered → is_complete
+    // false, amount below total) must NOT be marked settled — no is_paid, no
+    // settlement ref/date.
+    const ownPo = { ...groupPo, internal_notes: null, total_amount: 940 };
+    const { expenseRow } = buildAdvanceExpensePayload(
+      ownPo,
+      {
+        amount_paid: 400,
+        payment_date: "2026-06-18",
+        payer_source: "own_money",
+        payer_name: null,
+        payer_source_split: null,
+        is_complete: false,
+        // No settlement_reference passed for a partial advance.
+        payment_channel: "engineer_wallet",
+      },
+      "MAT-PARTIAL",
+      "auth-ajith",
+    );
+    expect(expenseRow.is_paid).toBe(false);
+    expect(expenseRow.paid_date).toBeNull();
+    expect(expenseRow.settlement_reference).toBeNull();
+    expect(expenseRow.settlement_date).toBeNull();
+  });
+
+  it("does not mark a degenerate 0-of-0 advance paid", () => {
+    const ownPo = { ...groupPo, internal_notes: null, total_amount: 0, items: [] };
+    const { expenseRow } = buildAdvanceExpensePayload(
+      ownPo,
+      {
+        amount_paid: 0,
+        payment_date: "2026-06-18",
+        payer_source: "own_money",
+        payer_name: null,
+        payer_source_split: null,
+        is_complete: false,
+        payment_channel: "direct",
+      },
+      "MAT-ZERO",
+      null,
+    );
+    expect(expenseRow.is_paid).toBe(false);
+    expect(expenseRow.settlement_reference).toBeNull();
+    expect(expenseRow.settlement_date).toBeNull();
   });
 
   it("carries the PO's cluster id even without the group-stock notes marker", () => {

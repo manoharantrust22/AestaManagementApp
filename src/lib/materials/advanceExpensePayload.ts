@@ -36,6 +36,13 @@ export interface AdvancePaymentArgs {
   payer_source_split?: PayerSourceSplitRow[] | null;
   /** True when the dialog knows this is a full bulk settlement (isGroupStockAdvancePO). */
   is_complete?: boolean;
+  /**
+   * Settlement reference (PSET-…) to stamp when this advance is actually a FINAL
+   * settlement (is_complete / fully paid). Minted by the caller only for final
+   * settlements so the row reads "settled" (not merely "paid") on the site-level
+   * SettlementsTab. Null/omitted for genuine partial advances.
+   */
+  settlement_reference?: string | null;
   payment_channel: "direct" | "engineer_wallet";
   /** Explicit group-stock paying-site override (from dialog / PO notes). */
   paying_site_id?: string | null;
@@ -118,6 +125,12 @@ export function buildAdvanceExpensePayload(
     status: "recorded",
     is_paid: isFullyPaid,
     paid_date: isFullyPaid ? args.payment_date : null,
+    // When this advance is actually a FINAL settlement (is_complete / fully paid),
+    // promote it to a settled row: stamp the settlement ref + date so the
+    // site-level SettlementsTab (status: settlement_reference ? "settled" : "paid")
+    // agrees with the Hub. Left null for genuine partial advances.
+    settlement_reference: isFullyPaid ? (args.settlement_reference ?? null) : null,
+    settlement_date: isFullyPaid ? args.payment_date : null,
     payment_mode: args.payment_mode ?? "cash",
     payment_reference: args.payment_reference ?? null,
     payment_screenshot_url: args.payment_screenshot_url ?? null,
