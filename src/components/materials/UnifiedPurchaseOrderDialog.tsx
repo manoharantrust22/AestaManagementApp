@@ -1273,6 +1273,17 @@ export default function UnifiedPurchaseOrderDialog({
   // Check if any request items have weight-based pricing
   const hasWeightBasedRequestItems = requestItemsState.some((item) => item.weight_per_unit);
 
+  // Engineer's original "Purchase for" choice (request mode only), surfaced so
+  // the admin isn't blindfolded. The toggle already defaults to this (see the
+  // open-effect); these just make the intent visible and flag any override.
+  const engineerPurchaseType = isRequestMode && request ? request.purchase_type : null; // 'own_site' | 'group_stock' | null
+  const engineerWantsGroup = engineerPurchaseType === "group_stock";
+  const overrodeEngineerChoice = engineerPurchaseType !== null && isGroupStock !== engineerWantsGroup;
+  // Payer site name for group requests (best-effort; omitted until membership loads)
+  const engineerPayerSiteName = groupMembership?.allSites?.find(
+    (s) => s.id === (request as { payment_source_site_id?: string | null })?.payment_source_site_id
+  )?.name;
+
   // ============================================================================
   // Render
   // ============================================================================
@@ -1334,6 +1345,21 @@ export default function UnifiedPurchaseOrderDialog({
                   size="small"
                   color="info"
                   icon={<InfoIcon />}
+                />
+              )}
+              {/* Engineer's original "Purchase for" choice — visible by default */}
+              {engineerWantsGroup ? (
+                <Chip
+                  size="small"
+                  color="secondary"
+                  icon={<GroupsIcon />}
+                  label={`Engineer requested: Group stock${engineerPayerSiteName ? ` · paid by ${engineerPayerSiteName}` : ""}`}
+                />
+              ) : (
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label="Engineer requested: This site only"
                 />
               )}
             </Box>
@@ -1797,6 +1823,16 @@ export default function UnifiedPurchaseOrderDialog({
                         </Typography>
                       }
                     />
+                    {engineerPurchaseType && !overrodeEngineerChoice && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                        Defaulted to the engineer&apos;s request: {engineerWantsGroup ? "Group stock" : "This site only"}
+                      </Typography>
+                    )}
+                    {overrodeEngineerChoice && (
+                      <Typography variant="caption" color="warning.main" sx={{ display: "block", mt: 0.5, fontWeight: 500 }}>
+                        Changed from the engineer&apos;s request (was: {engineerWantsGroup ? "Group stock" : "This site only"})
+                      </Typography>
+                    )}
                     {isGroupStock && (
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                         Materials will be shared across all sites in{" "}
