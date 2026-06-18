@@ -36,6 +36,7 @@
     "@types/react-date-range": "^1.4.10",
     "browser-image-compression": "^2.0.2",
     "dayjs": "^1.11.19",
+    "exceljs": "^4.4.0",
     "groq-sdk": "^1.2.0",
     "heic2any": "^0.0.4",
     "idb-keyval": "^6.2.2",

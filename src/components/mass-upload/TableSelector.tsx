@@ -24,8 +24,9 @@ import {
   Person as LaborerIcon,
   AccountBalance as AdvanceIcon,
   Description as ContractIcon,
+  History as LegacyIcon,
 } from "@mui/icons-material";
-import { MassUploadTableName } from "@/types/mass-upload.types";
+import { MassUploadTableName, TableConfig } from "@/types/mass-upload.types";
 import { getAvailableTables, getTableConfig } from "@/lib/mass-upload/tableConfigs";
 
 interface TableSelectorProps {
@@ -37,6 +38,7 @@ interface TableSelectorProps {
 }
 
 const TABLE_ICONS: Record<string, React.ReactNode> = {
+  legacy_misc_expenses: <LegacyIcon sx={{ fontSize: 40 }} />,
   daily_attendance: <AttendanceIcon sx={{ fontSize: 40 }} />,
   market_laborer_attendance: <MarketLaborIcon sx={{ fontSize: 40 }} />,
   expenses: <ExpenseIcon sx={{ fontSize: 40 }} />,
@@ -45,6 +47,80 @@ const TABLE_ICONS: Record<string, React.ReactNode> = {
   advances: <AdvanceIcon sx={{ fontSize: 40 }} />,
   subcontracts: <ContractIcon sx={{ fontSize: 40 }} />,
 };
+
+/**
+ * A single selectable importer card. Renders an optional "Recommended"-style badge
+ * and a one-line hint (from TableConfig) so similar importers are distinguishable
+ * at a glance. Used by both the site-specific and global lists below.
+ */
+function TableCard({
+  table,
+  selected,
+  disabled = false,
+  onSelect,
+}: {
+  table: TableConfig;
+  selected: boolean;
+  disabled?: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <Card
+      sx={{
+        width: 180,
+        border: 2,
+        borderColor: selected ? "primary.main" : "transparent",
+        transition: "all 0.2s",
+      }}
+    >
+      <CardActionArea
+        onClick={onSelect}
+        disabled={disabled}
+        sx={{ opacity: disabled ? 0.5 : 1, height: "100%" }}
+      >
+        <CardContent>
+          <Stack alignItems="center" spacing={1}>
+            {table.badge && (
+              <Chip
+                label={table.badge.label}
+                size="small"
+                color={table.badge.color ?? "default"}
+                sx={{ height: 20, fontSize: "0.65rem", fontWeight: 600 }}
+              />
+            )}
+            <Box color="primary.main">
+              {TABLE_ICONS[table.tableName] || (
+                <ContractIcon sx={{ fontSize: 40 }} />
+              )}
+            </Box>
+            <Typography
+              variant="subtitle2"
+              textAlign="center"
+              fontWeight={selected ? "bold" : "normal"}
+            >
+              {table.displayName}
+            </Typography>
+            {table.cardHint && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                textAlign="center"
+                sx={{ lineHeight: 1.2 }}
+              >
+                {table.cardHint}
+              </Typography>
+            )}
+            <Chip
+              label={`${table.fields.filter((f) => f.required).length} required`}
+              size="small"
+              variant="outlined"
+            />
+          </Stack>
+        </CardContent>
+      </CardActionArea>
+    </Card>
+  );
+}
 
 export function TableSelector({
   selectedTable,
@@ -131,52 +207,15 @@ export function TableSelector({
               mb={3}
             >
               {siteSpecificTables.map((table) => (
-                <Card
+                <TableCard
                   key={table.tableName}
-                  sx={{
-                    width: 180,
-                    border: 2,
-                    borderColor:
-                      selectedTable === table.tableName
-                        ? "primary.main"
-                        : "transparent",
-                    transition: "all 0.2s",
-                  }}
-                >
-                  <CardActionArea
-                    onClick={() =>
-                      handleTableSelect(table.tableName as MassUploadTableName)
-                    }
-                    disabled={!selectedSiteId}
-                    sx={{
-                      opacity: !selectedSiteId ? 0.5 : 1,
-                    }}
-                  >
-                    <CardContent>
-                      <Stack alignItems="center" spacing={1}>
-                        <Box color="primary.main">
-                          {TABLE_ICONS[table.tableName] || (
-                            <ContractIcon sx={{ fontSize: 40 }} />
-                          )}
-                        </Box>
-                        <Typography
-                          variant="subtitle2"
-                          textAlign="center"
-                          fontWeight={
-                            selectedTable === table.tableName ? "bold" : "normal"
-                          }
-                        >
-                          {table.displayName}
-                        </Typography>
-                        <Chip
-                          label={`${table.fields.filter((f) => f.required).length} required`}
-                          size="small"
-                          variant="outlined"
-                        />
-                      </Stack>
-                    </CardContent>
-                  </CardActionArea>
-                </Card>
+                  table={table}
+                  selected={selectedTable === table.tableName}
+                  disabled={!selectedSiteId}
+                  onSelect={() =>
+                    handleTableSelect(table.tableName as MassUploadTableName)
+                  }
+                />
               ))}
             </Stack>
           </>
@@ -190,48 +229,14 @@ export function TableSelector({
             </Typography>
             <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
               {globalTables.map((table) => (
-                <Card
+                <TableCard
                   key={table.tableName}
-                  sx={{
-                    width: 180,
-                    border: 2,
-                    borderColor:
-                      selectedTable === table.tableName
-                        ? "primary.main"
-                        : "transparent",
-                    transition: "all 0.2s",
-                  }}
-                >
-                  <CardActionArea
-                    onClick={() =>
-                      handleTableSelect(table.tableName as MassUploadTableName)
-                    }
-                  >
-                    <CardContent>
-                      <Stack alignItems="center" spacing={1}>
-                        <Box color="primary.main">
-                          {TABLE_ICONS[table.tableName] || (
-                            <ContractIcon sx={{ fontSize: 40 }} />
-                          )}
-                        </Box>
-                        <Typography
-                          variant="subtitle2"
-                          textAlign="center"
-                          fontWeight={
-                            selectedTable === table.tableName ? "bold" : "normal"
-                          }
-                        >
-                          {table.displayName}
-                        </Typography>
-                        <Chip
-                          label={`${table.fields.filter((f) => f.required).length} required`}
-                          size="small"
-                          variant="outlined"
-                        />
-                      </Stack>
-                    </CardContent>
-                  </CardActionArea>
-                </Card>
+                  table={table}
+                  selected={selectedTable === table.tableName}
+                  onSelect={() =>
+                    handleTableSelect(table.tableName as MassUploadTableName)
+                  }
+                />
               ))}
             </Stack>
           </>

@@ -56,6 +56,15 @@ function fmtDate(iso: string | null) {
   return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+/** A clean period label: a single month reads as "Dec 2024"; a span as "min → max". */
+function periodLabel(range?: { min: string | null; max: string | null } | null) {
+  if (!range?.min || !range?.max) return "—";
+  const monthOf = (d: string) =>
+    new Date(`${d}T00:00:00`).toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+  if (range.min.slice(0, 7) === range.max.slice(0, 7)) return monthOf(range.min);
+  return `${range.min} → ${range.max}`;
+}
+
 export function ImportHistoryList() {
   const { data: batches, isLoading, error } = useImportBatches();
   const revert = useRevertImportBatch();
@@ -116,7 +125,7 @@ export function ImportHistoryList() {
               <TableCell>Site</TableCell>
               <TableCell align="right">Records</TableCell>
               <TableCell align="right">Total</TableCell>
-              <TableCell>Date range</TableCell>
+              <TableCell>Period</TableCell>
               <TableCell>Status</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
@@ -144,11 +153,7 @@ export function ImportHistoryList() {
                     <TableCell>{b.site_name || "—"}</TableCell>
                     <TableCell align="right">{b.inserted_count}</TableCell>
                     <TableCell align="right">{inr(b.summary?.totalSpent)}</TableCell>
-                    <TableCell>
-                      {range?.min && range?.max
-                        ? `${range.min} → ${range.max}`
-                        : "—"}
-                    </TableCell>
+                    <TableCell>{periodLabel(range)}</TableCell>
                     <TableCell>{statusChip(b.status)}</TableCell>
                     <TableCell align="right">
                       <Stack direction="row" spacing={0.5} justifyContent="flex-end">

@@ -25,6 +25,8 @@ import {
 import { MassUploadTableName } from "@/types/mass-upload.types";
 import { getTableConfig } from "@/lib/mass-upload/tableConfigs";
 
+const LEGACY_TABLE: MassUploadTableName = "legacy_misc_expenses";
+
 interface TemplateDownloaderProps {
   tableName: MassUploadTableName;
   showFieldInfo?: boolean;
@@ -33,6 +35,8 @@ interface TemplateDownloaderProps {
   /** Toggle an optional field's "required for this import" state. When provided, the
    *  optional-field rows render an interactive checkbox instead of a static marker. */
   onToggleRequired?: (dbField: string) => void;
+  /** Selected site — required for the legacy importer (its dropdowns are per-site). */
+  siteId?: string;
 }
 
 export function TemplateDownloader({
@@ -40,30 +44,37 @@ export function TemplateDownloader({
   showFieldInfo = true,
   requiredOverrides = [],
   onToggleRequired,
+  siteId,
 }: TemplateDownloaderProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const config = getTableConfig(tableName);
+  const isLegacy = tableName === LEGACY_TABLE;
+  // Legacy template is a per-site .xlsx with dropdowns — needs a site selected.
+  const blockedNoSite = isLegacy && !siteId;
 
   const handleDownload = async () => {
     setIsDownloading(true);
     setError(null);
 
     try {
-      const response = await fetch(`/api/mass-upload/template?table=${tableName}`);
+      const params = new URLSearchParams({ table: tableName });
+      if (isLegacy && siteId) params.set("siteId", siteId);
+      const response = await fetch(`/api/mass-upload/template?${params.toString()}`);
 
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || "Failed to download template");
       }
 
-      // Get the blob and trigger download
+      // Get the blob and trigger download (legacy = .xlsx with dropdowns; others = .csv)
+      const ext = isLegacy ? "xlsx" : "csv";
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${tableName}_template.csv`;
+      link.download = `${tableName}_template.${ext}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -105,11 +116,23 @@ export function TemplateDownloader({
             variant="contained"
             startIcon={isDownloading ? <CircularProgress size={20} color="inherit" /> : <DownloadIcon />}
             onClick={handleDownload}
-            disabled={isDownloading || config.fields.length === 0}
+            disabled={isDownloading || config.fields.length === 0 || blockedNoSite}
             size="large"
           >
-            {isDownloading ? "Downloading..." : "Download CSV Template"}
+            {isDownloading
+              ? "Downloading..."
+              : isLegacy
+                ? "Download Excel Template"
+                : "Download CSV Template"}
           </Button>
+
+          {isLegacy && (
+            <Alert severity={blockedNoSite ? "warning" : "info"}>
+              {blockedNoSite
+                ? "Select a site first — the template's dropdowns (payment source, subcontract, category) are built from that site's configured values."
+                : "This is an Excel (.xlsx) template. Payment source, subcontract, category and payment mode are dropdowns limited to this site's values — pick from them so nothing is mistyped."}
+            </Alert>
+          )}
 
           {error && (
             <Alert severity="error" onClose={() => setError(null)}>

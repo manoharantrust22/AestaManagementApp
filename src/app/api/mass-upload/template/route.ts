@@ -3,7 +3,11 @@ import { createClient } from "@/lib/supabase/server";
 import { canPerformMassUpload } from "@/lib/permissions";
 import { MassUploadTableName } from "@/types/mass-upload.types";
 import { getTableConfig, generateTableSampleRows } from "@/lib/mass-upload/tableConfigs";
+import { buildLegacyXlsxTemplate } from "@/lib/mass-upload/xlsxTemplate";
 import Papa from "papaparse";
+
+// exceljs needs the Node runtime (not edge).
+export const runtime = "nodejs";
 
 /**
  * Verify mass upload access
@@ -81,6 +85,25 @@ export async function GET(request: NextRequest) {
         { success: false, error: `No template configuration found for table: ${tableName}` },
         { status: 400 }
       );
+    }
+
+    // Legacy importer: per-site .xlsx with dropdowns restricted to the site's real values.
+    if (tableName === "legacy_misc_expenses") {
+      const siteId = searchParams.get("siteId");
+      if (!siteId) {
+        return NextResponse.json(
+          { success: false, error: "Select a site first — the template's dropdowns are built from the site's payment sources, subcontracts and categories." },
+          { status: 400 }
+        );
+      }
+      const xlsx = await buildLegacyXlsxTemplate(supabase, siteId);
+      return new NextResponse(xlsx, {
+        headers: {
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Disposition": `attachment; filename="legacy_expenses_template.xlsx"`,
+        },
+      });
     }
 
     // Get field names as headers

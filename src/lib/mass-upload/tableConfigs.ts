@@ -247,7 +247,9 @@ const marketLaborerAttendanceConfig: TableConfig = {
 const expensesConfig: TableConfig = {
   tableName: 'expenses',
   displayName: 'Expenses',
-  description: 'Bulk upload expenses including materials, machinery, and general costs',
+  description:
+    'Older generic expense importer. For historical / paper records, use Legacy Expenses (Bulk) instead — it is revocable as a batch and shows in Miscellaneous. This one cannot be pulled back as a whole upload.',
+  cardHint: 'Older — no batch revoke',
   requiredContext: ['site_id', 'user_id'],
   fields: [
     {
@@ -640,7 +642,9 @@ const legacyMiscExpensesConfig: TableConfig = {
   tableName: 'legacy_misc_expenses',
   displayName: 'Legacy Expenses (Bulk)',
   description:
-    'Bulk import historical expenses for the legacy period (material, labor settlements, rentals, tea & snacks, subcontract payments). Revocable as a batch.',
+    'Use this for your historical / paper expense records (material, labor settlements, rentals, tea & snacks, subcontract payments). The whole upload is revocable — pull a bad batch back in one click — and rows show in both Miscellaneous and All-Site Expenses, where you can still edit them individually later.',
+  badge: { label: 'Recommended', color: 'success' },
+  cardHint: 'Revocable batch · shows in Miscellaneous',
   requiredContext: ['site_id', 'user_id'],
   fields: [
     {
@@ -665,8 +669,10 @@ const legacyMiscExpensesConfig: TableConfig = {
       lookupTable: 'expense_categories',
       lookupField: 'name',
       lookupDisplayField: 'category',
+      // Blank allowed, but a typed value must match an ACTIVE miscellaneous category.
+      strictLookup: true,
       description:
-        'One of: Daily Labor Settlement, Contract Labor Settlement, Material Settlement, Material Purchasing, Rental Settlement, Tea & Snacks Settlement, General Expense.',
+        'One of: Daily Labor Settlement, Contract Labor Settlement, Material Expenses, Rental Settlement, Tea & Snacks Settlement, General Expense.',
     },
     {
       dbField: 'subcontract_id',
@@ -676,6 +682,8 @@ const legacyMiscExpensesConfig: TableConfig = {
       lookupTable: 'subcontracts',
       lookupField: 'title',
       lookupDisplayField: 'subcontract',
+      // Blank allowed, but a typed value must match a real subcontract title for the site.
+      strictLookup: true,
       description: 'Exact subcontract title to link this expense to (optional).',
     },
     {
@@ -704,6 +712,11 @@ const legacyMiscExpensesConfig: TableConfig = {
       required: false,
       type: 'enum',
       enumValues: PAYER_SOURCES,
+      // Restricted to the SELECTED SITE's configured payer sources (label or key),
+      // validated server-side — not this static fallback list. See serverValidate.ts.
+      siteScopedSource: true,
+      description:
+        "The site's payment source (e.g. Own Money, Amma Money, Trust Account). Pick from the dropdown.",
     },
     {
       dbField: 'payer_name',

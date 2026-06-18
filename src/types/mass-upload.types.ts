@@ -26,6 +26,13 @@ export interface FieldConfig {
   validation?: RegExp;                // Optional validation pattern
   description?: string;               // Help text for CSV template
   transform?: (value: string) => unknown; // Value transformer function
+  // uuid_lookup only: when true, a non-blank value that doesn't match an existing
+  // record is a hard ERROR (blank is still allowed). Without it, the legacy importer
+  // warns-and-imports an unmatched optional lookup with a null link.
+  strictLookup?: boolean;
+  // payer_source only: when true, the allowed values are the SELECTED SITE's configured
+  // payer_sources (registry), resolved server-side by label or key — not a static enum.
+  siteScopedSource?: boolean;
 }
 
 // Configuration for a table that supports mass upload
@@ -37,6 +44,11 @@ export interface TableConfig {
   requiredContext: ('site_id' | 'user_id')[]; // Auto-injected fields from context
   upsertKey?: string[];               // Fields for upsert matching (if supported)
   exampleRow?: Record<string, string>; // Example data for template
+  // Optional small badge shown on the picker card (e.g. "Recommended").
+  badge?: { label: string; color?: 'success' | 'warning' | 'info' | 'default' };
+  // Optional one-line caption shown on the picker card, under the title, to help
+  // the user pick between similar importers at a glance.
+  cardHint?: string;
 }
 
 // Supported table names for mass upload
@@ -97,6 +109,12 @@ export interface LookupCache {
   // Subcontracts indexed by lowercased title (ambiguous/duplicate titles are
   // intentionally NOT added, so they resolve as "unmatched" -> a warning).
   subcontracts: Map<string, { id: string; title: string; total_value: number | null }>;
+  // The selected site's configured payer sources, keyed by BOTH lowercased label
+  // ("trust account") and lowercased key ("trust_account") -> the canonical enum key.
+  // Empty when the table doesn't need it. Used to validate legacy payer_source per-site.
+  payerSources: Map<string, string>;
+  // Display labels of the site's configured payer sources, for error messages.
+  payerSourceLabels: string[];
 }
 
 // Server-side validation request

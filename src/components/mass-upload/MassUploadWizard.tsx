@@ -67,7 +67,7 @@ interface MassUploadWizardProps {
 
 const STEPS: { key: WizardStep; label: string }[] = [
   { key: "select-table", label: "Select Data Type" },
-  { key: "upload", label: "Upload CSV" },
+  { key: "upload", label: "Upload File" },
   { key: "preview", label: "Review & Edit" },
   { key: "import", label: "Import" },
 ];
@@ -307,12 +307,18 @@ export function MassUploadWizard({
           const supabase = createClient();
           const safeId =
             (crypto.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`);
+          // Retain the user's original file as-is (.xlsx or .csv) for audit.
+          const isXlsx = uploadedFile.name.toLowerCase().endsWith(".xlsx");
+          const ext = isXlsx ? "xlsx" : "csv";
+          const contentType = isXlsx
+            ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            : "text/csv";
           const { path } = await hardenedUpload({
             supabase,
             bucketName: "imports",
-            filePath: `${selectedSiteId}/${safeId}.csv`,
+            filePath: `${selectedSiteId}/${safeId}.${ext}`,
             file: uploadedFile,
-            contentType: "text/csv",
+            contentType,
           });
           originalCsvPath = path;
         } catch (uploadErr) {
@@ -421,6 +427,7 @@ export function MassUploadWizard({
               tableName={selectedTable}
               requiredOverrides={requiredOverrides}
               onToggleRequired={handleToggleRequired}
+              siteId={selectedSiteId}
             />
             <CSVUploader
               tableName={selectedTable}

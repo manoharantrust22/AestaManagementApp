@@ -22,9 +22,17 @@ import {
   Warning as WarningIcon,
   InsertDriveFile as FileIcon,
 } from "@mui/icons-material";
+import Papa from "papaparse";
 import { MassUploadTableName, ParseResult } from "@/types/mass-upload.types";
-import { parseCSVFile, validateCSVHeaders } from "@/lib/mass-upload/csvParser";
+import { parseCSVFile, parseCSVString, validateCSVHeaders } from "@/lib/mass-upload/csvParser";
 import { getTableConfig } from "@/lib/mass-upload/tableConfigs";
+
+const XLSX_MIME =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const isXlsxFile = (f: File) =>
+  f.name.toLowerCase().endsWith(".xlsx") || f.type === XLSX_MIME;
+const isCsvFile = (f: File) =>
+  f.name.toLowerCase().endsWith(".csv") || f.type === "text/csv";
 
 interface CSVUploaderProps {
   tableName: MassUploadTableName;
@@ -64,14 +72,12 @@ export function CSVUploader({
       setIsDragging(false);
 
       const files = Array.from(e.dataTransfer.files);
-      const csvFile = files.find(
-        (f) => f.type === "text/csv" || f.name.endsWith(".csv")
-      );
+      const picked = files.find((f) => isCsvFile(f) || isXlsxFile(f));
 
-      if (csvFile) {
-        await processFile(csvFile);
+      if (picked) {
+        await processFile(picked);
       } else {
-        onError("Please upload a CSV file");
+        onError("Please upload a CSV or Excel (.xlsx) file");
       }
     },
     [tableName]
@@ -95,8 +101,29 @@ export function CSVUploader({
     setHeaderValidation(null);
 
     try {
-      // Parse the CSV file
-      const parseResult = await parseCSVFile(file, tableName);
+      let parseResult: ParseResult;
+
+      if (isXlsxFile(file)) {
+        // Parse the .xlsx server-side (exceljs), then run the SAME client pipeline by
+        // re-serialising the rows to CSV — reuses validation, sample detection, status.
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch("/api/mass-upload/parse", { method: "POST", body: form });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || "Could not read the Excel file");
+        }
+        const rows: Record<string, string>[] = data.rows ?? [];
+        const headers = config?.fields.map((f) => f.csvHeader) ?? [];
+        const csv = Papa.unparse({
+          fields: headers,
+          data: rows.map((r) => headers.map((h) => r[h] ?? "")),
+        });
+        parseResult = parseCSVString(csv, tableName);
+      } else {
+        // Parse the CSV file
+        parseResult = await parseCSVFile(file, tableName);
+      }
 
       // Validate headers
       const headerCheck = validateCSVHeaders(parseResult.headers, tableName);
@@ -113,8 +140,8 @@ export function CSVUploader({
       // Pass result to parent
       onParseComplete(parseResult, file);
     } catch (err) {
-      console.error("CSV processing error:", err);
-      onError(err instanceof Error ? err.message : "Failed to process CSV file");
+      console.error("File processing error:", err);
+      onError(err instanceof Error ? err.message : "Failed to process the file");
     } finally {
       setIsProcessing(false);
     }
@@ -145,7 +172,7 @@ export function CSVUploader({
         <input
           id="csv-file-input"
           type="file"
-          accept=".csv,text/csv"
+          accept={`.csv,text/csv,.xlsx,${XLSX_MIME}`}
           hidden
           onChange={handleFileSelect}
         />
@@ -153,16 +180,16 @@ export function CSVUploader({
         {isProcessing ? (
           <Stack alignItems="center" spacing={2}>
             <CircularProgress />
-            <Typography>Processing CSV file...</Typography>
+            <Typography>Processing file...</Typography>
           </Stack>
         ) : (
           <Stack alignItems="center" spacing={2}>
             <UploadIcon sx={{ fontSize: 48, color: "text.secondary" }} />
             <Typography variant="h6">
-              Drop your CSV file here or click to browse
+              Drop your file here or click to browse
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Supported format: CSV (.csv)
+              Supported formats: Excel (.xlsx) and CSV (.csv)
             </Typography>
           </Stack>
         )}

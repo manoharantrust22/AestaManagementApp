@@ -75,9 +75,19 @@ export function LegacyExpenseSummaryPanel({ summary }: { summary: LegacyExpenseS
       {summary.rowsOnOrAfterCutoff > 0 && (
         <Alert severity="warning" icon={<WarningIcon />} sx={{ mb: 2 }}>
           {summary.rowsOnOrAfterCutoff} row(s) are dated on/after the legacy cutoff. They will still
-          import — confirm they belong in the legacy period.
+          import — confirm they belong in the legacy period (they may already be in the app).
         </Alert>
       )}
+
+      {dateRange.min &&
+        dateRange.max &&
+        dateRange.min.slice(0, 7) !== dateRange.max.slice(0, 7) && (
+          <Alert severity="warning" icon={<WarningIcon />} sx={{ mb: 2 }}>
+            This file spans more than one month ({dateRange.min.slice(0, 7)} →{" "}
+            {dateRange.max.slice(0, 7)}). For easier review and revoke, import{" "}
+            <strong>one month per upload</strong>.
+          </Alert>
+        )}
 
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} divider={<Divider orientation="vertical" flexItem />}>
         {/* By category */}

@@ -54,12 +54,43 @@ export async function buildLookupCache(
     teaShops: new Map(),
     expenseCategories: new Map(),
     subcontracts: new Map(),
+    payerSources: new Map(),
+    payerSourceLabels: [],
   };
 
   const isLegacy = tableName === LEGACY_TABLE;
 
   if (isLegacy) {
-    // Legacy import only needs subcontracts (by title) + miscellaneous categories.
+    // Legacy import needs: subcontracts (by title), miscellaneous categories, and the
+    // SITE's configured payer sources (so payer_source is restricted per-site, not to
+    // the global enum). Mirrors assertPayerSourcesAllowed in engineerWalletV2.ts.
+    // payer_sources isn't in the generated Database types -> cast the query builder.
+    const { data: payerSrcs } = await (supabase as unknown as {
+      from: (t: string) => {
+        select: (c: string) => {
+          eq: (k: string, v: unknown) => {
+            eq: (k: string, v: unknown) => Promise<{ data: { key: string; label: string }[] | null }>;
+          };
+        };
+      };
+    })
+      .from("payer_sources")
+      .select("key, label")
+      .eq("site_id", siteId)
+      .eq("is_hidden", false);
+
+    if (payerSrcs) {
+      (payerSrcs as { key: string; label: string }[]).forEach((p) => {
+        if (!p.key) return;
+        // Accept either the human label ("Trust Account") or the raw key ("trust_account").
+        cache.payerSources.set(p.key.toLowerCase(), p.key);
+        if (p.label) {
+          cache.payerSources.set(p.label.toLowerCase(), p.key);
+          cache.payerSourceLabels.push(p.label);
+        }
+      });
+    }
+
     const { data: subs } = await supabase
       .from("subcontracts")
       .select("id, title, total_value")
@@ -282,6 +313,38 @@ export async function validateRowsServerSide(
       if (clientValidation.error) errors.push(clientValidation.error);
       if (clientValidation.warning) warnings.push(clientValidation.warning);
 
+      // payer_source: restrict to the SELECTED SITE's configured sources (by label or key).
+      if (fieldConfig.siteScopedSource) {
+        if (trimmedValue) {
+          if (cache.payerSources.size === 0) {
+            // Site has no configured sources (unseeded/legacy) — mirror
+            // assertPayerSourcesAllowed and don't block.
+            transformedData[fieldConfig.dbField] = trimmedValue.toLowerCase();
+          } else {
+            const key = cache.payerSources.get(trimmedValue.toLowerCase());
+            if (!key) {
+              const allowed = cache.payerSourceLabels.length
+                ? ` Allowed for this site: ${cache.payerSourceLabels.join(", ")}.`
+                : "";
+              errors.push({
+                rowNumber,
+                field: fieldConfig.dbField,
+                csvHeader: fieldConfig.csvHeader,
+                value: trimmedValue,
+                errorType: "enum",
+                message: `"${trimmedValue}" is not a payment source for this site.${allowed}`,
+              });
+              transformedData[fieldConfig.dbField] = null;
+            } else {
+              transformedData[fieldConfig.dbField] = key;
+            }
+          }
+        } else {
+          transformedData[fieldConfig.dbField] = clientValidation.transformedValue ?? null;
+        }
+        return; // payer_source handled per-site
+      }
+
       if (fieldConfig.type === "uuid_lookup" && trimmedValue) {
         const lookupResult = resolveLookup(trimmedValue, fieldConfig.lookupTable || "", cache);
 
@@ -296,12 +359,15 @@ export async function validateRowsServerSide(
             suggestion: lookupResult.suggestion ? `Did you mean "${lookupResult.suggestion}"?` : undefined,
           };
           // Unmatched OPTIONAL lookup on the legacy importer -> warn but allow (link
-          // stays null). If the field is required (config or per-import override), an
-          // unmatched value is a hard error that blocks the row.
-          if (isLegacy && !isRequired) {
+          // stays null) UNLESS the field is strictLookup or required, in which case an
+          // unmatched non-blank value is a hard error that blocks the row.
+          if (isLegacy && !isRequired && !fieldConfig.strictLookup) {
             issue.message = `${fieldConfig.csvHeader} "${trimmedValue}" not found — importing without this link.`;
             warnings.push(issue);
           } else {
+            if (fieldConfig.strictLookup) {
+              issue.message = `${fieldConfig.csvHeader} "${trimmedValue}" doesn't match any ${fieldConfig.csvHeader} for this site — fix it or leave it blank.`;
+            }
             errors.push(issue);
             lookupErrors.push(issue);
           }

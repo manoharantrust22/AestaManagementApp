@@ -43,6 +43,13 @@ export function validateField(
     };
   }
 
+  // payer_source is restricted to the SELECTED SITE's configured sources, resolved
+  // server-side (by label or key) — not a static enum. Skip the generic enum check so
+  // a human label like "Trust Account" isn't rejected here; serverValidate validates it.
+  if (fieldConfig.siteScopedSource) {
+    return { transformedValue: trimmedValue };
+  }
+
   // Type-specific validation
   switch (fieldConfig.type) {
     case 'number':
