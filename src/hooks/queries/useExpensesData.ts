@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { supabaseQueryWithTimeout } from "@/lib/utils/supabaseQuery";
 import { withTimeout, wrapQueryFn, TIMEOUTS } from "@/lib/utils/timeout";
+import type { PayerSourceSplitRow } from "@/types/settlement.types";
 
 export type ExpenseGroup = "all" | "labor" | "building";
 export type ExpenseStatus = "all" | "cleared" | "pending";
@@ -16,7 +17,9 @@ export type ExpenseSourceType =
   | "tea_shop_settlement"
   | "subcontract_payment"
   | "material_purchase"
-  | "rental_settlement";
+  | "rental_settlement"
+  | "rental_advance"
+  | "task_work_payment";
 
 export interface ExpenseRow {
   id: string;
@@ -48,6 +51,9 @@ export interface ExpenseRow {
   source_id: string;
   created_at: string;
   is_deleted: boolean;
+  // Per-source payer breakdown (jsonb in v_all_expenses). For task-work wallet
+  // rows the view derives this from engineer_wallet_spend_allocations.
+  payer_source_split?: PayerSourceSplitRow[] | null;
   // Material-purchase rows only (surfaced by v_all_expenses, NULL otherwise).
   // Let the /site/expenses table describe what a "Material Purchase" row is —
   // material(s) + qty, own-site vs group/cluster, and direct vs inter-site split.

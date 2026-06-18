@@ -50,6 +50,13 @@ import {
   WarningAmber,
 } from "@mui/icons-material";
 import DataTable, { type MRT_ColumnDef } from "@/components/common/DataTable";
+import { useTaskWorkPackages } from "@/hooks/queries/useTaskWorkPackages";
+import {
+  consolidateTaskWorkRows,
+  isConsolidatedTaskWork,
+  TaskWorkExpenseDetail,
+  type TwPackageMeta,
+} from "@/components/expenses/taskWorkExpenseConsolidation";
 import RedirectConfirmDialog from "@/components/common/RedirectConfirmDialog";
 import ScopeChip from "@/components/common/ScopeChip";
 import { InspectPane } from "@/components/common/InspectPane";
@@ -98,10 +105,14 @@ interface ExpenseWithCategory extends Expense {
   payer_name?: string;
   subcontract_title?: string;
   settlement_reference?: string | null;
-  source_type?: "expense" | "settlement" | "misc_expense" | "tea_shop_settlement" | "subcontract_payment" | "material_purchase" | "rental_settlement";
+  source_type?: "expense" | "settlement" | "misc_expense" | "tea_shop_settlement" | "subcontract_payment" | "material_purchase" | "rental_settlement" | "rental_advance" | "task_work_payment";
   source_id?: string;
   expense_type?: string;
   recorded_date?: string;
+  // Per-source payer breakdown (jsonb from v_all_expenses); used to summarise
+  // consolidated task-work rows. (engineer_transaction_id / receipt_url are
+  // already inherited from Expense.)
+  payer_source_split?: any[] | null;
 }
 
 export default function ExpensesPage() {
@@ -446,6 +457,11 @@ function ExpensesPageV1() {
       setRentalPaneOrderId(expense.source_id || null);
       return;
     }
+    // Task-work payments are managed inside the Task Work module.
+    if (expense?.source_type === "task_work_payment") {
+      router.push(`/site/task-work`);
+      return;
+    }
 
     if (expense) {
       setEditingExpense(expense);
@@ -538,6 +554,13 @@ function ExpensesPageV1() {
     // Rental settlements can't be deleted from here
     if (expense.source_type === "rental_settlement") {
       alert("Rental settlement expenses cannot be deleted here. Please use the Rentals page to modify.");
+      return;
+    }
+
+    // Task-work payments are managed inside the Task Work module.
+    if (expense.source_type === "task_work_payment") {
+      alert("Task-work payments are managed in the Task Work module. Open the package to edit or remove a payment.");
+      router.push(`/site/task-work`);
       return;
     }
 
@@ -698,6 +721,31 @@ function ExpensesPageV1() {
     };
   }, [expenses, scopeSummary]);
 
+  // Look up task-work package metadata (maistry, title, status) to label the
+  // consolidated rows. Cheap — a site has few packages.
+  const { data: twPackages = [] } = useTaskWorkPackages(selectedSite?.id, "all");
+  const pkgByNumber = useMemo(() => {
+    const m = new Map<string, TwPackageMeta>();
+    for (const p of twPackages as any[]) {
+      m.set(p.package_number, {
+        package_number: p.package_number,
+        title: p.title,
+        maistry_name: p.maistry_name ?? null,
+        status: p.status ?? null,
+        parent_subcontract_title: p.parent_subcontract_title ?? null,
+      });
+    }
+    return m;
+  }, [twPackages]);
+
+  // Collapse the many per-payment task-work rows into one expandable row per
+  // package. Grand totals are unaffected (the summary card reads the server RPC
+  // / raw rows; this only changes what the table renders).
+  const displayRows = useMemo(
+    () => consolidateTaskWorkRows(expenses, pkgByNumber),
+    [expenses, pkgByNumber]
+  );
+
   const columns = useMemo<MRT_ColumnDef<ExpenseWithCategory>[]>(() => {
     const cols: MRT_ColumnDef<ExpenseWithCategory>[] = [
       // 1st column - Ref Code (pinned)
@@ -738,6 +786,9 @@ function ExpensesPageV1() {
                 } else if (ref.startsWith("SCP-") || sourceType === "subcontract_payment") {
                   // Navigate to subcontracts page for direct payments
                   router.push(`/site/subcontracts`);
+                } else if (ref.startsWith("TW-") || sourceType === "task_work_payment") {
+                  // Task-work payments — open the Task Work module
+                  router.push(`/site/task-work`);
                 } else {
                   // Settlement refs (DLY-, SS-, WS-) - open InspectPane in-place,
                   // no nav. Cross-page rule from spec section 6.
@@ -1279,13 +1330,25 @@ function ExpensesPageV1() {
       <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         <DataTable
           columns={columns}
-          data={expenses}
+          data={displayRows}
           isLoading={loading}
           enableColumnPinning
           showRecordCount
           initialState={{
             columnPinning: { left: ["settlement_reference", "date"] },
           }}
+          // Expand a consolidated task-work row to its individual payments +
+          // per-source breakdown. Only those rows get an expander.
+          renderDetailPanel={({ row }) =>
+            isConsolidatedTaskWork(row.original)
+              ? <TaskWorkExpenseDetail row={row.original as any} />
+              : null
+          }
+          muiExpandButtonProps={({ row }: any) => ({
+            sx: isConsolidatedTaskWork(row.original)
+              ? {}
+              : { visibility: "hidden", pointerEvents: "none" },
+          })}
         />
       </Box>
 
