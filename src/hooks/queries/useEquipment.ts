@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { wrapQueryFn } from "@/lib/utils/timeout";
+import { useSelectedCompany } from "@/contexts/CompanyContext";
 import type {
   Equipment,
   EquipmentWithDetails,
@@ -148,6 +149,25 @@ export function useEquipmentList(filters?: EquipmentFilterState) {
       const { data, error } = await query;
       if (error) throw error;
 
+      // Attach size variants to each top-level tool (so the list can group/expand
+      // sizes under one parent without showing them as standalone rows).
+      const parentIds = (data || []).map((e: EquipmentWithDetails) => e.id);
+      const variantsByParent: Record<string, EquipmentWithDetails[]> = {};
+      if (parentIds.length > 0) {
+        const { data: variantRows } = await supabase
+          .from("equipment")
+          .select("*")
+          .in("parent_equipment_id", parentIds)
+          .eq("parent_relationship", "variant")
+          .eq("is_active", true)
+          .order("equipment_code");
+        for (const v of (variantRows || []) as EquipmentWithDetails[]) {
+          const pid = v.parent_equipment_id as string;
+          if (!variantsByParent[pid]) variantsByParent[pid] = [];
+          variantsByParent[pid].push(v);
+        }
+      }
+
       // Calculate maintenance status for each equipment
       const now = new Date();
       const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -177,6 +197,7 @@ export function useEquipmentList(filters?: EquipmentFilterState) {
 
         return {
           ...equipment,
+          variants: variantsByParent[equipment.id] || [],
           maintenance_status,
           days_at_current_location,
         };
@@ -209,13 +230,20 @@ export function useEquipment(id: string | undefined) {
 
       if (error) throw error;
 
-      // Fetch accessories
-      const { data: accessories } = await supabase
+      // Fetch children (accessories + size variants) and partition them
+      const { data: children } = await supabase
         .from("equipment")
         .select("*")
         .eq("parent_equipment_id", id)
         .eq("is_active", true)
         .order("equipment_code");
+
+      const accessories = (children || []).filter(
+        (c: Equipment) => c.parent_relationship !== "variant"
+      );
+      const variants = (children || []).filter(
+        (c: Equipment) => c.parent_relationship === "variant"
+      );
 
       // Fetch SIM card if it's a camera with sim_id
       let sim_card = null;
@@ -253,7 +281,8 @@ export function useEquipment(id: string | undefined) {
 
       return {
         ...data,
-        accessories: accessories || [],
+        accessories,
+        variants,
         sim_card,
         memory_card,
         transfer_count: transfer_count || 0,
@@ -267,9 +296,12 @@ export function useEquipment(id: string | undefined) {
 export function useCreateEquipment() {
   const queryClient = useQueryClient();
   const supabase = createClient() as any;
+  const { selectedCompany } = useSelectedCompany();
 
   return useMutation({
     mutationFn: async (data: EquipmentFormData) => {
+      if (!selectedCompany?.id) throw new Error("No company selected");
+
       await ensureFreshSession();
 
       const { data: user } = await supabase.auth.getUser();
@@ -278,6 +310,7 @@ export function useCreateEquipment() {
         .from("equipment")
         .insert({
           ...data,
+          company_id: selectedCompany.id,
           created_by: user?.user?.id,
         } as never)
         .select()

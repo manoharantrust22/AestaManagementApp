@@ -18,7 +18,9 @@ import {
   Visibility as ViewIcon,
 } from "@mui/icons-material";
 import DataTable, { type MRT_ColumnDef } from "@/components/common/DataTable";
+import type { MRT_Row } from "material-react-table";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { formatCurrency } from "@/lib/formatters";
 import MaintenanceAlertBadge from "./MaintenanceAlertBadge";
 import type { EquipmentWithDetails } from "@/types/equipment.types";
 import {
@@ -75,17 +77,30 @@ export default function EquipmentList({
         accessorKey: "name",
         header: "Name",
         size: 200,
-        Cell: ({ row }) => (
-          <Box>
-            <Typography variant="body2">{row.original.name}</Typography>
-            {row.original.brand && (
-              <Typography variant="caption" color="text.secondary">
-                {row.original.brand}
-                {row.original.model_number && ` - ${row.original.model_number}`}
-              </Typography>
-            )}
-          </Box>
-        ),
+        Cell: ({ row }) => {
+          const variantCount = row.original.variants?.length || 0;
+          return (
+            <Box>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                <Typography variant="body2">{row.original.name}</Typography>
+                {variantCount > 0 && (
+                  <Chip
+                    label={`${variantCount} ${variantCount === 1 ? "size" : "sizes"}`}
+                    size="small"
+                    color="info"
+                    variant="outlined"
+                  />
+                )}
+              </Box>
+              {row.original.brand && (
+                <Typography variant="caption" color="text.secondary">
+                  {row.original.brand}
+                  {row.original.model_number && ` - ${row.original.model_number}`}
+                </Typography>
+              )}
+            </Box>
+          );
+        },
       },
       {
         accessorKey: "category.name",
@@ -246,6 +261,40 @@ export default function EquipmentList({
         data={equipment}
         isLoading={isLoading}
         enableRowSelection={false}
+        enableExpanding
+        renderDetailPanel={({ row }: { row: MRT_Row<EquipmentWithDetails> }) => {
+          const variants = row.original.variants || [];
+          if (variants.length === 0) return null;
+          return (
+            <Box sx={{ px: 2, py: 1.5, display: "flex", flexDirection: "column", gap: 0.75 }}>
+              <Typography variant="subtitle2" color="text.secondary">
+                Sizes
+              </Typography>
+              {variants.map((v) => (
+                <Box
+                  key={v.id}
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    maxWidth: 360,
+                  }}
+                >
+                  <Typography variant="body2">
+                    {v.variant_label || v.name}
+                  </Typography>
+                  <Typography variant="body2" fontWeight="medium">
+                    {v.purchase_cost != null ? formatCurrency(v.purchase_cost) : "—"}
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          );
+        }}
+        muiExpandButtonProps={({ row }: { row: MRT_Row<EquipmentWithDetails> }) => ({
+          sx: {
+            display: (row.original.variants?.length || 0) > 0 ? undefined : "none",
+          },
+        })}
         initialState={{
           columnVisibility: {
             condition: !isMobile,

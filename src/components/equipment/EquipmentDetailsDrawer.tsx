@@ -27,6 +27,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useEquipmentTransfers } from "@/hooks/queries/useEquipment";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import MaintenanceAlertBadge from "./MaintenanceAlertBadge";
+import EquipmentVariantPrices from "./EquipmentVariantPrices";
 import type { EquipmentWithDetails } from "@/types/equipment.types";
 import {
   EQUIPMENT_STATUS_LABELS,
@@ -48,6 +49,7 @@ interface EquipmentDetailsDrawerProps {
   onEdit?: (equipment: EquipmentWithDetails) => void;
   onTransfer?: (equipment: EquipmentWithDetails) => void;
   onMaintenance?: (equipment: EquipmentWithDetails) => void;
+  onAddVariant?: (parent: EquipmentWithDetails) => void;
 }
 
 export default function EquipmentDetailsDrawer({
@@ -57,9 +59,12 @@ export default function EquipmentDetailsDrawer({
   onEdit,
   onTransfer,
   onMaintenance,
+  onAddVariant,
 }: EquipmentDetailsDrawerProps) {
   const isMobile = useIsMobile();
   const { data: transfers = [] } = useEquipmentTransfers(equipment?.id);
+  // onEdit is only supplied to this drawer when the user has edit permission.
+  const canEdit = !!onEdit;
 
   if (!equipment) {
     return null;
@@ -352,6 +357,84 @@ export default function EquipmentDetailsDrawer({
               <InfoRow label="Brand" value={equipment.memory_card.brand} />
               <InfoRow label="Speed Class" value={equipment.memory_card.speed_class} />
             </Paper>
+          </>
+        )}
+
+        {/* Sizes / Variants */}
+        {((equipment?.variants && equipment.variants.length > 0) || onAddVariant) &&
+          equipment?.parent_relationship !== "variant" && (
+            <>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  mb: 1,
+                }}
+              >
+                <Typography variant="subtitle2">
+                  Sizes / Variants
+                  {equipment?.variants && equipment.variants.length > 0
+                    ? ` (${equipment.variants.length})`
+                    : ""}
+                </Typography>
+                {onAddVariant && (
+                  <Button size="small" onClick={() => onAddVariant(equipment)}>
+                    Add size
+                  </Button>
+                )}
+              </Box>
+              {equipment?.variants && equipment.variants.length > 0 ? (
+                <Paper variant="outlined" sx={{ mb: 2 }}>
+                  <List dense disablePadding>
+                    {equipment.variants.map((v) => (
+                      <ListItem key={v.id} divider>
+                        <ListItemText
+                          primary={
+                            <Box
+                              sx={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                              }}
+                            >
+                              <Typography variant="body2">
+                                {v.variant_label || v.name}
+                              </Typography>
+                              <Typography variant="body2" fontWeight="medium">
+                                {v.purchase_cost != null
+                                  ? formatCurrency(v.purchase_cost)
+                                  : "—"}
+                              </Typography>
+                            </Box>
+                          }
+                          secondary={v.equipment_code}
+                          primaryTypographyProps={{ component: "div" }}
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Paper>
+              ) : (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: "block", mb: 2 }}
+                >
+                  No sizes added yet.
+                </Typography>
+              )}
+            </>
+          )}
+
+        {/* Store Prices (per size / tool) — buy-side comparison */}
+        {equipment?.parent_relationship !== "variant" && (
+          <>
+            <Typography variant="subtitle2" gutterBottom>
+              Store Prices
+            </Typography>
+            <Box sx={{ mb: 2 }}>
+              <EquipmentVariantPrices equipment={equipment} canEdit={canEdit} />
+            </Box>
           </>
         )}
 

@@ -32,6 +32,11 @@ export type EquipmentLocationType = "warehouse" | "site";
 
 export type EquipmentPurchaseSource = "online" | "store" | "other";
 
+// How a parent_equipment_id child relates to its parent:
+//  - "accessory": a linked part (legacy use, e.g. a lens on a camera)
+//  - "variant":   a size of the parent tool (e.g. "10 ft" Matta Palagai)
+export type EquipmentParentRelationship = "accessory" | "variant";
+
 export type MaintenanceType = "routine" | "repair" | "overhaul";
 
 export type SimOperator = "airtel" | "jio" | "vi" | "bsnl" | "other";
@@ -199,8 +204,10 @@ export interface Equipment {
   brand: string | null;
   manufacturer: string | null;
 
-  // Accessory linking
+  // Accessory / variant linking (see parent_relationship)
   parent_equipment_id: string | null;
+  parent_relationship: EquipmentParentRelationship | null;
+  variant_label: string | null;
 
   // Additional specs
   specifications: Record<string, unknown>;
@@ -379,6 +386,7 @@ export interface EquipmentWithDetails extends Equipment {
   purchase_vendor?: { id: string; name: string } | null;
   parent_equipment?: { id: string; equipment_code: string; name: string } | null;
   accessories?: Equipment[];
+  variants?: Equipment[];
   sim_card?: SimCard | null;
   memory_card?: MemoryCard | null;
   transfer_count?: number;
@@ -451,8 +459,10 @@ export interface EquipmentFormData {
   brand?: string;
   manufacturer?: string;
 
-  // Accessory
+  // Accessory / variant
   parent_equipment_id?: string;
+  parent_relationship?: EquipmentParentRelationship;
+  variant_label?: string;
 
   // Additional specs
   specifications?: Record<string, unknown>;
@@ -465,6 +475,40 @@ export interface EquipmentFormData {
   maintenance_interval_days?: number;
 
   // Notes
+  notes?: string;
+}
+
+// ---- Per-store price comparison (buy-side quotes per tool/size) ----
+export interface EquipmentVendorPrice {
+  id: string;
+  company_id: string;
+  equipment_id: string;
+  vendor_id: string | null;
+  store_name: string | null;
+  price: number;
+  recorded_date: string;
+  bill_url: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}
+
+export interface EquipmentVendorPriceWithDetails extends EquipmentVendorPrice {
+  vendor?: { id: string; name: string } | null;
+  // The size this price is for (when grouping a parent tool's variants)
+  variant_label?: string | null;
+  equipment_name?: string | null;
+}
+
+export interface EquipmentVendorPriceFormData {
+  equipment_id: string;
+  vendor_id?: string;
+  store_name?: string;
+  price: number;
+  recorded_date?: string;
+  bill_url?: string;
   notes?: string;
 }
 

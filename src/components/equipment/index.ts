@@ -9,3 +9,5 @@ export { default as MaintenanceHistory } from "./MaintenanceHistory";
 export { default as MaintenanceAlertBadge } from "./MaintenanceAlertBadge";
 export { default as AccessoryList } from "./AccessoryList";
 export { default as EquipmentFilterBar } from "./EquipmentFilterBar";
+export { default as EquipmentVariantPrices } from "./EquipmentVariantPrices";
+export { default as EquipmentPriceDialog } from "./EquipmentPriceDialog";

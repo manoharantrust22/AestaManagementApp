@@ -55,6 +55,9 @@ interface EquipmentDialogProps {
   equipment: EquipmentWithDetails | null;
   defaultCategoryId?: string;
   defaultParentId?: string;
+  // When set (and not editing), opens the dialog pre-configured as a new size
+  // variant of this parent tool.
+  defaultVariantParentId?: string;
 }
 
 export default function EquipmentDialog({
@@ -63,6 +66,7 @@ export default function EquipmentDialog({
   equipment,
   defaultCategoryId,
   defaultParentId,
+  defaultVariantParentId,
 }: EquipmentDialogProps) {
   const isMobile = useIsMobile();
   const isEdit = !!equipment;
@@ -83,7 +87,8 @@ export default function EquipmentDialog({
     current_location_type: "warehouse" as EquipmentLocationType,
     warehouse_location: "Storeroom",
     purchase_source: "store" as EquipmentPurchaseSource,
-    parent_equipment_id: defaultParentId,
+    parent_equipment_id: defaultVariantParentId || defaultParentId,
+    parent_relationship: defaultVariantParentId ? "variant" : undefined,
   });
 
   // Camera-specific fields
@@ -118,6 +123,8 @@ export default function EquipmentDialog({
         brand: equipment.brand || undefined,
         manufacturer: equipment.manufacturer || undefined,
         parent_equipment_id: equipment.parent_equipment_id || undefined,
+        parent_relationship: equipment.parent_relationship || undefined,
+        variant_label: equipment.variant_label || undefined,
         photos: equipment.photos || [],
         primary_photo_url: equipment.primary_photo_url || undefined,
         maintenance_interval_days: equipment.maintenance_interval_days || undefined,
@@ -142,7 +149,8 @@ export default function EquipmentDialog({
         current_location_type: "warehouse",
         warehouse_location: "Storeroom",
         purchase_source: "store",
-        parent_equipment_id: defaultParentId,
+        parent_equipment_id: defaultVariantParentId || defaultParentId,
+        parent_relationship: defaultVariantParentId ? "variant" : undefined,
       });
       setCameraDetails({
         camera_model: "",
@@ -154,7 +162,7 @@ export default function EquipmentDialog({
       });
     }
     setError("");
-  }, [equipment, open, defaultCategoryId, defaultParentId]);
+  }, [equipment, open, defaultCategoryId, defaultParentId, defaultVariantParentId]);
 
   const handleChange = (field: keyof EquipmentFormData, value: unknown) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -171,8 +179,11 @@ export default function EquipmentDialog({
   const selectedCategory = categories.find((c) => c.id === formData.category_id);
   const isCameraCategory = selectedCategory?.code === "SURV";
   const isAccessoryCategory = selectedCategory?.code === "ACC";
+  const isVariant = formData.parent_relationship === "variant";
 
-  // Filter out current equipment and its accessories from parent options
+  // Filter out current equipment and its accessories from parent options.
+  // allEquipment is top-level only (include_accessories: false), so variant
+  // and accessory children are already excluded as parent candidates.
   const parentOptions = allEquipment.filter(
     (e) => e.id !== equipment?.id && e.category?.code !== "ACC"
   );
@@ -186,11 +197,31 @@ export default function EquipmentDialog({
       setError("Category is required");
       return;
     }
+    if (isVariant && !formData.parent_equipment_id) {
+      setError("Select the parent tool this size belongs to");
+      return;
+    }
 
     try {
       const submitData: EquipmentFormData & { camera_details?: unknown } = {
         ...formData,
       };
+
+      // Normalize the parent relationship discriminator.
+      if (isAccessoryCategory) {
+        // Accessory picker drives parent_equipment_id.
+        submitData.parent_relationship = formData.parent_equipment_id
+          ? "accessory"
+          : undefined;
+        submitData.variant_label = undefined;
+      } else if (isVariant && formData.parent_equipment_id) {
+        submitData.parent_relationship = "variant";
+      } else {
+        // Standalone item: clear any leftover linking fields.
+        submitData.parent_equipment_id = undefined;
+        submitData.parent_relationship = undefined;
+        submitData.variant_label = undefined;
+      }
 
       // Add camera details if surveillance category
       if (isCameraCategory) {
@@ -438,6 +469,76 @@ export default function EquipmentDialog({
                   slotProps={{ popper: { disablePortal: false } }}
                 />
               </Grid>
+            </>
+          )}
+
+          {/* Size variant linking (for tools that come in multiple sizes) */}
+          {!isAccessoryCategory && !isCameraCategory && (
+            <>
+              <Grid size={12}>
+                <Divider sx={{ my: 1 }} />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={isVariant}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          handleChange("parent_relationship", "variant");
+                        } else {
+                          setFormData((prev) => ({
+                            ...prev,
+                            parent_relationship: undefined,
+                            parent_equipment_id: undefined,
+                            variant_label: undefined,
+                          }));
+                        }
+                      }}
+                    />
+                  }
+                  label="This is a size variant of another tool"
+                />
+              </Grid>
+
+              {isVariant && (
+                <>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <Autocomplete
+                      options={parentOptions}
+                      getOptionLabel={(option) =>
+                        `${option.equipment_code} - ${option.name}`
+                      }
+                      value={
+                        parentOptions.find(
+                          (e) => e.id === formData.parent_equipment_id
+                        ) || null
+                      }
+                      onChange={(_, newValue) =>
+                        handleChange("parent_equipment_id", newValue?.id || undefined)
+                      }
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Parent Tool"
+                          placeholder="Select the tool this is a size of"
+                          required
+                        />
+                      )}
+                      slotProps={{ popper: { disablePortal: false } }}
+                    />
+                  </Grid>
+
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <TextField
+                      label="Size / Variant Label"
+                      value={formData.variant_label || ""}
+                      onChange={(e) => handleChange("variant_label", e.target.value)}
+                      fullWidth
+                      placeholder="e.g. 10 ft"
+                      helperText="The size; its cost is the Purchase Cost below"
+                    />
+                  </Grid>
+                </>
+              )}
             </>
           )}
 

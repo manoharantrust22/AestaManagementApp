@@ -79,6 +79,7 @@ export default function EquipmentPage() {
   const [filters, setFilters] = useState<EquipmentFilterState>({});
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEquipment, setEditingEquipment] = useState<EquipmentWithDetails | null>(null);
+  const [variantParentId, setVariantParentId] = useState<string | undefined>(undefined);
   const [viewingEquipment, setViewingEquipment] = useState<EquipmentWithDetails | null>(null);
   const [transferEquipment, setTransferEquipment] = useState<EquipmentWithDetails | null>(null);
   const [maintenanceEquipment, setMaintenanceEquipment] = useState<EquipmentWithDetails | null>(null);
@@ -139,12 +140,21 @@ export default function EquipmentPage() {
     } else {
       setEditingEquipment(null);
     }
+    setVariantParentId(undefined);
+    setDialogOpen(true);
+  }, []);
+
+  const handleAddVariant = useCallback((parent: EquipmentWithDetails) => {
+    setEditingEquipment(null);
+    setVariantParentId(parent.id);
+    setViewingEquipment(null);
     setDialogOpen(true);
   }, []);
 
   const handleCloseDialog = useCallback(() => {
     setDialogOpen(false);
     setEditingEquipment(null);
+    setVariantParentId(undefined);
   }, []);
 
   const handleView = useCallback((equipment: EquipmentWithDetails) => {
@@ -283,6 +293,7 @@ export default function EquipmentPage() {
         open={dialogOpen}
         onClose={handleCloseDialog}
         equipment={editingEquipment}
+        defaultVariantParentId={variantParentId}
       />
 
       {/* Equipment Details Drawer */}
@@ -293,6 +304,7 @@ export default function EquipmentPage() {
         onEdit={canEdit ? handleOpenDialog : undefined}
         onTransfer={canEdit ? handleTransfer : undefined}
         onMaintenance={canEdit ? handleMaintenance : undefined}
+        onAddVariant={canEdit ? handleAddVariant : undefined}
       />
 
       {/* Transfer Dialog */}
