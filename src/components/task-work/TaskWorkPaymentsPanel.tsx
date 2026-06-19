@@ -22,6 +22,7 @@ import {
 } from "@/hooks/queries/useTaskWorkPayments";
 import { formatPayerSource } from "@/lib/settlement/payerSource";
 import {
+  TASK_WORK_PAYMENT_MODE_LABEL,
   TASK_WORK_PAYMENT_TYPE_LABEL,
   type TaskWorkPackageWithMeta,
 } from "@/types/taskWork.types";
@@ -180,6 +181,8 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
                     </Box>
                   }
                   secondary={`${dayjs(p.payment_date).format("DD MMM YYYY")} · ${
+                    TASK_WORK_PAYMENT_MODE_LABEL[p.payment_mode] ?? "Cash"
+                  } · ${
                     p.payment_channel === "engineer_wallet"
                       ? "Engineer wallet"
                       : src.kind === "single"

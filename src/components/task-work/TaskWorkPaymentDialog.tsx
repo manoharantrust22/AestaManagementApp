@@ -97,6 +97,9 @@ export default function TaskWorkPaymentDialog({
   );
 
   const isUpi = paymentMode === "upi";
+  // Cash is handed over physically — no proof to attach. Every other mode (UPI,
+  // bank transfer, cheque, other) leaves a digital trail, so we offer the upload.
+  const isCash = paymentMode === "cash";
 
   const handleSubmit = async () => {
     if (!(amount > 0)) {
@@ -207,9 +210,13 @@ export default function TaskWorkPaymentDialog({
                 <Select
                   value={paymentMode}
                   label="Mode"
-                  onChange={(e) =>
-                    setPaymentMode(e.target.value as TaskWorkPaymentMode)
-                  }
+                  onChange={(e) => {
+                    const mode = e.target.value as TaskWorkPaymentMode;
+                    setPaymentMode(mode);
+                    // Cash has no screenshot — drop any proof captured for a
+                    // previously selected mode so it isn't submitted by mistake.
+                    if (mode === "cash") setScreenshot(null);
+                  }}
                 >
                   <MenuItem value="cash">Cash</MenuItem>
                   <MenuItem value="upi">UPI</MenuItem>
@@ -272,26 +279,29 @@ export default function TaskWorkPaymentDialog({
             </Paper>
           )}
 
-          {/* Payment proof — handy for UPI; optional for all modes. */}
-          <Box>
-            <ReceiptCapture
-              label={isUpi ? "UPI screenshot" : "Payment screenshot (optional)"}
-              value={screenshot}
-              onChange={setScreenshot}
-              folder="task-work-receipts"
-              bucket="settlement-proofs"
-            />
-            {isUpi && !screenshot && (
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ mt: 0.5, display: "block" }}
-              >
-                Attach the UPI payment screenshot — paste it straight from the
-                clipboard.
-              </Typography>
-            )}
-          </Box>
+          {/* Payment proof — required-feel for UPI, optional for other non-cash
+              modes. Cash is handed over physically, so no screenshot is offered. */}
+          {!isCash && (
+            <Box>
+              <ReceiptCapture
+                label={isUpi ? "UPI screenshot" : "Payment screenshot (optional)"}
+                value={screenshot}
+                onChange={setScreenshot}
+                folder="task-work-receipts"
+                bucket="settlement-proofs"
+              />
+              {isUpi && !screenshot && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ mt: 0.5, display: "block" }}
+                >
+                  Attach the UPI payment screenshot — paste it straight from the
+                  clipboard.
+                </Typography>
+              )}
+            </Box>
+          )}
 
           <TextField
             fullWidth
