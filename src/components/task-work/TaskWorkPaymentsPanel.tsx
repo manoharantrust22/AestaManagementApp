@@ -14,7 +14,12 @@ import {
   Paper,
   Typography,
 } from "@mui/material";
-import { Add, Delete, ReceiptLong } from "@mui/icons-material";
+import { Add, CheckCircle, Delete, OpenInNew, ReceiptLong } from "@mui/icons-material";
+import { useRouter } from "next/navigation";
+import {
+  taskPaymentLineNumbers,
+  formatTaskPaymentRef,
+} from "@/lib/taskWork/paymentRef";
 import dayjs from "dayjs";
 import {
   useTaskWorkPayments,
@@ -38,6 +43,18 @@ const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
   const { data: payments = [], isLoading } = useTaskWorkPayments(pkg.id);
   const deleteMut = useDeleteTaskWorkPayment();
+  const router = useRouter();
+  const lineNumbers = useMemo(
+    () =>
+      taskPaymentLineNumbers(
+        payments.map((p) => ({
+          id: p.id,
+          payment_date: p.payment_date,
+          created_at: p.created_at,
+        }))
+      ),
+    [payments]
+  );
   const [dialogOpen, setDialogOpen] = useState(false);
   const [defaultType, setDefaultType] = useState<"advance" | "final_settlement">(
     "advance"
@@ -83,6 +100,24 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
             </Typography>
           </Grid>
         </Grid>
+        {payments.length > 0 && (
+          <Box sx={{ mt: 1 }}>
+            <Button
+              size="small"
+              color="success"
+              startIcon={<CheckCircle />}
+              endIcon={<OpenInNew />}
+              sx={{ textTransform: "none" }}
+              onClick={() =>
+                router.push(
+                  `/site/expenses?ref=${encodeURIComponent(pkg.package_number)}`
+                )
+              }
+            >
+              On record in Site Expenses · {pkg.package_number}
+            </Button>
+          </Box>
+        )}
       </Paper>
 
       {canEdit && (
@@ -178,6 +213,17 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
                         variant="outlined"
                         label={TASK_WORK_PAYMENT_TYPE_LABEL[p.payment_type]}
                       />
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        component="span"
+                        sx={{ fontFamily: "monospace" }}
+                      >
+                        {formatTaskPaymentRef(
+                          pkg.package_number,
+                          lineNumbers.get(p.id) ?? 0
+                        )}
+                      </Typography>
                     </Box>
                   }
                   secondary={`${dayjs(p.payment_date).format("DD MMM YYYY")} · ${
