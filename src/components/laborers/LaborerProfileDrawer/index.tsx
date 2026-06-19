@@ -23,10 +23,13 @@ import {
 } from "@/hooks/queries/useLaborerProfileSummary";
 import type { LaborerWithDetails } from "@/lib/data/laborers";
 import type { Tables } from "@/types/database.types";
+import type { LaborSpecialty } from "@/hooks/queries/useLaborSpecialties";
 import HeroStats from "./HeroStats";
 import RateAndAdvances from "./RateAndAdvances";
 import TeamAndMesthri from "./TeamAndMesthri";
 import RecentAttendance from "./RecentAttendance";
+import WorkHistory from "./WorkHistory";
+import MesthriCommissionCollected from "./MesthriCommissionCollected";
 import ActiveSubcontracts from "./ActiveSubcontracts";
 import PersonalDetails from "./PersonalDetails";
 
@@ -38,6 +41,7 @@ interface LaborerProfileDrawerProps {
   laborer: LaborerWithDetails | null;
   teams: Team[];
   categories?: LaborCategory[];
+  specialties?: LaborSpecialty[];
   canEdit: boolean;
   onClose: () => void;
   onEdit: (laborer: LaborerWithDetails) => void;
@@ -59,6 +63,7 @@ export default function LaborerProfileDrawer({
   laborer,
   teams,
   categories = [],
+  specialties = [],
   canEdit,
   onClose,
   onEdit,
@@ -72,6 +77,19 @@ export default function LaborerProfileDrawer({
     isError,
     error,
   } = useLaborerProfileSummary(laborer?.id ?? null, monthStart);
+
+  // A laborer is a mesthri if they lead a team (canonical FK or legacy name).
+  const isMesthri = Boolean(
+    laborer &&
+      teams.some(
+        (t) =>
+          (t as Team & { leader_laborer_id?: string | null })
+            .leader_laborer_id === laborer.id ||
+          (t.leader_name &&
+            t.leader_name.trim().toLowerCase() ===
+              laborer.name.trim().toLowerCase())
+      )
+  );
 
   return (
     <Drawer
@@ -170,6 +188,21 @@ export default function LaborerProfileDrawer({
                           />
                         );
                       })}
+                    {/* Specialties (fine-grained skills) */}
+                    {(laborer.specialty_ids ?? []).map((sid) => {
+                      const sp = specialties.find((s) => s.id === sid);
+                      if (!sp) return null;
+                      return (
+                        <Chip
+                          key={sid}
+                          size="small"
+                          variant="outlined"
+                          color="info"
+                          label={sp.name}
+                          sx={{ height: 20 }}
+                        />
+                      );
+                    })}
                     <Chip
                       size="small"
                       color={laborer.status === "active" ? "success" : "default"}
@@ -247,6 +280,10 @@ export default function LaborerProfileDrawer({
             <Stack spacing={2.5} divider={<Divider flexItem />}>
               <RateAndAdvances laborer={laborer} />
               <TeamAndMesthri laborer={laborer} teams={teams} />
+              <WorkHistory laborerId={laborer.id} />
+              {isMesthri && (
+                <MesthriCommissionCollected laborerId={laborer.id} />
+              )}
               <RecentAttendance
                 recent={summary?.recent14Days ?? []}
                 isLoading={isLoading}

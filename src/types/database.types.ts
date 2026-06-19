@@ -4375,6 +4375,7 @@ export type Database = {
           alternate_phone: string | null
           associated_team_id: string | null
           category_id: string
+          commission_per_day: number
           company_id: string
           created_at: string
           daily_rate: number
@@ -4406,6 +4407,7 @@ export type Database = {
           alternate_phone?: string | null
           associated_team_id?: string | null
           category_id: string
+          commission_per_day?: number
           company_id: string
           created_at?: string
           daily_rate?: number
@@ -4437,6 +4439,7 @@ export type Database = {
           alternate_phone?: string | null
           associated_team_id?: string | null
           category_id?: string
+          commission_per_day?: number
           company_id?: string
           created_at?: string
           daily_rate?: number
