@@ -20,6 +20,10 @@ import {
 } from "@mui/icons-material";
 import dayjs from "dayjs";
 import { formatPayerSource } from "@/lib/settlement/payerSource";
+import {
+  taskPaymentLineNumbers,
+  formatTaskPaymentRef,
+} from "@/lib/taskWork/paymentRef";
 import type { PayerSourceSplitRow } from "@/types/settlement.types";
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
@@ -170,7 +174,9 @@ export function consolidateTaskWorkRows<T extends TwExpenseRowLike>(
       amount: total,
       date: latestDate,
       recorded_date: latestRec,
-      description: `Task Work — ${maistry ? maistry + " — " : ""}${title}`,
+      // Title-led so the row is instantly recognisable as the task; the maistry
+      // moves to vendor_name and the "Task Work" expense_type chip carries the type.
+      description: title,
       vendor_name: maistry,
       payer_name: breakdownSummary(children),
       payer_source_split: null,
@@ -196,6 +202,14 @@ export function consolidateTaskWorkRows<T extends TwExpenseRowLike>(
 /** Expandable detail for a consolidated task-work row: the per-source breakdown + each payment. */
 export function TaskWorkExpenseDetail({ row }: { row: TwExpenseRowLike }) {
   const children = row.__taskChildren ?? [];
+  const lineNumbers = taskPaymentLineNumbers(
+    children.map((c) => ({
+      id: c.source_id ?? c.id,
+      payment_date: c.date,
+      created_at: c.created_at ?? null,
+    }))
+  );
+  const pkgNumber = row.settlement_reference ?? "";
   const breakdown = aggregatePayerBreakdown(children);
 
   return (
@@ -232,6 +246,7 @@ export function TaskWorkExpenseDetail({ row }: { row: TwExpenseRowLike }) {
       <Table size="small">
         <TableHead>
           <TableRow>
+            <TableCell>Ref</TableCell>
             <TableCell>Date</TableCell>
             <TableCell>Type</TableCell>
             <TableCell align="right">Amount</TableCell>
@@ -250,6 +265,11 @@ export function TaskWorkExpenseDetail({ row }: { row: TwExpenseRowLike }) {
             });
             return (
               <TableRow key={c.id}>
+                <TableCell sx={{ whiteSpace: "nowrap", fontFamily: "monospace" }}>
+                  {pkgNumber
+                    ? formatTaskPaymentRef(pkgNumber, lineNumbers.get(c.source_id ?? c.id) ?? 0)
+                    : "—"}
+                </TableCell>
                 <TableCell>{dayjs(c.date).format("DD MMM YYYY")}</TableCell>
                 <TableCell sx={{ textTransform: "capitalize" }}>
                   {paymentTypeLabel(c.description)}

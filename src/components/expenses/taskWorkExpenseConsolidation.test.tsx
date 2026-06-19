@@ -86,8 +86,7 @@ describe("consolidateTaskWorkRows", () => {
     expect(consol.amount).toBe(7250); // 4000 + 2250 + 1000
     expect(consol.source_id).toBe(`tw:${REF}`);
     expect(consol.vendor_name).toBe("Varun");
-    expect(consol.description).toContain("Varun");
-    expect(consol.description).toContain("House Interior plastering");
+    expect(consol.description).toBe("House Interior plastering");
     expect(consol.__taskChildren).toHaveLength(3);
     expect(consol.date).toBe("2026-06-14"); // latest payment date
 
