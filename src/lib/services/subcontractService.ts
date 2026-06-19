@@ -1,4 +1,10 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import type {
+  PayerSourceInput,
+  PayerSourceSplitRow,
+} from "@/types/settlement.types";
+import { validatePayerSourceInput, toRpcArgs } from "@/lib/settlement/payerSource";
+import { recordSpend, cancelTransaction } from "./engineerWalletV2";
 
 export interface SubcontractTotals {
   subcontractId: string;
@@ -186,4 +192,172 @@ export async function getAllSubcontractTotals(
   const ids = subcontracts.map((s: { id: string }) => s.id);
   const totalsMap = await calculateSubcontractTotals(supabase, ids);
   return Array.from(totalsMap.values());
+}
+
+// ---------------------------------------------------------------------------
+// Record a subcontract payment (Phase 2: parity with Task Work / settlements)
+// ---------------------------------------------------------------------------
+
+export type SubcontractPaymentChannel = "direct" | "engineer_wallet";
+
+export interface RecordSubcontractPaymentConfig {
+  contractId: string;
+  siteId: string;
+  contractTitle: string;
+  paymentType: string; // contract_payment_type
+  amount: number;
+  paymentDate: string;
+  paymentMode: "cash" | "upi" | "bank_transfer" | "cheque" | "other";
+  paymentChannel: SubcontractPaymentChannel;
+  /** Required for the `direct` channel — whose money paid this. */
+  payer?: PayerSourceInput | null;
+  /** Required for the `engineer_wallet` channel — which engineer paid. */
+  engineerId?: string | null;
+  /** Screenshot/receipt proof (esp. for UPI). */
+  proofUrl?: string | null;
+  notes?: string | null;
+  balanceAfterPayment?: number | null;
+  userId: string;
+  userName: string;
+}
+
+export interface RecordSubcontractPaymentResult {
+  success: boolean;
+  id?: string;
+  engineerTransactionId?: string;
+  error?: string;
+}
+
+/**
+ * Record a weekly-advance / part-payment / milestone / final-settlement against a
+ * subcontract. Mirrors taskWorkService.createTaskWorkPayment:
+ *
+ *  - Validates the payer source BEFORE any wallet debit (direct channel).
+ *  - engineer_wallet channel debits the wallet FIRST (atomic RPC, WLT01 on
+ *    insufficient balance); on a later insert failure the orphan spend is
+ *    soft-cancelled so the ledger never shows a phantom debit.
+ *  - Stores the wallet txn id in `site_engineer_transaction_id` (subcontract_payments'
+ *    existing column). Direct payments keep payer_source / payer_name / payer_source_split.
+ */
+export async function recordSubcontractPayment(
+  supabase: SupabaseClient,
+  config: RecordSubcontractPaymentConfig
+): Promise<RecordSubcontractPaymentResult> {
+  let engineerTransactionId: string | null = null;
+  try {
+    if (!(config.amount > 0)) {
+      return { success: false, error: "Amount must be greater than zero." };
+    }
+
+    // Validate payer source for the direct channel up front.
+    let payerRpc: ReturnType<typeof toRpcArgs> | null = null;
+    if (config.paymentChannel === "direct") {
+      if (!config.payer) {
+        return { success: false, error: "Choose the payment source." };
+      }
+      const check = validatePayerSourceInput(config.payer, config.amount);
+      if (!check.ok) {
+        return { success: false, error: `Invalid payment source: ${check.reason}` };
+      }
+      payerRpc = toRpcArgs(config.payer);
+    }
+
+    // Engineer-wallet channel: debit the wallet first (cheque not supported by
+    // the wallet ledger — coerce to cash).
+    if (config.paymentChannel === "engineer_wallet") {
+      if (!config.engineerId) {
+        return {
+          success: false,
+          error: "Select which engineer paid from their wallet.",
+        };
+      }
+      const walletMode =
+        config.paymentMode === "upi"
+          ? "upi"
+          : config.paymentMode === "bank_transfer"
+          ? "bank_transfer"
+          : "cash";
+      const spend = await recordSpend(supabase, {
+        engineer_id: config.engineerId,
+        site_id: config.siteId,
+        amount: config.amount,
+        transaction_date: config.paymentDate,
+        payment_mode: walletMode,
+        proof_url: config.proofUrl ?? null,
+        notes: config.notes ?? null,
+        recorded_by: config.userName,
+        recorded_by_user_id: config.userId,
+        description: `Contract ${config.contractTitle} (${config.paymentType.replace(
+          /_/g,
+          " "
+        )})`,
+      });
+      engineerTransactionId = spend.id;
+    }
+
+    const row = {
+      // Column is contract_id (NOT subcontract_id) on subcontract_payments.
+      contract_id: config.contractId,
+      payment_type: config.paymentType,
+      amount: config.amount,
+      payment_date: config.paymentDate,
+      payment_mode: config.paymentMode,
+      payment_channel: config.paymentChannel,
+      payer_source: engineerTransactionId ? null : payerRpc?.p_payer_source ?? null,
+      payer_name: engineerTransactionId ? null : payerRpc?.p_payer_name ?? null,
+      payer_source_split: engineerTransactionId
+        ? null
+        : (payerRpc?.p_payer_source_split as PayerSourceSplitRow[] | null) ?? null,
+      site_engineer_transaction_id: engineerTransactionId,
+      receipt_url: config.proofUrl ?? null,
+      balance_after_payment: config.balanceAfterPayment ?? null,
+      // Column is comments (NOT notes) on subcontract_payments.
+      comments: config.notes ?? null,
+      paid_by: config.userId,
+      paid_by_user_id: config.userId,
+      recorded_by: config.userName,
+      recorded_by_user_id: config.userId,
+    };
+
+    const { data, error } = await (
+      supabase.from("subcontract_payments") as any
+    )
+      .insert(row)
+      .select("id")
+      .single();
+
+    if (error) {
+      // Insert failed after a possible wallet debit — soft-cancel the spend so we
+      // don't strand a phantom debit (cancelTransaction, not reverse_*, because the
+      // spend has no linked allocation yet).
+      if (engineerTransactionId) {
+        try {
+          await cancelTransaction(supabase, {
+            id: engineerTransactionId,
+            reason: "Auto-reversed: subcontract payment insert failed",
+            cancelled_by: config.userName,
+            cancelled_by_user_id: config.userId,
+          });
+        } catch (reverseErr) {
+          console.error(
+            "Failed to cancel orphan wallet spend after subcontract payment insert failure:",
+            reverseErr
+          );
+        }
+      }
+      throw error;
+    }
+
+    return {
+      success: true,
+      id: data?.id,
+      engineerTransactionId: engineerTransactionId || undefined,
+    };
+  } catch (error: any) {
+    console.error("Error recording subcontract payment:", error);
+    return {
+      success: false,
+      error: error?.message || "Failed to record the payment.",
+    };
+  }
 }

@@ -30,6 +30,7 @@ import {
   ToggleButton,
   Paper,
   Tooltip,
+  Autocomplete,
 } from "@mui/material";
 import {
   Add,
@@ -39,6 +40,7 @@ import {
   Payment as PaymentIcon,
   Calculate as CalculateIcon,
   AttachMoney as MoneyIcon,
+  AccountBalanceWallet as WalletIcon,
 } from "@mui/icons-material";
 import DataTable, { type MRT_ColumnDef } from "@/components/common/DataTable";
 import { createClient } from "@/lib/supabase/client";
@@ -46,7 +48,18 @@ import { useAuth } from "@/contexts/AuthContext";
 import PageHeader from "@/components/layout/PageHeader";
 import { hasEditPermission } from "@/lib/permissions";
 import type { Database } from "@/types/database.types";
-import { calculateSubcontractTotals } from "@/lib/services/subcontractService";
+import {
+  calculateSubcontractTotals,
+  recordSubcontractPayment,
+  type SubcontractPaymentChannel,
+} from "@/lib/services/subcontractService";
+import SpecialistLaborerPicker from "@/components/contracts/SpecialistLaborerPicker";
+import {
+  ReceiptCapture,
+  type ReceiptCaptureValue,
+} from "@/components/common/ReceiptCapture";
+import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import type { PayerSource, PayerSourceInput } from "@/types/settlement.types";
 import dayjs from "dayjs";
 
 type Subcontract = Database["public"]["Tables"]["subcontracts"]["Row"];
@@ -60,10 +73,16 @@ interface SubcontractWithDetails extends Subcontract {
   team_name?: string;
   laborer_name?: string;
   site_name?: string;
+  trade_name?: string | null;
   total_paid?: number;
   balance_due?: number;
   completion_percentage?: number;
   record_count?: number;
+}
+
+interface TradeCategoryOption {
+  id: string;
+  name: string;
 }
 
 export default function CompanyContractsPage() {
@@ -74,6 +93,9 @@ export default function CompanyContractsPage() {
   const [teams, setTeams] = useState<any[]>([]);
   const [laborers, setLaborers] = useState<any[]>([]);
   const [sites, setSites] = useState<any[]>([]);
+  const [tradeCategories, setTradeCategories] = useState<TradeCategoryOption[]>(
+    []
+  );
   const [optionsLoaded, setOptionsLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -93,6 +115,7 @@ export default function CompanyContractsPage() {
     contract_type: "mesthri" as ContractType,
     team_id: "",
     laborer_id: "",
+    trade_category_id: "", // Optional: enables Trades/attendance tracking. "" = payments-only.
     title: "",
     description: "",
     scope_of_work: "",
@@ -115,13 +138,25 @@ export default function CompanyContractsPage() {
     payment_mode: "cash" as PaymentMode,
     notes: "",
   });
+  // Payment parity (Phase 2): channel + payer source (direct) + proof screenshot.
+  const [paymentChannel, setPaymentChannel] =
+    useState<SubcontractPaymentChannel>("direct");
+  const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
+  const [payerName, setPayerName] = useState("");
+  const [paymentProof, setPaymentProof] = useState<ReceiptCaptureValue | null>(
+    null
+  );
+
+  // Only a site engineer can pay from their OWN wallet. Admin/office record
+  // company-direct payments, so the wallet channel is hidden for them.
+  const isSiteEngineer = userProfile?.role === "site_engineer";
 
   const canEdit = hasEditPermission(userProfile?.role);
 
   // Fetch options
   useEffect(() => {
     const fetchOptions = async () => {
-      const [teamsRes, laborersRes, sitesRes] = await Promise.all([
+      const [teamsRes, laborersRes, sitesRes, tradesRes] = await Promise.all([
         supabase
           .from("teams")
           .select("id, name")
@@ -129,7 +164,7 @@ export default function CompanyContractsPage() {
           .order("name"),
         supabase
           .from("laborers")
-          .select("id, name")
+          .select("id, name, labor_categories(name), role:labor_roles(name)")
           .eq("status", "active")
           .order("name"),
         supabase
@@ -137,10 +172,24 @@ export default function CompanyContractsPage() {
           .select("id, name")
           .eq("status", "active")
           .order("name"),
+        supabase
+          .from("labor_categories")
+          .select("id, name")
+          .eq("is_active", true)
+          .order("name"),
       ]);
 
+      setTradeCategories(
+        ((tradesRes.data as TradeCategoryOption[] | null) || []).filter(Boolean)
+      );
       setTeams(teamsRes.data || []);
-      setLaborers(laborersRes.data || []);
+      setLaborers(
+        (laborersRes.data || []).map((l: any) => ({
+          ...l,
+          category_name: l.labor_categories?.name || "Unknown",
+          role_name: l.role?.name || "",
+        }))
+      );
       setSites(sitesRes.data || []);
       setOptionsLoaded(true);
     };
@@ -182,12 +231,16 @@ export default function CompanyContractsPage() {
           const team = teams.find((t) => t.id === subcontract.team_id);
           const laborer = laborers.find((l) => l.id === subcontract.laborer_id);
           const site = sites.find((s) => s.id === subcontract.site_id);
+          const trade = tradeCategories.find(
+            (tc) => tc.id === subcontract.trade_category_id
+          );
 
           return {
             ...subcontract,
             team_name: team?.name,
             laborer_name: laborer?.name,
             site_name: site?.name,
+            trade_name: trade?.name ?? null,
             total_paid: totals?.totalPaid || 0,
             balance_due: totals?.balance || subcontract.total_value || 0,
             completion_percentage:
@@ -237,6 +290,7 @@ export default function CompanyContractsPage() {
         contract_type: subcontract.contract_type,
         team_id: subcontract.team_id || "",
         laborer_id: subcontract.laborer_id || "",
+        trade_category_id: subcontract.trade_category_id || "",
         title: subcontract.title,
         description: subcontract.description || "",
         scope_of_work: subcontract.scope_of_work || "",
@@ -257,6 +311,7 @@ export default function CompanyContractsPage() {
         contract_type: "mesthri",
         team_id: "",
         laborer_id: "",
+        trade_category_id: "",
         title: "",
         description: "",
         scope_of_work: "",
@@ -299,12 +354,43 @@ export default function CompanyContractsPage() {
 
     setLoading(true);
     try {
-      const subcontractData = {
+      // Duplicate guard (create only): warn — but don't block — if this contractor
+      // already has an open contract on this site, so the same job isn't entered twice.
+      if (!editingSubcontract) {
+        const contractorCol =
+          form.contract_type === "mesthri" ? "team_id" : "laborer_id";
+        const contractorVal =
+          form.contract_type === "mesthri" ? form.team_id : form.laborer_id;
+        if (contractorVal) {
+          const { data: existing } = await supabase
+            .from("subcontracts")
+            .select("title, status")
+            .eq("site_id", form.site_id)
+            .eq(contractorCol, contractorVal)
+            .in("status", ["draft", "active", "on_hold"]);
+          if (existing && existing.length > 0) {
+            const list = (existing as { title: string; status: string }[])
+              .map((d) => `• ${d.title} (${d.status})`)
+              .join("\n");
+            const proceed = window.confirm(
+              `This contractor already has ${existing.length} open contract(s) on this site:\n\n${list}\n\nCreate another one anyway?`
+            );
+            if (!proceed) {
+              setLoading(false);
+              return;
+            }
+          }
+        }
+      }
+
+      const tradeId = form.trade_category_id || null;
+      const subcontractData: Record<string, unknown> = {
         site_id: form.site_id,
         contract_type: form.contract_type,
         team_id: form.contract_type === "mesthri" ? form.team_id : null,
         laborer_id:
           form.contract_type === "specialist" ? form.laborer_id : null,
+        trade_category_id: tradeId,
         title: form.title,
         description: form.description || null,
         scope_of_work: form.scope_of_work || null,
@@ -318,6 +404,13 @@ export default function CompanyContractsPage() {
         expected_end_date: form.expected_end_date || null,
         status: form.status,
       };
+
+      // When a trade is attached and the contract has no tracking mode yet, default to
+      // payments-only ('mesthri_only') so it appears in the Trades workspace without
+      // forcing attendance. Never clobber an existing mode on edit.
+      if (tradeId && !editingSubcontract?.labor_tracking_mode) {
+        subcontractData.labor_tracking_mode = "mesthri_only";
+      }
 
       if (editingSubcontract) {
         const { error } = await (supabase.from("subcontracts") as any)
@@ -376,6 +469,10 @@ export default function CompanyContractsPage() {
       payment_mode: "cash",
       notes: "",
     });
+    setPaymentChannel("direct");
+    setPayerSource("own_money");
+    setPayerName("");
+    setPaymentProof(null);
     setPaymentDialogOpen(true);
   };
 
@@ -392,23 +489,37 @@ export default function CompanyContractsPage() {
       return;
     }
 
+    if (paymentChannel === "engineer_wallet" && !selectedSubcontract.site_id) {
+      setError("This contract has no site, so it can't be paid from a wallet.");
+      return;
+    }
+
     setLoading(true);
     try {
-      const { error } = await (
-        supabase.from("subcontract_payments") as any
-      ).insert({
-        // Column is contract_id (NOT subcontract_id) on subcontract_payments.
-        contract_id: selectedSubcontract.id,
-        payment_type: paymentForm.payment_type,
+      const payer: PayerSourceInput | null =
+        paymentChannel === "direct"
+          ? { mode: "single", source: payerSource, name: payerName }
+          : null;
+
+      const res = await recordSubcontractPayment(supabase, {
+        contractId: selectedSubcontract.id,
+        siteId: selectedSubcontract.site_id || "",
+        contractTitle: selectedSubcontract.title,
+        paymentType: paymentForm.payment_type,
         amount: paymentForm.amount,
-        payment_date: paymentForm.payment_date,
-        payment_mode: paymentForm.payment_mode,
-        paid_by: userProfile.id,
-        // Column is comments (NOT notes) on subcontract_payments.
-        comments: paymentForm.notes || null,
+        paymentDate: paymentForm.payment_date,
+        paymentMode: paymentForm.payment_mode,
+        paymentChannel,
+        payer,
+        engineerId:
+          paymentChannel === "engineer_wallet" ? userProfile.id : null,
+        proofUrl: paymentProof?.url ?? null,
+        notes: paymentForm.notes || null,
+        userId: userProfile.id,
+        userName: userProfile.name || "",
       });
 
-      if (error) throw error;
+      if (!res.success) throw new Error(res.error || "Failed to record payment");
 
       // Update subcontract status if fully paid
       const newTotalPaid =
@@ -459,6 +570,29 @@ export default function CompanyContractsPage() {
                 ? row.original.contractor_name
                 : row.original.laborer_name}
             </Typography>
+            <Box sx={{ mt: 0.5 }}>
+              {row.original.trade_name ? (
+                <Chip
+                  label={row.original.trade_name}
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                  sx={{ height: 18, fontSize: "0.65rem" }}
+                />
+              ) : (
+                <Chip
+                  label="No trade"
+                  size="small"
+                  variant="outlined"
+                  sx={{
+                    height: 18,
+                    fontSize: "0.65rem",
+                    color: "text.disabled",
+                    borderColor: "divider",
+                  }}
+                />
+              )}
+            </Box>
           </Box>
         ),
       },
@@ -808,25 +942,37 @@ export default function CompanyContractsPage() {
                     </Select>
                   </FormControl>
                 ) : (
-                  <FormControl fullWidth required>
-                    <InputLabel>Laborer</InputLabel>
-                    <Select
-                      value={form.laborer_id}
-                      onChange={(e) =>
-                        setForm({ ...form, laborer_id: e.target.value })
-                      }
-                      label="Laborer"
-                    >
-                      {laborers.map((laborer) => (
-                        <MenuItem key={laborer.id} value={laborer.id}>
-                          {laborer.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                  <SpecialistLaborerPicker
+                    laborers={laborers}
+                    value={form.laborer_id}
+                    onChange={(id) => setForm({ ...form, laborer_id: id })}
+                    required
+                  />
                 )}
               </Grid>
             </Grid>
+
+            <Autocomplete
+              options={tradeCategories}
+              getOptionLabel={(o) => o.name}
+              isOptionEqualToValue={(o, v) => o.id === v.id}
+              value={
+                tradeCategories.find(
+                  (tc) => tc.id === form.trade_category_id
+                ) ?? null
+              }
+              onChange={(_e, value) =>
+                setForm({ ...form, trade_category_id: value?.id ?? "" })
+              }
+              slotProps={{ popper: { disablePortal: false } }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Trade (optional — enables attendance tracking)"
+                  helperText="Leave blank for a payments-only contract. Pick a trade to track it in the Trades workspace / attendance — you can add this anytime."
+                />
+              )}
+            />
 
             <TextField
               fullWidth
@@ -1257,6 +1403,28 @@ export default function CompanyContractsPage() {
                 </Typography>
               </Alert>
 
+              {isSiteEngineer && (
+                <ToggleButtonGroup
+                  value={paymentChannel}
+                  exclusive
+                  fullWidth
+                  size="small"
+                  onChange={(_e, v: SubcontractPaymentChannel | null) =>
+                    v && setPaymentChannel(v)
+                  }
+                >
+                  <ToggleButton value="direct" sx={{ textTransform: "none" }}>
+                    Company paid (direct)
+                  </ToggleButton>
+                  <ToggleButton
+                    value="engineer_wallet"
+                    sx={{ textTransform: "none" }}
+                  >
+                    <WalletIcon sx={{ mr: 0.5, fontSize: 18 }} /> From my wallet
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              )}
+
               <FormControl fullWidth>
                 <InputLabel>Payment Type</InputLabel>
                 <Select
@@ -1324,6 +1492,39 @@ export default function CompanyContractsPage() {
                   <MenuItem value="cheque">Cheque</MenuItem>
                 </Select>
               </FormControl>
+
+              {paymentChannel === "direct" ? (
+                <PayerSourceSelector
+                  value={payerSource}
+                  customName={payerName}
+                  onChange={setPayerSource}
+                  onCustomNameChange={setPayerName}
+                  siteId={selectedSubcontract.site_id || undefined}
+                />
+              ) : (
+                <Paper
+                  variant="outlined"
+                  sx={{ p: 1.5, display: "flex", gap: 1, alignItems: "center" }}
+                >
+                  <WalletIcon color="primary" />
+                  <Typography variant="body2" color="text.secondary">
+                    Paid from {userProfile?.name || "your"} wallet — the amount is
+                    deducted from the engineer wallet balance.
+                  </Typography>
+                </Paper>
+              )}
+
+              <ReceiptCapture
+                label={
+                  paymentForm.payment_mode === "upi"
+                    ? "UPI screenshot"
+                    : "Payment screenshot (optional)"
+                }
+                value={paymentProof}
+                onChange={setPaymentProof}
+                folder="subcontract-receipts"
+                bucket="settlement-proofs"
+              />
 
               <TextField
                 fullWidth

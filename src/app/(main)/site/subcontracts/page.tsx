@@ -49,6 +49,7 @@ import { useSite } from "@/contexts/SiteContext";
 import PageHeader from "@/components/layout/PageHeader";
 import { hasEditPermission } from "@/lib/permissions";
 import SubcontractPaymentBreakdown from "@/components/subcontracts/SubcontractPaymentBreakdown";
+import SpecialistLaborerPicker from "@/components/contracts/SpecialistLaborerPicker";
 import type { Database } from "@/types/database.types";
 
 type Subcontract = Database["public"]["Tables"]["subcontracts"]["Row"];
@@ -68,6 +69,7 @@ import ConcretingTeamDialog from "@/components/concreting/ConcretingTeamDialog";
 interface SubcontractWithDetails extends Subcontract {
   team_name?: string;
   laborer_name?: string;
+  trade_name?: string | null;
   total_paid?: number;
   balance_due?: number;
   completion_percentage?: number;
@@ -92,6 +94,9 @@ export default function SiteSubcontractsPage() {
   );
   const [teams, setTeams] = useState<any[]>([]);
   const [laborers, setLaborers] = useState<any[]>([]);
+  const [tradeCategories, setTradeCategories] = useState<
+    { id: string; name: string }[]
+  >([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -111,6 +116,7 @@ export default function SiteSubcontractsPage() {
     contract_type: "mesthri" as ContractType,
     team_id: "",
     laborer_id: "",
+    trade_category_id: "", // Optional: enables Trades/attendance tracking. "" = payments-only.
     // Day-work (external concreting gang) fields
     concreting_team_id: "",
     contractor_name: "",
@@ -158,26 +164,45 @@ export default function SiteSubcontractsPage() {
   // Fetch teams, laborers, and site engineers
   useEffect(() => {
     const fetchOptions = async () => {
-      const [teamsRes, laborersRes, engineersRes] = await Promise.all([
-        supabase
-          .from("teams")
-          .select("id, name")
-          .eq("status", "active")
-          .order("name"),
-        supabase
-          .from("laborers")
-          .select("id, name, team_id")
-          .eq("status", "active")
-          .order("name"),
-        supabase
-          .from("users")
-          .select("id, name, role")
-          .in("role", ["site_engineer", "admin", "office"])
-          .order("name"),
-      ]);
+      const [teamsRes, laborersRes, engineersRes, tradesRes] =
+        await Promise.all([
+          supabase
+            .from("teams")
+            .select("id, name")
+            .eq("status", "active")
+            .order("name"),
+          supabase
+            .from("laborers")
+            .select(
+              "id, name, team_id, labor_categories(name), role:labor_roles(name)"
+            )
+            .eq("status", "active")
+            .order("name"),
+          supabase
+            .from("users")
+            .select("id, name, role")
+            .in("role", ["site_engineer", "admin", "office"])
+            .order("name"),
+          supabase
+            .from("labor_categories")
+            .select("id, name")
+            .eq("is_active", true)
+            .order("name"),
+        ]);
 
+      setTradeCategories(
+        ((tradesRes.data as { id: string; name: string }[] | null) || []).filter(
+          Boolean
+        )
+      );
       setTeams(teamsRes.data || []);
-      setLaborers(laborersRes.data || []);
+      setLaborers(
+        (laborersRes.data || []).map((l: any) => ({
+          ...l,
+          category_name: l.labor_categories?.name || "Unknown",
+          role_name: l.role?.name || "",
+        }))
+      );
       setSiteEngineers(engineersRes.data || []);
     };
 
@@ -223,11 +248,17 @@ export default function SiteSubcontractsPage() {
           const laborerName = subcontract.laborer_id
             ? laborers.find((l) => l.id === subcontract.laborer_id)?.name
             : undefined;
+          const tradeName = subcontract.trade_category_id
+            ? tradeCategories.find(
+                (tc) => tc.id === subcontract.trade_category_id
+              )?.name ?? null
+            : null;
 
           return {
             ...subcontract,
             team_name: teamName,
             laborer_name: laborerName,
+            trade_name: tradeName,
             total_paid: totals?.totalPaid || 0,
             balance_due: totals?.balance || subcontract.total_value || 0,
             completion_percentage:
@@ -252,7 +283,7 @@ export default function SiteSubcontractsPage() {
     if (selectedSite && teams.length > 0) {
       fetchSubcontracts();
     }
-  }, [activeTab, selectedSite, teams, laborers]);
+  }, [activeTab, selectedSite, teams, laborers, tradeCategories]);
 
   // Deep-link: open the edit dialog when /site/subcontracts?edit=<id> is hit.
   // Used by the "Assign one →" alert in MestriSettleDialog so the user lands
@@ -289,6 +320,7 @@ export default function SiteSubcontractsPage() {
         contract_type: subcontract.contract_type,
         team_id: subcontract.team_id || "",
         laborer_id: subcontract.laborer_id || "",
+        trade_category_id: subcontract.trade_category_id || "",
         concreting_team_id: subcontract.concreting_team_id || "",
         contractor_name: subcontract.contractor_name || "",
         male_count: subcontract.male_count || 0,
@@ -315,6 +347,7 @@ export default function SiteSubcontractsPage() {
         contract_type: "mesthri",
         team_id: "",
         laborer_id: "",
+        trade_category_id: "",
         concreting_team_id: "",
         contractor_name: "",
         male_count: 0,
@@ -374,6 +407,35 @@ export default function SiteSubcontractsPage() {
 
     setLoading(true);
     try {
+      // Duplicate guard (create only): warn — don't block — if this contractor
+      // already has an open contract on this site (day-work jobs are exempt).
+      if (!editingSubcontract && form.contract_type !== "day_work") {
+        const contractorCol =
+          form.contract_type === "mesthri" ? "team_id" : "laborer_id";
+        const contractorVal =
+          form.contract_type === "mesthri" ? form.team_id : form.laborer_id;
+        if (contractorVal) {
+          const { data: existing } = await supabase
+            .from("subcontracts")
+            .select("title, status")
+            .eq("site_id", selectedSite.id)
+            .eq(contractorCol, contractorVal)
+            .in("status", ["draft", "active", "on_hold"]);
+          if (existing && existing.length > 0) {
+            const list = (existing as { title: string; status: string }[])
+              .map((d) => `• ${d.title} (${d.status})`)
+              .join("\n");
+            const proceed = window.confirm(
+              `This contractor already has ${existing.length} open contract(s) on this site:\n\n${list}\n\nCreate another one anyway?`
+            );
+            if (!proceed) {
+              setLoading(false);
+              return;
+            }
+          }
+        }
+      }
+
       const subcontractData = {
         site_id: selectedSite.id, // Auto-set from selected site
         contract_type: form.contract_type,
@@ -384,6 +446,8 @@ export default function SiteSubcontractsPage() {
         // schema CHECK constraint requires team_id for mesthri contracts but
         // allows laborer_id alongside it. Day-work jobs use no laborer.
         laborer_id: form.contract_type === "day_work" ? null : form.laborer_id || null,
+        // Optional trade tag — enables Trades/attendance tracking. null = payments-only.
+        trade_category_id: form.trade_category_id || null,
         // Day-work (external concreting gang) fields — null for other types.
         // Breakdown figures are reference-only and need not sum to total_value.
         concreting_team_id:
@@ -416,6 +480,14 @@ export default function SiteSubcontractsPage() {
         expected_end_date: form.expected_end_date || null,
         status: form.status,
       };
+
+      // When a trade is attached and the contract has no tracking mode yet, default
+      // to payments-only ('mesthri_only') so it surfaces in the Trades workspace
+      // without forcing attendance. Never clobber an existing mode on edit.
+      if (form.trade_category_id && !editingSubcontract?.labor_tracking_mode) {
+        (subcontractData as Record<string, unknown>).labor_tracking_mode =
+          "mesthri_only";
+      }
 
       if (editingSubcontract) {
         const result = await withTimeout(
@@ -654,6 +726,29 @@ export default function SiteSubcontractsPage() {
                 ? row.original.contractor_name
                 : row.original.laborer_name}
             </Typography>
+            <Box sx={{ mt: 0.5 }}>
+              {row.original.trade_name ? (
+                <Chip
+                  label={row.original.trade_name}
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                  sx={{ height: 18, fontSize: "0.65rem" }}
+                />
+              ) : (
+                <Chip
+                  label="No trade"
+                  size="small"
+                  variant="outlined"
+                  sx={{
+                    height: 18,
+                    fontSize: "0.65rem",
+                    color: "text.disabled",
+                    borderColor: "divider",
+                  }}
+                />
+              )}
+            </Box>
           </Box>
         ),
       },
@@ -1089,22 +1184,12 @@ export default function SiteSubcontractsPage() {
                     </Select>
                   </FormControl>
                 ) : (
-                  <FormControl fullWidth required>
-                    <InputLabel>Laborer</InputLabel>
-                    <Select
-                      value={form.laborer_id}
-                      onChange={(e) =>
-                        setForm({ ...form, laborer_id: e.target.value })
-                      }
-                      label="Laborer"
-                    >
-                      {laborers.map((laborer) => (
-                        <MenuItem key={laborer.id} value={laborer.id}>
-                          {laborer.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                  <SpecialistLaborerPicker
+                    laborers={laborers}
+                    value={form.laborer_id}
+                    onChange={(id) => setForm({ ...form, laborer_id: id })}
+                    required
+                  />
                 )}
               </Grid>
               {/* Head Mestri picker — required for salary settlements via the
@@ -1154,6 +1239,28 @@ export default function SiteSubcontractsPage() {
                 </Grid>
               )}
             </Grid>
+
+            <Autocomplete
+              options={tradeCategories}
+              getOptionLabel={(o) => o.name}
+              isOptionEqualToValue={(o, v) => o.id === v.id}
+              value={
+                tradeCategories.find(
+                  (tc) => tc.id === form.trade_category_id
+                ) ?? null
+              }
+              onChange={(_e, value) =>
+                setForm({ ...form, trade_category_id: value?.id ?? "" })
+              }
+              slotProps={{ popper: { disablePortal: false } }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Trade (optional — enables attendance tracking)"
+                  helperText="Leave blank for a payments-only contract. Pick a trade to track it in the Trades workspace / attendance — you can add this anytime."
+                />
+              )}
+            />
 
             <TextField
               fullWidth
