@@ -72,6 +72,8 @@ export interface TaskWorkPackage {
   status: TaskWorkStatus;
   parent_subcontract_id: string | null;
   notes: string | null;
+  completion_reason: string | null;
+  balance_waived: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -183,6 +185,8 @@ export interface TaskWorkPackageInput {
   status?: TaskWorkStatus;
   parent_subcontract_id?: string | null;
   notes?: string | null;
+  completion_reason?: string | null;
+  balance_waived?: boolean;
 }
 
 export interface TaskWorkDayLogInput {
@@ -230,6 +234,14 @@ export const TASK_WORK_PAYMENT_TYPE_LABEL: Record<TaskWorkPaymentType, string> =
   part_payment: "Part Payment",
   final_settlement: "Final Settlement",
   retention_release: "Retention Release",
+};
+
+export const TASK_WORK_PAYMENT_MODE_LABEL: Record<TaskWorkPaymentMode, string> = {
+  cash: "Cash",
+  upi: "UPI",
+  bank_transfer: "Bank transfer",
+  cheque: "Cheque",
+  other: "Other",
 };
 
 export const TASK_WORK_UNIT_LABEL: Record<TaskWorkMeasurementUnit, string> = {
