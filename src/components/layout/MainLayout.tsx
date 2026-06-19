@@ -451,6 +451,12 @@ const companyNavCategories: NavCategory[] = [
         path: "/company/settings/checklist",
         adminOnly: true,
       },
+      {
+        text: "Expense Categories",
+        icon: <ReceiptLongIcon />,
+        path: "/company/settings/expense-categories",
+        adminOnly: true,
+      },
     ],
   },
   {

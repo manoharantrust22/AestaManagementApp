@@ -45,6 +45,11 @@ export const queryKeys = {
     list: () => ['labor-roles', 'list'] as const,
   },
 
+  expenseCategories: {
+    all: ['expense-categories'] as const,
+    byModule: (module: string) => ['expense-categories', module] as const,
+  },
+
   materials: {
     all: ['materials'] as const,
     list: () => ['materials', 'list'] as const,
