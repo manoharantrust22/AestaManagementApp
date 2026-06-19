@@ -49,6 +49,7 @@ import { useSite } from "@/contexts/SiteContext";
 import PageHeader from "@/components/layout/PageHeader";
 import { hasEditPermission } from "@/lib/permissions";
 import SubcontractPaymentBreakdown from "@/components/subcontracts/SubcontractPaymentBreakdown";
+import ContractScopesPanel from "@/components/subcontracts/ContractScopesPanel";
 import SpecialistLaborerPicker from "@/components/contracts/SpecialistLaborerPicker";
 import type { Database } from "@/types/database.types";
 
@@ -1827,6 +1828,14 @@ export default function SiteSubcontractsPage() {
                     : "primary"
                 }
                 sx={{ height: 8, borderRadius: 1 }}
+              />
+
+              <Divider />
+
+              <ContractScopesPanel
+                contractId={selectedSubcontract.id}
+                contractValue={selectedSubcontract.total_value}
+                canEdit={canEdit}
               />
             </Box>
           )}

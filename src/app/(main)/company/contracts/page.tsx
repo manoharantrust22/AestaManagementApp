@@ -60,6 +60,7 @@ import {
 } from "@/components/common/ReceiptCapture";
 import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
 import type { PayerSource, PayerSourceInput } from "@/types/settlement.types";
+import ContractScopesPanel from "@/components/subcontracts/ContractScopesPanel";
 import dayjs from "dayjs";
 
 type Subcontract = Database["public"]["Tables"]["subcontracts"]["Row"];
@@ -1357,6 +1358,14 @@ export default function CompanyContractsPage() {
                     : "primary"
                 }
                 sx={{ height: 8, borderRadius: 1 }}
+              />
+
+              <Divider />
+
+              <ContractScopesPanel
+                contractId={selectedSubcontract.id}
+                contractValue={selectedSubcontract.total_value}
+                canEdit={canEdit}
               />
             </Box>
           )}
