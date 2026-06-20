@@ -130,8 +130,9 @@ export default function SpendDetailDialog({ open, onClose, row }: SpendDetailDia
     !isReturn &&
     (role === "admin" || role === "office" || isRecorder);
 
-  // Cascade reverse eligibility for material/misc/rental/tea spends.
+  // Cascade reverse eligibility for material/misc/rental/tea/task-work spends.
   const sourceType = sourceQuery.data?.source_type ?? null;
+  const isTaskWork = sourceType === "task_work";
   const reverseMode = spendReverseMode({
     transactionType: row.transaction_type,
     cancelledAt: row.cancelled_at ?? null,
@@ -440,7 +441,7 @@ export default function SpendDetailDialog({ open, onClose, row }: SpendDetailDia
                       startIcon={<Undo />}
                       onClick={() => setCascadeMode("undo")}
                     >
-                      Undo settlement
+                      {isTaskWork ? "Remove this payment" : "Undo settlement"}
                     </Button>
                   )}
                   <Button
@@ -459,11 +460,17 @@ export default function SpendDetailDialog({ open, onClose, row }: SpendDetailDia
                   color={cascadeMode === "undo" ? "error" : "warning.main"}
                   fontWeight={700}
                 >
-                  {cascadeMode === "undo" ? "Undo this settlement?" : "Mark as company-paid?"}
+                  {cascadeMode === "undo"
+                    ? isTaskWork
+                      ? "Remove this task-work payment?"
+                      : "Undo this settlement?"
+                    : "Mark as company-paid?"}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   {cascadeMode === "undo"
-                    ? "Removes the wallet debit and returns the source to unsettled (ready to re-settle)."
+                    ? isTaskWork
+                      ? "Removes the wallet debit and deletes this task-work payment, so the package balance reopens."
+                      : "Removes the wallet debit and returns the source to unsettled (ready to re-settle)."
                     : "Removes the wallet debit; the source stays paid but recorded as company/office-paid."}
                 </Typography>
                 <TextField

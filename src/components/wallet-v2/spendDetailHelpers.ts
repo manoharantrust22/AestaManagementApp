@@ -1,7 +1,7 @@
 import type { WalletLedgerEntry } from "@/types/engineer-wallet-v2.types";
 import type { WorkPhoto } from "@/types/work-updates.types";
 
-export type SpendKind = "misc" | "salary" | "contract" | "other";
+export type SpendKind = "misc" | "salary" | "contract" | "taskwork" | "other";
 
 /** Source a wallet spend was created from, as resolved by get_wallet_spend_source. */
 export type WalletSpendSourceType =
@@ -10,6 +10,7 @@ export type WalletSpendSourceType =
   | "rental"
   | "tea"
   | "salary"
+  | "task_work"
   | "none";
 
 /** Which reverse flow (if any) a spend supports in the Spend detail dialog. */
@@ -49,7 +50,8 @@ export function spendReverseMode(args: {
     sourceType === "material" ||
     sourceType === "misc" ||
     sourceType === "rental" ||
-    sourceType === "tea"
+    sourceType === "tea" ||
+    sourceType === "task_work"
   ) {
     return "cascade";
   }
@@ -66,6 +68,8 @@ export function classifySpend(description: string | null | undefined): SpendKind
   if (/MISC-\d{6}-/.test(description)) return "misc";
   if (/^Contract payment/i.test(description)) return "contract";
   if (/Salary settlement|SET-\d{6}/.test(description)) return "salary";
+  // Task-work payments: "Task work TW-YYMMDD-NNN (advance) - <title>".
+  if (/^Task work /i.test(description)) return "taskwork";
   // Free-text / material / rental / group-stock spends fall through to the universal view.
   return "other";
 }

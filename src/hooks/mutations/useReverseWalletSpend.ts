@@ -16,11 +16,12 @@ export interface ReverseWalletSpendArgs {
 }
 
 /**
- * Reverse a non-salary wallet spend (material/misc/rental/tea) via the
- * reverse_wallet_spend RPC. mode='undo' un-settles the source; mode='company_paid'
- * reclassifies it as company-paid. Atomic + soft-cancel in the RPC. On success,
- * invalidate broadly — it touches the wallet ledger/balance, the source record,
- * and the expense/Hub lists.
+ * Reverse a non-salary wallet spend (material/misc/rental/tea/task-work) via the
+ * reverse_wallet_spend RPC. mode='undo' un-settles the source (task-work: deletes
+ * the payment so the package balance reopens); mode='company_paid' reclassifies it
+ * as company-paid. Atomic + soft-cancel in the RPC. On success, invalidate broadly —
+ * it touches the wallet ledger/balance, the source record, and the expense/Hub/
+ * task-work lists.
  */
 export function useReverseWalletSpend() {
   const qc = useQueryClient();

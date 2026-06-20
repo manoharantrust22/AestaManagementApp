@@ -13,6 +13,7 @@ const base = {
     | "rental"
     | "tea"
     | "salary"
+    | "task_work"
     | "none"
     | null,
 };
@@ -36,7 +37,7 @@ describe("spendReverseMode", () => {
     ).toBe("settlement");
   });
 
-  it.each(["material", "misc", "rental", "tea"] as const)(
+  it.each(["material", "misc", "rental", "tea", "task_work"] as const)(
     "routes a %s-linked spend to cascade reverse",
     (sourceType) => {
       expect(spendReverseMode({ ...base, sourceType })).toBe("cascade");

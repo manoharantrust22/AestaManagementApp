@@ -47,7 +47,8 @@ export interface TaskWorkPaymentResult {
  *  - For the engineer-wallet channel, records the wallet spend FIRST, then
  *    inserts the payment row; if the insert fails, the orphan spend is
  *    soft-cancelled so the ledger never shows a phantom debit.
- *  - Stamps the wallet transaction with related_task_work_id + settlement_reference.
+ *  - Stamps the wallet transaction with related_task_work_id so the wallet ledger
+ *    can link the spend back to the package.
  */
 export async function createTaskWorkPayment(
   supabase: SupabaseClient,
@@ -155,13 +156,22 @@ export async function createTaskWorkPayment(
     }
 
     // Link the wallet transaction back to this package for the wallet ledger.
+    // NOTE: only related_task_work_id exists on site_engineer_transactions — there
+    // is no settlement_reference column there, and including it would make
+    // PostgREST reject the whole UPDATE (leaving the row unlinked). The payment row
+    // + wallet spend are already committed, so a link failure is logged, not fatal.
     if (engineerTransactionId) {
-      await (supabase.from("site_engineer_transactions" as any) as any)
-        .update({
-          related_task_work_id: config.packageId,
-          settlement_reference: config.packageNumber,
-        })
+      const { error: linkError } = await (
+        supabase.from("site_engineer_transactions" as any) as any
+      )
+        .update({ related_task_work_id: config.packageId })
         .eq("id", engineerTransactionId);
+      if (linkError) {
+        console.error(
+          "Failed to link wallet spend to task-work package (spend recorded, link missing):",
+          linkError
+        );
+      }
     }
 
     return {

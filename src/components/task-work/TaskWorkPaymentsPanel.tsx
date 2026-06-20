@@ -14,7 +14,14 @@ import {
   Paper,
   Typography,
 } from "@mui/material";
-import { Add, CheckCircle, Delete, OpenInNew, ReceiptLong } from "@mui/icons-material";
+import {
+  AccountBalanceWallet,
+  Add,
+  CheckCircle,
+  Delete,
+  OpenInNew,
+  ReceiptLong,
+} from "@mui/icons-material";
 import { useRouter } from "next/navigation";
 import {
   taskPaymentLineNumbers,
@@ -226,15 +233,54 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
                       </Typography>
                     </Box>
                   }
-                  secondary={`${dayjs(p.payment_date).format("DD MMM YYYY")} · ${
-                    TASK_WORK_PAYMENT_MODE_LABEL[p.payment_mode] ?? "Cash"
-                  } · ${
-                    p.payment_channel === "engineer_wallet"
-                      ? "Engineer wallet"
-                      : src.kind === "single"
-                      ? src.label
-                      : src.summary
-                  }`}
+                  secondary={
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 0.75,
+                        flexWrap: "wrap",
+                        mt: 0.25,
+                      }}
+                    >
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        component="span"
+                      >
+                        {dayjs(p.payment_date).format("DD MMM YYYY")} ·{" "}
+                        {TASK_WORK_PAYMENT_MODE_LABEL[p.payment_mode] ?? "Cash"}
+                      </Typography>
+                      {p.payment_channel === "engineer_wallet" ? (
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          color="primary"
+                          icon={
+                            <AccountBalanceWallet sx={{ fontSize: "0.95rem" }} />
+                          }
+                          label="My wallet"
+                          title="Paid from the engineer's own wallet"
+                          sx={{
+                            height: 20,
+                            "& .MuiChip-label": {
+                              px: 0.75,
+                              fontSize: "0.7rem",
+                              fontWeight: 600,
+                            },
+                          }}
+                        />
+                      ) : (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          component="span"
+                        >
+                          · {src.kind === "single" ? src.label : src.summary}
+                        </Typography>
+                      )}
+                    </Box>
+                  }
                   secondaryTypographyProps={{ component: "div" }}
                 />
               </ListItem>

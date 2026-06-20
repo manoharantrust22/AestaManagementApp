@@ -18,6 +18,11 @@ describe("classifySpend", () => {
   it("classifies salary settlements", () => {
     expect(classifySpend("Salary settlement SET-260528-003")).toBe("salary");
   });
+  it("classifies task-work payments", () => {
+    expect(
+      classifySpend("Task work TW-260620-001 (part payment) - Saroja House Side Full outer Plastering")
+    ).toBe("taskwork");
+  });
   it("falls back to other for material/rental/empty", () => {
     expect(classifySpend("Group stock advance payment")).toBe("other");
     expect(classifySpend(null)).toBe("other");

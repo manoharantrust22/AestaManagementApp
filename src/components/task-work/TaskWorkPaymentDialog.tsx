@@ -13,22 +13,21 @@ import {
   Grid,
   InputLabel,
   MenuItem,
-  Paper,
   Select,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
-import { AccountBalanceWallet as WalletIcon } from "@mui/icons-material";
 import dayjs from "dayjs";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSite } from "@/contexts/SiteContext";
 import {
   ReceiptCapture,
   type ReceiptCaptureValue,
 } from "@/components/common/ReceiptCapture";
 import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import WalletBalancePreview from "@/components/wallet-v2/WalletBalancePreview";
 import { useCreateTaskWorkPayment } from "@/hooks/queries/useTaskWorkPayments";
+import { useEngineerWalletBalance } from "@/hooks/queries/useEngineerWalletV2";
 import { blurOnWheel } from "@/lib/utils/numberInput";
 import type { PayerSource } from "@/types/settlement.types";
 import {
@@ -59,18 +58,28 @@ export default function TaskWorkPaymentDialog({
   onSaved,
 }: Props) {
   const { userProfile } = useAuth();
+  const { selectedSite } = useSite();
   const createMut = useCreateTaskWorkPayment();
 
-  // Only a site engineer can pay from a wallet — and only from their OWN wallet.
-  // Admins / office record company-direct payments, so the wallet channel and the
-  // engineer picker are hidden for them entirely.
+  // A site engineer pays ONLY from their own wallet — like Miscellaneous expenses.
+  // No "Paid directly" toggle and no payer-source picker; the wallet balance
+  // preview makes the debit obvious. Admins / office record company-direct
+  // payments and pick a payer source.
   const isSiteEngineer = userProfile?.role === "site_engineer";
+
+  // Wallet balance for the preview — fetched only for site engineers.
+  const balanceQuery = useEngineerWalletBalance(
+    isSiteEngineer ? userProfile?.id : undefined,
+    pkg.site_id
+  );
 
   const [paymentType, setPaymentType] = useState<TaskWorkPaymentType>(defaultType);
   const [amount, setAmount] = useState<number>(0);
   const [paymentDate, setPaymentDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [paymentMode, setPaymentMode] = useState<TaskWorkPaymentMode>("cash");
-  const [channel, setChannel] = useState<TaskWorkPaymentChannel>("direct");
+  const [channel, setChannel] = useState<TaskWorkPaymentChannel>(
+    isSiteEngineer ? "engineer_wallet" : "direct"
+  );
   const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
   const [payerName, setPayerName] = useState("");
   const [screenshot, setScreenshot] = useState<ReceiptCaptureValue | null>(null);
@@ -83,13 +92,13 @@ export default function TaskWorkPaymentDialog({
     setAmount(defaultType === "final_settlement" ? Math.max(balanceDue, 0) : 0);
     setPaymentDate(dayjs().format("YYYY-MM-DD"));
     setPaymentMode("cash");
-    setChannel("direct");
+    setChannel(isSiteEngineer ? "engineer_wallet" : "direct");
     setPayerSource("own_money");
     setPayerName("");
     setScreenshot(null);
     setNotes("");
     setError("");
-  }, [open, defaultType, balanceDue]);
+  }, [open, defaultType, balanceDue, isSiteEngineer]);
 
   const balanceAfter = useMemo(
     () => Math.round((balanceDue - amount) * 100) / 100,
@@ -228,26 +237,18 @@ export default function TaskWorkPaymentDialog({
             </Grid>
           </Grid>
 
-          {/* Wallet channel is available to site engineers only. Admins / office
-              always pay company-direct, so the toggle isn't shown for them. */}
-          {isSiteEngineer && (
-            <ToggleButtonGroup
-              value={channel}
-              exclusive
-              fullWidth
-              size="small"
-              onChange={(_e, v: TaskWorkPaymentChannel | null) => v && setChannel(v)}
-            >
-              <ToggleButton value="direct" sx={{ textTransform: "none" }}>
-                Paid directly
-              </ToggleButton>
-              <ToggleButton value="engineer_wallet" sx={{ textTransform: "none" }}>
-                From my wallet
-              </ToggleButton>
-            </ToggleButtonGroup>
-          )}
-
-          {channel === "direct" ? (
+          {/* Site engineers pay only from their own wallet — the balance preview
+              shows the debit and any overdraft. Admins / office pick a payer
+              source and pay company-direct. */}
+          {isSiteEngineer ? (
+            <WalletBalancePreview
+              engineerName={userProfile?.name || "You"}
+              siteName={selectedSite?.name ?? ""}
+              currentBalance={balanceQuery.data?.balance ?? 0}
+              amount={amount}
+              isLoading={balanceQuery.isLoading}
+            />
+          ) : (
             <PayerSourceSelector
               value={payerSource}
               customName={payerName}
@@ -255,28 +256,6 @@ export default function TaskWorkPaymentDialog({
               onCustomNameChange={setPayerName}
               siteId={pkg.site_id}
             />
-          ) : (
-            <Paper
-              variant="outlined"
-              sx={{
-                p: 1.5,
-                borderRadius: 2,
-                display: "flex",
-                alignItems: "center",
-                gap: 1,
-                bgcolor: "action.hover",
-              }}
-            >
-              <WalletIcon fontSize="small" color="primary" />
-              <Box>
-                <Typography variant="body2" fontWeight={600}>
-                  From your wallet ({userProfile?.name || "you"})
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Debits your engineer wallet and posts the expense.
-                </Typography>
-              </Box>
-            </Paper>
           )}
 
           {/* Payment proof — required-feel for UPI, optional for other non-cash
