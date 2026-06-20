@@ -18,6 +18,7 @@ import {
 } from "@/lib/settlement/payerSource";
 import { recordWalletSpending } from "./walletService";
 import { recordSpend, cancelTransaction } from "./engineerWalletV2";
+import { reverseWalletSpend } from "./walletSpendReverseService";
 
 /**
  * Create a new miscellaneous expense with full payment tracking.
@@ -370,31 +371,33 @@ export async function cancelMiscExpense(
       throw fetchError;
     }
 
-    // Cancel the expense
-    const { error: cancelError } = await (supabase
-      .from("misc_expenses") as any)
-      .update({
-        is_cancelled: true,
-        cancelled_at: new Date().toISOString(),
-        cancelled_by_user_id: userId,
-        cancellation_reason: reason,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", expenseId);
-
-    if (cancelError) {
-      throw cancelError;
-    }
-
-    // If there was an engineer transaction, mark it as cancelled too
     if (expense.engineer_transaction_id) {
-      await (supabase
-        .from("site_engineer_transactions") as any)
+      // Wallet-funded expense: use the canonical reversal. This soft-cancels the
+      // wallet spend (sets cancelled_at → refunds the wallet + drops it from the
+      // Activity list and per-source pools) AND cascades to mark this misc_expenses
+      // row cancelled, set the cancellation reason/user, and clear the link.
+      // (Mode 'undo' = void the spend so it can be re-entered, e.g. as task work.)
+      await reverseWalletSpend(supabase, {
+        spendId: expense.engineer_transaction_id,
+        mode: "undo",
+        reason,
+      });
+    } else {
+      // Company-direct expense: no wallet spend, just soft-cancel the misc row.
+      const { error: cancelError } = await (supabase
+        .from("misc_expenses") as any)
         .update({
-          settlement_status: "cancelled",
-          notes: `Cancelled: ${reason}`,
+          is_cancelled: true,
+          cancelled_at: new Date().toISOString(),
+          cancelled_by_user_id: userId,
+          cancellation_reason: reason,
+          updated_at: new Date().toISOString(),
         })
-        .eq("id", expense.engineer_transaction_id);
+        .eq("id", expenseId);
+
+      if (cancelError) {
+        throw cancelError;
+      }
     }
 
     return {
