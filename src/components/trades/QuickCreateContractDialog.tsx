@@ -30,6 +30,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useSelectedCompany } from "@/contexts/CompanyContext/SelectedCompanyContext";
 import type { LaborTrackingMode } from "@/types/trade.types";
+import { useWorkStages, useAddWorkStage } from "@/hooks/queries/useWorkStages";
 
 interface TeamOption {
   id: string;
@@ -48,6 +49,8 @@ interface QuickCreateContractDialogProps {
   siteId: string;
   tradeCategoryId: string;
   tradeName: string;
+  /** Optional Stage to drop the new task work into (preselected when launched from a stage). */
+  stageId?: string | null;
 }
 
 export function QuickCreateContractDialog({
@@ -57,10 +60,19 @@ export function QuickCreateContractDialog({
   siteId,
   tradeCategoryId,
   tradeName,
+  stageId = null,
 }: QuickCreateContractDialogProps) {
   const supabase = createClient();
   const queryClient = useQueryClient();
   const { selectedCompany } = useSelectedCompany();
+
+  // Stages for this Contract (trade) — optional grouping for the task work.
+  const { data: stages = [] } = useWorkStages(siteId, tradeCategoryId);
+  const addStage = useAddWorkStage(siteId, tradeCategoryId);
+  const [selectedStageId, setSelectedStageId] = useState<string | null>(stageId);
+  const [showNewStage, setShowNewStage] = useState(false);
+  const [newStageName, setNewStageName] = useState("");
+  const [creatingStage, setCreatingStage] = useState(false);
 
   const [contractType, setContractType] = useState<"mesthri" | "specialist">(
     "mesthri"
@@ -97,6 +109,9 @@ export function QuickCreateContractDialog({
     setContractType("mesthri");
     setSelectedTeamId(null);
     setSelectedLaborerId(null);
+    setSelectedStageId(stageId);
+    setShowNewStage(false);
+    setNewStageName("");
     setTitle("");
     setTotalValue("");
     setLaborTrackingMode("mesthri_only");
@@ -142,7 +157,29 @@ export function QuickCreateContractDialog({
       })
       .catch((e) => setError(`Failed to load options: ${e.message}`))
       .finally(() => setOptionsLoading(false));
-  }, [open, supabase]);
+  }, [open, supabase, stageId]);
+
+  const handleCreateStage = async () => {
+    setError(null);
+    if (!newStageName.trim()) {
+      setError("Stage name is required");
+      return;
+    }
+    setCreatingStage(true);
+    try {
+      const created = await addStage.mutateAsync({
+        name: newStageName.trim(),
+        sortOrder: stages.length,
+      });
+      setSelectedStageId(created.id);
+      setShowNewStage(false);
+      setNewStageName("");
+    } catch (e: any) {
+      setError(`Failed to create stage: ${e.message ?? String(e)}`);
+    } finally {
+      setCreatingStage(false);
+    }
+  };
 
   // Default the title to a sensible auto-fill once a team or laborer is picked
   useEffect(() => {
@@ -274,6 +311,7 @@ export function QuickCreateContractDialog({
       const payload: Record<string, unknown> = {
         site_id: siteId,
         trade_category_id: tradeCategoryId,
+        stage_id: selectedStageId,
         contract_type: contractType,
         title: title.trim(),
         total_value: totalValueNum,
@@ -351,11 +389,11 @@ export function QuickCreateContractDialog({
   return (
     <Dialog open={open} onClose={submitting ? undefined : onClose} fullWidth maxWidth="sm">
       <DialogTitle>
-        New {tradeName} contract
+        New {tradeName} task work
         <Typography variant="caption" color="text.secondary" component="div">
-          Quick-create — opens the new contract right after submit. Use the
-          full Subcontracts page for advanced options like sections or rate-based
-          contracts.
+          A task work is a priced piece of work given to a crew, inside the{" "}
+          {tradeName} contract. Pick a stage (optional), who does it, and how
+          closely to track it.
         </Typography>
       </DialogTitle>
       <DialogContent dividers>
@@ -365,6 +403,86 @@ export function QuickCreateContractDialog({
           </Box>
         ) : (
           <Stack spacing={2.5}>
+            <Box>
+              <Autocomplete
+                options={stages}
+                getOptionLabel={(s) => s.name}
+                value={stages.find((s) => s.id === selectedStageId) ?? null}
+                onChange={(_, v) => setSelectedStageId(v?.id ?? null)}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Stage (optional)"
+                    helperText="Group this task work under a stage, e.g. Ground Floor / First Floor. Leave blank for none."
+                  />
+                )}
+                slotProps={{ popper: { disablePortal: false } }}
+                noOptionsText={
+                  <MuiLink
+                    component="button"
+                    type="button"
+                    onClick={() => setShowNewStage(true)}
+                    sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}
+                  >
+                    <AddIcon fontSize="small" /> Create new stage
+                  </MuiLink>
+                }
+              />
+              {!showNewStage && (
+                <Button
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={() => setShowNewStage(true)}
+                  sx={{ mt: 0.5 }}
+                >
+                  Add a new stage
+                </Button>
+              )}
+              <Collapse in={showNewStage}>
+                <Box
+                  sx={{
+                    mt: 1,
+                    p: 1.5,
+                    border: "1px dashed",
+                    borderColor: "divider",
+                    borderRadius: 1.5,
+                  }}
+                >
+                  <Stack direction="row" spacing={1} alignItems="flex-start">
+                    <TextField
+                      label="New stage name"
+                      value={newStageName}
+                      onChange={(e) => setNewStageName(e.target.value)}
+                      size="small"
+                      fullWidth
+                      autoFocus
+                      helperText='e.g. "First Floor"'
+                    />
+                    <Button
+                      variant="outlined"
+                      onClick={handleCreateStage}
+                      disabled={creatingStage || !newStageName.trim()}
+                      startIcon={creatingStage ? <CircularProgress size={14} /> : <AddIcon />}
+                      sx={{ mt: 0.5, whiteSpace: "nowrap" }}
+                    >
+                      {creatingStage ? "Adding…" : "Add"}
+                    </Button>
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        setShowNewStage(false);
+                        setNewStageName("");
+                      }}
+                      disabled={creatingStage}
+                      sx={{ mt: 0.5 }}
+                    >
+                      Cancel
+                    </Button>
+                  </Stack>
+                </Box>
+              </Collapse>
+            </Box>
+
             <FormControl>
               <FormLabel>Contractor type</FormLabel>
               <ToggleButtonGroup
@@ -564,12 +682,12 @@ export function QuickCreateContractDialog({
             )}
 
             <TextField
-              label="Contract title"
+              label="Task work title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               required
               fullWidth
-              helperText={`e.g. "${tradeName} — Asis Mesthri"`}
+              helperText={`e.g. "Brickwork — Asis Mesthri"`}
             />
 
             <TextField
@@ -673,7 +791,7 @@ export function QuickCreateContractDialog({
           disabled={!canSubmit}
           startIcon={submitting ? <CircularProgress size={16} /> : null}
         >
-          {submitting ? "Creating…" : "Create contract"}
+          {submitting ? "Creating…" : "Create task work"}
         </Button>
       </DialogActions>
     </Dialog>

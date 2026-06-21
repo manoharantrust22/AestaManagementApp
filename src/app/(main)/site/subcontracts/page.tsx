@@ -934,8 +934,8 @@ export default function SiteSubcontractsPage() {
     return (
       <Box>
         <PageHeader
-          title="Sub Contract Management"
-          subtitle="Manage subcontracts for this site"
+          title="Contract details"
+          subtitle="Detailed view & editing of task work"
         />
         <Alert severity="info" sx={{ mt: 2 }}>
           Please select a site from the site selector to view and manage
@@ -948,8 +948,8 @@ export default function SiteSubcontractsPage() {
   return (
     <Box>
       <PageHeader
-        title="Sub Contract Management"
-        subtitle={`Manage subcontracts for ${selectedSite.name}`}
+        title="Contract details"
+        subtitle={`Detailed view & editing of task work for ${selectedSite.name}`}
         actions={
           <Button
             variant="contained"
@@ -959,7 +959,7 @@ export default function SiteSubcontractsPage() {
             size="small"
             sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
           >
-            New Subcontract
+            New task work
           </Button>
         }
       />
@@ -976,7 +976,7 @@ export default function SiteSubcontractsPage() {
           <Card>
             <CardContent>
               <Typography variant="body2" color="text.secondary">
-                Total Subcontracts
+                Total task work
               </Typography>
               <Typography variant="h4" fontWeight={700}>
                 {stats.count}

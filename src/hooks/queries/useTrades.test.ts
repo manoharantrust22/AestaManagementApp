@@ -29,6 +29,7 @@ const mkContract = (
   id,
   siteId: "s1",
   tradeCategoryId,
+  stageId: null,
   title: id,
   laborTrackingMode: "detailed",
   isInHouse,

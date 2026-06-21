@@ -27,6 +27,13 @@ import { TradeCard } from "@/components/trades/TradeCard";
 import { TradesEmptyState } from "@/components/trades/TradesEmptyState";
 import { QuickCreateContractDialog } from "@/components/trades/QuickCreateContractDialog";
 import PageHeader from "@/components/layout/PageHeader";
+import { useTaskWorkPackages } from "@/hooks/queries/useTaskWorkPackages";
+import TaskWorkDetailDrawer from "@/components/task-work/TaskWorkDetailDrawer";
+import TaskWorkPackageDialog from "@/components/task-work/TaskWorkPackageDialog";
+import type {
+  TaskWorkPackage,
+  TaskWorkPackageWithMeta,
+} from "@/types/taskWork.types";
 
 export default function TradesPage() {
   const router = useRouter();
@@ -38,6 +45,25 @@ export default function TradesPage() {
   const { data: trades, isLoading, error } = useSiteTrades(siteId);
   const { data: reconciliations } = useSiteTradeReconciliations(siteId);
   const { data: activity } = useSiteTradeActivity(siteId);
+  const { data: taskWorkPackages = [] } = useTaskWorkPackages(siteId, "all");
+
+  // Group fixed-price task-work packages under their trade (labor_category_id),
+  // so each TradeCard shows them in a "Fixed-price packages" section.
+  const packagesByTrade = useMemo(() => {
+    const map = new Map<string, TaskWorkPackageWithMeta[]>();
+    for (const p of taskWorkPackages) {
+      if (!p.labor_category_id) continue;
+      const arr = map.get(p.labor_category_id) ?? [];
+      arr.push(p);
+      map.set(p.labor_category_id, arr);
+    }
+    return map;
+  }, [taskWorkPackages]);
+
+  // Task-work detail drawer + edit dialog (reused from the Task Work module).
+  const [detailPkg, setDetailPkg] = useState<TaskWorkPackageWithMeta | null>(null);
+  const [editingPkg, setEditingPkg] = useState<TaskWorkPackage | null>(null);
+  const [pkgDialogOpen, setPkgDialogOpen] = useState(false);
 
   // (Slice C's ?focus auto-expand is now obsolete — Slice E moved trade
   // attendance entry to /site/attendance itself, no nav-out from chips.)
@@ -52,6 +78,7 @@ export default function TradesPage() {
   const [createCtx, setCreateCtx] = useState<{
     tradeCategoryId: string;
     tradeName: string;
+    stageId: string | null;
   } | null>(null);
 
   // Single-expanded state across all trade cards
@@ -92,10 +119,13 @@ export default function TradesPage() {
     setExpandedContractId((curr) => (curr === contractId ? null : contractId));
   };
 
-  const handleAddClick = (tradeCategoryId: string) => {
+  const handleAddClick = (
+    tradeCategoryId: string,
+    stageId: string | null = null
+  ) => {
     if (!siteId) return;
-    const tradeName = categoryNameById.get(tradeCategoryId) ?? "Trade";
-    setCreateCtx({ tradeCategoryId, tradeName });
+    const tradeName = categoryNameById.get(tradeCategoryId) ?? "Contract";
+    setCreateCtx({ tradeCategoryId, tradeName, stageId });
   };
 
   const handleContractView = (contractId: string) => {
@@ -129,7 +159,7 @@ export default function TradesPage() {
 
       setSnackbar({
         open: true,
-        message: "Contract deleted",
+        message: "Task work deleted",
         severity: "success",
       });
       setPendingDelete(null);
@@ -157,8 +187,8 @@ export default function TradesPage() {
   return (
     <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
       <PageHeader
-        title="Trades"
-        subtitle={`Per-trade workspaces for ${selectedSite.name}`}
+        title="Workforce"
+        subtitle={`Contracts, stages & task work for ${selectedSite.name}`}
         showBack={false}
       />
 
@@ -191,8 +221,11 @@ export default function TradesPage() {
             >
               <TradeCard
                 trade={trade}
+                siteId={selectedSite.id}
                 reconciliations={reconciliations}
                 activity={activity}
+                packages={packagesByTrade.get(trade.category.id)}
+                onPackageClick={(pkg) => setDetailPkg(pkg)}
                 expandedContractId={expandedContractId}
                 onContractClick={handleContractClick}
                 onAddClick={handleAddClick}
@@ -211,16 +244,16 @@ export default function TradesPage() {
           onCreated={(newId) => {
             setSnackbar({
               open: true,
-              message: "Contract created",
+              message: "Task work created",
               severity: "success",
             });
-            // Stay on /site/trades — the new card appears via invalidation.
-            // Power users can click it to open /site/subcontracts for full edit.
+            // Stay on /site/trades — the new task work appears via invalidation.
             void newId;
           }}
           siteId={siteId}
           tradeCategoryId={createCtx.tradeCategoryId}
           tradeName={createCtx.tradeName}
+          stageId={createCtx.stageId}
         />
       )}
 
@@ -228,12 +261,12 @@ export default function TradesPage() {
         open={!!pendingDelete}
         onClose={deleting ? undefined : () => setPendingDelete(null)}
       >
-        <DialogTitle>Delete this contract?</DialogTitle>
+        <DialogTitle>Delete this task work?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            This permanently removes the subcontract row. Attendance and
-            settlement history that referenced this contract will be left in
-            place but will lose their contract link. This cannot be undone.
+            This permanently removes the task work. Attendance and settlement
+            history that referenced it will be left in place but will lose their
+            link. This cannot be undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -266,6 +299,26 @@ export default function TradesPage() {
           {snackbar.message}
         </Alert>
       </Snackbar>
+
+      <TaskWorkDetailDrawer
+        open={!!detailPkg}
+        onClose={() => setDetailPkg(null)}
+        pkg={detailPkg}
+        onEdit={(p) => {
+          setDetailPkg(null);
+          setEditingPkg(p);
+          setPkgDialogOpen(true);
+        }}
+      />
+
+      {siteId && (
+        <TaskWorkPackageDialog
+          open={pkgDialogOpen}
+          onClose={() => setPkgDialogOpen(false)}
+          siteId={siteId}
+          editing={editingPkg}
+        />
+      )}
     </Box>
   );
 }

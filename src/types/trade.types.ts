@@ -28,6 +28,8 @@ export interface TradeContract {
   id: string;
   siteId: string;
   tradeCategoryId: string | null;
+  /** Optional Stage grouping (e.g. "First Floor"). Null = directly under the Contract. */
+  stageId: string | null;
   title: string;
   laborTrackingMode: LaborTrackingMode;
   isInHouse: boolean;
@@ -37,6 +39,25 @@ export interface TradeContract {
   /** Joined: team.leader_name (mesthri) or laborer.name (specialist). Null for in-house. */
   mesthriOrSpecialistName: string | null;
   createdAt: string;
+}
+
+/**
+ * A Stage is an optional grouping of task works under a Contract (trade) on a site,
+ * e.g. "Ground Floor" / "First Floor". Pure organisation — no money, no attendance.
+ * Maps to the `work_stages` table; task works reference it via `subcontracts.stage_id`.
+ */
+export interface WorkStage {
+  id: string;
+  siteId: string;
+  tradeCategoryId: string | null;
+  name: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface WorkStageInput {
+  name: string;
+  sortOrder?: number;
 }
 
 /**

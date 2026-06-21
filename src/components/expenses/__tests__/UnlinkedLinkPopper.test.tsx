@@ -20,7 +20,7 @@ const SAMPLE_TRADES: Trade[] = [
     category: { id: "cat-civil", name: "Civil", isSystemSeed: true } as any,
     contracts: [
       {
-        id: "con-1", siteId: "s1", tradeCategoryId: "cat-civil", title: "Plumbing — Block A",
+        id: "con-1", siteId: "s1", tradeCategoryId: "cat-civil", stageId: null, title: "Plumbing — Block A",
         laborTrackingMode: "daily" as any, isInHouse: false, contractType: "mesthri",
         status: "active" as any, totalValue: 0, mesthriOrSpecialistName: null, createdAt: "",
       },

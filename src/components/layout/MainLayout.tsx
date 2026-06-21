@@ -146,9 +146,22 @@ const siteNavCategories: NavCategory[] = [
     emoji: "👷",
     items: [
       {
-        text: "Trades",
+        // The unified home: each trade is a Contract holding Stages + Task Work.
+        text: "Contracts",
         icon: <ConstructionIcon />,
         path: "/site/trades",
+      },
+      {
+        // Detailed flat list + full editing of the same contracts (task work).
+        text: "Contract details",
+        icon: <DescriptionIcon />,
+        path: "/site/subcontracts",
+      },
+      {
+        // Fixed-price piece-rate packages module (day logs, payments, profitability).
+        text: "Task work (piece-rate)",
+        icon: <Engineering />,
+        path: "/site/task-work",
       },
       {
         text: "Attendance",
@@ -291,22 +304,6 @@ const siteNavCategories: NavCategory[] = [
     ],
   },
   {
-    label: "Contracts",
-    emoji: "🤝",
-    items: [
-      {
-        text: "Subcontracts",
-        icon: <DescriptionIcon />,
-        path: "/site/subcontracts",
-      },
-      {
-        text: "Task Work",
-        icon: <Engineering />,
-        path: "/site/task-work",
-      },
-    ],
-  },
-  {
     label: "Settings",
     emoji: "⚙️",
     items: [
@@ -361,7 +358,7 @@ const companyNavCategories: NavCategory[] = [
     emoji: "🤝",
     items: [
       {
-        text: "All Subcontracts",
+        text: "All Contracts",
         icon: <DescriptionIcon />,
         path: "/company/contracts",
       },

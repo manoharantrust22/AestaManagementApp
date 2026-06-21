@@ -54,6 +54,7 @@ interface RawContractRow {
   id: string;
   site_id: string;
   trade_category_id: string | null;
+  stage_id: string | null;
   title: string;
   labor_tracking_mode: string | null;
   is_in_house: boolean;
@@ -83,7 +84,7 @@ export function useSiteTrades(siteId: string | undefined) {
           .from("subcontracts")
           .select(
             `
-            id, site_id, trade_category_id, title,
+            id, site_id, trade_category_id, stage_id, title,
             labor_tracking_mode, is_in_house, contract_type, status, total_value, created_at,
             team:teams(leader_name),
             laborer:laborers(name)
@@ -110,6 +111,7 @@ export function useSiteTrades(siteId: string | undefined) {
           id: r.id,
           siteId: r.site_id,
           tradeCategoryId: r.trade_category_id,
+          stageId: r.stage_id,
           title: r.title,
           laborTrackingMode: (r.labor_tracking_mode ?? "detailed") as LaborTrackingMode,
           isInHouse: r.is_in_house,

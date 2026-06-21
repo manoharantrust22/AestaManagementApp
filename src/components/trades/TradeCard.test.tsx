@@ -67,18 +67,18 @@ function renderWithClient(ui: React.ReactElement) {
 describe("TradeCard", () => {
   it("shows trade name", () => {
     renderWithClient(
-      <TradeCard trade={makeTrade()} onAddClick={() => {}} />
+      <TradeCard trade={makeTrade()} siteId="s1" onAddClick={() => {}} />
     );
     expect(screen.getByText("Painting")).toBeInTheDocument();
   });
 
-  it("shows 'Add contract' CTA when no contracts and fires onAddClick", () => {
+  it("shows 'Add task work' CTA when no contracts and fires onAddClick", () => {
     const onAddClick = vi.fn();
     renderWithClient(
-      <TradeCard trade={makeTrade()} onAddClick={onAddClick} />
+      <TradeCard trade={makeTrade()} siteId="s1" onAddClick={onAddClick} />
     );
-    fireEvent.click(screen.getByRole("button", { name: /add contract/i }));
-    expect(onAddClick).toHaveBeenCalledWith("p1");
+    fireEvent.click(screen.getByRole("button", { name: /add task work/i }));
+    expect(onAddClick).toHaveBeenCalledWith("p1", null);
   });
 
   it("renders the active contract's mesthri name + quoted total", () => {
@@ -88,6 +88,7 @@ describe("TradeCard", () => {
           id: "k1",
           siteId: "s1",
           tradeCategoryId: "p1",
+          stageId: null,
           title: "Asis Painting",
           laborTrackingMode: "mesthri_only",
           isInHouse: false,
@@ -100,7 +101,7 @@ describe("TradeCard", () => {
       ],
     });
     renderWithClient(
-      <TradeCard trade={trade} onAddClick={() => {}} />
+      <TradeCard trade={trade} siteId="s1" onAddClick={() => {}} />
     );
     expect(screen.getByText("Asis Mesthri")).toBeInTheDocument();
     expect(screen.getAllByText(/2,50,000/).length).toBeGreaterThan(0);
@@ -113,6 +114,7 @@ describe("TradeCard", () => {
           id: "k1",
           siteId: "s1",
           tradeCategoryId: "p1",
+          stageId: null,
           title: "Asis Painting",
           laborTrackingMode: "mesthri_only",
           isInHouse: false,
@@ -141,6 +143,7 @@ describe("TradeCard", () => {
     renderWithClient(
       <TradeCard
         trade={trade}
+        siteId="s1"
         reconciliations={reconciliations}
         onAddClick={() => {}}
       />
@@ -158,6 +161,7 @@ describe("TradeCard", () => {
           id: "k1",
           siteId: "s1",
           tradeCategoryId: "p1",
+          stageId: null,
           title: "Asis Painting",
           laborTrackingMode: "mesthri_only",
           isInHouse: false,
@@ -172,6 +176,7 @@ describe("TradeCard", () => {
     renderWithClient(
       <TradeCard
         trade={trade}
+        siteId="s1"
         onContractClick={onContractClick}
         onAddClick={() => {}}
       />
@@ -193,6 +198,7 @@ describe("TradeCard", () => {
           id: "k0",
           siteId: "s1",
           tradeCategoryId: "c1",
+          stageId: null,
           title: "Civil — In-house",
           laborTrackingMode: "detailed",
           isInHouse: true,
@@ -205,7 +211,7 @@ describe("TradeCard", () => {
       ],
     });
     renderWithClient(
-      <TradeCard trade={trade} onAddClick={() => {}} />
+      <TradeCard trade={trade} siteId="s1" onAddClick={() => {}} />
     );
     expect(screen.getByText(/in-house/i)).toBeInTheDocument();
   });
