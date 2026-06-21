@@ -36,7 +36,17 @@ export interface TradeContract {
   contractType: "mesthri" | "specialist";
   status: ContractStatus;
   totalValue: number;
-  /** Joined: team.leader_name (mesthri) or laborer.name (specialist). Null for in-house. */
+  /**
+   * Supervisor-set % of this task work that is complete (0–100), or null when not
+   * tracked yet. Drives the Workforce exposure meter (paid vs value of work done).
+   * Null → the meter shows a neutral "set progress" state instead of a verdict.
+   */
+  workProgressPercent: number | null;
+  /** FK to the crew/team that holds this contract (the contractor-grouping key). Null if unset. */
+  teamId: string | null;
+  /** FK to a single laborer when the contract is held by a person, not a team. Null if unset. */
+  laborerId: string | null;
+  /** Joined: team.leader_name (mesthri) or laborer.name (specialist) or free-typed contractor_name. Null for in-house. */
   mesthriOrSpecialistName: string | null;
   createdAt: string;
 }

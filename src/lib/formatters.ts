@@ -33,6 +33,32 @@ export function formatCurrencyFull(amount: number | null | undefined): string {
 }
 
 /**
+ * Compact Indian Rupee formatting for tight UI (tiles, chips, tree rows):
+ *   95000     → "₹95k"
+ *   521000    → "₹5.2L"
+ *   5210000   → "₹52.1L"
+ *   12000000  → "₹1.2Cr"
+ *   -45200    → "-₹45.2k"
+ * Uses one decimal, trailing ".0" stripped. For full Indian grouping (₹6,65,000)
+ * use {@link formatCurrencyFull} instead.
+ */
+export function formatCompactINR(amount: number | null | undefined): string {
+  if (amount === null || amount === undefined || Number.isNaN(amount)) return "₹0";
+
+  const sign = amount < 0 ? "-" : "";
+  const a = Math.abs(amount);
+  const trim = (v: number) => {
+    const s = v.toFixed(1);
+    return s.endsWith(".0") ? s.slice(0, -2) : s;
+  };
+
+  if (a >= 1e7) return `${sign}₹${trim(a / 1e7)}Cr`;
+  if (a >= 1e5) return `${sign}₹${trim(a / 1e5)}L`;
+  if (a >= 1e3) return `${sign}₹${trim(a / 1e3)}k`;
+  return `${sign}₹${Math.round(a)}`;
+}
+
+/**
  * Format date as DD MMM YYYY (e.g., 15 Dec 2024)
  */
 export function formatDate(date: string | Date | null | undefined): string {

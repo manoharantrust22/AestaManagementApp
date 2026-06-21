@@ -1,32 +1,23 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import {
-  Box,
-  Grid,
-  Skeleton,
-  Alert,
-  Snackbar,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
-  Button,
-} from "@mui/material";
+import { Box, Alert } from "@mui/material";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSelectedSite } from "@/contexts/SiteContext";
-import { createClient } from "@/lib/supabase/client";
-import { useSiteTrades } from "@/hooks/queries/useTrades";
+import { useAuth } from "@/contexts/AuthContext";
+import { hasEditPermission } from "@/lib/permissions";
+import {
+  useSiteTrades,
+  UNCATEGORIZED_TRADE_ID,
+  UNCATEGORIZED_CATEGORY,
+} from "@/hooks/queries/useTrades";
 import {
   useSiteTradeReconciliations,
   useSiteTradeActivity,
 } from "@/hooks/queries/useTradeReconciliations";
-import { TradeCard } from "@/components/trades/TradeCard";
-import { TradesEmptyState } from "@/components/trades/TradesEmptyState";
+import { useSiteWorkStages } from "@/hooks/queries/useWorkStages";
+import { WorkspaceLayout } from "@/components/workforce/WorkspaceLayout";
 import { QuickCreateContractDialog } from "@/components/trades/QuickCreateContractDialog";
-import PageHeader from "@/components/layout/PageHeader";
 import { useTaskWorkPackages } from "@/hooks/queries/useTaskWorkPackages";
 import TaskWorkDetailDrawer from "@/components/task-work/TaskWorkDetailDrawer";
 import TaskWorkPackageDialog from "@/components/task-work/TaskWorkPackageDialog";
@@ -36,219 +27,118 @@ import type {
 } from "@/types/taskWork.types";
 
 export default function TradesPage() {
-  const router = useRouter();
   const queryClient = useQueryClient();
-  const supabase = createClient();
   const { selectedSite } = useSelectedSite();
+  const { userProfile } = useAuth();
+  const canEdit = hasEditPermission(userProfile?.role);
   const siteId = selectedSite?.id;
 
-  const { data: trades, isLoading, error } = useSiteTrades(siteId);
+  const { data: trades, isLoading } = useSiteTrades(siteId);
   const { data: reconciliations } = useSiteTradeReconciliations(siteId);
   const { data: activity } = useSiteTradeActivity(siteId);
+  const { data: stages } = useSiteWorkStages(siteId);
   const { data: taskWorkPackages = [] } = useTaskWorkPackages(siteId, "all");
 
-  // Group fixed-price task-work packages under their trade (labor_category_id),
-  // so each TradeCard shows them in a "Fixed-price packages" section.
+  // Group legacy fixed-price packages under their trade (labor_category_id).
+  // Packages with no work type land in the "Other / Uncategorized" node (same
+  // key the trades hook uses for trade-less contracts) so they stay visible and
+  // openable instead of being silently dropped.
   const packagesByTrade = useMemo(() => {
     const map = new Map<string, TaskWorkPackageWithMeta[]>();
     for (const p of taskWorkPackages) {
-      if (!p.labor_category_id) continue;
-      const arr = map.get(p.labor_category_id) ?? [];
+      const key = p.labor_category_id ?? UNCATEGORIZED_TRADE_ID;
+      const arr = map.get(key) ?? [];
       arr.push(p);
-      map.set(p.labor_category_id, arr);
+      map.set(key, arr);
     }
     return map;
   }, [taskWorkPackages]);
 
-  // Task-work detail drawer + edit dialog (reused from the Task Work module).
-  const [detailPkg, setDetailPkg] = useState<TaskWorkPackageWithMeta | null>(null);
-  const [editingPkg, setEditingPkg] = useState<TaskWorkPackage | null>(null);
-  const [pkgDialogOpen, setPkgDialogOpen] = useState(false);
+  // The trades hook only emits the "Other / Uncategorized" node when a *contract*
+  // has no trade. If only a fixed-price package is uncategorized, add an empty
+  // node so that package still has a home to render under.
+  const tradesForModel = useMemo(() => {
+    const base = trades ?? [];
+    const needsUncat =
+      packagesByTrade.has(UNCATEGORIZED_TRADE_ID) &&
+      !base.some((t) => t.category.id === UNCATEGORIZED_TRADE_ID);
+    return needsUncat
+      ? [...base, { category: UNCATEGORIZED_CATEGORY, contracts: [] }]
+      : base;
+  }, [trades, packagesByTrade]);
 
-  // (Slice C's ?focus auto-expand is now obsolete — Slice E moved trade
-  // attendance entry to /site/attendance itself, no nav-out from chips.)
-
-  // Lookup map: tradeCategoryId -> tradeName, used by the create dialog
+  // Lookup: tradeCategoryId -> tradeName, for the create dialog.
   const categoryNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const t of trades ?? []) map.set(t.category.id, t.category.name);
     return map;
   }, [trades]);
 
+  // Create-task-work dialog (delegates to the existing QuickCreateContractDialog).
   const [createCtx, setCreateCtx] = useState<{
     tradeCategoryId: string;
     tradeName: string;
     stageId: string | null;
   } | null>(null);
 
-  // Single-expanded state across all trade cards
-  const [expandedContractId, setExpandedContractId] = useState<string | null>(null);
+  // Legacy task-work package detail drawer + edit dialog.
+  const [detailPkg, setDetailPkg] = useState<TaskWorkPackageWithMeta | null>(null);
+  const [editingPkg, setEditingPkg] = useState<TaskWorkPackage | null>(null);
+  const [pkgDialogOpen, setPkgDialogOpen] = useState(false);
 
-  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [snackbar, setSnackbar] = useState<{
-    open: boolean;
-    message: string;
-    severity: "success" | "error";
-  }>({ open: false, message: "", severity: "success" });
-
-  // Cross-page sync: invalidate when /site/subcontracts (or any other writer)
-  // posts on the subcontracts-changed BroadcastChannel.
+  // Cross-page sync: refresh when /site/subcontracts (or any writer) broadcasts.
   useEffect(() => {
     if (!siteId || typeof BroadcastChannel === "undefined") return;
     const bc = new BroadcastChannel("subcontracts-changed");
     bc.onmessage = (e) => {
-      // Optional siteId match — invalidate either way to be safe with multi-tab edits
       const msgSiteId = (e.data as { siteId?: string } | undefined)?.siteId;
       if (msgSiteId && msgSiteId !== siteId) return;
       queryClient.invalidateQueries({ queryKey: ["trades", "site", siteId] });
-      queryClient.invalidateQueries({
-        queryKey: ["trade-reconciliations", "site", siteId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["trade-activity", "site", siteId],
-      });
+      queryClient.invalidateQueries({ queryKey: ["trade-reconciliations", "site", siteId] });
+      queryClient.invalidateQueries({ queryKey: ["trade-activity", "site", siteId] });
     };
     return () => bc.close();
   }, [siteId, queryClient]);
 
-  // Click on contract row: toggle expand/collapse in-place. Power-users can
-  // still open the full Subcontracts page via the 3-dot menu's "Open in
-  // Subcontracts page" action (handled by handleContractView below).
-  const handleContractClick = (contractId: string) => {
-    setExpandedContractId((curr) => (curr === contractId ? null : contractId));
-  };
-
-  const handleAddClick = (
-    tradeCategoryId: string,
-    stageId: string | null = null
-  ) => {
+  const handleAddTaskWork = (tradeCategoryId: string, stageId: string | null) => {
     if (!siteId) return;
-    const tradeName = categoryNameById.get(tradeCategoryId) ?? "Contract";
-    setCreateCtx({ tradeCategoryId, tradeName, stageId });
+    setCreateCtx({
+      tradeCategoryId,
+      tradeName: categoryNameById.get(tradeCategoryId) ?? "Contract",
+      stageId,
+    });
   };
 
-  const handleContractView = (contractId: string) => {
-    router.push(`/site/subcontracts?contractId=${contractId}`);
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!pendingDelete || !siteId) return;
-    setDeleting(true);
-    try {
-      const result = await (supabase.from("subcontracts") as any)
-        .delete()
-        .eq("id", pendingDelete);
-      if (result.error) throw result.error;
-
-      // Invalidate + broadcast so /site/subcontracts also refreshes if open
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["trades", "site", siteId] }),
-        queryClient.invalidateQueries({
-          queryKey: ["trade-reconciliations", "site", siteId],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ["trade-activity", "site", siteId],
-        }),
-      ]);
-      if (typeof BroadcastChannel !== "undefined") {
-        const bc = new BroadcastChannel("subcontracts-changed");
-        bc.postMessage({ siteId, at: Date.now() });
-        bc.close();
-      }
-
-      setSnackbar({
-        open: true,
-        message: "Task work deleted",
-        severity: "success",
-      });
-      setPendingDelete(null);
-    } catch (e: any) {
-      setSnackbar({
-        open: true,
-        message: `Delete failed: ${e.message ?? String(e)}`,
-        severity: "error",
-      });
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  if (!selectedSite) {
+  if (!selectedSite || !siteId) {
     return (
       <Box sx={{ p: 2 }}>
-        <Alert severity="info">
-          Select a site from the top bar to view trades.
-        </Alert>
+        <Alert severity="info">Select a site from the top bar to view the workforce.</Alert>
       </Box>
     );
   }
 
   return (
-    <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
-      <PageHeader
-        title="Workforce"
-        subtitle={`Contracts, stages & task work for ${selectedSite.name}`}
-        showBack={false}
+    <>
+      <WorkspaceLayout
+        siteId={siteId}
+        siteName={selectedSite.name}
+        trades={tradesForModel}
+        reconciliations={reconciliations}
+        activity={activity}
+        stages={stages}
+        loading={isLoading}
+        canEdit={canEdit}
+        packagesByTrade={packagesByTrade}
+        onOpenPackage={(pkg) => setDetailPkg(pkg)}
+        onAddTaskWork={handleAddTaskWork}
       />
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          Failed to load trades:{" "}
-          {error instanceof Error ? error.message : String(error)}
-        </Alert>
-      )}
-
-      {isLoading && (
-        <Grid container spacing={2}>
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Grid key={i} size={{ xs: 12, sm: 6, md: 4 }}>
-              <Skeleton variant="rectangular" height={180} />
-            </Grid>
-          ))}
-        </Grid>
-      )}
-
-      {!isLoading && trades && trades.length === 0 && <TradesEmptyState />}
-
-      {!isLoading && trades && trades.length > 0 && (
-        <Grid container spacing={2}>
-          {trades.map((trade) => (
-            <Grid
-              key={trade.category.id}
-              id={`trade-card-${trade.category.id}`}
-              size={{ xs: 12, sm: 6, md: 4 }}
-            >
-              <TradeCard
-                trade={trade}
-                siteId={selectedSite.id}
-                reconciliations={reconciliations}
-                activity={activity}
-                packages={packagesByTrade.get(trade.category.id)}
-                onPackageClick={(pkg) => setDetailPkg(pkg)}
-                expandedContractId={expandedContractId}
-                onContractClick={handleContractClick}
-                onAddClick={handleAddClick}
-                onContractView={handleContractView}
-                onContractDelete={(id) => setPendingDelete(id)}
-              />
-            </Grid>
-          ))}
-        </Grid>
-      )}
-
-      {createCtx && siteId && (
+      {createCtx && (
         <QuickCreateContractDialog
           open={!!createCtx}
           onClose={() => setCreateCtx(null)}
-          onCreated={(newId) => {
-            setSnackbar({
-              open: true,
-              message: "Task work created",
-              severity: "success",
-            });
-            // Stay on /site/trades — the new task work appears via invalidation.
-            void newId;
+          onCreated={() => {
+            // New task work appears via query invalidation.
           }}
           siteId={siteId}
           tradeCategoryId={createCtx.tradeCategoryId}
@@ -262,49 +152,6 @@ export default function TradesPage() {
         />
       )}
 
-      <Dialog
-        open={!!pendingDelete}
-        onClose={deleting ? undefined : () => setPendingDelete(null)}
-      >
-        <DialogTitle>Delete this task work?</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            This permanently removes the task work. Attendance and settlement
-            history that referenced it will be left in place but will lose their
-            link. This cannot be undone.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPendingDelete(null)} disabled={deleting}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleConfirmDelete}
-            color="error"
-            variant="contained"
-            disabled={deleting}
-          >
-            {deleting ? "Deleting…" : "Delete"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      >
-        <Alert
-          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-          severity={snackbar.severity}
-          variant="filled"
-          sx={{ width: "100%" }}
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
-
       <TaskWorkDetailDrawer
         open={!!detailPkg}
         onClose={() => setDetailPkg(null)}
@@ -316,14 +163,12 @@ export default function TradesPage() {
         }}
       />
 
-      {siteId && (
-        <TaskWorkPackageDialog
-          open={pkgDialogOpen}
-          onClose={() => setPkgDialogOpen(false)}
-          siteId={siteId}
-          editing={editingPkg}
-        />
-      )}
-    </Box>
+      <TaskWorkPackageDialog
+        open={pkgDialogOpen}
+        onClose={() => setPkgDialogOpen(false)}
+        siteId={siteId}
+        editing={editingPkg}
+      />
+    </>
   );
 }

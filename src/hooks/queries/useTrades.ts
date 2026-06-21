@@ -10,18 +10,40 @@ import type {
 } from "@/types/trade.types";
 
 /**
+ * Synthetic trade node that holds task work with no `trade_category_id`. Without
+ * it, a contract whose trade is unset would be silently dropped from the tree
+ * (and the user could never see — let alone fix — it). Kept as a permanent safety
+ * net; in clean data it simply has no members and is not emitted.
+ */
+export const UNCATEGORIZED_TRADE_ID = "__uncategorized__";
+
+/** The category literal for the synthetic "Other / Uncategorized" trade node. */
+export const UNCATEGORIZED_CATEGORY: TradeCategory = {
+  id: UNCATEGORIZED_TRADE_ID,
+  name: "Other / Uncategorized",
+  isSystemSeed: false,
+  isActive: true,
+};
+
+/**
  * Pure grouping function — extracted so it's testable without Supabase.
  * Returns one Trade per visible category. A category is visible when
  * `isActive` is true OR it has at least one contract on this site.
  * In-house Civil is always placed first; the rest follow alphabetically.
+ * Contracts with no trade are collected into a trailing "Other / Uncategorized"
+ * node (only when any exist) so nothing is ever hidden.
  */
 export function groupContractsByTrade(
   categories: TradeCategory[],
   contracts: TradeContract[]
 ): Trade[] {
   const byCategoryId = new Map<string, TradeContract[]>();
+  const uncategorized: TradeContract[] = [];
   for (const c of contracts) {
-    if (!c.tradeCategoryId) continue; // legacy unmigrated
+    if (!c.tradeCategoryId) {
+      uncategorized.push(c); // legacy / unassigned — surfaced below, not dropped
+      continue;
+    }
     const arr = byCategoryId.get(c.tradeCategoryId) ?? [];
     arr.push(c);
     byCategoryId.set(c.tradeCategoryId, arr);
@@ -37,10 +59,16 @@ export function groupContractsByTrade(
       return a.name.localeCompare(b.name);
     });
 
-  return visible.map((category) => ({
+  const nodes: Trade[] = visible.map((category) => ({
     category,
     contracts: byCategoryId.get(category.id) ?? [],
   }));
+
+  if (uncategorized.length > 0) {
+    nodes.push({ category: UNCATEGORIZED_CATEGORY, contracts: uncategorized });
+  }
+
+  return nodes;
 }
 
 interface RawCategoryRow {
@@ -61,7 +89,11 @@ interface RawContractRow {
   contract_type: "mesthri" | "specialist";
   status: ContractStatus;
   total_value: number | string | null;
+  work_progress_percent: number | null;
   created_at: string;
+  team_id: string | null;
+  laborer_id: string | null;
+  contractor_name: string | null;
   team: { leader_name: string | null } | null;
   laborer: { name: string | null } | null;
 }
@@ -85,7 +117,8 @@ export function useSiteTrades(siteId: string | undefined) {
           .select(
             `
             id, site_id, trade_category_id, stage_id, title,
-            labor_tracking_mode, is_in_house, contract_type, status, total_value, created_at,
+            labor_tracking_mode, is_in_house, contract_type, status, total_value,
+            work_progress_percent, created_at, team_id, laborer_id, contractor_name,
             team:teams(leader_name),
             laborer:laborers(name)
           `
@@ -118,8 +151,15 @@ export function useSiteTrades(siteId: string | undefined) {
           contractType: r.contract_type,
           status: r.status,
           totalValue: Number(r.total_value ?? 0),
+          workProgressPercent:
+            r.work_progress_percent == null ? null : Number(r.work_progress_percent),
+          teamId: r.team_id,
+          laborerId: r.laborer_id,
+          // Prefer the joined crew/laborer name; fall back to a free-typed
+          // contractor_name so contracts entered without a linked team still
+          // show who's responsible (e.g. an outside specialist).
           mesthriOrSpecialistName:
-            r.team?.leader_name ?? r.laborer?.name ?? null,
+            r.team?.leader_name ?? r.laborer?.name ?? r.contractor_name ?? null,
           createdAt: r.created_at,
         })
       );

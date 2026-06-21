@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { groupContractsByTrade } from "./useTrades";
+import { groupContractsByTrade, UNCATEGORIZED_TRADE_ID } from "./useTrades";
 import type { TradeCategory, TradeContract } from "@/types/trade.types";
 
 const civilCat: TradeCategory = {
@@ -37,6 +37,9 @@ const mkContract = (
   status: "active",
   totalValue: 0,
   mesthriOrSpecialistName: null,
+  workProgressPercent: null,
+  teamId: null,
+  laborerId: null,
   createdAt: "2026-05-02T00:00:00Z",
 });
 
@@ -80,9 +83,26 @@ describe("groupContractsByTrade", () => {
     expect(result.map((t) => t.category.name)).toEqual(["Civil", "Tiling"]);
   });
 
-  it("filters out contracts whose tradeCategoryId is null (legacy unmigrated)", () => {
+  it("routes contracts with null tradeCategoryId into a trailing 'Other / Uncategorized' node", () => {
     const orphan = { ...mkContract("orphan", "c1"), tradeCategoryId: null };
     const result = groupContractsByTrade([civilCat], [orphan]);
+    // Civil stays (active, no contracts); the orphan is surfaced, not dropped.
+    expect(result.map((t) => t.category.name)).toEqual([
+      "Civil",
+      "Other / Uncategorized",
+    ]);
     expect(result[0].contracts).toHaveLength(0);
+    const other = result.find((t) => t.category.id === UNCATEGORIZED_TRADE_ID)!;
+    expect(other.contracts.map((c) => c.id)).toEqual(["orphan"]);
+  });
+
+  it("does not emit an 'Other' node when every contract has a trade", () => {
+    const result = groupContractsByTrade(
+      [civilCat],
+      [mkContract("k1", "c1")]
+    );
+    expect(
+      result.some((t) => t.category.id === UNCATEGORIZED_TRADE_ID)
+    ).toBe(false);
   });
 });

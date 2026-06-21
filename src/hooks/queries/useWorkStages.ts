@@ -63,6 +63,30 @@ export function useWorkStages(
   });
 }
 
+/**
+ * All stages for an entire site (across every trade). Used by the Workforce Workspace
+ * to label/group task works in the tree without a per-trade fetch.
+ */
+export function useSiteWorkStages(siteId: string | undefined) {
+  const supabase = createClient();
+  return useQuery({
+    queryKey: ["work-stages", "site", siteId],
+    enabled: !!siteId,
+    staleTime: 60 * 1000,
+    queryFn: async (): Promise<WorkStage[]> => {
+      if (!siteId) return [];
+      const { data, error } = await (supabase as any)
+        .from("work_stages")
+        .select("id, site_id, trade_category_id, name, sort_order, created_at")
+        .eq("site_id", siteId)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return ((data ?? []) as RawStageRow[]).map(mapStage);
+    },
+  });
+}
+
 export function useAddWorkStage(
   siteId: string | undefined,
   tradeCategoryId: string | undefined

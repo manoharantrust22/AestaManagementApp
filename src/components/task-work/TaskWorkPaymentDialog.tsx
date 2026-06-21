@@ -168,9 +168,11 @@ export default function TaskWorkPaymentDialog({
                   }
                 >
                   {(
+                    // "advance" surfaces as "Part payment"; the legacy
+                    // "part_payment" type is omitted here to avoid a duplicate
+                    // option (historical rows still render correctly).
                     [
                       "advance",
-                      "part_payment",
                       "final_settlement",
                       "retention_release",
                     ] as TaskWorkPaymentType[]

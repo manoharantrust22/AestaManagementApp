@@ -136,7 +136,7 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
             startIcon={<Add />}
             onClick={() => open("advance")}
           >
-            Advance
+            Pay
           </Button>
           <Button
             fullWidth
@@ -157,7 +157,7 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
         </Typography>
       ) : payments.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-          No advances or settlement recorded yet. You can record payments even
+          No payments recorded yet. You can record payments even
           without a day log — handy for historical back-fill.
         </Typography>
       ) : (

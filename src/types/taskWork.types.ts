@@ -230,8 +230,11 @@ export const TASK_WORK_STATUS_LABEL: Record<TaskWorkStatus, string> = {
 };
 
 export const TASK_WORK_PAYMENT_TYPE_LABEL: Record<TaskWorkPaymentType, string> = {
-  advance: "Advance",
-  part_payment: "Part Payment",
+  // "Advance" reads as money paid before work starts; in practice the crew is
+  // paid in installments as the job progresses, so advance + part_payment both
+  // surface as one consistent "Part payment" label.
+  advance: "Part payment",
+  part_payment: "Part payment",
   final_settlement: "Final Settlement",
   retention_release: "Retention Release",
 };
