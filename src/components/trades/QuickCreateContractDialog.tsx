@@ -51,6 +51,8 @@ interface QuickCreateContractDialogProps {
   tradeName: string;
   /** Optional Stage to drop the new task work into (preselected when launched from a stage). */
   stageId?: string | null;
+  /** Switch to creating a fixed-price package (retention / man-day profitability) instead. */
+  onCreatePackage?: () => void;
 }
 
 export function QuickCreateContractDialog({
@@ -61,6 +63,7 @@ export function QuickCreateContractDialog({
   tradeCategoryId,
   tradeName,
   stageId = null,
+  onCreatePackage,
 }: QuickCreateContractDialogProps) {
   const supabase = createClient();
   const queryClient = useQueryClient();
@@ -403,6 +406,35 @@ export function QuickCreateContractDialog({
           </Box>
         ) : (
           <Stack spacing={2.5}>
+            {onCreatePackage && (
+              <Box
+                sx={{
+                  p: 1,
+                  borderRadius: 1.5,
+                  bgcolor: "action.hover",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 1,
+                  flexWrap: "wrap",
+                }}
+              >
+                <Typography variant="caption" color="text.secondary">
+                  This adds a tracked task work. Need retention or man-day
+                  profitability?
+                </Typography>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    onCreatePackage();
+                    onClose();
+                  }}
+                >
+                  Create a fixed-price package →
+                </Button>
+              </Box>
+            )}
+
             <Box>
               <Autocomplete
                 options={stages}

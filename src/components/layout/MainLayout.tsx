@@ -158,12 +158,6 @@ const siteNavCategories: NavCategory[] = [
         path: "/site/subcontracts",
       },
       {
-        // Fixed-price piece-rate packages module (day logs, payments, profitability).
-        text: "Task work (piece-rate)",
-        icon: <Engineering />,
-        path: "/site/task-work",
-      },
-      {
         text: "Attendance",
         icon: <AccessTimeIcon />,
         path: "/site/attendance",

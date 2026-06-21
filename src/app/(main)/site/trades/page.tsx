@@ -254,6 +254,11 @@ export default function TradesPage() {
           tradeCategoryId={createCtx.tradeCategoryId}
           tradeName={createCtx.tradeName}
           stageId={createCtx.stageId}
+          onCreatePackage={() => {
+            setCreateCtx(null);
+            setEditingPkg(null);
+            setPkgDialogOpen(true);
+          }}
         />
       )}
 
