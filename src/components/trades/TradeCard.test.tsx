@@ -19,6 +19,12 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
+// ExpandableContractRow now reads the signed-in user (for canEdit on the
+// estimate/monitor panel). Stub the auth context so tests don't need a provider.
+vi.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({ userProfile: { role: "admin" } }),
+}));
+
 // Mock Supabase client used inside ExpandableContractRow's hooks so tests
 // don't require env vars and don't make real network calls.
 vi.mock("@/lib/supabase/client", () => ({

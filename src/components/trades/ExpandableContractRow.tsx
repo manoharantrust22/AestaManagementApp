@@ -33,9 +33,12 @@ import type {
   TradeContract,
 } from "@/types/trade.types";
 import { useContractHeadcount } from "@/hooks/queries/useContractHeadcount";
+import { useAuth } from "@/contexts/AuthContext";
+import { hasEditPermission } from "@/lib/permissions";
 import { ReconciliationStrip } from "./ReconciliationStrip";
 import { ChangeTrackingModeDialog } from "./ChangeTrackingModeDialog";
 import { EditRoleRatesDialog } from "./EditRoleRatesDialog";
+import { EstimateMonitorPanel } from "./EstimateMonitorPanel";
 
 interface ExpandableContractRowProps {
   contract: TradeContract;
@@ -89,6 +92,8 @@ export function ExpandableContractRow({
 }: ExpandableContractRowProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { userProfile } = useAuth();
+  const canEdit = hasEditPermission(userProfile?.role);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const menuOpen = Boolean(menuAnchor);
 
@@ -314,6 +319,29 @@ export function ExpandableContractRow({
             fallbackQuoted={contract.totalValue}
             extrasTotal={0}
           />
+
+          {/* Worker estimate + over/under-paid monitor (Ship 2a) */}
+          {!contract.isInHouse && (
+            <Box
+              sx={{
+                p: 1.25,
+                border: 1,
+                borderColor: "divider",
+                borderRadius: 1,
+                bgcolor: "background.paper",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <EstimateMonitorPanel
+                subcontractId={contract.id}
+                tradeCategoryId={contract.tradeCategoryId}
+                agreedPrice={contract.totalValue ?? 0}
+                laborTrackingMode={contract.laborTrackingMode}
+                reconciliation={reconciliation}
+                canEdit={canEdit}
+              />
+            </Box>
+          )}
 
           {/* Tracking mode + role rates summary (management surface) */}
           <Box
