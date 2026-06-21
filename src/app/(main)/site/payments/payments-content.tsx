@@ -219,8 +219,18 @@ export default function PaymentsContent() {
   }, []);
   // Trade chip — same pattern as /site/attendance. Civil = existing settlement
   // tabs (Civil's per-laborer waterfall); trade = scoped TradeSettlementView.
+  // When the Workforce workspace deep-links a contract
+  // (?categoryId=&contractId=&trade=), open pre-scoped to that trade.
   const [tradeChipSelection, setTradeChipSelection] =
-    useState<TradeChipSelection>({ kind: "civil" });
+    useState<TradeChipSelection>(() => {
+      const categoryId = searchParams.get("categoryId");
+      const contractId = searchParams.get("contractId");
+      const trade = searchParams.get("trade");
+      if (categoryId && contractId && trade) {
+        return { kind: "trade", categoryId, tradeName: trade, contractId };
+      }
+      return { kind: "civil" };
+    });
   const { data: sitTradesForChip } = useSiteTrades(selectedSite?.id);
   const selectedTradeContract = useMemo(() => {
     if (tradeChipSelection.kind !== "trade" || !sitTradesForChip) return null;

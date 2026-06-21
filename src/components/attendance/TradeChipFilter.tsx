@@ -63,22 +63,31 @@ export function TradeChipFilter({
     );
   }
 
-  // Civil + non-civil trades that have at least one active contract
-  const visibleTrades = (trades ?? []).filter((t) => {
-    if (t.category.name === "Civil") return true;
-    return t.contracts.length > 0;
-  });
+  // A contract is a "tracked workspace" when its labor tracking mode records
+  // attendance (anything other than mesthri-only, which is lump payments with
+  // no attendance/salary). Opted-out (mesthri-only) contracts don't belong on
+  // the attendance / salary screens, so we drop them from the chips — they're
+  // paid from the Workforce workspace's Record-payment action instead.
+  const isTracked = (c: TradeContract) => c.laborTrackingMode !== "mesthri_only";
+
+  // Civil + non-civil trades that have at least one tracked contract.
+  const visibleTrades = (trades ?? [])
+    .map((t) => ({ ...t, contracts: t.contracts.filter(isTracked) }))
+    .filter((t) => {
+      if (t.category.name === "Civil") return true;
+      return t.contracts.length > 0;
+    });
 
   const hasNonCivil = visibleTrades.some(
     (t) => t.category.name !== "Civil" && t.contracts.length > 0
   );
   if (!hasNonCivil) return null;
 
-  // Resolve sub-picker visibility: when the selected trade has >1 active
+  // Resolve sub-picker visibility: when the selected trade has >1 tracked
   // contract, render a second chip row to switch contractor.
   const selectedTradeContracts: TradeContract[] | null =
     selected.kind === "trade"
-      ? (trades ?? []).find((t) => t.category.id === selected.categoryId)
+      ? visibleTrades.find((t) => t.category.id === selected.categoryId)
           ?.contracts ?? null
       : null;
   const showSubPicker =

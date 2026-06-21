@@ -344,9 +344,19 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
 
   // Slice E — chip filter state lives here so we can early-return to the
   // TradeAttendanceView when a non-civil chip is selected. Default = civil
-  // (preserves the existing 7000-line page exactly as before).
+  // (preserves the existing 7000-line page exactly as before). When the
+  // Workforce workspace deep-links a specific contract
+  // (?categoryId=&contractId=&trade=), open pre-scoped to that trade.
   const [tradeChipSelection, setTradeChipSelection] =
-    React.useState<TradeChipSelection>({ kind: "civil" });
+    React.useState<TradeChipSelection>(() => {
+      const categoryId = searchParams.get("categoryId");
+      const contractId = searchParams.get("contractId");
+      const trade = searchParams.get("trade");
+      if (categoryId && contractId && trade) {
+        return { kind: "trade", categoryId, tradeName: trade, contractId };
+      }
+      return { kind: "civil" };
+    });
   // Per-trade color tokens for chips/header strip/FAB. Civil → existing primary blue.
   const tradeColor = React.useMemo(
     () =>
