@@ -44,12 +44,17 @@ function normalize(raw: any): LaborerRateCascadeResult {
 
 export async function previewLaborerRateCascade(
   laborerId: string,
-  newRate: number
+  newRate: number,
+  effectiveFrom?: string | null
 ): Promise<LaborerRateCascadeResult> {
   const supabase = createClient();
   const { data, error } = await (supabase as any).rpc(
     "preview_laborer_rate_cascade",
-    { p_laborer_id: laborerId, p_new_rate: newRate }
+    {
+      p_laborer_id: laborerId,
+      p_new_rate: newRate,
+      p_effective_from: effectiveFrom ?? null,
+    }
   );
   if (error) throw error;
   return normalize(data);
@@ -57,12 +62,17 @@ export async function previewLaborerRateCascade(
 
 export async function updateLaborerRateCascade(
   laborerId: string,
-  newRate: number
+  newRate: number,
+  effectiveFrom?: string | null
 ): Promise<LaborerRateCascadeResult> {
   const supabase = createClient();
   const { data, error } = await (supabase as any).rpc(
     "update_laborer_rate_cascade",
-    { p_laborer_id: laborerId, p_new_rate: newRate }
+    {
+      p_laborer_id: laborerId,
+      p_new_rate: newRate,
+      p_effective_from: effectiveFrom ?? null,
+    }
   );
   if (error) throw error;
 

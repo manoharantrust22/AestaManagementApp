@@ -14,6 +14,9 @@ import {
   Divider,
   IconButton,
   Stack,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import { Close as CloseIcon } from "@mui/icons-material";
@@ -55,15 +58,40 @@ export default function RateCascadeDialog({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
+  // Scope of the rewrite: "all" recalculates every recorded day (legacy
+  // behaviour); "from" only recalculates attendance on/after effectiveFrom,
+  // leaving earlier days at their old snapshotted rate.
+  const [scope, setScope] = useState<"all" | "from">("all");
+  const [effectiveFrom, setEffectiveFrom] = useState("");
+
+  // The date passed to the RPCs: null = whole history.
+  const effDate = scope === "from" && effectiveFrom ? effectiveFrom : null;
+  // In "from" mode we wait for a date before previewing / allowing apply.
+  const awaitingDate = scope === "from" && !effectiveFrom;
+
+  // Reset scope + date whenever the dialog (re)opens for a laborer.
+  useEffect(() => {
+    if (open) {
+      setScope("all");
+      setEffectiveFrom("");
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
+    if (awaitingDate) {
+      // No date chosen yet — clear any stale preview and wait.
+      setPreview(null);
+      setPreviewError(null);
+      setPreviewLoading(false);
+      return;
+    }
     let cancelled = false;
     setPreview(null);
     setPreviewError(null);
     setApplyError(null);
     setPreviewLoading(true);
-    previewLaborerRateCascade(laborerId, newRate)
+    previewLaborerRateCascade(laborerId, newRate, effDate)
       .then((r) => {
         if (!cancelled) setPreview(r);
       })
@@ -76,13 +104,13 @@ export default function RateCascadeDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, laborerId, newRate]);
+  }, [open, laborerId, newRate, effDate, awaitingDate]);
 
   async function handleApply() {
     setApplying(true);
     setApplyError(null);
     try {
-      const result = await updateLaborerRateCascade(laborerId, newRate);
+      const result = await updateLaborerRateCascade(laborerId, newRate, effDate);
       onApplied(result);
     } catch (err: any) {
       setApplyError(err?.message ?? String(err));
@@ -116,6 +144,53 @@ export default function RateCascadeDialog({
             <strong>{formatRupees(oldRate)}</strong> to{" "}
             <strong>{formatRupees(newRate)}</strong>.
           </Typography>
+
+          <Box>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 600 }}
+            >
+              Apply the new rate to
+            </Typography>
+            <ToggleButtonGroup
+              value={scope}
+              exclusive
+              size="small"
+              fullWidth
+              onChange={(_e, v) => {
+                if (v) setScope(v);
+              }}
+              disabled={applying}
+              sx={{ mt: 0.5 }}
+            >
+              <ToggleButton value="all">All recorded days</ToggleButton>
+              <ToggleButton value="from">Only from a date</ToggleButton>
+            </ToggleButtonGroup>
+
+            {scope === "from" && (
+              <TextField
+                type="date"
+                label="Effective from"
+                size="small"
+                fullWidth
+                value={effectiveFrom}
+                onChange={(e) => setEffectiveFrom(e.target.value)}
+                disabled={applying}
+                slotProps={{ inputLabel: { shrink: true } }}
+                helperText={`Days before this date keep the old rate (${formatRupees(
+                  oldRate
+                )}); this date and later become ${formatRupees(newRate)}.`}
+                sx={{ mt: 1.5 }}
+              />
+            )}
+          </Box>
+
+          {awaitingDate && (
+            <Alert severity="info">
+              Pick an effective date to preview the impact.
+            </Alert>
+          )}
 
           {previewLoading && (
             <Box sx={{ display: "flex", justifyContent: "center", py: 3 }}>
@@ -189,10 +264,18 @@ export default function RateCascadeDialog({
                 </Stack>
               </Box>
 
+              {effDate && preview.affected_attendance > 0 && (
+                <Alert severity="info">
+                  Only attendance on or after {effDate} is recalculated; earlier days
+                  keep their old rate.
+                </Alert>
+              )}
+
               {preview.affected_attendance === 0 && preview.affected_settlements === 0 && (
                 <Alert severity="info">
-                  No historical attendance for this laborer — the new rate will apply to
-                  future entries only.
+                  {effDate
+                    ? `No recorded attendance on or after ${effDate} — the new rate will apply to future entries only.`
+                    : "No historical attendance for this laborer — the new rate will apply to future entries only."}
                 </Alert>
               )}
 
@@ -220,7 +303,12 @@ export default function RateCascadeDialog({
         </Button>
         <Button
           onClick={handleApply}
-          disabled={previewLoading || Boolean(previewError) || applying}
+          disabled={
+            previewLoading ||
+            Boolean(previewError) ||
+            applying ||
+            awaitingDate
+          }
           variant="contained"
           color="primary"
         >
