@@ -1,16 +1,15 @@
 "use client";
 
 /**
- * KPI strip for the Material Hub. Four cards across desktop, 2x2 on mobile.
+ * KPI strip for the Material Hub. Two money cards (Settlement due · Inter-site
+ * net) — the count-based cards (Needs action / In flight) were retired once the
+ * stage stepper started showing those per-step counts inline.
+ *
  * Each card: 3px tinted left band + soft tinted icon box + label + big mono
  * value + 11px muted sub.
- *
- * Mirrors `ProtoKpiStrip` in docs/MaterialHub_Redesign/proto-screens.jsx.
  */
 
 import { Box, Typography } from "@mui/material";
-import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
-import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import ReceiptIcon from "@mui/icons-material/Receipt";
 import LinkIcon from "@mui/icons-material/Link";
 import { hubTokens, hubToneColors, type HubTone } from "@/lib/material-hub/tokens";
@@ -132,20 +131,6 @@ export default function MaterialHubKpiStrip({
 }: MaterialHubKpiStripProps) {
   const kpis: KpiCardSpec[] = [
     {
-      label: "Needs your action",
-      value: counts.needsAction.toString(),
-      sub: `${counts.pendingApproval} approvals · ${counts.awaitingPO} POs · ${counts.awaitingDelivery} deliveries`,
-      tone: "warn",
-      icon: <NotificationsActiveIcon />,
-    },
-    {
-      label: "In flight",
-      value: (counts.awaitingPO + counts.awaitingDelivery).toString(),
-      sub: "orders, deliveries pending",
-      tone: "primary",
-      icon: <TrendingUpIcon />,
-    },
-    {
       label: "Settlement due",
       value: inrK(settlementDueAmount),
       sub: `${counts.pendingSettlement} vendor bill${counts.pendingSettlement !== 1 ? "s" : ""}`,
@@ -168,7 +153,7 @@ export default function MaterialHubKpiStrip({
         display: "grid",
         gridTemplateColumns: {
           xs: "1fr 1fr",
-          md: "repeat(4, 1fr)",
+          md: "repeat(2, minmax(0, 260px))",
         },
         gap: "10px",
       }}

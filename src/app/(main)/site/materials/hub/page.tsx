@@ -36,10 +36,9 @@ import { useMaterialThreads } from "@/hooks/queries/useMaterialThreads";
 import { usePushSelfUseExpense } from "@/hooks/queries/useBatchUsage";
 import { inr } from "@/lib/material-hub/formatters";
 import MaterialHubKpiStrip from "@/components/material-hub/MaterialHubKpiStrip";
-import MaterialHubFilterChips, {
-  type HubFilterKey,
-} from "@/components/material-hub/MaterialHubFilterChips";
-import MaterialHubToolbar from "@/components/material-hub/MaterialHubToolbar";
+import MaterialHubStageStepper from "@/components/material-hub/MaterialHubStageStepper";
+import MaterialHubSearchFilter from "@/components/material-hub/MaterialHubSearchFilter";
+import DateRangePicker from "@/components/common/DateRangePicker";
 import HubFilteredSummary from "@/components/material-hub/HubFilteredSummary";
 import ReconcileUsageDialog from "@/components/material-hub/reconcile/ReconcileUsageDialog";
 import {
@@ -52,8 +51,14 @@ import {
 } from "@/lib/material-hub/threadFilters";
 import { useMaterialParentMap } from "@/hooks/queries/useMaterials";
 import {
+  stageStepCounts,
+  threadCurrentStep,
+  type StageStepKey,
+} from "@/lib/material-hub/stageFilter";
+import {
   loadHubFilters,
   saveHubFilters,
+  type HubKindFilter,
 } from "@/lib/material-hub/hubFilterStorage";
 import MaterialThreadRow from "@/components/material-hub/MaterialThreadRow";
 import MaterialThreadDetailSheet from "@/components/material-hub/MaterialThreadDetailSheet";
@@ -94,7 +99,8 @@ export default function MaterialHubPage() {
   const siteId = selectedSite?.id;
   const siteGroupId = selectedSite?.site_group_id ?? null;
 
-  const [filter, setFilter] = useState<HubFilterKey>("all");
+  const [stageStep, setStageStep] = useState<StageStepKey | null>(null);
+  const [kindFilter, setKindFilter] = useState<HubKindFilter>("all");
   const [selectedFilter, setSelectedFilter] = useState<MaterialOption | null>(
     null
   );
@@ -121,14 +127,16 @@ export default function MaterialHubPage() {
     if (!saved) {
       // Site switch with nothing saved → reset to defaults so the previous
       // site's filters don't leak across.
-      setFilter("all");
+      setStageStep(null);
+      setKindFilter("all");
       setSelectedFilter(null);
       setSearch("");
       setDateStart(null);
       setDateEnd(null);
       return;
     }
-    setFilter(saved.filter);
+    setStageStep(saved.stageStep);
+    setKindFilter(saved.kindFilter);
     setSelectedFilter(saved.selectedFilter);
     setSearch(saved.search ?? "");
     setDateStart(saved.dateStart ? new Date(saved.dateStart) : null);
@@ -142,14 +150,24 @@ export default function MaterialHubPage() {
       return;
     }
     saveHubFilters(siteId, {
-      filter,
+      stageStep,
+      kindFilter,
       selectedFilter,
       search,
       dateStart: dateStart?.toISOString() ?? null,
       dateEnd: dateEnd?.toISOString() ?? null,
       layout,
     });
-  }, [siteId, filter, selectedFilter, search, dateStart, dateEnd, layout]);
+  }, [
+    siteId,
+    stageStep,
+    kindFilter,
+    selectedFilter,
+    search,
+    dateStart,
+    dateEnd,
+    layout,
+  ]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [newEntryOpen, setNewEntryOpen] = useState(false);
   const [backfillPicker, setBackfillPicker] = useState(false);
@@ -281,11 +299,20 @@ export default function MaterialHubPage() {
   );
 
   const clearFilters = () => {
+    setStageStep(null);
+    setKindFilter("all");
     setSelectedFilter(null);
     setSearch("");
     setDateStart(null);
     setDateEnd(null);
   };
+
+  const hasActiveFilters =
+    stageStep !== null ||
+    kindFilter !== "all" ||
+    !!selectedFilter ||
+    !!search.trim() ||
+    (!!dateStart && !!dateEnd);
 
   const settlementDueAmount = useMemo(
     () =>
@@ -297,30 +324,31 @@ export default function MaterialHubPage() {
     [threads]
   );
 
-  const filteredThreads = useMemo(() => {
+  // Threads filtered by everything EXCEPT the stage step. Drives both the stage
+  // counts (so each step badge reflects the active kind / material / search /
+  // date) and the final list (then narrowed by the selected step). Keeping these
+  // off one shared list means a badge count always equals what clicking it shows.
+  const preStageThreads = useMemo(() => {
     let list = threads;
-    if (filter === "action") list = list.filter((t) => nextAction(t) != null);
-    else if (filter === "own") list = list.filter((t) => t.kind === "own");
-    else if (filter === "group") list = list.filter((t) => t.kind === "group");
-    else if (filter === "advance") list = list.filter((t) => t.advance);
-    else if (filter === "spot")
-      list = list.filter((t) => t.purchase_type === "spot");
-    else if (filter === "historical")
-      list = list.filter((t) => !!t.is_historical);
-
+    if (kindFilter !== "all") list = list.filter((t) => t.kind === kindFilter);
     list = list.filter((t) => matchesMaterial(t, selectedFilter, resolvedParentMap));
     list = list.filter((t) => matchesSearch(t, search));
     list = list.filter((t) => matchesDateRange(t, dateStart, dateEnd));
     return list;
-  }, [
-    threads,
-    filter,
-    selectedFilter,
-    search,
-    resolvedParentMap,
-    dateStart,
-    dateEnd,
-  ]);
+  }, [threads, kindFilter, selectedFilter, search, resolvedParentMap, dateStart, dateEnd]);
+
+  const stageCounts = useMemo(
+    () => stageStepCounts(preStageThreads),
+    [preStageThreads]
+  );
+
+  const filteredThreads = useMemo(
+    () =>
+      stageStep
+        ? preStageThreads.filter((t) => threadCurrentStep(t) === stageStep)
+        : preStageThreads,
+    [preStageThreads, stageStep]
+  );
 
   const isMobile = useMediaQuery(`(max-width:${HUB_BREAKPOINT_PX - 1}px)`);
 
@@ -428,32 +456,83 @@ export default function MaterialHubPage() {
           mb: 1.5,
           display: "flex",
           flexWrap: "wrap",
-          alignItems: "center",
-          columnGap: 1.5,
-          rowGap: 1,
+          alignItems: "flex-end",
+          columnGap: 2,
+          rowGap: 1.5,
         }}
       >
-        <MaterialHubFilterChips
-          active={filter}
-          onChange={setFilter}
-          counts={counts}
-        />
-        <Box sx={{ ml: { sm: "auto" }, width: { xs: "100%", sm: "auto" } }}>
-          <MaterialHubToolbar
+        <Box sx={{ flex: 1, minWidth: { xs: "100%", md: 380 } }}>
+          <MaterialHubStageStepper
+            counts={stageCounts}
+            selected={stageStep}
+            onSelect={setStageStep}
+          />
+        </Box>
+
+        <Stack
+          direction="row"
+          spacing={0.5}
+          alignItems="center"
+          sx={{ ml: { md: "auto" }, flexShrink: 0 }}
+        >
+          <MaterialHubSearchFilter
             materialOptions={materialOptions}
             selected={selectedFilter}
             onSelectedChange={setSelectedFilter}
             search={search}
             onSearchChange={setSearch}
-            dateStart={dateStart}
-            dateEnd={dateEnd}
-            onDateChange={(s, e) => {
+          />
+          <ToggleButtonGroup
+            value={kindFilter}
+            exclusive
+            onChange={(_, v) => v && setKindFilter(v as HubKindFilter)}
+            size="small"
+            aria-label="Own / Group filter"
+            sx={{
+              background: hubTokens.card,
+              "& .MuiToggleButton-root": {
+                border: `1px solid ${hubTokens.border}`,
+                textTransform: "none",
+                fontSize: 12,
+                padding: "4px 10px",
+                color: hubTokens.muted,
+                "&.Mui-selected": {
+                  background: hubTokens.primary,
+                  color: "#fff",
+                  "&:hover": { background: hubTokens.primaryHover },
+                },
+              },
+            }}
+          >
+            <ToggleButton value="all">All</ToggleButton>
+            <ToggleButton value="own">Own</ToggleButton>
+            <ToggleButton value="group">Group</ToggleButton>
+          </ToggleButtonGroup>
+          <DateRangePicker
+            standalone
+            compact
+            startDate={dateStart}
+            endDate={dateEnd}
+            onChange={(s, e) => {
               setDateStart(s);
               setDateEnd(e);
             }}
-            onClear={clearFilters}
           />
-        </Box>
+          {hasActiveFilters && (
+            <Button
+              size="small"
+              onClick={clearFilters}
+              sx={{
+                textTransform: "none",
+                color: hubTokens.muted,
+                fontSize: 12.5,
+                minWidth: 0,
+              }}
+            >
+              Clear
+            </Button>
+          )}
+        </Stack>
       </Box>
 
       {selectedFilter && (

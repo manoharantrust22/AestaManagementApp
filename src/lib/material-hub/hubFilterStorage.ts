@@ -1,13 +1,18 @@
-import type { HubFilterKey } from "@/components/material-hub/MaterialHubFilterChips";
 import type { FilterGroup, FilterKind, MaterialOption } from "./threadFilters";
+import { STAGE_STEP_KEYS, type StageStepKey } from "./stageFilter";
 
 /**
  * Per-tab persistence for the Material Hub filter toolbar. The Hub page
- * snapshots its five filter controls into sessionStorage (keyed by site) so a
- * page refresh restores them; closing the tab clears everything.
+ * snapshots its filter controls into sessionStorage (keyed by site) so a page
+ * refresh restores them; closing the tab clears everything.
  */
+export type HubKindFilter = "all" | "own" | "group";
+
 export interface HubFilterSnapshot {
-  filter: HubFilterKey;
+  /** Selected stage step, or null for "all stages". */
+  stageStep: StageStepKey | null;
+  /** Own / Group / All toggle. */
+  kindFilter: HubKindFilter;
   selectedFilter: MaterialOption | null;
   /** Free-text search term (IDs + names). Optional so older snapshots that
    *  predate the search box still restore. */
@@ -18,17 +23,12 @@ export interface HubFilterSnapshot {
   layout: "cards" | "table";
 }
 
-const STORAGE_PREFIX = "material_hub_filters_";
+// v2: the filter model changed from a single kind/type chip to a stage step +
+// kind toggle. Bumping the key gives a clean slate rather than half-migrating an
+// old `{ filter }` snapshot.
+const STORAGE_PREFIX = "material_hub_filters_v2_";
 
-const FILTER_KEYS: HubFilterKey[] = [
-  "all",
-  "action",
-  "own",
-  "group",
-  "advance",
-  "spot",
-  "historical",
-];
+const KIND_FILTERS: HubKindFilter[] = ["all", "own", "group"];
 const FILTER_KINDS: FilterKind[] = ["material", "variant", "brand"];
 const FILTER_GROUPS: FilterGroup[] = ["Material", "Size / Variant", "Brand"];
 
@@ -39,6 +39,11 @@ export function hubFilterStorageKey(siteId: string): string {
 function isValidDateString(s: unknown): s is string | null {
   if (s === null) return true;
   return typeof s === "string" && !isNaN(new Date(s).getTime());
+}
+
+function isValidStageStep(s: unknown): s is StageStepKey | null {
+  if (s === null || s === undefined) return true;
+  return STAGE_STEP_KEYS.includes(s as StageStepKey);
 }
 
 function isValidMaterialOption(o: unknown): o is MaterialOption | null {
@@ -62,7 +67,8 @@ export function loadHubFilters(siteId: string): HubFilterSnapshot | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (
-      !FILTER_KEYS.includes(parsed.filter as HubFilterKey) ||
+      !isValidStageStep(parsed.stageStep ?? null) ||
+      !KIND_FILTERS.includes((parsed.kindFilter ?? "all") as HubKindFilter) ||
       !isValidMaterialOption(parsed.selectedFilter ?? null) ||
       !isValidDateString(parsed.dateStart ?? null) ||
       !isValidDateString(parsed.dateEnd ?? null) ||
@@ -71,7 +77,8 @@ export function loadHubFilters(siteId: string): HubFilterSnapshot | null {
       return null;
     }
     return {
-      filter: parsed.filter as HubFilterKey,
+      stageStep: (parsed.stageStep ?? null) as StageStepKey | null,
+      kindFilter: (parsed.kindFilter ?? "all") as HubKindFilter,
       selectedFilter: (parsed.selectedFilter ?? null) as MaterialOption | null,
       search: typeof parsed.search === "string" ? parsed.search : "",
       dateStart: (parsed.dateStart ?? null) as string | null,

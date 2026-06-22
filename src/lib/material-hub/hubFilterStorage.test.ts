@@ -7,7 +7,8 @@ import {
 } from "./hubFilterStorage";
 
 const snapshot: HubFilterSnapshot = {
-  filter: "group",
+  stageStep: "settle",
+  kindFilter: "group",
   selectedFilter: {
     kind: "material",
     id: "m-tmt-parent",
@@ -30,30 +31,26 @@ describe("hubFilterStorage", () => {
     expect(loadHubFilters("site-1")).toEqual(snapshot);
   });
 
-  it("round-trips cleared filters (nulls)", () => {
-    saveHubFilters("site-1", {
-      filter: "all",
+  it("round-trips cleared filters (nulls / all)", () => {
+    const cleared: HubFilterSnapshot = {
+      stageStep: null,
+      kindFilter: "all",
       selectedFilter: null,
       search: "",
       dateStart: null,
       dateEnd: null,
       layout: "cards",
-    });
-    expect(loadHubFilters("site-1")).toEqual({
-      filter: "all",
-      selectedFilter: null,
-      search: "",
-      dateStart: null,
-      dateEnd: null,
-      layout: "cards",
-    });
+    };
+    saveHubFilters("site-1", cleared);
+    expect(loadHubFilters("site-1")).toEqual(cleared);
   });
 
   it("defaults search to '' when restoring a pre-search snapshot", () => {
     window.sessionStorage.setItem(
       hubFilterStorageKey("site-1"),
       JSON.stringify({
-        filter: "own",
+        stageStep: "approve",
+        kindFilter: "own",
         selectedFilter: null,
         dateStart: null,
         dateEnd: null,
@@ -65,9 +62,9 @@ describe("hubFilterStorage", () => {
 
   it("keys snapshots per site", () => {
     saveHubFilters("site-1", snapshot);
-    saveHubFilters("site-2", { ...snapshot, filter: "own" });
-    expect(loadHubFilters("site-1")?.filter).toBe("group");
-    expect(loadHubFilters("site-2")?.filter).toBe("own");
+    saveHubFilters("site-2", { ...snapshot, kindFilter: "own" });
+    expect(loadHubFilters("site-1")?.kindFilter).toBe("group");
+    expect(loadHubFilters("site-2")?.kindFilter).toBe("own");
   });
 
   it("returns null when nothing was saved", () => {
@@ -83,10 +80,18 @@ describe("hubFilterStorage", () => {
     expect(loadHubFilters("site-1")).toBeNull();
   });
 
-  it("returns null on an unknown filter key", () => {
+  it("returns null on an unknown stage step", () => {
     window.sessionStorage.setItem(
       hubFilterStorageKey("site-1"),
-      JSON.stringify({ ...snapshot, filter: "bogus" })
+      JSON.stringify({ ...snapshot, stageStep: "bogus" })
+    );
+    expect(loadHubFilters("site-1")).toBeNull();
+  });
+
+  it("returns null on an unknown kind filter", () => {
+    window.sessionStorage.setItem(
+      hubFilterStorageKey("site-1"),
+      JSON.stringify({ ...snapshot, kindFilter: "bogus" })
     );
     expect(loadHubFilters("site-1")).toBeNull();
   });
