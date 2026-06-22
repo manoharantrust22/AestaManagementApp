@@ -287,12 +287,12 @@ export default function MiscExpenseViewDialog({
           </Paper>
         )}
 
-        {/* Description */}
+        {/* Reason */}
         {expense.description && (
           <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
             <Typography variant="subtitle2" fontWeight={600} gutterBottom sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <Description fontSize="small" />
-              Description
+              Reason
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {expense.description}

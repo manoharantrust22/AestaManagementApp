@@ -239,6 +239,22 @@ export default function MiscellaneousExpensesPage() {
         Cell: ({ cell }) => cell.getValue<string>() || "-",
       },
       {
+        accessorKey: "description",
+        header: "Reason",
+        size: 180,
+        Cell: ({ cell }) => {
+          const value = cell.getValue<string>();
+          if (!value) return "-";
+          return (
+            <Tooltip title={value}>
+              <Typography variant="body2" noWrap sx={{ maxWidth: 160 }}>
+                {value}
+              </Typography>
+            </Tooltip>
+          );
+        },
+      },
+      {
         accessorKey: "amount",
         header: "Amount",
         size: 120,

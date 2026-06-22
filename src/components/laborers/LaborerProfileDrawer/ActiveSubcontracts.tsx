@@ -4,7 +4,6 @@ import { useMemo } from "react";
 import {
   Box,
   Chip,
-  LinearProgress,
   List,
   ListItem,
   ListItemText,
@@ -15,6 +14,9 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { formatCurrency } from "@/lib/formatters";
+import { computeExposure } from "@/lib/workforce/exposure";
+import { severityMeta } from "@/lib/workforce/workspaceTokens";
+import { MiniDualProgressBar } from "@/components/workforce/MiniDualProgressBar";
 import { SectionTitle } from "./shared";
 
 interface ActiveSubcontractsProps {
@@ -30,13 +32,26 @@ interface ActiveSubcontractRow {
   expected_end_date: string | null;
   site_name: string | null;
   paid_amount: number;
+  work_progress_percent: number | null;
 }
 
 function ActiveRow({ row }: { row: ActiveSubcontractRow }) {
-  const pct =
+  const paidPct =
     row.total_value > 0
       ? Math.min(100, Math.round((row.paid_amount / row.total_value) * 100))
       : 0;
+  const work =
+    row.work_progress_percent == null
+      ? null
+      : Math.max(0, Math.min(1, row.work_progress_percent / 100));
+  // Same exposure model as the Workforce workspace: is the crew paid ahead of the work?
+  const exposure = computeExposure({
+    quoted: row.total_value,
+    paid: row.paid_amount,
+    work,
+  });
+  const sev = severityMeta[exposure.severity];
+
   return (
     <ListItem
       disableGutters
@@ -60,7 +75,7 @@ function ActiveRow({ row }: { row: ActiveSubcontractRow }) {
           secondary={
             <Box
               component="span"
-              sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mt: 0.25 }}
+              sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.75, mt: 0.25 }}
             >
               <Typography variant="caption" color="text.secondary">
                 {row.site_name ?? "—"}
@@ -70,6 +85,20 @@ function ActiveRow({ row }: { row: ActiveSubcontractRow }) {
                 label={row.status}
                 sx={{ height: 18, fontSize: 10 }}
               />
+              {exposure.tracked && (
+                <Chip
+                  size="small"
+                  label={sev.label}
+                  sx={{
+                    height: 18,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: sev.color,
+                    bgcolor: sev.bg,
+                    border: "none",
+                  }}
+                />
+              )}
             </Box>
           }
           secondaryTypographyProps={{ component: "div" }}
@@ -78,18 +107,15 @@ function ActiveRow({ row }: { row: ActiveSubcontractRow }) {
           {formatCurrency(row.total_value)}
         </Typography>
       </Box>
-      <Box sx={{ mt: 0.5 }}>
-        <LinearProgress
-          variant="determinate"
-          value={pct}
-          sx={{ height: 6, borderRadius: 3 }}
-        />
+      <Box sx={{ mt: 0.75 }}>
+        <MiniDualProgressBar paidPct={paidPct / 100} workPct={work} width="100%" height={7} />
         <Typography
           variant="caption"
           color="text.secondary"
-          sx={{ mt: 0.25, display: "block" }}
+          sx={{ mt: 0.5, display: "block" }}
         >
-          {formatCurrency(row.paid_amount)} paid · {pct}%
+          {formatCurrency(row.paid_amount)} paid · {paidPct}% · work{" "}
+          {row.work_progress_percent == null ? "—" : `${row.work_progress_percent}%`}
         </Typography>
       </Box>
     </ListItem>
@@ -112,6 +138,7 @@ export default function ActiveSubcontracts({
         .select(
           `
           id, title, total_value, status, start_date, expected_end_date,
+          work_progress_percent,
           site:sites(name)
         `,
         )
@@ -158,13 +185,15 @@ export default function ActiveSubcontracts({
 
       return list.map((r) => ({
         id: r.id,
-        title: r.title ?? "Untitled contract",
+        title: r.title ?? "Untitled task work",
         total_value: Number(r.total_value ?? 0),
         status: r.status ?? "—",
         start_date: r.start_date ?? null,
         expected_end_date: r.expected_end_date ?? null,
         site_name: r.site?.name ?? null,
         paid_amount: paidByContract[r.id] ?? 0,
+        work_progress_percent:
+          r.work_progress_percent == null ? null : Number(r.work_progress_percent),
       }));
     },
   });
@@ -173,7 +202,7 @@ export default function ActiveSubcontracts({
   if (isLoading) {
     return (
       <Box>
-        <SectionTitle>Active subcontracts</SectionTitle>
+        <SectionTitle>Active task work</SectionTitle>
         <Stack spacing={1}>
           <Skeleton variant="rounded" height={50} />
           <Skeleton variant="rounded" height={50} />
@@ -185,7 +214,7 @@ export default function ActiveSubcontracts({
 
   return (
     <Box>
-      <SectionTitle>Active subcontracts</SectionTitle>
+      <SectionTitle>Active task work</SectionTitle>
       <List dense disablePadding>
         {data.map((row) => (
           <ActiveRow key={row.id} row={row} />

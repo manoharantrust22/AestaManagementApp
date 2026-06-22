@@ -128,7 +128,7 @@ export default function HeroStats({
           loading={isLoading}
           hint={
             isContract
-              ? "Contract laborers are paid through their mesthri's team settlement, not directly. See Active Subcontracts below."
+              ? "Contract laborers are paid through their mesthri's team settlement, not directly. See Active task work below."
               : undefined
           }
         />
