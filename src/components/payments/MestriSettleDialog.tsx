@@ -25,6 +25,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSiteSubcontracts } from "@/hooks/queries/useSubcontracts";
+import { buildSubcontractOptions } from "@/lib/workforce/subcontractOptions";
 import { useWeekContractSubcontracts } from "@/hooks/queries/useWeekContractSubcontracts";
 import { useLaborers } from "@/hooks/queries/useLaborers";
 import { processContractPayment } from "@/lib/services/settlementService";
@@ -236,6 +237,18 @@ export function MestriSettleDialog({
   }, [open, subcontractId, isDateOnly, weekSubcontractIds]);
 
   const selectedSubcontract = subcontracts?.find((s) => s.id === subcontractId);
+
+  // Order the picker so a combined parent contract leads, with its floor children
+  // indented beneath it (the parent is the default choice; the floor is optional).
+  const subcontractRows = useMemo(
+    () => buildSubcontractOptions(subcontracts ?? []),
+    [subcontracts]
+  );
+  const subcontractOptions = useMemo(() => subcontractRows.map((r) => r.item), [subcontractRows]);
+  const subcontractRowById = useMemo(
+    () => new Map(subcontractRows.map((r) => [r.item.id, r])),
+    [subcontractRows]
+  );
 
   // Inline-assign picker options: laborers in the subcontract's trade category
   // (e.g. Civil) float to the top under a "Suggested" group; everyone else
@@ -457,9 +470,9 @@ export function MestriSettleDialog({
 
           {error && <Alert severity="error">{error}</Alert>}
 
-          {/* Subcontract picker */}
+          {/* Contract picker — parent contract first, floors indented under it */}
           <Autocomplete
-            options={subcontracts ?? []}
+            options={subcontractOptions}
             loading={subcontractsLoading}
             value={selectedSubcontract ?? null}
             onChange={(_, v) => setSubcontractId(v?.id ?? null)}
@@ -468,13 +481,29 @@ export function MestriSettleDialog({
                 ? `${opt.title} · ${opt.laborer_name}`
                 : opt.title
             }
+            renderOption={(props, opt) => {
+              const row = subcontractRowById.get(opt.id);
+              const child = row?.depth === 1;
+              return (
+                <Box
+                  component="li"
+                  {...props}
+                  key={opt.id}
+                  sx={{ pl: child ? 4 : 2, fontWeight: row?.isParent ? 700 : 400 }}
+                >
+                  {child ? "↳ " : ""}
+                  {opt.title}
+                  {opt.laborer_name ? ` · ${opt.laborer_name}` : ""}
+                </Box>
+              );
+            }}
             slotProps={{ popper: { disablePortal: false } }}
             renderInput={(params) => (
               <TextField
                 {...params}
                 id="mestri-subcontract"
                 name="mestri-subcontract"
-                label="Subcontract / Mestri"
+                label="Contract / Mestri"
                 size="small"
                 required
               />

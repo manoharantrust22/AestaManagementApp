@@ -1,7 +1,16 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { Box, Typography, Button, IconButton } from "@mui/material";
+import { useState, type ReactNode } from "react";
+import {
+  Box,
+  Typography,
+  Button,
+  IconButton,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
+} from "@mui/material";
 import ArrowBack from "@mui/icons-material/ArrowBack";
 import TuneRounded from "@mui/icons-material/TuneRounded";
 import PaymentsRounded from "@mui/icons-material/PaymentsRounded";
@@ -10,8 +19,14 @@ import OpenInNew from "@mui/icons-material/OpenInNew";
 import GroupWork from "@mui/icons-material/GroupWork";
 import CheckCircleRounded from "@mui/icons-material/CheckCircleRounded";
 import RequestQuoteRounded from "@mui/icons-material/RequestQuoteRounded";
+import MoreVert from "@mui/icons-material/MoreVert";
+import EditOutlined from "@mui/icons-material/EditOutlined";
+import DeleteOutline from "@mui/icons-material/DeleteOutline";
+import LayersOutlined from "@mui/icons-material/LayersOutlined";
+import Check from "@mui/icons-material/Check";
+import Close from "@mui/icons-material/Close";
 import type { WorkspaceTask } from "@/lib/workforce/workspaceModel";
-import type { ContractStatus } from "@/types/trade.types";
+import type { ContractStatus, WorkStage } from "@/types/trade.types";
 import { modeMeta, wsColors, wsRadius, wsShadow } from "@/lib/workforce/workspaceTokens";
 import { formatCurrencyFull } from "@/lib/formatters";
 import { BalanceMeter } from "./BalanceMeter";
@@ -34,6 +49,10 @@ export function TaskDetailPane({
   onLogAttendance,
   onSettleSalary,
   onChangeMode,
+  onEdit,
+  onDelete,
+  stages = [],
+  onMoveToStage,
   onOpenInDetails,
   canEdit,
   showBack = false,
@@ -46,11 +65,21 @@ export function TaskDetailPane({
   onSettleSalary: () => void;
   /** Opens the tracking-mode dialog (the per-trade Attendance+Salary opt-in). */
   onChangeMode?: () => void;
+  /** Opens the edit-contract dialog. */
+  onEdit?: () => void;
+  /** Opens the guarded delete dialog. */
+  onDelete?: () => void;
+  /** Stages available for this contract's trade (for "Move to stage…"). */
+  stages?: WorkStage[];
+  /** Re-point this task work to a stage (or null to clear). */
+  onMoveToStage?: (stageId: string | null) => void;
   onOpenInDetails?: () => void;
   canEdit: boolean;
   showBack?: boolean;
   onBack?: () => void;
 }) {
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const [stageAnchor, setStageAnchor] = useState<HTMLElement | null>(null);
   if (!task) {
     return (
       <Box
@@ -87,6 +116,9 @@ export function TaskDetailPane({
   // the per-trade opt-in surfaced below; onChangeMode flips it on/off.
   const tracked = task.mode !== "mesthri_only";
   const canChangeMode = canEdit && !!onChangeMode && !!task.tradeCategoryId;
+  // "Move to stage" makes sense when the trade has stages to move into, or the
+  // task currently sits in one (so it can be cleared).
+  const canMoveStage = !!onMoveToStage && (stages.length > 0 || !!task.stageId);
 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: wsColors.canvas, minWidth: 0 }}>
@@ -153,6 +185,91 @@ export function TaskDetailPane({
           <IconButton size="small" onClick={onOpenInDetails} title="Open in Contract details">
             <OpenInNew sx={{ fontSize: 18, color: wsColors.muted }} />
           </IconButton>
+        )}
+        {canEdit && (onEdit || onDelete || canMoveStage) && (
+          <>
+            <IconButton size="small" onClick={(e) => setMenuAnchor(e.currentTarget)} title="More">
+              <MoreVert sx={{ fontSize: 18, color: wsColors.muted }} />
+            </IconButton>
+            <Menu anchorEl={menuAnchor} open={!!menuAnchor} onClose={() => setMenuAnchor(null)}>
+              {onEdit && (
+                <MenuItem
+                  onClick={() => {
+                    setMenuAnchor(null);
+                    onEdit();
+                  }}
+                >
+                  <ListItemIcon>
+                    <EditOutlined fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText primaryTypographyProps={{ fontSize: 14 }}>Edit details</ListItemText>
+                </MenuItem>
+              )}
+              {canMoveStage && (
+                <MenuItem
+                  onClick={() => {
+                    // Keep the anchor element so the stage submenu can position itself.
+                    setStageAnchor(menuAnchor);
+                    setMenuAnchor(null);
+                  }}
+                >
+                  <ListItemIcon>
+                    <LayersOutlined fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText primaryTypographyProps={{ fontSize: 14 }}>Move to stage…</ListItemText>
+                </MenuItem>
+              )}
+              {onDelete && (
+                <MenuItem
+                  onClick={() => {
+                    setMenuAnchor(null);
+                    onDelete();
+                  }}
+                >
+                  <ListItemIcon>
+                    <DeleteOutline fontSize="small" sx={{ color: wsColors.red }} />
+                  </ListItemIcon>
+                  <ListItemText primaryTypographyProps={{ fontSize: 14, color: wsColors.red }}>
+                    Delete contract
+                  </ListItemText>
+                </MenuItem>
+              )}
+            </Menu>
+            {/* Stage picker — group floors that already exist without re-creating them. */}
+            <Menu anchorEl={stageAnchor} open={!!stageAnchor} onClose={() => setStageAnchor(null)}>
+              <Typography sx={{ px: 2, py: 0.5, fontSize: 11, fontWeight: 700, color: wsColors.muted }}>
+                Move &ldquo;{task.title}&rdquo; to…
+              </Typography>
+              {stages.map((s) => (
+                <MenuItem
+                  key={s.id}
+                  selected={s.id === task.stageId}
+                  onClick={() => {
+                    setStageAnchor(null);
+                    if (s.id !== task.stageId) onMoveToStage?.(s.id);
+                  }}
+                >
+                  <ListItemIcon>
+                    {s.id === task.stageId ? <Check fontSize="small" /> : <LayersOutlined fontSize="small" />}
+                  </ListItemIcon>
+                  <ListItemText primaryTypographyProps={{ fontSize: 14 }}>{s.name}</ListItemText>
+                </MenuItem>
+              ))}
+              {task.stageId && (
+                <MenuItem
+                  onClick={() => {
+                    setStageAnchor(null);
+                    onMoveToStage?.(null);
+                  }}
+                >
+                  <ListItemIcon>
+                    <Close fontSize="small" sx={{ color: wsColors.muted }} />
+                  </ListItemIcon>
+                  <ListItemText primaryTypographyProps={{ fontSize: 14 }}>No stage</ListItemText>
+                </MenuItem>
+              )}
+            </Menu>
+          </>
         )}
       </Box>
 

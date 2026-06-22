@@ -128,6 +128,8 @@ export interface SubcontractOption {
   id: string;
   title: string;
   team_name?: string;
+  /** Self-reference: set when this contract is a floor child of a combined parent. */
+  parent_subcontract_id?: string | null;
 }
 
 /**

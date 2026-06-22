@@ -221,6 +221,8 @@ export interface SubcontractOption {
   balanceDue: number;
   status: string;
   teamName?: string;
+  /** Self-reference: set when this contract is a floor child of a combined parent. */
+  parent_subcontract_id?: string | null;
 }
 
 // ============ ENGINEER WALLET SETTLEMENT ============

@@ -22,7 +22,7 @@ const SAMPLE_TRADES: Trade[] = [
       {
         id: "con-1", siteId: "s1", tradeCategoryId: "cat-civil", stageId: null, title: "Plumbing — Block A",
         laborTrackingMode: "daily" as any, isInHouse: false, contractType: "mesthri",
-        status: "active" as any, totalValue: 0, mesthriOrSpecialistName: null, workProgressPercent: null, teamId: null, laborerId: null, createdAt: "",
+        status: "active" as any, totalValue: 0, mesthriOrSpecialistName: null, workProgressPercent: null, teamId: null, laborerId: null, parentSubcontractId: null, createdAt: "",
       },
     ],
   },

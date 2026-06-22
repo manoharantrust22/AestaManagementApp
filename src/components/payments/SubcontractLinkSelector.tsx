@@ -21,6 +21,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useSite } from "@/contexts/SiteContext";
 import type { SubcontractOption } from "@/types/payment.types";
 import { supabaseQueryWithTimeout } from "@/lib/utils/supabaseQuery";
+import { buildSubcontractOptions } from "@/lib/workforce/subcontractOptions";
 
 interface SubcontractLinkSelectorProps {
   selectedSubcontractId: string | null;
@@ -84,7 +85,7 @@ export default function SubcontractLinkSelector({
         supabaseQueryWithTimeout(
           supabase
             .from("subcontracts")
-            .select("id, title, total_value, status, team_id")
+            .select("id, title, total_value, status, team_id, parent_subcontract_id")
             .eq("site_id", selectedSite.id)
             .in("status", ["active", "on_hold"])
             .order("title"),
@@ -203,6 +204,7 @@ export default function SubcontractLinkSelector({
             balanceDue: (sc.total_value || 0) - totalPaid,
             status: sc.status,
             teamName: sc.team_id ? teamsMap.get(sc.team_id) : undefined,
+            parent_subcontract_id: sc.parent_subcontract_id ?? null,
           };
         }
       );
@@ -419,36 +421,39 @@ export default function SubcontractLinkSelector({
                 <MenuItem value="">
                   <em>None (Site Expense)</em>
                 </MenuItem>
-                {subcontracts.map((sc) => (
-                  <MenuItem key={sc.id} value={sc.id}>
-                    <Box
-                      sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        width: "100%",
-                        alignItems: "center",
-                      }}
-                    >
-                      <Box>
-                        <Typography variant="body2">{sc.title}</Typography>
-                        {sc.teamName && (
-                          <Typography
-                            variant="caption"
-                            color="text.secondary"
-                          >
-                            {sc.teamName}
+                {buildSubcontractOptions(subcontracts).map((row) => {
+                  const sc = row.item;
+                  return (
+                    <MenuItem key={sc.id} value={sc.id} sx={{ pl: row.depth === 1 ? 4 : 2 }}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          width: "100%",
+                          alignItems: "center",
+                        }}
+                      >
+                        <Box>
+                          <Typography variant="body2" fontWeight={row.isParent ? 700 : 400}>
+                            {row.depth === 1 ? "↳ " : ""}
+                            {sc.title}
                           </Typography>
-                        )}
+                          {row.depth === 0 && sc.teamName && (
+                            <Typography variant="caption" color="text.secondary">
+                              {sc.teamName}
+                            </Typography>
+                          )}
+                        </Box>
+                        <Chip
+                          label={`Bal: ${formatCurrency(sc.balanceDue)}`}
+                          size="small"
+                          color={sc.balanceDue > 0 ? "warning" : "success"}
+                          variant="outlined"
+                        />
                       </Box>
-                      <Chip
-                        label={`Bal: ${formatCurrency(sc.balanceDue)}`}
-                        size="small"
-                        color={sc.balanceDue > 0 ? "warning" : "success"}
-                        variant="outlined"
-                      />
-                    </Box>
-                  </MenuItem>
-                ))}
+                    </MenuItem>
+                  );
+                })}
               </Select>
             </FormControl>
           )}

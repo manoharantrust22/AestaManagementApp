@@ -39,6 +39,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
 import { createMiscExpense, updateMiscExpense } from "@/lib/services/miscExpenseService";
 import type { MiscExpense, SubcontractOption, SiteEngineerOption } from "@/types/misc-expense.types";
+import { buildSubcontractOptions } from "@/lib/workforce/subcontractOptions";
 import type { PayerSource, PayerSourceInput } from "@/types/settlement.types";
 import { useVendors } from "@/hooks/queries/useVendors";
 import { useLaborers } from "@/hooks/queries/useLaborers";
@@ -281,7 +282,7 @@ export default function MiscExpenseDialog({
 
       const { data } = await supabase
         .from("subcontracts")
-        .select("id, title, team_id")
+        .select("id, title, team_id, parent_subcontract_id")
         .eq("site_id", selectedSite.id)
         .in("status", ["draft", "active"]);
 
@@ -289,6 +290,7 @@ export default function MiscExpenseDialog({
         id: sc.id,
         title: sc.title,
         team_name: sc.team_id ? teamsMap.get(sc.team_id) : undefined,
+        parent_subcontract_id: sc.parent_subcontract_id ?? null,
       }));
       setSubcontracts(options);
     } catch (err) {
@@ -299,6 +301,11 @@ export default function MiscExpenseDialog({
   const handleSave = async () => {
     if (amount <= 0) {
       setError("Please enter a valid amount");
+      return;
+    }
+
+    if (!description.trim()) {
+      setError("Please enter a reason for this expense");
       return;
     }
 
@@ -326,7 +333,7 @@ export default function MiscExpenseDialog({
             date,
             amount,
             category_id: categoryId || null,
-            description: description || null,
+            description: description.trim(),
             vendor_name: vendorName || null,
             payment_mode: paymentMode,
             payer,
@@ -350,7 +357,7 @@ export default function MiscExpenseDialog({
             date,
             amount,
             category_id: categoryId,
-            description,
+            description: description.trim(),
             vendor_name: vendorName,
             payment_mode: paymentMode,
             payer,
@@ -487,16 +494,18 @@ export default function MiscExpenseDialog({
           sx={{ mb: 2 }}
         />
 
-        {/* Description */}
+        {/* Reason */}
         <TextField
-          label="Description"
+          label="Reason"
+          required
           value={description}
           onChange={(e) => setDescription(e.target.value)}
+          error={Boolean(error) && !description.trim()}
           fullWidth
           size="small"
           multiline
           rows={2}
-          placeholder="Brief description of the expense"
+          placeholder="What was this spent on? e.g. Auto fare for cement pickup"
           sx={{ mb: 3 }}
         />
 
@@ -664,20 +673,29 @@ export default function MiscExpenseDialog({
           </Stack>
         )}
 
-        {/* Link to Subcontract (Optional) */}
+        {/* Link to Contract (Optional) — parent contracts first, floors indented under them */}
         <FormControl fullWidth size="small" sx={{ mb: 3 }}>
-          <InputLabel>Link to Subcontract (Optional)</InputLabel>
+          <InputLabel>Link to Contract (Optional)</InputLabel>
           <Select
             value={subcontractId}
             onChange={(e) => setSubcontractId(e.target.value)}
-            label="Link to Subcontract (Optional)"
+            label="Link to Contract (Optional)"
           >
             <MenuItem value="">
               <em>None - General Site Expense</em>
             </MenuItem>
-            {subcontracts.map((sc) => (
-              <MenuItem key={sc.id} value={sc.id}>
-                {sc.title}{sc.team_name ? ` (${sc.team_name})` : ""}
+            {buildSubcontractOptions(subcontracts).map((row) => (
+              <MenuItem
+                key={row.item.id}
+                value={row.item.id}
+                sx={{
+                  pl: row.depth === 1 ? 4 : 2,
+                  fontWeight: row.isParent ? 700 : 400,
+                }}
+              >
+                {row.depth === 1 ? "↳ " : ""}
+                {row.item.title}
+                {row.depth === 0 && row.item.team_name ? ` (${row.item.team_name})` : ""}
               </MenuItem>
             ))}
           </Select>

@@ -448,6 +448,12 @@ const companyNavCategories: NavCategory[] = [
         path: "/company/settings/expense-categories",
         adminOnly: true,
       },
+      {
+        text: "Trades",
+        icon: <ConstructionIcon />,
+        path: "/company/settings/trades",
+        adminOnly: true,
+      },
     ],
   },
   {

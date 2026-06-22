@@ -15,12 +15,15 @@ import { SiteSummaryTiles } from "./SiteSummaryTiles";
 import { ContractTree } from "./ContractTree";
 
 export function ContractListPane({
+  siteId,
   siteName,
   model,
   openTrades,
   onToggleTrade,
   selectedTaskId,
   onSelectTask,
+  selectedGroupKey,
+  onSelectGroup,
   query,
   onQueryChange,
   packagesByTrade,
@@ -29,12 +32,15 @@ export function ContractListPane({
   onAddClick,
   canEdit,
 }: {
+  siteId: string;
   siteName: string;
   model: WorkspaceModel;
   openTrades: Record<string, boolean>;
   onToggleTrade: (categoryId: string) => void;
   selectedTaskId: string | null;
   onSelectTask: (id: string) => void;
+  selectedGroupKey: string | null;
+  onSelectGroup: (key: string) => void;
   query: string;
   onQueryChange: (q: string) => void;
   packagesByTrade: Map<string, TaskWorkPackageWithMeta[]>;
@@ -114,9 +120,13 @@ export function ContractListPane({
       {/* Tree (scrolls) */}
       <Box sx={{ flex: 1, overflowY: "auto", px: 1, py: 1 }}>
         <ContractTree
+          siteId={siteId}
+          canEdit={canEdit}
           trades={model.trades}
           selectedTaskId={selectedTaskId}
           onSelectTask={onSelectTask}
+          selectedGroupKey={selectedGroupKey}
+          onSelectGroup={onSelectGroup}
           openTrades={openTrades}
           onToggleTrade={onToggleTrade}
           query={query}

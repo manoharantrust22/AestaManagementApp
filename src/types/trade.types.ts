@@ -48,6 +48,11 @@ export interface TradeContract {
   laborerId: string | null;
   /** Joined: team.leader_name (mesthri) or laborer.name (specialist) or free-typed contractor_name. Null for in-house. */
   mesthriOrSpecialistName: string | null;
+  /**
+   * Self-reference: when set, this contract is a CHILD (e.g. a floor) of a combined
+   * parent contract. Null = a top-level contract. Set by promote_to_parent_contract().
+   */
+  parentSubcontractId: string | null;
   createdAt: string;
 }
 

@@ -1,9 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Box, Typography, Collapse, Button } from "@mui/material";
+import { Box, Typography, Collapse, Button, IconButton, InputBase, Tooltip } from "@mui/material";
 import ChevronRight from "@mui/icons-material/ChevronRight";
 import Add from "@mui/icons-material/Add";
+import EditOutlined from "@mui/icons-material/EditOutlined";
+import DeleteOutline from "@mui/icons-material/DeleteOutline";
+import Check from "@mui/icons-material/Check";
+import Close from "@mui/icons-material/Close";
 import { rollupSeverity } from "@/lib/workforce/exposure";
 import type { TradeNode, WorkspaceTask } from "@/lib/workforce/workspaceModel";
 import {
@@ -13,8 +17,10 @@ import {
   wsRadius,
 } from "@/lib/workforce/workspaceTokens";
 import type { Severity } from "@/lib/workforce/exposure";
+import type { WorkStage } from "@/types/trade.types";
 import { TASK_WORK_STATUS_LABEL, type TaskWorkPackageWithMeta } from "@/types/taskWork.types";
 import { formatCompactINR } from "@/lib/formatters";
+import { useAddWorkStage, useUpdateWorkStage, useDeleteWorkStage } from "@/hooks/queries/useWorkStages";
 import { MiniDualProgressBar } from "./MiniDualProgressBar";
 
 function SeverityDot({ severity, size = 8 }: { severity: Severity; size?: number }) {
@@ -137,10 +143,221 @@ const SECTION_LABEL_SX = {
   mb: 0.25,
 };
 
+/**
+ * Stage header with inline rename + two-tap delete (admin only). Rendered once
+ * per stage so the rename/delete hooks have a stable call site (no hooks-in-a-loop).
+ * Delete is FK-safe — task works fall back to "Ungrouped" (subcontracts.stage_id
+ * is ON DELETE SET NULL).
+ */
+function StageHeaderActions({
+  siteId,
+  tradeCategoryId,
+  stage,
+  canEdit,
+}: {
+  siteId: string;
+  tradeCategoryId: string;
+  stage: WorkStage;
+  canEdit: boolean;
+}) {
+  const updateStage = useUpdateWorkStage(siteId, tradeCategoryId);
+  const deleteStage = useDeleteWorkStage(siteId, tradeCategoryId);
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(stage.name);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const save = () => {
+    const next = name.trim();
+    if (next && next !== stage.name) {
+      void updateStage.mutateAsync({ id: stage.id, patch: { name: next } });
+    }
+    setEditing(false);
+  };
+  const cancel = () => {
+    setName(stage.name);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1.25, mb: 0.25 }}>
+        <InputBase
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+            if (e.key === "Escape") cancel();
+          }}
+          sx={{
+            flex: 1,
+            fontSize: 11,
+            fontWeight: 800,
+            letterSpacing: ".04em",
+            textTransform: "uppercase",
+            color: wsColors.ink,
+            border: `1px solid ${wsColors.hairline}`,
+            borderRadius: `${wsRadius.input}px`,
+            px: 0.75,
+            py: 0.1,
+          }}
+        />
+        <IconButton size="small" onMouseDown={(e) => e.preventDefault()} onClick={save} sx={{ p: 0.25 }}>
+          <Check sx={{ fontSize: 15, color: wsColors.green }} />
+        </IconButton>
+        <IconButton size="small" onMouseDown={(e) => e.preventDefault()} onClick={cancel} sx={{ p: 0.25 }}>
+          <Close sx={{ fontSize: 15, color: wsColors.muted }} />
+        </IconButton>
+      </Box>
+    );
+  }
+
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: 0.25,
+        px: 1.25,
+        mb: 0.25,
+        "&:hover .stage-actions": { opacity: 1 },
+      }}
+    >
+      <Typography sx={{ ...SECTION_LABEL_SX, px: 0, mb: 0, flex: 1, minWidth: 0 }} noWrap>
+        {stage.name}
+      </Typography>
+      {canEdit && (
+        <Box
+          className="stage-actions"
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 0.25,
+            opacity: { xs: 1, md: 0.3 },
+            transition: "opacity .15s",
+          }}
+        >
+          <Tooltip title="Rename stage">
+            <IconButton
+              size="small"
+              onClick={() => {
+                setName(stage.name);
+                setEditing(true);
+              }}
+              sx={{ p: 0.25 }}
+            >
+              <EditOutlined sx={{ fontSize: 14, color: wsColors.muted }} />
+            </IconButton>
+          </Tooltip>
+          {confirmDelete ? (
+            <Tooltip title="Tap again to delete this stage (task work stays, just ungrouped)">
+              <IconButton
+                size="small"
+                onClick={() => {
+                  void deleteStage.mutateAsync(stage.id);
+                  setConfirmDelete(false);
+                }}
+                sx={{ p: 0.25 }}
+              >
+                <DeleteOutline sx={{ fontSize: 14, color: wsColors.red }} />
+              </IconButton>
+            </Tooltip>
+          ) : (
+            <Tooltip title="Delete stage">
+              <IconButton size="small" onClick={() => setConfirmDelete(true)} sx={{ p: 0.25 }}>
+                <DeleteOutline sx={{ fontSize: 14, color: wsColors.muted }} />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+/**
+ * Inline "Add stage" affordance for a trade. Stages were previously only creatable
+ * from inside the "Add task work" dialog — this surfaces it directly in the tree so
+ * floors/phases can be organised without creating a task work first.
+ */
+function AddStageInline({
+  siteId,
+  tradeCategoryId,
+  nextSortOrder,
+}: {
+  siteId: string;
+  tradeCategoryId: string;
+  nextSortOrder: number;
+}) {
+  const addStage = useAddWorkStage(siteId, tradeCategoryId);
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState("");
+
+  const save = () => {
+    const next = name.trim();
+    if (next) void addStage.mutateAsync({ name: next, sortOrder: nextSortOrder });
+    setName("");
+    setEditing(false);
+  };
+  const cancel = () => {
+    setName("");
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1.25, py: 0.25, mt: 0.25 }}>
+        <InputBase
+          autoFocus
+          value={name}
+          placeholder="New stage name (e.g. First Floor)"
+          onChange={(e) => setName(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+            if (e.key === "Escape") cancel();
+          }}
+          sx={{
+            flex: 1,
+            fontSize: 12,
+            color: wsColors.ink,
+            border: `1px solid ${wsColors.hairline}`,
+            borderRadius: `${wsRadius.input}px`,
+            px: 0.75,
+            py: 0.25,
+          }}
+        />
+        <IconButton size="small" onMouseDown={(e) => e.preventDefault()} onClick={save} sx={{ p: 0.25 }}>
+          <Check sx={{ fontSize: 15, color: wsColors.green }} />
+        </IconButton>
+        <IconButton size="small" onMouseDown={(e) => e.preventDefault()} onClick={cancel} sx={{ p: 0.25 }}>
+          <Close sx={{ fontSize: 15, color: wsColors.muted }} />
+        </IconButton>
+      </Box>
+    );
+  }
+
+  return (
+    <Button
+      size="small"
+      startIcon={<Add sx={{ fontSize: 16 }} />}
+      onClick={() => setEditing(true)}
+      sx={{ ml: 0.5, mt: 0.25, textTransform: "none", color: wsColors.muted, fontWeight: 700 }}
+    >
+      Add stage
+    </Button>
+  );
+}
+
 export function ContractTree({
+  siteId,
+  canEdit,
   trades,
   selectedTaskId,
   onSelectTask,
+  selectedGroupKey,
+  onSelectGroup,
   openTrades,
   onToggleTrade,
   query,
@@ -148,9 +365,14 @@ export function ContractTree({
   onOpenPackage,
   onAddTaskWork,
 }: {
+  siteId: string;
+  canEdit: boolean;
   trades: TradeNode[];
   selectedTaskId: string | null;
   onSelectTask: (id: string) => void;
+  /** Selection key of the open "combined contract" (contractor group), or null. */
+  selectedGroupKey: string | null;
+  onSelectGroup: (key: string) => void;
   openTrades: Record<string, boolean>;
   onToggleTrade: (categoryId: string) => void;
   query: string;
@@ -204,13 +426,30 @@ export function ContractTree({
             attachedIds.add(p.id);
           }
         }
+        // Attach packages whose parent subcontract IS a real parent contract (or one of
+        // its children) under that parent's expansion.
+        const pkgsByParentId = new Map<string, TaskWorkPackageWithMeta[]>();
+        for (const pc of node.parentContracts) {
+          const ids = new Set<string>([pc.parent.id, ...pc.children.map((c) => c.id)]);
+          for (const p of pkgs) {
+            if (attachedIds.has(p.id)) continue;
+            if (p.parent_subcontract_id && ids.has(p.parent_subcontract_id)) {
+              const arr = pkgsByParentId.get(pc.parent.id) ?? [];
+              arr.push(p);
+              pkgsByParentId.set(pc.parent.id, arr);
+              attachedIds.add(p.id);
+            }
+          }
+        }
         const loosePkgs = pkgs.filter((p) => !attachedIds.has(p.id));
         const filteredLoosePkgs = q
           ? loosePkgs.filter((p) => pkgMatchesQuery(p, q))
           : loosePkgs;
 
         const hasOtherGroups =
-          node.stageGroups.length > 0 || node.contractorGroups.length > 0;
+          node.stageGroups.length > 0 ||
+          node.contractorGroups.length > 0 ||
+          node.parentContracts.length > 0;
 
         return (
           <Box key={node.category.id} sx={{ mb: 0.5 }}>
@@ -287,13 +526,147 @@ export function ContractTree({
 
             <Collapse in={open} unmountOnExit>
               <Box sx={{ pl: 2, pr: 0.5, pb: 0.5 }}>
+                {/* Real parent contracts (named, with floor children) */}
+                {node.parentContracts.map((pc) => {
+                  const shownChildren = q
+                    ? pc.children.filter((t) => matchesQuery(t, q))
+                    : pc.children;
+                  const parentMatches = q
+                    ? matchesQuery(pc.parent, q) || shownChildren.length > 0
+                    : true;
+                  if (!parentMatches) return null;
+                  const attachedPkgs = pkgsByParentId.get(pc.parent.id) ?? [];
+                  const shownPkgs = q
+                    ? attachedPkgs.filter((p) => pkgMatchesQuery(p, q))
+                    : attachedPkgs;
+                  const pKey = `parent:${pc.parent.id}`;
+                  const pOpen = q ? true : openGroups[pKey] ?? false;
+                  const pSelected = selectedTaskId === pc.parent.id;
+                  const psev = rollupSeverity(pc.rollup);
+                  return (
+                    <Box key={pc.parent.id} sx={{ mt: 0.5 }}>
+                      <Box
+                        onClick={() => onSelectTask(pc.parent.id)}
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 0.5,
+                          px: 1,
+                          py: 0.6,
+                          borderRadius: `${wsRadius.row}px`,
+                          cursor: "pointer",
+                          border: `1px solid ${pSelected ? "#d3e0fb" : "transparent"}`,
+                          bgcolor: pSelected ? wsColors.primaryTint : "transparent",
+                          "&:hover": { bgcolor: pSelected ? wsColors.primaryTint : wsColors.canvas },
+                        }}
+                      >
+                        {/* Chevron is its own hit-area: toggle collapse without selecting. */}
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleGroup(pKey);
+                          }}
+                          sx={{ p: 0.25, ml: -0.25 }}
+                        >
+                          <ChevronRight
+                            sx={{
+                              fontSize: 18,
+                              color: wsColors.muted,
+                              transition: "transform .18s ease",
+                              transform: pOpen ? "rotate(90deg)" : "none",
+                            }}
+                          />
+                        </IconButton>
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Typography
+                            noWrap
+                            sx={{
+                              fontSize: 13,
+                              fontWeight: 800,
+                              color: pSelected ? wsColors.primary : wsColors.ink,
+                              letterSpacing: "-.01em",
+                            }}
+                          >
+                            {pc.parent.title}
+                          </Typography>
+                          <Typography noWrap sx={{ fontSize: 11, color: wsColors.muted }}>
+                            {pc.parent.who} · {pc.children.length} floor
+                            {pc.children.length === 1 ? "" : "s"} · {formatCompactINR(pc.rollup.quoted)}
+                          </Typography>
+                        </Box>
+                        {pc.rollup.trackedCount > 0 && (
+                          <MiniDualProgressBar
+                            paidPct={
+                              pc.rollup.quotedTracked > 0
+                                ? pc.rollup.paidTracked / pc.rollup.quotedTracked
+                                : 0
+                            }
+                            workPct={
+                              pc.rollup.quotedTracked > 0
+                                ? pc.rollup.workValue / pc.rollup.quotedTracked
+                                : 0
+                            }
+                            width={40}
+                            height={7}
+                          />
+                        )}
+                        <SeverityDot severity={psev} size={8} />
+                      </Box>
+                      <Collapse in={pOpen} unmountOnExit>
+                        <Box sx={{ pl: 1.5 }}>
+                          {shownChildren.length > 0 ? (
+                            shownChildren.map((t) => (
+                              <TaskRow
+                                key={t.id}
+                                task={t}
+                                selected={t.id === selectedTaskId}
+                                onSelect={() => onSelectTask(t.id)}
+                              />
+                            ))
+                          ) : (
+                            <Typography sx={{ ...SECTION_LABEL_SX, px: 1.25, py: 0.5 }}>
+                              No floors listed
+                            </Typography>
+                          )}
+                          {shownPkgs.length > 0 && (
+                            <Box sx={{ mt: 0.25 }}>
+                              <Typography
+                                sx={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  letterSpacing: ".04em",
+                                  textTransform: "uppercase",
+                                  color: wsColors.muted2,
+                                  px: 1.25,
+                                  mb: 0.1,
+                                }}
+                              >
+                                Carved-out lump-sum
+                              </Typography>
+                              {shownPkgs.map((p) => (
+                                <PackageRow key={p.id} pkg={p} onOpen={() => onOpenPackage(p)} />
+                              ))}
+                            </Box>
+                          )}
+                        </Box>
+                      </Collapse>
+                    </Box>
+                  );
+                })}
+
                 {/* Stage groups */}
                 {node.stageGroups.map(({ stage, tasks }) => {
                   const shown = q ? tasks.filter((t) => matchesQuery(t, q)) : tasks;
                   if (q && shown.length === 0) return null;
                   return (
                     <Box key={stage.id} sx={{ mt: 0.5 }}>
-                      <Typography sx={SECTION_LABEL_SX}>{stage.name}</Typography>
+                      <StageHeaderActions
+                        siteId={siteId}
+                        tradeCategoryId={node.category.id}
+                        stage={stage}
+                        canEdit={canEdit}
+                      />
                       {shown.map((t) => (
                         <TaskRow
                           key={t.id}
@@ -316,6 +689,15 @@ export function ContractTree({
                   );
                 })}
 
+                {/* Add a stage directly (no need to create a task work first) */}
+                {canEdit && !q && (
+                  <AddStageInline
+                    siteId={siteId}
+                    tradeCategoryId={node.category.id}
+                    nextSortOrder={node.stageGroups.length}
+                  />
+                )}
+
                 {/* Contractor groups — a crew's task works shown as one contract */}
                 {node.contractorGroups.map((group) => {
                   const shownTasks = q
@@ -328,37 +710,50 @@ export function ContractTree({
                   if (q && shownTasks.length === 0 && shownPkgs.length === 0) return null;
                   const groupKey = `${node.category.id}::${group.key}`;
                   const groupOpen = q ? true : openGroups[groupKey] ?? true;
+                  const groupSelected = selectedGroupKey === groupKey;
                   const gsev = rollupSeverity(group.rollup);
                   return (
                     <Box key={group.key} sx={{ mt: 0.5 }}>
                       <Box
-                        onClick={() => toggleGroup(groupKey)}
+                        onClick={() => onSelectGroup(groupKey)}
                         sx={{
                           display: "flex",
                           alignItems: "center",
-                          gap: 0.75,
+                          gap: 0.5,
                           px: 1,
                           py: 0.6,
                           borderRadius: `${wsRadius.row}px`,
                           cursor: "pointer",
-                          "&:hover": { bgcolor: wsColors.canvas },
+                          border: `1px solid ${groupSelected ? "#d3e0fb" : "transparent"}`,
+                          bgcolor: groupSelected ? wsColors.primaryTint : "transparent",
+                          "&:hover": { bgcolor: groupSelected ? wsColors.primaryTint : wsColors.canvas },
                         }}
                       >
-                        <ChevronRight
-                          sx={{
-                            fontSize: 18,
-                            color: wsColors.muted,
-                            transition: "transform .18s ease",
-                            transform: groupOpen ? "rotate(90deg)" : "none",
+                        {/* Chevron is its own hit-area: toggle collapse without selecting. */}
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleGroup(groupKey);
                           }}
-                        />
+                          sx={{ p: 0.25, ml: -0.25 }}
+                        >
+                          <ChevronRight
+                            sx={{
+                              fontSize: 18,
+                              color: wsColors.muted,
+                              transition: "transform .18s ease",
+                              transform: groupOpen ? "rotate(90deg)" : "none",
+                            }}
+                          />
+                        </IconButton>
                         <Box sx={{ minWidth: 0, flex: 1 }}>
                           <Typography
                             noWrap
                             sx={{
                               fontSize: 13,
                               fontWeight: 800,
-                              color: wsColors.ink,
+                              color: groupSelected ? wsColors.primary : wsColors.ink,
                               letterSpacing: "-.01em",
                             }}
                           >

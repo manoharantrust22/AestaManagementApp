@@ -40,6 +40,7 @@ const mkContract = (
   workProgressPercent: null,
   teamId: null,
   laborerId: null,
+  parentSubcontractId: null,
   createdAt: "2026-05-02T00:00:00Z",
 });
 

@@ -94,6 +94,7 @@ interface RawContractRow {
   team_id: string | null;
   laborer_id: string | null;
   contractor_name: string | null;
+  parent_subcontract_id: string | null;
   team: { leader_name: string | null } | null;
   laborer: { name: string | null } | null;
 }
@@ -119,6 +120,7 @@ export function useSiteTrades(siteId: string | undefined) {
             id, site_id, trade_category_id, stage_id, title,
             labor_tracking_mode, is_in_house, contract_type, status, total_value,
             work_progress_percent, created_at, team_id, laborer_id, contractor_name,
+            parent_subcontract_id,
             team:teams(leader_name),
             laborer:laborers(name)
           `
@@ -160,6 +162,7 @@ export function useSiteTrades(siteId: string | undefined) {
           // show who's responsible (e.g. an outside specialist).
           mesthriOrSpecialistName:
             r.team?.leader_name ?? r.laborer?.name ?? r.contractor_name ?? null,
+          parentSubcontractId: r.parent_subcontract_id,
           createdAt: r.created_at,
         })
       );

@@ -110,8 +110,9 @@ export function useAddWorkStage(
       if (error) throw error;
       return mapStage(data as RawStageRow);
     },
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: stagesKey(siteId, tradeCategoryId) }),
+    // Broad ["work-stages"] prefix so BOTH the per-trade list and the site-wide
+    // list (useSiteWorkStages, which the Workforce Workspace tree reads) refresh.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["work-stages"] }),
   });
 }
 
@@ -140,8 +141,9 @@ export function useUpdateWorkStage(
         .eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: stagesKey(siteId, tradeCategoryId) }),
+    // Broad ["work-stages"] prefix so BOTH the per-trade list and the site-wide
+    // list (useSiteWorkStages, which the Workforce Workspace tree reads) refresh.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["work-stages"] }),
   });
 }
 
@@ -164,8 +166,9 @@ export function useDeleteWorkStage(
       if (error) throw error;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: stagesKey(siteId, tradeCategoryId) });
-      // Task works may have lost their stage link — refresh the trade tree too.
+      // Broad prefix refreshes per-trade + site-wide stage lists; the trade tree
+      // refreshes too since task works may have lost their stage link.
+      qc.invalidateQueries({ queryKey: ["work-stages"] });
       qc.invalidateQueries({ queryKey: ["trades", "site", siteId] });
     },
   });

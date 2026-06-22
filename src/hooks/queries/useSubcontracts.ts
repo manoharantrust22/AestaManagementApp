@@ -12,6 +12,8 @@ export interface Subcontract {
   status: "draft" | "active" | "on_hold" | "completed" | "cancelled";
   total_value: number;
   created_at: string;
+  /** Self-reference: set when this contract is a child (floor) of a combined parent. */
+  parent_subcontract_id: string | null;
 }
 
 /**
@@ -36,6 +38,7 @@ export function useSiteSubcontracts(siteId: string | undefined) {
           created_at,
           laborer_id,
           trade_category_id,
+          parent_subcontract_id,
           laborer:laborers(name)
         `)
         .eq("site_id", siteId)
@@ -58,6 +61,7 @@ export function useSiteSubcontracts(siteId: string | undefined) {
         status: item.status,
         total_value: item.total_value,
         created_at: item.created_at,
+        parent_subcontract_id: item.parent_subcontract_id ?? null,
       })) as Subcontract[];
     }, { operationName: "useSiteSubcontracts" }),
     enabled: !!siteId,

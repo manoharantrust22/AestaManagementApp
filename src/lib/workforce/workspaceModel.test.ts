@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { buildWorkspaceModel, computeInitials, findTask } from "./workspaceModel";
+import {
+  buildWorkspaceModel,
+  computeInitials,
+  findGroup,
+  findParentContract,
+  findTask,
+  groupSelectionKey,
+} from "./workspaceModel";
 import type {
   ContractReconciliation,
   Trade,
@@ -23,12 +30,74 @@ function contract(over: Partial<TradeContract>): TradeContract {
     teamId: null,
     laborerId: null,
     mesthriOrSpecialistName: "Karthik",
+    parentSubcontractId: null,
     createdAt: "2026-01-01",
     ...over,
   };
 }
 
 const civilCat = { id: "civil", name: "Civil", isSystemSeed: true, isActive: true };
+
+function recon(over: Partial<ContractReconciliation> & { subcontractId: string }): ContractReconciliation {
+  return {
+    quotedAmount: 0,
+    amountPaid: 0,
+    amountPaidSubcontractPayments: 0,
+    amountPaidSettlements: 0,
+    impliedLaborValueDetailed: 0,
+    impliedLaborValueHeadcount: 0,
+    ...over,
+  };
+}
+
+describe("real parent contracts (buildWorkspaceModel)", () => {
+  it("folds children under the parent, keeps the parent's value, and sums paid", () => {
+    const parent = contract({ id: "P", title: "Jithin Civil contract", teamId: "tJ", totalValue: 300000 });
+    const c1 = contract({ id: "C1", title: "Ground Floor", teamId: "tJ", totalValue: 100000, parentSubcontractId: "P" });
+    const c2 = contract({ id: "C2", title: "1st Floor", teamId: "tJ", totalValue: 200000, parentSubcontractId: "P" });
+    // After "move records" the parent holds all the paid; children read zero.
+    const reconciliations = new Map<string, ContractReconciliation>([
+      ["P", recon({ subcontractId: "P", quotedAmount: 300000, amountPaid: 150000 })],
+      ["C1", recon({ subcontractId: "C1", quotedAmount: 100000, amountPaid: 0 })],
+      ["C2", recon({ subcontractId: "C2", quotedAmount: 200000, amountPaid: 0 })],
+    ]);
+    const trades: Trade[] = [{ category: civilCat, contracts: [parent, c1, c2] }];
+    const model = buildWorkspaceModel({ trades, reconciliations, activity: undefined, stages: [] });
+
+    const node = model.trades[0];
+    expect(node.parentContracts).toHaveLength(1);
+    const pc = node.parentContracts[0];
+    expect(pc.parent.id).toBe("P");
+    expect(pc.children.map((c) => c.id)).toEqual(["C1", "C2"]);
+    // The parent + its children never leak into the flat / contractor-group views.
+    expect(node.contractorGroups).toHaveLength(0);
+    expect(node.ungrouped).toHaveLength(0);
+    // Combined: value counted once (300k), paid summed (parent 150k + children 0).
+    expect(pc.rollup.quoted).toBe(300000);
+    expect(pc.rollup.paid).toBe(150000);
+    // No double-counting at the trade level either.
+    expect(node.rollup.quoted).toBe(300000);
+    expect(node.rollup.paid).toBe(150000);
+  });
+
+  it("counts a hidden (completed) child's value via the parent's own leftover", () => {
+    // Parent value 328050 but only two visible children sum to 300000 — the extra
+    // 28050 belongs to a completed child filtered out of the tree.
+    const parent = contract({ id: "P", teamId: "tJ", totalValue: 328050 });
+    const c1 = contract({ id: "C1", teamId: "tJ", totalValue: 100000, parentSubcontractId: "P" });
+    const c2 = contract({ id: "C2", teamId: "tJ", totalValue: 200000, parentSubcontractId: "P" });
+    const model = buildWorkspaceModel({
+      trades: [{ category: civilCat, contracts: [parent, c1, c2] }],
+      reconciliations: undefined,
+      activity: undefined,
+      stages: [],
+    });
+    const pc = model.trades[0].parentContracts[0];
+    expect(pc.rollup.quoted).toBe(328050);
+    expect(findParentContract(model, "P")?.parentContract.parent.id).toBe("P");
+    expect(findParentContract(model, "C1")).toBeNull();
+  });
+});
 
 describe("computeInitials", () => {
   it("uses first+last initials for multi-word names", () => {
@@ -174,5 +243,39 @@ describe("buildWorkspaceModel — contractor grouping", () => {
     // team:x and lab:x are different keys -> two singletons, no group
     expect(node.contractorGroups).toHaveLength(0);
     expect(node.ungrouped.map((t) => t.id).sort()).toEqual(["l", "t"]);
+  });
+});
+
+describe("findGroup / groupSelectionKey", () => {
+  const model = buildWorkspaceModel({
+    trades: [
+      {
+        category: civilCat,
+        contracts: [
+          contract({ id: "a", title: "Ground", teamId: "jithin" }),
+          contract({ id: "b", title: "First", teamId: "jithin" }),
+        ],
+      },
+    ],
+    reconciliations: undefined,
+    activity: undefined,
+    stages: [],
+  });
+
+  it("round-trips a group through its selection key", () => {
+    const group = model.trades[0].contractorGroups[0];
+    const key = groupSelectionKey("civil", group.key);
+    const hit = findGroup(model, key);
+    expect(hit).not.toBeNull();
+    expect(hit!.group.key).toBe(group.key);
+    expect(hit!.node.category.id).toBe("civil");
+    expect(hit!.group.tasks.map((t) => t.id).sort()).toEqual(["a", "b"]);
+  });
+
+  it("returns null for a missing key, a null key, or a malformed key", () => {
+    expect(findGroup(model, null)).toBeNull();
+    expect(findGroup(model, "civil::team:nobody")).toBeNull();
+    expect(findGroup(model, "no-separator")).toBeNull();
+    expect(findGroup(model, "wrong-trade::team:jithin")).toBeNull();
   });
 });
