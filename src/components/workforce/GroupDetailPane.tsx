@@ -28,9 +28,11 @@ export interface ParentMode {
   parent: WorkspaceTask;
   /** The parent's editable display name (e.g. "Jithin Civil contract"). */
   title: string;
+  /** What the children are called — "section" under a Contract, "task" under a Section. */
+  partLabel?: string;
   /** Open the edit/rename dialog for the parent. */
   onEdit?: () => void;
-  /** Record a payment directly on the whole contract (not a single floor). */
+  /** Record a payment directly on the whole contract (not a single part). */
   onRecordPayment?: () => void;
 }
 
@@ -75,7 +77,8 @@ export function GroupDetailPane({
   const tracked = r.trackedCount > 0;
   const isParent = !!parentMode;
   const displayName = parentMode?.title ?? group.who;
-  const partsWord = isParent ? "floor" : "part";
+  const partsWord = parentMode?.partLabel ?? "part";
+  const partsWordTitle = `${partsWord[0].toUpperCase()}${partsWord.slice(1)}`;
   // Combine the per-task exposures into the shape BalanceMeter expects.
   const groupExposure: ExposureResult = {
     tracked,
@@ -216,7 +219,7 @@ export function GroupDetailPane({
               mb: 0.5,
             }}
           >
-            {isParent ? "Floors in this contract" : "Parts of this contract"}
+            {isParent ? `${partsWordTitle}s in this contract` : "Parts of this contract"}
           </Typography>
           <Box
             sx={{

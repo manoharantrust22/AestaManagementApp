@@ -2,13 +2,15 @@
  * Workforce Workspace view model.
  *
  * Joins the existing server state (useSiteTrades + useSiteTradeReconciliations +
- * useSiteTradeActivity + useSiteWorkStages) into the shape the redesigned 3-pane
- * Workspace renders: a trade → stage → task tree, each task carrying its exposure
- * verdict, plus per-trade and whole-site rollups.
+ * useSiteTradeActivity) into the shape the redesigned Workspace renders: a
+ * **Trade ▸ Contract ▸ Section ▸ Task** ladder. Every `subcontracts` row is a node;
+ * its tier is its depth in the `parent_subcontract_id` chain (root = Contract,
+ * child = Section, grandchild = Task). Each node carries its exposure verdict plus a
+ * de-duped roll-up (a parent's value counts once — its own leftover plus each child).
  *
  * Pure (no React) so it's unit-testable. Components feed it query results.
- * Legacy `task_work_packages` are NOT modelled here — they stay a separate list in
- * Pane B with their existing detail drawer (they have no progress / exposure).
+ * Legacy `task_work_packages` are NOT modelled here — they stay a separate list the
+ * tree attaches at render time by `parent_subcontract_id`, with their own drawer.
  */
 import type {
   ContractActivity,
@@ -39,7 +41,7 @@ export interface WorkspaceTask {
   isInHouse: boolean;
   teamId: string | null;
   laborerId: string | null;
-  /** Set when this task is a CHILD (floor) of a real parent contract. Null = top-level. */
+  /** Set when this row is a CHILD of another subcontract (its parent in the ladder). Null = top-level Contract. */
   parentSubcontractId: string | null;
   /** Stable key used to cluster a contractor's task works (team › laborer › name › in-house). */
   contractorKey: string;
@@ -58,16 +60,29 @@ export interface WorkspaceTask {
   paidPctOfQuoted: number;
 }
 
-export interface StageGroup {
-  stage: WorkStage;
-  tasks: WorkspaceTask[];
+/**
+ * Where a node sits in the Contract ▸ Section ▸ Task ladder, derived from its depth in
+ * the `parent_subcontract_id` chain. Contracts hold Sections; Sections hold Tasks. Any
+ * node may be a leaf (a simple one-shot Contract has no Sections).
+ */
+export type ContractTier = "contract" | "section" | "task";
+
+/**
+ * A node in a Contract's recursive subtree. Backed by a real, editable `subcontracts`
+ * row. `rollup` folds this node's own leftover value together with every descendant so
+ * a parent is counted exactly once.
+ */
+export interface ContractNode {
+  task: WorkspaceTask;
+  tier: ContractTier;
+  children: ContractNode[];
+  rollup: RollupResult;
 }
 
 /**
- * A set of task works under one trade that share a contractor (same crew/team,
- * laborer, or typed name). Surfaces "Jithin's whole construction" as one contract
- * with a combined value + roll-up, while each scope stays a separate task row.
- * Only formed when 2+ task works share the contractor; singletons stay flat.
+ * A presentation-only "combined contract" shape ({ who, the parts, the rollup }) that the
+ * `GroupDetailPane` renders. Built on demand from a `ContractNode` that has children — it
+ * is NOT part of the trade tree.
  */
 export interface ContractorGroup {
   key: string;
@@ -76,40 +91,22 @@ export interface ContractorGroup {
   rollup: RollupResult;
 }
 
-/**
- * A REAL parent contract (a `subcontracts` row whose children point at it via
- * `parent_subcontract_id`) plus its children. Unlike a `ContractorGroup` (a purely
- * visual cluster) this is backed by an editable DB row the owner named — e.g.
- * "Jithin Civil contract" over its floor children. The combined `rollup` folds the
- * parent's own records together with every child's (after a "move records" promotion
- * the records live on the parent and the children are empty optional tags).
- */
-export interface ParentContract {
-  parent: WorkspaceTask;
-  children: WorkspaceTask[];
-  rollup: RollupResult;
-}
-
 export interface TradeNode {
   category: TradeCategory;
+  /** Every subcontract row in this trade, flattened across all tiers (for counts / search). */
   tasks: WorkspaceTask[];
-  stageGroups: StageGroup[];
-  /** Real named parent contracts (with their floor children) — rendered as one contract. */
-  parentContracts: ParentContract[];
-  /** Ungrouped (no stage) task works clustered by contractor (2+ only). */
-  contractorGroups: ContractorGroup[];
-  /** Ungrouped task works that don't share a contractor with any other (rendered flat). */
-  ungrouped: WorkspaceTask[];
+  /** Top-level Contracts (parent_subcontract_id == null), each with its recursive subtree. */
+  contracts: ContractNode[];
   rollup: RollupResult;
 }
 
 export interface WorkspaceModel {
   trades: TradeNode[];
-  /** Whole-site rollup over every task. */
+  /** Whole-site rollup over every node (de-duped — a parent counts once). */
   site: RollupResult;
   /**
    * Whole-site rollup split by status tab (Future / Active / Completed), using the
-   * same de-duped inputs as `site` (a parent counts once via its own leftover plus
+   * same de-duped inputs as `site` (each node counts once via its own leftover plus
    * each child). Powers the tab-aware summary tiles without double-counting parents.
    */
   siteByTab: Record<StatusTab, RollupResult>;
@@ -124,11 +121,15 @@ export function computeInitials(name: string): string {
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
+const tierForDepth = (depth: number): ContractTier =>
+  depth <= 0 ? "contract" : depth === 1 ? "section" : "task";
+
 interface BuildInput {
   trades: Trade[];
   reconciliations: Map<string, ContractReconciliation> | undefined;
   activity: Map<string, ContractActivity> | undefined;
-  stages: WorkStage[] | undefined;
+  /** Accepted for call-site compatibility; Stages are no longer rendered as a tier. */
+  stages?: WorkStage[] | undefined;
 }
 
 export function buildWorkspaceModel({
@@ -141,11 +142,11 @@ export function buildWorkspaceModel({
   for (const s of stages ?? []) stageById.set(s.id, s);
 
   const tradeNodes: TradeNode[] = [];
-  // Flattened rollup inputs for the whole-site total. A parent is represented by its
-  // own "leftover" quoted (value not covered by children, e.g. a hidden completed child)
-  // plus each child — so a parent's value is counted exactly once, never doubled.
+  // Flattened rollup inputs for the whole-site total. Each node contributes ONLY its own
+  // "leftover" quoted (value not covered by its direct children) plus its own paid/work —
+  // so a parent's value is counted exactly once, never doubled by its children.
   const allInputs: RollupTask[] = [];
-  // Same de-duped inputs, split by status tab (each input keyed to its source task's
+  // Same de-duped inputs, split by status tab (each input keyed to its source node's
   // status) so the tab summary tiles stay accurate. `cancelled` inputs fall out.
   const tabInputs: Record<StatusTab, RollupTask[]> = {
     future: [],
@@ -216,10 +217,7 @@ export function buildWorkspaceModel({
       };
     });
 
-    // ── Real parent contracts ────────────────────────────────────────────────
-    // A task is a PARENT when another task names it via `parentSubcontractId` AND
-    // that parent row is itself visible here. Its children are folded under it and
-    // removed from the normal stage/contractor flow (they show only as "parts").
+    // ── Recursive Contract ▸ Section ▸ Task tree ─────────────────────────────
     const taskById = new Map(tasks.map((t) => [t.id, t]));
     const childrenByParent = new Map<string, WorkspaceTask[]>();
     for (const t of tasks) {
@@ -229,101 +227,48 @@ export function buildWorkspaceModel({
         childrenByParent.set(t.parentSubcontractId, arr);
       }
     }
-    const parentContracts: ParentContract[] = [];
-    const consumed = new Set<string>();
+
     const tradeInputs: RollupTask[] = [];
-    for (const t of tasks) {
-      const children = childrenByParent.get(t.id);
-      if (!children || children.length === 0) continue;
-      const sumChildrenQuoted = children.reduce((s, c) => s + c.quoted, 0);
-      // Parent's "own" share = value not already represented by visible children
-      // (e.g. a completed child hidden from the tree). Keeps quoted counted once.
+    // Build a node + collect every descendant's "own" input. A node's own quoted is the
+    // value not already represented by its DIRECT children, so a subtree sums to the
+    // root's quoted exactly once (matches the trusted single-level parent math).
+    const buildNode = (task: WorkspaceTask, depth: number): {
+      node: ContractNode;
+      subtreeInputs: RollupTask[];
+    } => {
+      const kids = childrenByParent.get(task.id) ?? [];
+      const childBuilds = kids.map((k) => buildNode(k, depth + 1));
+      const childQuotedSum = kids.reduce((s, k) => s + k.quoted, 0);
       const ownInput: RollupTask = {
-        quoted: Math.max(0, t.quoted - sumChildrenQuoted),
-        paid: t.paid,
-        work: t.work,
+        quoted: Math.max(0, task.quoted - childQuotedSum),
+        paid: task.paid,
+        work: task.work,
       };
-      const childInputs: RollupTask[] = children.map((c) => ({
-        quoted: c.quoted,
-        paid: c.paid,
-        work: c.work,
-      }));
-      parentContracts.push({
-        parent: t,
-        children,
-        rollup: rollupTasks([ownInput, ...childInputs]),
-      });
-      consumed.add(t.id);
-      for (const c of children) consumed.add(c.id);
-      tradeInputs.push(ownInput, ...childInputs);
-      pushTab(t.status, ownInput);
-      children.forEach((c, i) => pushTab(c.status, childInputs[i]));
-    }
+      pushTab(task.status, ownInput);
+      tradeInputs.push(ownInput);
+      const subtreeInputs = [ownInput, ...childBuilds.flatMap((cb) => cb.subtreeInputs)];
+      return {
+        node: {
+          task,
+          tier: tierForDepth(depth),
+          children: childBuilds.map((cb) => cb.node),
+          rollup: rollupTasks(subtreeInputs),
+        },
+        subtreeInputs,
+      };
+    };
 
-    // Everything not folded into a parent flows through the normal stage/contractor view.
-    const normalTasks = tasks.filter((t) => !consumed.has(t.id));
-    for (const t of normalTasks) {
-      const input: RollupTask = { quoted: t.quoted, paid: t.paid, work: t.work };
-      tradeInputs.push(input);
-      pushTab(t.status, input);
-    }
-
-    // Group by stage. Known stages keep their order; the rest fall into "ungrouped".
-    const tradeStages = (stages ?? [])
-      .filter((s) => s.tradeCategoryId === trade.category.id)
-      .sort((a, b) => a.sortOrder - b.sortOrder);
-    const byStage = new Map<string, WorkspaceTask[]>();
-    const stagelessTasks: WorkspaceTask[] = [];
-    const knownStageIds = new Set(tradeStages.map((s) => s.id));
-    for (const t of normalTasks) {
-      if (t.stageId && knownStageIds.has(t.stageId)) {
-        const arr = byStage.get(t.stageId) ?? [];
-        arr.push(t);
-        byStage.set(t.stageId, arr);
-      } else {
-        stagelessTasks.push(t);
-      }
-    }
-
-    // Cluster the stageless tasks by contractor, preserving first-seen order.
-    // A key with 2+ tasks becomes a contractor group; singletons stay flat.
-    const byContractor = new Map<string, WorkspaceTask[]>();
-    const contractorOrder: string[] = [];
-    for (const t of stagelessTasks) {
-      if (!byContractor.has(t.contractorKey)) contractorOrder.push(t.contractorKey);
-      const arr = byContractor.get(t.contractorKey) ?? [];
-      arr.push(t);
-      byContractor.set(t.contractorKey, arr);
-    }
-    const contractorGroups: ContractorGroup[] = [];
-    const ungrouped: WorkspaceTask[] = [];
-    for (const key of contractorOrder) {
-      const groupTasks = byContractor.get(key)!;
-      if (groupTasks.length >= 2) {
-        contractorGroups.push({
-          key,
-          who: groupTasks[0].who,
-          tasks: groupTasks,
-          rollup: rollupTasks(
-            groupTasks.map((t) => ({ quoted: t.quoted, paid: t.paid, work: t.work }))
-          ),
-        });
-      } else {
-        ungrouped.push(...groupTasks);
-      }
-    }
+    // Roots = top-level rows, plus any orphan whose parent isn't visible in this trade
+    // (so a stray child never disappears — it surfaces as its own Contract).
+    const roots = tasks.filter(
+      (t) => !t.parentSubcontractId || !taskById.has(t.parentSubcontractId)
+    );
+    const contracts = roots.map((r) => buildNode(r, 0).node);
 
     tradeNodes.push({
       category: trade.category,
       tasks,
-      stageGroups: tradeStages.map((stage) => ({
-        stage,
-        tasks: byStage.get(stage.id) ?? [],
-      })),
-      parentContracts,
-      contractorGroups,
-      ungrouped,
-      // De-duplicated inputs (parent counted once via own-leftover + children).
+      contracts,
       rollup: rollupTasks(tradeInputs),
     });
 
@@ -341,7 +286,7 @@ export function buildWorkspaceModel({
   };
 }
 
-/** Find a task by id across the model (for the selected-task detail pane). */
+/** Find a task by id across the model (for the selected detail pane). */
 export function findTask(
   model: WorkspaceModel,
   taskId: string | null
@@ -355,48 +300,36 @@ export function findTask(
 }
 
 /**
- * A contractor group's `key` (e.g. "in-house", "name:asis") can repeat across
- * trades, so the selection key qualifies it by trade category. Split point is the
- * first "::" — category ids are uuids and group keys use single colons, so neither
- * side contains "::".
+ * Find a contract node (and the trade it belongs to) by its subcontract id, anywhere in
+ * the recursive tree. Powers the detail pane: a node WITH children renders the combined
+ * "one contract" view; a leaf renders the single-task detail.
  */
-export function groupSelectionKey(tradeCategoryId: string, groupKey: string): string {
-  return `${tradeCategoryId}::${groupKey}`;
-}
-
-/**
- * Find a contractor group (and the trade node it belongs to) by its selection key.
- * Powers the "combined contract" detail pane when a group header is clicked.
- */
-export function findGroup(
-  model: WorkspaceModel,
-  selectionKey: string | null
-): { group: ContractorGroup; node: TradeNode } | null {
-  if (!selectionKey) return null;
-  const sep = selectionKey.indexOf("::");
-  if (sep === -1) return null;
-  const categoryId = selectionKey.slice(0, sep);
-  const groupKey = selectionKey.slice(sep + 2);
-  const node = model.trades.find((n) => n.category.id === categoryId);
-  if (!node) return null;
-  const group = node.contractorGroups.find((g) => g.key === groupKey);
-  if (!group) return null;
-  return { group, node };
-}
-
-/**
- * Find a REAL parent contract by its (real subcontract) id. Selecting a parent uses
- * the normal `selectedTaskId` — the layout calls this to decide whether to render the
- * combined parent view (vs a single task detail).
- */
-export function findParentContract(
+export function findContractNode(
   model: WorkspaceModel,
   taskId: string | null
-): { parentContract: ParentContract; node: TradeNode } | null {
+): { node: ContractNode; trade: TradeNode } | null {
   if (!taskId) return null;
-  for (const node of model.trades) {
-    const hit = node.parentContracts.find((p) => p.parent.id === taskId);
-    if (hit) return { parentContract: hit, node };
+  const walk = (nodes: ContractNode[]): ContractNode | null => {
+    for (const n of nodes) {
+      if (n.task.id === taskId) return n;
+      const hit = walk(n.children);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  for (const trade of model.trades) {
+    const node = walk(trade.contracts);
+    if (node) return { node, trade };
   }
   return null;
+}
+
+/** Build the presentational "combined contract" shape from a container node's children. */
+export function contractorGroupFromNode(node: ContractNode): ContractorGroup {
+  return {
+    key: node.task.id,
+    who: node.task.who,
+    tasks: node.children.map((c) => c.task),
+    rollup: node.rollup,
+  };
 }

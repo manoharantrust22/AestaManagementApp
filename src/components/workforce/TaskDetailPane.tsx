@@ -16,18 +16,15 @@ import TuneRounded from "@mui/icons-material/TuneRounded";
 import PaymentsRounded from "@mui/icons-material/PaymentsRounded";
 import HowToReg from "@mui/icons-material/HowToReg";
 import OpenInNew from "@mui/icons-material/OpenInNew";
-import GroupWork from "@mui/icons-material/GroupWork";
+import AccountTreeRounded from "@mui/icons-material/AccountTreeRounded";
 import CheckCircleRounded from "@mui/icons-material/CheckCircleRounded";
 import RequestQuoteRounded from "@mui/icons-material/RequestQuoteRounded";
 import MoreVert from "@mui/icons-material/MoreVert";
 import EditOutlined from "@mui/icons-material/EditOutlined";
 import DeleteOutline from "@mui/icons-material/DeleteOutline";
-import LayersOutlined from "@mui/icons-material/LayersOutlined";
-import Check from "@mui/icons-material/Check";
-import Close from "@mui/icons-material/Close";
-import type { WorkspaceTask } from "@/lib/workforce/workspaceModel";
-import type { ContractStatus, WorkStage } from "@/types/trade.types";
-import { modeMeta, wsColors, wsRadius, wsShadow } from "@/lib/workforce/workspaceTokens";
+import type { ContractTier, WorkspaceTask } from "@/lib/workforce/workspaceModel";
+import type { ContractStatus } from "@/types/trade.types";
+import { modeMeta, tierMeta, wsColors, wsRadius, wsShadow } from "@/lib/workforce/workspaceTokens";
 import { formatCurrencyFull } from "@/lib/formatters";
 import { BalanceMeter } from "./BalanceMeter";
 import { StatCard } from "./StatCard";
@@ -42,6 +39,13 @@ const STATUS_PILL: Record<ContractStatus, { label: string; color: string; bg: st
   cancelled: { label: "Cancelled", color: wsColors.red, bg: wsColors.redBg },
 };
 
+/** Teaching legend for the empty pane — explains the Contract ▸ Section ▸ Task ladder. */
+const TIER_LEGEND: Array<{ tier: ContractTier; desc: string }> = [
+  { tier: "contract", desc: "The whole deal with one contractor — e.g. Jithin's civil contract." },
+  { tier: "section", desc: "A floor or scope inside it, usually priced by square feet — e.g. Ground Floor, or external plastering across all floors." },
+  { tier: "task", desc: "A single job you hand a labourer at a cost — e.g. footing grid." },
+];
+
 export function TaskDetailPane({
   task,
   onUpdateProgress,
@@ -51,8 +55,6 @@ export function TaskDetailPane({
   onChangeMode,
   onEdit,
   onDelete,
-  stages = [],
-  onMoveToStage,
   onOpenInDetails,
   canEdit,
   showBack = false,
@@ -69,17 +71,12 @@ export function TaskDetailPane({
   onEdit?: () => void;
   /** Opens the guarded delete dialog. */
   onDelete?: () => void;
-  /** Stages available for this contract's trade (for "Move to stage…"). */
-  stages?: WorkStage[];
-  /** Re-point this task work to a stage (or null to clear). */
-  onMoveToStage?: (stageId: string | null) => void;
   onOpenInDetails?: () => void;
   canEdit: boolean;
   showBack?: boolean;
   onBack?: () => void;
 }) {
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
-  const [stageAnchor, setStageAnchor] = useState<HTMLElement | null>(null);
   if (!task) {
     return (
       <Box
@@ -89,19 +86,56 @@ export function TaskDetailPane({
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          gap: 1.5,
-          color: wsColors.muted,
+          gap: 2,
           px: 3,
-          textAlign: "center",
+          py: 4,
         }}
       >
-        <GroupWork sx={{ fontSize: 44, color: wsColors.hairline }} />
-        <Typography sx={{ fontSize: 15, fontWeight: 700, color: wsColors.ink2 }}>
-          Select a task work
-        </Typography>
-        <Typography sx={{ fontSize: 13, color: wsColors.muted, maxWidth: 280 }}>
-          Pick any task work from the list to see who&apos;s doing it, what&apos;s been paid, and whether
-          you&apos;re paid ahead of the work.
+        <AccountTreeRounded sx={{ fontSize: 40, color: wsColors.hairline }} />
+        <Box sx={{ textAlign: "center" }}>
+          <Typography sx={{ fontSize: 15, fontWeight: 800, color: wsColors.ink }}>
+            How a contract is organised
+          </Typography>
+          <Typography sx={{ fontSize: 12.5, color: wsColors.muted, mt: 0.25, maxWidth: 320 }}>
+            Three levels, from the whole deal down to a single labourer&apos;s job.
+          </Typography>
+        </Box>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1, maxWidth: 380, width: "100%" }}>
+          {TIER_LEGEND.map(({ tier, desc }, i) => {
+            const m = tierMeta[tier];
+            const Icon = m.icon;
+            return (
+              <Box
+                key={tier}
+                sx={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 1.25,
+                  // Indent each level so the hierarchy is visible at a glance.
+                  ml: i * 2,
+                  px: 1.25,
+                  py: 1,
+                  borderRadius: `${wsRadius.input}px`,
+                  bgcolor: wsColors.surface,
+                  border: `1px solid ${wsColors.hairline}`,
+                }}
+              >
+                <Icon sx={{ fontSize: 20, color: m.color, mt: 0.1, flexShrink: 0 }} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontSize: 12.5, fontWeight: 800, color: wsColors.ink }}>
+                    {m.label}
+                  </Typography>
+                  <Typography sx={{ fontSize: 11.5, color: wsColors.muted, lineHeight: 1.35 }}>
+                    {desc}
+                  </Typography>
+                </Box>
+              </Box>
+            );
+          })}
+        </Box>
+        <Typography sx={{ fontSize: 11.5, color: wsColors.muted, textAlign: "center", maxWidth: 320 }}>
+          Tap a row to open it. Use <strong>+ Add a section / task</strong> on any row to add the next
+          level down.
         </Typography>
       </Box>
     );
@@ -116,9 +150,6 @@ export function TaskDetailPane({
   // the per-trade opt-in surfaced below; onChangeMode flips it on/off.
   const tracked = task.mode !== "mesthri_only";
   const canChangeMode = canEdit && !!onChangeMode && !!task.tradeCategoryId;
-  // "Move to stage" makes sense when the trade has stages to move into, or the
-  // task currently sits in one (so it can be cleared).
-  const canMoveStage = !!onMoveToStage && (stages.length > 0 || !!task.stageId);
 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: wsColors.canvas, minWidth: 0 }}>
@@ -141,7 +172,7 @@ export function TaskDetailPane({
         )}
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: 11, fontWeight: 600, color: wsColors.muted }} noWrap>
-            {task.tradeName} › {task.stageName ?? "No stage"}
+            {task.tradeName}
           </Typography>
           <Typography sx={{ fontSize: 16.5, fontWeight: 800, color: wsColors.ink, letterSpacing: "-.02em" }} noWrap>
             {task.title}
@@ -186,7 +217,7 @@ export function TaskDetailPane({
             <OpenInNew sx={{ fontSize: 18, color: wsColors.muted }} />
           </IconButton>
         )}
-        {canEdit && (onEdit || onDelete || canMoveStage) && (
+        {canEdit && (onEdit || onDelete) && (
           <>
             <IconButton size="small" onClick={(e) => setMenuAnchor(e.currentTarget)} title="More">
               <MoreVert sx={{ fontSize: 18, color: wsColors.muted }} />
@@ -205,20 +236,6 @@ export function TaskDetailPane({
                   <ListItemText primaryTypographyProps={{ fontSize: 14 }}>Edit details</ListItemText>
                 </MenuItem>
               )}
-              {canMoveStage && (
-                <MenuItem
-                  onClick={() => {
-                    // Keep the anchor element so the stage submenu can position itself.
-                    setStageAnchor(menuAnchor);
-                    setMenuAnchor(null);
-                  }}
-                >
-                  <ListItemIcon>
-                    <LayersOutlined fontSize="small" />
-                  </ListItemIcon>
-                  <ListItemText primaryTypographyProps={{ fontSize: 14 }}>Move to stage…</ListItemText>
-                </MenuItem>
-              )}
               {onDelete && (
                 <MenuItem
                   onClick={() => {
@@ -232,40 +249,6 @@ export function TaskDetailPane({
                   <ListItemText primaryTypographyProps={{ fontSize: 14, color: wsColors.red }}>
                     Delete contract
                   </ListItemText>
-                </MenuItem>
-              )}
-            </Menu>
-            {/* Stage picker — group floors that already exist without re-creating them. */}
-            <Menu anchorEl={stageAnchor} open={!!stageAnchor} onClose={() => setStageAnchor(null)}>
-              <Typography sx={{ px: 2, py: 0.5, fontSize: 11, fontWeight: 700, color: wsColors.muted }}>
-                Move &ldquo;{task.title}&rdquo; to…
-              </Typography>
-              {stages.map((s) => (
-                <MenuItem
-                  key={s.id}
-                  selected={s.id === task.stageId}
-                  onClick={() => {
-                    setStageAnchor(null);
-                    if (s.id !== task.stageId) onMoveToStage?.(s.id);
-                  }}
-                >
-                  <ListItemIcon>
-                    {s.id === task.stageId ? <Check fontSize="small" /> : <LayersOutlined fontSize="small" />}
-                  </ListItemIcon>
-                  <ListItemText primaryTypographyProps={{ fontSize: 14 }}>{s.name}</ListItemText>
-                </MenuItem>
-              ))}
-              {task.stageId && (
-                <MenuItem
-                  onClick={() => {
-                    setStageAnchor(null);
-                    onMoveToStage?.(null);
-                  }}
-                >
-                  <ListItemIcon>
-                    <Close fontSize="small" sx={{ color: wsColors.muted }} />
-                  </ListItemIcon>
-                  <ListItemText primaryTypographyProps={{ fontSize: 14 }}>No stage</ListItemText>
                 </MenuItem>
               )}
             </Menu>

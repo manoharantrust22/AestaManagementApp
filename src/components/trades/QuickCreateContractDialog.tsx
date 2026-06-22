@@ -13,11 +13,8 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Autocomplete,
-  Radio,
-  RadioGroup,
   FormControl,
   FormLabel,
-  FormControlLabel,
   Typography,
   Alert,
   CircularProgress,
@@ -30,7 +27,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useSelectedCompany } from "@/contexts/CompanyContext/SelectedCompanyContext";
 import type { LaborTrackingMode } from "@/types/trade.types";
-import { useWorkStages, useAddWorkStage } from "@/hooks/queries/useWorkStages";
+import type { ContractTier } from "@/lib/workforce/workspaceModel";
+import { TrackingModeChooser, type TrackingChoice } from "./TrackingModeChooser";
 
 interface TeamOption {
   id: string;
@@ -49,8 +47,10 @@ interface QuickCreateContractDialogProps {
   siteId: string;
   tradeCategoryId: string;
   tradeName: string;
-  /** Optional Stage to drop the new task work into (preselected when launched from a stage). */
-  stageId?: string | null;
+  /** When set, the new row nests under this Contract/Section. Null = a top-level Contract. */
+  parentSubcontractId?: string | null;
+  /** Which tier we're creating — drives the copy, defaults, and the parent link. */
+  tier?: ContractTier;
   /** Switch to creating a fixed-price package (retention / man-day profitability) instead. */
   onCreatePackage?: () => void;
   /** Initial lifecycle status. "draft" lands the contract in the Future (planning) tab. */
@@ -64,7 +64,8 @@ export function QuickCreateContractDialog({
   siteId,
   tradeCategoryId,
   tradeName,
-  stageId = null,
+  parentSubcontractId = null,
+  tier = "contract",
   onCreatePackage,
   initialStatus = "active",
 }: QuickCreateContractDialogProps) {
@@ -72,13 +73,30 @@ export function QuickCreateContractDialog({
   const queryClient = useQueryClient();
   const { selectedCompany } = useSelectedCompany();
 
-  // Stages for this Contract (trade) — optional grouping for the task work.
-  const { data: stages = [] } = useWorkStages(siteId, tradeCategoryId);
-  const addStage = useAddWorkStage(siteId, tradeCategoryId);
-  const [selectedStageId, setSelectedStageId] = useState<string | null>(stageId);
-  const [showNewStage, setShowNewStage] = useState(false);
-  const [newStageName, setNewStageName] = useState("");
-  const [creatingStage, setCreatingStage] = useState(false);
+  // Tier-aware copy so the dialog reads as "Add a section / task" vs "New contract".
+  const tierCopy = {
+    contract: {
+      title: `New ${tradeName} contract`,
+      sub: `The whole ${tradeName} deal with one contractor. Add sections (floors / scopes) under it next.`,
+      titleLabel: "Contract title",
+      titleHelper: `e.g. "Civil — Jithin"`,
+      submit: "Create contract",
+    },
+    section: {
+      title: "Add a section",
+      sub: "A floor or scope inside the contract, usually priced by square feet.",
+      titleLabel: "Section name",
+      titleHelper: `e.g. "Ground Floor" or "External plastering — all floors"`,
+      submit: "Add section",
+    },
+    task: {
+      title: "Add a task",
+      sub: "A single job you hand a labourer at a cost, inside this section.",
+      titleLabel: "Task name",
+      titleHelper: `e.g. "Footing grid"`,
+      submit: "Add task",
+    },
+  }[tier];
 
   const [contractType, setContractType] = useState<"mesthri" | "specialist">(
     "mesthri"
@@ -92,13 +110,16 @@ export function QuickCreateContractDialog({
   const [title, setTitle] = useState("");
   const [totalValue, setTotalValue] = useState<string>("");
   // Area-based pricing: when on, total = area × rate and we store sqft + rate so the
-  // app can later reconcile actual sqft. Lump sum stays the default.
-  const [pricedBySqft, setPricedBySqft] = useState(false);
+  // app can later reconcile actual sqft. Sections default to sqft (the common case).
+  const [pricedBySqft, setPricedBySqft] = useState(tier === "section");
   const [sqft, setSqft] = useState<string>("");
   const [ratePerSqft, setRatePerSqft] = useState<string>("");
   const [status, setStatus] = useState<"draft" | "active">(initialStatus);
-  const [laborTrackingMode, setLaborTrackingMode] =
-    useState<LaborTrackingMode>("mesthri_only");
+  // "How will you handle this work?" — a tracking mode, or the "package" handoff.
+  const [choice, setChoice] = useState<TrackingChoice>("mesthri_only");
+  const laborTrackingMode: LaborTrackingMode =
+    choice === "package" ? "mesthri_only" : choice;
+  const isPackageChoice = choice === "package";
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(false);
@@ -121,16 +142,13 @@ export function QuickCreateContractDialog({
     setContractType("mesthri");
     setSelectedTeamId(null);
     setSelectedLaborerId(null);
-    setSelectedStageId(stageId);
-    setShowNewStage(false);
-    setNewStageName("");
     setTitle("");
     setTotalValue("");
-    setPricedBySqft(false);
+    setPricedBySqft(tier === "section");
     setSqft("");
     setRatePerSqft("");
     setStatus(initialStatus);
-    setLaborTrackingMode("mesthri_only");
+    setChoice("mesthri_only");
     setError(null);
     setShowNewTeam(false);
     setNewTeamLeader("");
@@ -173,37 +191,17 @@ export function QuickCreateContractDialog({
       })
       .catch((e) => setError(`Failed to load options: ${e.message}`))
       .finally(() => setOptionsLoading(false));
-  }, [open, supabase, stageId, initialStatus]);
+  }, [open, supabase, tier, initialStatus]);
 
   // Area-based pricing math (₹ total = area × rate). Lump-sum uses `totalValue`.
   const sqftNum = sqft ? Number(sqft) : 0;
   const rateNum = ratePerSqft ? Number(ratePerSqft) : 0;
   const sqftTotal = sqftNum > 0 && rateNum > 0 ? sqftNum * rateNum : 0;
 
-  const handleCreateStage = async () => {
-    setError(null);
-    if (!newStageName.trim()) {
-      setError("Stage name is required");
-      return;
-    }
-    setCreatingStage(true);
-    try {
-      const created = await addStage.mutateAsync({
-        name: newStageName.trim(),
-        sortOrder: stages.length,
-      });
-      setSelectedStageId(created.id);
-      setShowNewStage(false);
-      setNewStageName("");
-    } catch (e: any) {
-      setError(`Failed to create stage: ${e.message ?? String(e)}`);
-    } finally {
-      setCreatingStage(false);
-    }
-  };
-
-  // Default the title to a sensible auto-fill once a team or laborer is picked
+  // Default the title to a sensible auto-fill once a team or laborer is picked.
+  // Only for a top-level Contract — Sections/Tasks want a floor / job name, typed.
   useEffect(() => {
+    if (tier !== "contract") return;
     if (title) return; // user already typed something
     if (contractType === "mesthri" && selectedTeamId) {
       const t = teams.find((x) => x.id === selectedTeamId);
@@ -344,7 +342,9 @@ export function QuickCreateContractDialog({
       const payload: Record<string, unknown> = {
         site_id: siteId,
         trade_category_id: tradeCategoryId,
-        stage_id: selectedStageId,
+        // Nest under the chosen Contract/Section (null = a top-level Contract). This is
+        // what makes the new row land in the right place instead of "Ungrouped".
+        parent_subcontract_id: parentSubcontractId ?? null,
         contract_type: contractType,
         title: title.trim(),
         labor_tracking_mode: laborTrackingMode,
@@ -421,11 +421,9 @@ export function QuickCreateContractDialog({
   return (
     <Dialog open={open} onClose={submitting ? undefined : onClose} fullWidth maxWidth="sm">
       <DialogTitle>
-        New {tradeName} task work
+        {tierCopy.title}
         <Typography variant="caption" color="text.secondary" component="div">
-          A task work is a priced piece of work given to a crew, inside the{" "}
-          {tradeName} contract. Pick a stage (optional), who does it, and how
-          closely to track it.
+          {tierCopy.sub}
         </Typography>
       </DialogTitle>
       <DialogContent dividers>
@@ -435,115 +433,29 @@ export function QuickCreateContractDialog({
           </Box>
         ) : (
           <Stack spacing={2.5}>
-            {onCreatePackage && (
-              <Box
-                sx={{
-                  p: 1,
-                  borderRadius: 1.5,
-                  bgcolor: "action.hover",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 1,
-                  flexWrap: "wrap",
-                }}
-              >
-                <Typography variant="caption" color="text.secondary">
-                  This adds a tracked task work. Need retention or man-day
-                  profitability?
-                </Typography>
-                <Button
-                  size="small"
-                  onClick={() => {
-                    onCreatePackage();
-                    onClose();
-                  }}
-                >
-                  Create a fixed-price package →
-                </Button>
-              </Box>
-            )}
-
-            <Box>
-              <Autocomplete
-                options={stages}
-                getOptionLabel={(s) => s.name}
-                value={stages.find((s) => s.id === selectedStageId) ?? null}
-                onChange={(_, v) => setSelectedStageId(v?.id ?? null)}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Stage (optional)"
-                    helperText="Group this task work under a stage, e.g. Ground Floor / First Floor. Leave blank for none."
-                  />
-                )}
-                slotProps={{ popper: { disablePortal: false } }}
-                noOptionsText={
-                  <MuiLink
-                    component="button"
-                    type="button"
-                    onClick={() => setShowNewStage(true)}
-                    sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}
-                  >
-                    <AddIcon fontSize="small" /> Create new stage
-                  </MuiLink>
-                }
+            {/* The primary decision first: how will you handle this work? */}
+            <FormControl>
+              <FormLabel sx={{ mb: 1 }}>How will you handle this work?</FormLabel>
+              <TrackingModeChooser
+                value={choice}
+                onChange={setChoice}
+                tradeName={tradeName}
+                includePackage={!!onCreatePackage}
               />
-              {!showNewStage && (
-                <Button
-                  size="small"
-                  startIcon={<AddIcon />}
-                  onClick={() => setShowNewStage(true)}
-                  sx={{ mt: 0.5 }}
-                >
-                  Add a new stage
-                </Button>
-              )}
-              <Collapse in={showNewStage}>
-                <Box
-                  sx={{
-                    mt: 1,
-                    p: 1.5,
-                    border: "1px dashed",
-                    borderColor: "divider",
-                    borderRadius: 1.5,
-                  }}
-                >
-                  <Stack direction="row" spacing={1} alignItems="flex-start">
-                    <TextField
-                      label="New stage name"
-                      value={newStageName}
-                      onChange={(e) => setNewStageName(e.target.value)}
-                      size="small"
-                      fullWidth
-                      autoFocus
-                      helperText='e.g. "First Floor"'
-                    />
-                    <Button
-                      variant="outlined"
-                      onClick={handleCreateStage}
-                      disabled={creatingStage || !newStageName.trim()}
-                      startIcon={creatingStage ? <CircularProgress size={14} /> : <AddIcon />}
-                      sx={{ mt: 0.5, whiteSpace: "nowrap" }}
-                    >
-                      {creatingStage ? "Adding…" : "Add"}
-                    </Button>
-                    <Button
-                      size="small"
-                      onClick={() => {
-                        setShowNewStage(false);
-                        setNewStageName("");
-                      }}
-                      disabled={creatingStage}
-                      sx={{ mt: 0.5 }}
-                    >
-                      Cancel
-                    </Button>
-                  </Stack>
-                </Box>
-              </Collapse>
-            </Box>
+            </FormControl>
 
+            {isPackageChoice ? (
+              <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "action.hover" }}>
+                <Typography variant="body2" fontWeight={700} gutterBottom>
+                  Fixed-price package
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Packages have their own quick setup — the agreed price, the maistry crew,
+                  optional retention, and the daily man-day log. Continue to set it up.
+                </Typography>
+              </Box>
+            ) : (
+              <>
             <FormControl>
               <FormLabel>Contractor type</FormLabel>
               <ToggleButtonGroup
@@ -743,12 +655,12 @@ export function QuickCreateContractDialog({
             )}
 
             <TextField
-              label="Task work title"
+              label={tierCopy.titleLabel}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               required
               fullWidth
-              helperText={`e.g. "Brickwork — Asis Mesthri"`}
+              helperText={tierCopy.titleHelper}
             />
 
             <FormControl>
@@ -824,82 +736,8 @@ export function QuickCreateContractDialog({
                   : "Shows in the Active workspace right away."}
               </Typography>
             </FormControl>
-
-            <FormControl>
-              <FormLabel>Labor tracking</FormLabel>
-              <RadioGroup
-                value={laborTrackingMode}
-                onChange={(e) => setLaborTrackingMode(e.target.value as LaborTrackingMode)}
-              >
-                <FormControlLabel
-                  value="mesthri_only"
-                  control={<Radio />}
-                  label={
-                    <Box>
-                      <Typography variant="body2">
-                        Mesthri-only — just track money I give him
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary" component="div">
-                        Payments alone drive the balance. You&apos;ll see Quoted vs Paid only —
-                        the app can&apos;t tell you whether the lump sum was a fair quote.
-                        Best for trusted contractors where you accept the price at face value.
-                      </Typography>
-                    </Box>
-                  }
-                />
-                <FormControlLabel
-                  value="headcount"
-                  control={<Radio />}
-                  label={
-                    <Box>
-                      <Typography variant="body2">
-                        Headcount — record how many came each day, by role <strong>(recommended for new lump-sum contracts)</strong>
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary" component="div">
-                        e.g. &quot;1 technical painter + 2 helpers today&quot;. Takes 5 seconds per
-                        day. Role rate card seeded from defaults (e.g. Painter ₹650, Helper ₹400);
-                        editable later. <strong>At end of contract the app tells you whether you
-                        overpaid, underpaid, or quoted right</strong> — comparing total paid vs
-                        implied labor cost (units × rates).
-                      </Typography>
-                    </Box>
-                  }
-                />
-                <FormControlLabel
-                  value="mid"
-                  control={<Radio />}
-                  label={
-                    <Box>
-                      <Typography variant="body2">
-                        Mid (Laborer + Crew) — roster of who came + day total
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary" component="div">
-                        Mesthri brings a crew. Each day, supervisor toggles which laborers
-                        came and records ONE day total ₹ for the crew. Tracks presence
-                        without per-laborer rates. Best for mesthri-led teams where you
-                        pay one daily total.
-                      </Typography>
-                    </Box>
-                  }
-                />
-                <FormControlLabel
-                  value="detailed"
-                  control={<Radio />}
-                  label={
-                    <Box>
-                      <Typography variant="body2">
-                        Detailed — per-laborer attendance with in/out time
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary" component="div">
-                        Today&apos;s civil attendance flow. Use when the painters/electricians are
-                        on YOUR books (you pay them directly, not the mesthri), or for
-                        cost-plus-actual-hours contracts.
-                      </Typography>
-                    </Box>
-                  }
-                />
-              </RadioGroup>
-            </FormControl>
+              </>
+            )}
 
             {error && <Alert severity="error">{error}</Alert>}
           </Stack>
@@ -909,14 +747,26 @@ export function QuickCreateContractDialog({
         <Button onClick={onClose} disabled={submitting}>
           Cancel
         </Button>
-        <Button
-          variant="contained"
-          onClick={handleSubmit}
-          disabled={!canSubmit}
-          startIcon={submitting ? <CircularProgress size={16} /> : null}
-        >
-          {submitting ? "Creating…" : "Create task work"}
-        </Button>
+        {isPackageChoice ? (
+          <Button
+            variant="contained"
+            onClick={() => {
+              onCreatePackage?.();
+              onClose();
+            }}
+          >
+            Set up package →
+          </Button>
+        ) : (
+          <Button
+            variant="contained"
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+            startIcon={submitting ? <CircularProgress size={16} /> : null}
+          >
+            {submitting ? "Saving…" : tierCopy.submit}
+          </Button>
+        )}
       </DialogActions>
     </Dialog>
   );

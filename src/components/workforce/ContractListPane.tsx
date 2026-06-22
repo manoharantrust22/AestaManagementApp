@@ -18,7 +18,7 @@ import {
 import { wsColors, wsRadius, wsShadow } from "@/lib/workforce/workspaceTokens";
 import type { TaskWorkPackageWithMeta } from "@/types/taskWork.types";
 import { SiteSummaryTiles } from "./SiteSummaryTiles";
-import { ContractTree } from "./ContractTree";
+import { ContractTree, type AddTaskWork } from "./ContractTree";
 
 export function ContractListPane({
   siteId,
@@ -28,8 +28,6 @@ export function ContractListPane({
   onToggleTrade,
   selectedTaskId,
   onSelectTask,
-  selectedGroupKey,
-  onSelectGroup,
   query,
   onQueryChange,
   activeTab,
@@ -47,19 +45,13 @@ export function ContractListPane({
   onToggleTrade: (categoryId: string) => void;
   selectedTaskId: string | null;
   onSelectTask: (id: string) => void;
-  selectedGroupKey: string | null;
-  onSelectGroup: (key: string) => void;
   query: string;
   onQueryChange: (q: string) => void;
   activeTab: StatusTab;
   onTabChange: (tab: StatusTab) => void;
   packagesByTrade: Map<string, TaskWorkPackageWithMeta[]>;
   onOpenPackage: (pkg: TaskWorkPackageWithMeta) => void;
-  onAddTaskWork: (
-    tradeCategoryId: string,
-    stageId: string | null,
-    initialStatus?: "draft" | "active"
-  ) => void;
+  onAddTaskWork: AddTaskWork;
   /** Opens the trade-picker Add menu (owned by the layout, shared with the mobile FAB). */
   onAddClick: (anchorEl: HTMLElement) => void;
   canEdit: boolean;
@@ -216,8 +208,6 @@ export function ContractListPane({
           trades={model.trades}
           selectedTaskId={selectedTaskId}
           onSelectTask={onSelectTask}
-          selectedGroupKey={selectedGroupKey}
-          onSelectGroup={onSelectGroup}
           openTrades={openTrades}
           onToggleTrade={onToggleTrade}
           query={query}

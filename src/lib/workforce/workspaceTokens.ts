@@ -26,8 +26,11 @@ import Groups from "@mui/icons-material/Groups";
 import FactCheck from "@mui/icons-material/FactCheck";
 import Diversity3 from "@mui/icons-material/Diversity3";
 import Payments from "@mui/icons-material/Payments";
+import Apartment from "@mui/icons-material/Apartment";
+import HomeRepairService from "@mui/icons-material/HomeRepairService";
 import type { Severity } from "./exposure";
 import type { ContractStatus, LaborTrackingMode } from "@/types/trade.types";
+import type { ContractTier } from "./workspaceModel";
 
 export const wsColors = {
   primary: "#2f6bed",
@@ -174,6 +177,52 @@ export const statusMeta: Record<ContractStatus, StatusMeta> = {
   on_hold: { label: "On hold", color: wsColors.amber, bg: wsColors.amberBg },
   completed: { label: "Done", color: wsColors.green, bg: wsColors.greenBg },
   cancelled: { label: "Cancelled", color: wsColors.muted2, bg: "#f0f2f6" },
+};
+
+export interface TierMeta {
+  /** Tier tag shown on each row so the ladder reads parent → child → child-of-child. */
+  label: string;
+  /** What the next level down is called (drives the "+ Add …" affordance + child word). */
+  childLabel: string;
+  icon: SvgIconComponent;
+  /** Row title weight per tier — Contract heaviest, Task lightest. */
+  weight: number;
+  /** Small tag tint. */
+  color: string;
+  bg: string;
+}
+
+/**
+ * Structural tier cue for the Contract ▸ Section ▸ Task ladder. A THIRD axis, distinct
+ * from the exposure verdict (`severityMeta`) and the lifecycle chip (`statusMeta`): it
+ * answers "what level am I looking at, and what nests under it" so the names finally read
+ * as parent / child / child-of-child. Calm slate tints — the colour signals stay with risk.
+ */
+export const tierMeta: Record<ContractTier, TierMeta> = {
+  contract: {
+    label: "Contract",
+    childLabel: "section",
+    icon: Apartment,
+    weight: 800,
+    color: wsColors.ink,
+    bg: "#eef1f6",
+  },
+  section: {
+    label: "Section",
+    childLabel: "task",
+    icon: Layers,
+    weight: 700,
+    color: wsColors.ink2,
+    bg: "#eef1f6",
+  },
+  task: {
+    label: "Task",
+    childLabel: "task",
+    icon: HomeRepairService,
+    weight: 600,
+    color: wsColors.muted,
+    bg: "#f0f2f6",
+  },
 };
 
 const TRADE_ICONS: Array<[RegExp, SvgIconComponent]> = [

@@ -2,8 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
-import { createClient } from "@/lib/supabase/client";
 import {
   Box,
   Menu,
@@ -35,9 +33,8 @@ import type {
   WorkStage,
 } from "@/types/trade.types";
 import type { TaskWorkPackageWithMeta } from "@/types/taskWork.types";
-import { buildWorkspaceModel, findGroup, findParentContract, findTask } from "@/lib/workforce/workspaceModel";
-import type { ContractorGroup, WorkspaceTask } from "@/lib/workforce/workspaceModel";
-import { UNCATEGORIZED_TRADE_ID } from "@/hooks/queries/useTrades";
+import { buildWorkspaceModel, contractorGroupFromNode, findContractNode, findTask } from "@/lib/workforce/workspaceModel";
+import type { WorkspaceTask } from "@/lib/workforce/workspaceModel";
 import { DEFAULT_STATUS_TAB, type StatusTab } from "@/lib/workforce/statusTabs";
 import {
   WS_MOBILE_BREAKPOINT,
@@ -56,7 +53,7 @@ import { buildContractScopeHref } from "@/lib/workforce/contractScope";
 import { ChangeTrackingModeDialog } from "@/components/trades/ChangeTrackingModeDialog";
 import EditContractDialog from "./EditContractDialog";
 import DeleteContractDialog from "./DeleteContractDialog";
-import NameCombinedContractDialog from "./NameCombinedContractDialog";
+import type { AddTaskWork } from "./ContractTree";
 
 export function WorkspaceLayout({
   siteId,
@@ -81,11 +78,7 @@ export function WorkspaceLayout({
   canEdit: boolean;
   packagesByTrade: Map<string, TaskWorkPackageWithMeta[]>;
   onOpenPackage: (pkg: TaskWorkPackageWithMeta) => void;
-  onAddTaskWork: (
-    tradeCategoryId: string,
-    stageId: string | null,
-    initialStatus?: "draft" | "active"
-  ) => void;
+  onAddTaskWork: AddTaskWork;
 }) {
   const router = useRouter();
   const mobile = useMediaQuery(`(max-width:${WS_MOBILE_BREAKPOINT}px)`);
@@ -96,7 +89,6 @@ export function WorkspaceLayout({
   );
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(null);
   const [openTrades, setOpenTrades] = useState<Record<string, boolean>>({});
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<StatusTab>(DEFAULT_STATUS_TAB);
@@ -104,15 +96,6 @@ export function WorkspaceLayout({
   const [modeOpen, setModeOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [nameCombineOpen, setNameCombineOpen] = useState(false);
-  // Captured when "Make this one contract" is clicked, so the dialog has stable inputs
-  // even after the source virtual group dissolves into a real parent on success.
-  const [combineTarget, setCombineTarget] = useState<{
-    tradeCategoryId: string;
-    tradeName: string;
-    contractorName: string;
-    tasks: WorkspaceTask[];
-  } | null>(null);
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null);
   const [snack, setSnack] = useState<{ open: boolean; msg: string; severity: "success" | "error" }>({
     open: false,
@@ -135,60 +118,18 @@ export function WorkspaceLayout({
   }, [model, packagesByTrade]);
 
   const selectedTask = findTask(model, selectedTaskId);
-  const selectedGroup = findGroup(model, selectedGroupKey);
-  // A selected task that is itself a real parent → render the combined contract view.
-  const selectedParent = findParentContract(model, selectedTaskId);
-  const parentGroup: ContractorGroup | null = selectedParent
-    ? {
-        key: selectedParent.parentContract.parent.id,
-        who: selectedParent.parentContract.parent.who,
-        tasks: selectedParent.parentContract.children,
-        rollup: selectedParent.parentContract.rollup,
-      }
-    : null;
+  const selectedNode = findContractNode(model, selectedTaskId);
+  // A selected node WITH children renders the combined "one contract" view (its parts
+  // listed below); a leaf renders the single-task detail.
+  const containerSelected = !!selectedNode && selectedNode.node.children.length > 0;
   const notify = (msg: string, severity: "success" | "error" = "success") =>
     setSnack({ open: true, msg, severity });
 
   const toggleTrade = (categoryId: string) =>
     setOpenTrades((m) => ({ ...m, [categoryId]: !(m[categoryId] ?? false) }));
 
-  // Task and group selection are mutually exclusive — one detail pane at a time.
-  const handleSelect = (id: string) => {
-    setSelectedGroupKey(null);
-    setSelectedTaskId(id);
-  };
-  const handleSelectGroup = (key: string) => {
-    setSelectedTaskId(null);
-    setSelectedGroupKey(key);
-  };
-
-  // Stages available for the selected contract's trade (for "Move to stage…").
-  const taskStages = useMemo(
-    () =>
-      selectedTask?.tradeCategoryId
-        ? (stages ?? []).filter((s) => s.tradeCategoryId === selectedTask.tradeCategoryId)
-        : [],
-    [stages, selectedTask?.tradeCategoryId]
-  );
-
-  // Re-point a task work to a stage (or clear it). subcontracts.stage_id is the
-  // only column touched; the tree + stage lists refresh on success.
-  const qc = useQueryClient();
-  const moveToStage = async (stageId: string | null) => {
-    if (!selectedTask) return;
-    const supabase: any = createClient();
-    const { error } = await supabase
-      .from("subcontracts")
-      .update({ stage_id: stageId })
-      .eq("id", selectedTask.id);
-    if (error) {
-      notify("Couldn't move this task work", "error");
-      return;
-    }
-    qc.invalidateQueries({ queryKey: ["trades", "site", siteId] });
-    qc.invalidateQueries({ queryKey: ["work-stages", "site", siteId] });
-    notify(stageId ? "Moved to stage" : "Removed from stage");
-  };
+  // One detail pane at a time — every selection is a subcontract id.
+  const handleSelect = (id: string) => setSelectedTaskId(id);
 
   const listPane = (
     <ContractListPane
@@ -199,8 +140,6 @@ export function WorkspaceLayout({
       onToggleTrade={toggleTrade}
       selectedTaskId={selectedTaskId}
       onSelectTask={handleSelect}
-      selectedGroupKey={selectedGroupKey}
-      onSelectGroup={handleSelectGroup}
       query={query}
       onQueryChange={setQuery}
       activeTab={activeTab}
@@ -213,51 +152,23 @@ export function WorkspaceLayout({
     />
   );
 
-  const openCombineDialog = () => {
-    if (!selectedGroup) return;
-    setCombineTarget({
-      tradeCategoryId: selectedGroup.node.category.id,
-      tradeName: selectedGroup.node.category.name,
-      contractorName: selectedGroup.group.who,
-      tasks: selectedGroup.group.tasks,
-    });
-    setNameCombineOpen(true);
-  };
-
-  const detailPane = selectedGroup ? (
+  const detailPane = containerSelected && selectedNode ? (
     <GroupDetailPane
-      group={selectedGroup.group}
-      tradeName={selectedGroup.node.category.name}
+      group={contractorGroupFromNode(selectedNode.node)}
+      tradeName={selectedNode.trade.category.name}
       canEdit={canEdit}
       onSelectTask={handleSelect}
       onLogAttendance={() =>
-        router.push(buildContractScopeHref("/site/attendance", selectedGroup.group.tasks[0]))
+        router.push(buildContractScopeHref("/site/attendance", selectedNode.node.task))
       }
       onSettleSalary={() =>
-        router.push(buildContractScopeHref("/site/payments", selectedGroup.group.tasks[0]))
-      }
-      // Only real trades can be promoted (the RPC needs a trade_category_id).
-      onMakeOneContract={
-        selectedGroup.node.category.id !== UNCATEGORIZED_TRADE_ID ? openCombineDialog : undefined
-      }
-      showBack={mobile}
-      onBack={() => setSelectedGroupKey(null)}
-    />
-  ) : selectedParent && parentGroup ? (
-    <GroupDetailPane
-      group={parentGroup}
-      tradeName={selectedParent.node.category.name}
-      canEdit={canEdit}
-      onSelectTask={handleSelect}
-      onLogAttendance={() =>
-        router.push(buildContractScopeHref("/site/attendance", selectedParent.parentContract.parent))
-      }
-      onSettleSalary={() =>
-        router.push(buildContractScopeHref("/site/payments", selectedParent.parentContract.parent))
+        router.push(buildContractScopeHref("/site/payments", selectedNode.node.task))
       }
       parentMode={{
-        parent: selectedParent.parentContract.parent,
-        title: selectedParent.parentContract.parent.title,
+        parent: selectedNode.node.task,
+        title: selectedNode.node.task.title,
+        // A Contract's parts are Sections; a Section's parts are Tasks.
+        partLabel: selectedNode.node.tier === "contract" ? "section" : "task",
         onEdit: () => setEditOpen(true),
         onRecordPayment: () => setSheet("payment"),
       }}
@@ -279,8 +190,6 @@ export function WorkspaceLayout({
       onChangeMode={() => setModeOpen(true)}
       onEdit={() => setEditOpen(true)}
       onDelete={() => setDeleteOpen(true)}
-      stages={taskStages}
-      onMoveToStage={moveToStage}
       onOpenInDetails={
         selectedTask ? () => router.push(`/site/subcontracts?contractId=${selectedTask.id}`) : undefined
       }
@@ -332,7 +241,7 @@ export function WorkspaceLayout({
   const addMenu = (
     <Menu anchorEl={addAnchor} open={!!addAnchor} onClose={() => setAddAnchor(null)}>
       <Typography sx={{ px: 2, py: 0.5, fontSize: 11, fontWeight: 700, color: wsColors.muted }}>
-        New task work in…
+        New contract in…
       </Typography>
       {model.trades.map((node) => {
         const Trade = tradeIcon(node.category.name);
@@ -343,7 +252,7 @@ export function WorkspaceLayout({
               setAddAnchor(null);
               onAddTaskWork(
                 node.category.id,
-                null,
+                { parentId: null, tier: "contract" },
                 activeTab === "future" ? "draft" : "active"
               );
             }}
@@ -399,6 +308,7 @@ export function WorkspaceLayout({
       contractTitle={selectedTask.title}
       currentMode={selectedTask.mode}
       tradeCategoryId={selectedTask.tradeCategoryId}
+      tradeName={selectedTask.tradeName}
     />
   ) : null;
 
@@ -421,24 +331,6 @@ export function WorkspaceLayout({
     </>
   ) : null;
 
-  // Promote a contractor's virtual group into a single named parent contract.
-  const combineDialog = combineTarget ? (
-    <NameCombinedContractDialog
-      open={nameCombineOpen}
-      onClose={() => setNameCombineOpen(false)}
-      siteId={siteId}
-      tradeCategoryId={combineTarget.tradeCategoryId}
-      tradeName={combineTarget.tradeName}
-      contractorName={combineTarget.contractorName}
-      tasks={combineTarget.tasks}
-      onPromoted={(parentId) => {
-        notify("Combined into one contract");
-        setSelectedGroupKey(null);
-        setSelectedTaskId(parentId);
-      }}
-    />
-  ) : null;
-
   const snackbar = (
     <Snackbar
       open={snack.open}
@@ -459,7 +351,7 @@ export function WorkspaceLayout({
 
   // ---- Mobile: single column with screen push ----
   if (mobile) {
-    const showingDetail = !!selectedTask || !!selectedGroup;
+    const showingDetail = !!selectedTaskId;
     return (
       <Box sx={rootSx}>
         {fontLinks}
@@ -467,8 +359,8 @@ export function WorkspaceLayout({
           {showingDetail ? (
             <>
               <Box sx={{ flex: 1, minHeight: 0 }}>{detailPane}</Box>
-              {/* Progress / Record payment act on a single task work, not a combined group. */}
-              {canEdit && selectedTask && (
+              {/* Progress / Record payment act on a single task work, not a whole contract. */}
+              {canEdit && selectedTask && !containerSelected && (
                 <Paper
                   elevation={8}
                   sx={{
@@ -555,7 +447,6 @@ export function WorkspaceLayout({
         {sheets}
         {modeDialog}
         {contractDialogs}
-        {combineDialog}
         {snackbar}
       </Box>
     );
@@ -571,7 +462,6 @@ export function WorkspaceLayout({
       {sheets}
       {modeDialog}
       {contractDialogs}
-      {combineDialog}
       {snackbar}
     </Box>
   );

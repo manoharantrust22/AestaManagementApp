@@ -7,17 +7,14 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  Radio,
-  RadioGroup,
-  FormControlLabel,
   Typography,
   Alert,
   Stack,
-  Box,
   CircularProgress,
 } from "@mui/material";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { TrackingModeChooser, type TrackingChoice } from "./TrackingModeChooser";
 
 type Mode = "detailed" | "headcount" | "mesthri_only" | "mid";
 
@@ -28,6 +25,8 @@ interface ChangeTrackingModeDialogProps {
   contractTitle: string;
   currentMode: Mode;
   tradeCategoryId: string;
+  /** Trade name — lets the chooser hide the Civil-only "detailed" card elsewhere. */
+  tradeName?: string;
 }
 
 interface Counts {
@@ -36,25 +35,6 @@ interface Counts {
   payments: number;
   mid: number;
 }
-
-const MODE_DESCRIPTIONS: Record<Mode, { title: string; sub: string }> = {
-  detailed: {
-    title: "Detailed",
-    sub: "Per-laborer attendance with hours and individual pay (like Civil).",
-  },
-  headcount: {
-    title: "Headcount",
-    sub: "Total people per role per day. No individual laborer roster.",
-  },
-  mid: {
-    title: "Mid (Laborer + Crew)",
-    sub: "Roster of who came + one daily total for the crew (mesthri-led).",
-  },
-  mesthri_only: {
-    title: "Mesthri-only",
-    sub: "Just record payments to the mesthri. No daily attendance.",
-  },
-};
 
 /**
  * Lets an admin change a contract's labor_tracking_mode after creation.
@@ -73,6 +53,7 @@ export function ChangeTrackingModeDialog({
   contractTitle,
   currentMode,
   tradeCategoryId,
+  tradeName,
 }: ChangeTrackingModeDialogProps) {
   const queryClient = useQueryClient();
   const supabase = createClient();
@@ -221,34 +202,14 @@ export function ChangeTrackingModeDialog({
           </Stack>
         )}
 
-        <RadioGroup value={target} onChange={(_, v) => setTarget(v as Mode)}>
-          {(["detailed", "headcount", "mid", "mesthri_only"] as Mode[]).map((m) => {
-            const desc = MODE_DESCRIPTIONS[m];
-            return (
-              <FormControlLabel
-                key={m}
-                value={m}
-                control={<Radio />}
-                sx={{ alignItems: "flex-start", mb: 1 }}
-                label={
-                  <Box sx={{ pt: 0.5 }}>
-                    <Typography variant="body2" fontWeight={600}>
-                      {desc.title}
-                      {m === currentMode && (
-                        <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                          (current)
-                        </Typography>
-                      )}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {desc.sub}
-                    </Typography>
-                  </Box>
-                }
-              />
-            );
-          })}
-        </RadioGroup>
+        <TrackingModeChooser
+          value={target}
+          onChange={(v: TrackingChoice) => {
+            if (v !== "package") setTarget(v);
+          }}
+          tradeName={tradeName}
+          includePackage={false}
+        />
 
         {blockedReason && (
           <Alert severity="warning" sx={{ mt: 2 }}>

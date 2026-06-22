@@ -74,11 +74,13 @@ export default function TradesPage() {
     return map;
   }, [trades]);
 
-  // Create-task-work dialog (delegates to the existing QuickCreateContractDialog).
+  // Create dialog ctx. `parentSubcontractId` nests the new row under a Contract/Section
+  // (null = a fresh top-level Contract); `tier` is what we're creating.
   const [createCtx, setCreateCtx] = useState<{
     tradeCategoryId: string;
     tradeName: string;
-    stageId: string | null;
+    parentSubcontractId: string | null;
+    tier: "contract" | "section" | "task";
     initialStatus: "draft" | "active";
   } | null>(null);
 
@@ -103,14 +105,15 @@ export default function TradesPage() {
 
   const handleAddTaskWork = (
     tradeCategoryId: string,
-    stageId: string | null,
+    ctx: { parentId: string | null; tier: "contract" | "section" | "task" },
     initialStatus: "draft" | "active" = "active"
   ) => {
     if (!siteId) return;
     setCreateCtx({
       tradeCategoryId,
       tradeName: categoryNameById.get(tradeCategoryId) ?? "Contract",
-      stageId,
+      parentSubcontractId: ctx.parentId,
+      tier: ctx.tier,
       initialStatus,
     });
   };
@@ -149,7 +152,8 @@ export default function TradesPage() {
           siteId={siteId}
           tradeCategoryId={createCtx.tradeCategoryId}
           tradeName={createCtx.tradeName}
-          stageId={createCtx.stageId}
+          parentSubcontractId={createCtx.parentSubcontractId}
+          tier={createCtx.tier}
           initialStatus={createCtx.initialStatus}
           onCreatePackage={() => {
             setCreateCtx(null);
