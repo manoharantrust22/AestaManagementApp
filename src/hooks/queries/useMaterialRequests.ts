@@ -142,6 +142,55 @@ export function useMaterialRequests(
 }
 
 /**
+ * Most-frequently-requested materials for a site, derived from this site's
+ * request history (count of distinct requests that included each material).
+ * Used to power the "Frequently requested" quick-reorder row on the request
+ * screen. Aggregated client-side over the site's request items — no RPC/migration.
+ * Returns material_ids + counts, highest first; the caller intersects these
+ * against the live material catalog so only active/known materials surface.
+ */
+export function useFrequentMaterials(siteId: string | undefined, limit = 6) {
+  const supabase = createClient() as any;
+
+  return useQuery({
+    queryKey: siteId
+      ? ["material-requests", "frequent", siteId, limit]
+      : ["material-requests", "frequent", "unknown"],
+    queryFn: async () => {
+      if (!siteId) return [] as Array<{ material_id: string; count: number }>;
+
+      const { data, error } = await supabase
+        .from("material_request_items")
+        .select("material_id, request:material_requests!inner(id, site_id)")
+        .eq("request.site_id", siteId)
+        .limit(3000);
+      if (error) throw error;
+
+      // Count distinct requests per material (a request rarely lists the same
+      // material twice, but de-dupe by request id to be safe).
+      const seen = new Map<string, Set<string>>();
+      for (const row of (data ?? []) as Array<{
+        material_id: string | null;
+        request: { id: string } | null;
+      }>) {
+        const matId = row.material_id;
+        const reqId = row.request?.id;
+        if (!matId || !reqId) continue;
+        if (!seen.has(matId)) seen.set(matId, new Set());
+        seen.get(matId)!.add(reqId);
+      }
+
+      return Array.from(seen.entries())
+        .map(([material_id, reqIds]) => ({ material_id, count: reqIds.size }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, limit);
+    },
+    enabled: !!siteId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
  * Fetch a single material request by ID
  */
 export function useMaterialRequest(id: string | undefined) {
