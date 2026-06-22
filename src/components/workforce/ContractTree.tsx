@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Box, Typography, Collapse, Button, IconButton, InputBase, Tooltip } from "@mui/material";
 import ChevronRight from "@mui/icons-material/ChevronRight";
 import Add from "@mui/icons-material/Add";
@@ -12,13 +12,19 @@ import { rollupSeverity } from "@/lib/workforce/exposure";
 import type { TradeNode, WorkspaceTask } from "@/lib/workforce/workspaceModel";
 import {
   severityMeta,
+  statusMeta,
   tradeIcon,
   wsColors,
   wsRadius,
 } from "@/lib/workforce/workspaceTokens";
 import type { Severity } from "@/lib/workforce/exposure";
-import type { WorkStage } from "@/types/trade.types";
-import { TASK_WORK_STATUS_LABEL, type TaskWorkPackageWithMeta } from "@/types/taskWork.types";
+import type { ContractStatus, WorkStage } from "@/types/trade.types";
+import { type TaskWorkPackageWithMeta } from "@/types/taskWork.types";
+import {
+  statusBucket,
+  EMPTY_TAB_COPY,
+  type StatusTab,
+} from "@/lib/workforce/statusTabs";
 import { formatCompactINR } from "@/lib/formatters";
 import { useAddWorkStage, useUpdateWorkStage, useDeleteWorkStage } from "@/hooks/queries/useWorkStages";
 import { MiniDualProgressBar } from "./MiniDualProgressBar";
@@ -37,6 +43,83 @@ function SeverityDot({ severity, size = 8 }: { severity: Severity; size?: number
   );
 }
 
+/**
+ * Small lifecycle-status chip (Planned / On hold / Done …). Tinted, deliberately
+ * calmer than the exposure dot so the two signals don't collide. With the status
+ * tabs already segmenting buckets it's a secondary cue — shown only where it adds
+ * information (e.g. an `on_hold` contract sitting inside the Active tab).
+ */
+function StatusChip({ status }: { status: ContractStatus }) {
+  const m = statusMeta[status];
+  if (!m) return null;
+  return (
+    <Box
+      component="span"
+      sx={{
+        flexShrink: 0,
+        fontSize: 9.5,
+        fontWeight: 800,
+        letterSpacing: ".02em",
+        lineHeight: 1.5,
+        px: 0.65,
+        borderRadius: 999,
+        color: m.color,
+        bgcolor: m.bg,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {m.label}
+    </Box>
+  );
+}
+
+/** Vertical center (px) of a child row — where the elbow connector meets it. */
+const TREE_ROW_CENTER = 19;
+
+/**
+ * Wraps a child row with a Figma-style tree connector: a vertical spine on the left
+ * and a short horizontal elbow into the row. The spine of the last child stops at the
+ * elbow so the branch ends cleanly instead of overshooting past the final row.
+ */
+function TreeBranch({
+  isLast,
+  children,
+}: {
+  isLast: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Box
+      sx={{
+        position: "relative",
+        pl: 2.25,
+        "&::before": {
+          // vertical spine
+          content: '""',
+          position: "absolute",
+          left: 7,
+          top: 0,
+          height: isLast ? TREE_ROW_CENTER : "100%",
+          width: "1.5px",
+          bgcolor: wsColors.hairline,
+        },
+        "&::after": {
+          // horizontal elbow into the row
+          content: '""',
+          position: "absolute",
+          left: 7,
+          top: TREE_ROW_CENTER,
+          width: 10,
+          height: "1.5px",
+          bgcolor: wsColors.hairline,
+        },
+      }}
+    >
+      {children}
+    </Box>
+  );
+}
+
 function TaskRow({
   task,
   selected,
@@ -48,6 +131,13 @@ function TaskRow({
 }) {
   const paidPct = Math.round(task.paidPctOfQuoted * 100);
   const workTxt = task.workPercent == null ? "—" : `${task.workPercent}%`;
+  // Area-priced contracts read better as "1,200 sqft × ₹250" than paid/work %.
+  const sqftLabel =
+    task.measurementUnit === "sqft" && task.totalUnits
+      ? `${task.totalUnits.toLocaleString("en-IN")} sqft${
+          task.ratePerUnit ? ` × ₹${task.ratePerUnit}` : ""
+        }`
+      : null;
   return (
     <Box
       onClick={onSelect}
@@ -66,19 +156,25 @@ function TaskRow({
     >
       <SeverityDot severity={task.exposure.severity} />
       <Box sx={{ minWidth: 0, flex: 1 }}>
-        <Typography
-          noWrap
-          sx={{
-            fontSize: 13.5,
-            fontWeight: selected ? 800 : 600,
-            color: selected ? wsColors.primary : wsColors.ink,
-            letterSpacing: "-.01em",
-          }}
-        >
-          {task.title}
-        </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, minWidth: 0 }}>
+          <Typography
+            noWrap
+            sx={{
+              fontSize: 13.5,
+              fontWeight: selected ? 800 : 600,
+              color: selected ? wsColors.primary : wsColors.ink,
+              letterSpacing: "-.01em",
+              minWidth: 0,
+            }}
+          >
+            {task.title}
+          </Typography>
+          {task.status === "on_hold" && <StatusChip status={task.status} />}
+        </Box>
         <Typography noWrap sx={{ fontSize: 11.5, color: wsColors.muted }}>
-          {task.who} · paid {paidPct}% · work {workTxt}
+          {sqftLabel
+            ? `${task.who} · ${sqftLabel}`
+            : `${task.who} · paid ${paidPct}% · work ${workTxt}`}
         </Typography>
       </Box>
       <MiniDualProgressBar paidPct={task.paidPctOfQuoted} workPct={task.work} width={46} height={8} />
@@ -111,9 +207,12 @@ function PackageRow({
         <Typography noWrap sx={{ fontSize: 13.5, fontWeight: 600, color: wsColors.ink }}>
           {pkg.title}
         </Typography>
-        <Typography noWrap sx={{ fontSize: 11.5, color: wsColors.muted }}>
-          {pkg.maistry_name ?? "—"} · {TASK_WORK_STATUS_LABEL[pkg.status]}
-        </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, minWidth: 0 }}>
+          <Typography noWrap sx={{ fontSize: 11.5, color: wsColors.muted, minWidth: 0 }}>
+            {pkg.maistry_name ?? "—"} · Fixed price
+          </Typography>
+          <StatusChip status={pkg.status} />
+        </Box>
       </Box>
       <Typography sx={{ fontSize: 13, fontWeight: 700, color: wsColors.ink }}>
         {formatCompactINR(Number(pkg.total_value ?? 0))}
@@ -361,6 +460,7 @@ export function ContractTree({
   openTrades,
   onToggleTrade,
   query,
+  activeTab,
   packagesByTrade,
   onOpenPackage,
   onAddTaskWork,
@@ -376,11 +476,26 @@ export function ContractTree({
   openTrades: Record<string, boolean>;
   onToggleTrade: (categoryId: string) => void;
   query: string;
+  /** Which lifecycle bucket the tree is filtered to (Future / Active / Completed). */
+  activeTab: StatusTab;
   packagesByTrade: Map<string, TaskWorkPackageWithMeta[]>;
   onOpenPackage: (pkg: TaskWorkPackageWithMeta) => void;
-  onAddTaskWork: (tradeCategoryId: string, stageId: string | null) => void;
+  onAddTaskWork: (
+    tradeCategoryId: string,
+    stageId: string | null,
+    initialStatus?: "draft" | "active"
+  ) => void;
 }) {
   const q = query.trim().toLowerCase();
+  // A leaf is visible when it falls in the active tab AND matches the search.
+  const taskVisible = (t: WorkspaceTask) =>
+    statusBucket(t.status) === activeTab && matchesQuery(t, q);
+  const pkgVisible = (p: TaskWorkPackageWithMeta) =>
+    statusBucket(p.status) === activeTab && pkgMatchesQuery(p, q);
+  // Adding / planning work doesn't belong on the Completed tab.
+  const showAddAffordances = activeTab !== "completed";
+  // New work created from the Future tab starts as a draft (planned); else active.
+  const addStatus: "draft" | "active" = activeTab === "future" ? "draft" : "active";
   // Contractor groups default to expanded; the user can collapse them to a single line.
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const toggleGroup = (k: string) =>
@@ -402,7 +517,9 @@ export function ContractTree({
 
   const renderNode = (node: TradeNode) => {
         const pkgs = packagesByTrade.get(node.category.id) ?? [];
-        const count = node.tasks.length + pkgs.length;
+        // Badge / empty-prompt count reflects only what's visible in the active tab.
+        const count =
+          node.tasks.filter(taskVisible).length + pkgs.filter(pkgVisible).length;
         const open = q ? true : openTrades[node.category.id] ?? false;
         const sev = rollupSeverity(node.rollup);
         const Trade = tradeIcon(node.category.name);
@@ -442,9 +559,7 @@ export function ContractTree({
           }
         }
         const loosePkgs = pkgs.filter((p) => !attachedIds.has(p.id));
-        const filteredLoosePkgs = q
-          ? loosePkgs.filter((p) => pkgMatchesQuery(p, q))
-          : loosePkgs;
+        const filteredLoosePkgs = loosePkgs.filter(pkgVisible);
 
         const hasOtherGroups =
           node.stageGroups.length > 0 ||
@@ -528,17 +643,13 @@ export function ContractTree({
               <Box sx={{ pl: 2, pr: 0.5, pb: 0.5 }}>
                 {/* Real parent contracts (named, with floor children) */}
                 {node.parentContracts.map((pc) => {
-                  const shownChildren = q
-                    ? pc.children.filter((t) => matchesQuery(t, q))
-                    : pc.children;
-                  const parentMatches = q
-                    ? matchesQuery(pc.parent, q) || shownChildren.length > 0
-                    : true;
-                  if (!parentMatches) return null;
+                  const shownChildren = pc.children.filter(taskVisible);
                   const attachedPkgs = pkgsByParentId.get(pc.parent.id) ?? [];
-                  const shownPkgs = q
-                    ? attachedPkgs.filter((p) => pkgMatchesQuery(p, q))
-                    : attachedPkgs;
+                  const shownPkgs = attachedPkgs.filter(pkgVisible);
+                  // Leaves visible in this tab; the parent row is just their container.
+                  const leafCount = shownChildren.length + shownPkgs.length;
+                  if (leafCount === 0) return null;
+                  const totalParts = pc.children.length + attachedPkgs.length;
                   const pKey = `parent:${pc.parent.id}`;
                   const pOpen = q ? true : openGroups[pKey] ?? false;
                   const pSelected = selectedTaskId === pc.parent.id;
@@ -591,8 +702,8 @@ export function ContractTree({
                             {pc.parent.title}
                           </Typography>
                           <Typography noWrap sx={{ fontSize: 11, color: wsColors.muted }}>
-                            {pc.parent.who} · {pc.children.length} floor
-                            {pc.children.length === 1 ? "" : "s"} · {formatCompactINR(pc.rollup.quoted)}
+                            {pc.parent.who} · {totalParts} part
+                            {totalParts === 1 ? "" : "s"} · {formatCompactINR(pc.rollup.quoted)}
                           </Typography>
                         </Box>
                         {pc.rollup.trackedCount > 0 && (
@@ -614,41 +725,24 @@ export function ContractTree({
                         <SeverityDot severity={psev} size={8} />
                       </Box>
                       <Collapse in={pOpen} unmountOnExit>
-                        <Box sx={{ pl: 1.5 }}>
-                          {shownChildren.length > 0 ? (
-                            shownChildren.map((t) => (
+                        <Box sx={{ pt: 0.25 }}>
+                          {shownChildren.map((t, i) => (
+                            <TreeBranch key={t.id} isLast={i === leafCount - 1}>
                               <TaskRow
-                                key={t.id}
                                 task={t}
                                 selected={t.id === selectedTaskId}
                                 onSelect={() => onSelectTask(t.id)}
                               />
-                            ))
-                          ) : (
-                            <Typography sx={{ ...SECTION_LABEL_SX, px: 1.25, py: 0.5 }}>
-                              No floors listed
-                            </Typography>
-                          )}
-                          {shownPkgs.length > 0 && (
-                            <Box sx={{ mt: 0.25 }}>
-                              <Typography
-                                sx={{
-                                  fontSize: 10,
-                                  fontWeight: 700,
-                                  letterSpacing: ".04em",
-                                  textTransform: "uppercase",
-                                  color: wsColors.muted2,
-                                  px: 1.25,
-                                  mb: 0.1,
-                                }}
-                              >
-                                Carved-out lump-sum
-                              </Typography>
-                              {shownPkgs.map((p) => (
-                                <PackageRow key={p.id} pkg={p} onOpen={() => onOpenPackage(p)} />
-                              ))}
-                            </Box>
-                          )}
+                            </TreeBranch>
+                          ))}
+                          {shownPkgs.map((p, j) => (
+                            <TreeBranch
+                              key={p.id}
+                              isLast={shownChildren.length + j === leafCount - 1}
+                            >
+                              <PackageRow pkg={p} onOpen={() => onOpenPackage(p)} />
+                            </TreeBranch>
+                          ))}
                         </Box>
                       </Collapse>
                     </Box>
@@ -657,8 +751,8 @@ export function ContractTree({
 
                 {/* Stage groups */}
                 {node.stageGroups.map(({ stage, tasks }) => {
-                  const shown = q ? tasks.filter((t) => matchesQuery(t, q)) : tasks;
-                  if (q && shown.length === 0) return null;
+                  const shown = tasks.filter(taskVisible);
+                  if (shown.length === 0) return null;
                   return (
                     <Box key={stage.id} sx={{ mt: 0.5 }}>
                       <StageHeaderActions
@@ -675,11 +769,11 @@ export function ContractTree({
                           onSelect={() => onSelectTask(t.id)}
                         />
                       ))}
-                      {!q && (
+                      {!q && showAddAffordances && (
                         <Button
                           size="small"
                           startIcon={<Add sx={{ fontSize: 16 }} />}
-                          onClick={() => onAddTaskWork(node.category.id, stage.id)}
+                          onClick={() => onAddTaskWork(node.category.id, stage.id, addStatus)}
                           sx={{ ml: 0.5, mt: 0.25, textTransform: "none", color: wsColors.primary }}
                         >
                           Add task work
@@ -690,7 +784,7 @@ export function ContractTree({
                 })}
 
                 {/* Add a stage directly (no need to create a task work first) */}
-                {canEdit && !q && (
+                {canEdit && !q && showAddAffordances && (
                   <AddStageInline
                     siteId={siteId}
                     tradeCategoryId={node.category.id}
@@ -700,14 +794,11 @@ export function ContractTree({
 
                 {/* Contractor groups — a crew's task works shown as one contract */}
                 {node.contractorGroups.map((group) => {
-                  const shownTasks = q
-                    ? group.tasks.filter((t) => matchesQuery(t, q))
-                    : group.tasks;
+                  const shownTasks = group.tasks.filter(taskVisible);
                   const attachedPkgs = pkgsByGroup.get(group.key) ?? [];
-                  const shownPkgs = q
-                    ? attachedPkgs.filter((p) => pkgMatchesQuery(p, q))
-                    : attachedPkgs;
-                  if (q && shownTasks.length === 0 && shownPkgs.length === 0) return null;
+                  const shownPkgs = attachedPkgs.filter(pkgVisible);
+                  if (shownTasks.length === 0 && shownPkgs.length === 0) return null;
+                  const gLeafCount = shownTasks.length + shownPkgs.length;
                   const groupKey = `${node.category.id}::${group.key}`;
                   const groupOpen = q ? true : openGroups[groupKey] ?? true;
                   const groupSelected = selectedGroupKey === groupKey;
@@ -782,39 +873,24 @@ export function ContractTree({
                         <SeverityDot severity={gsev} size={8} />
                       </Box>
                       <Collapse in={groupOpen} unmountOnExit>
-                        <Box sx={{ pl: 1.5 }}>
-                          {shownTasks.map((t) => (
-                            <TaskRow
-                              key={t.id}
-                              task={t}
-                              selected={t.id === selectedTaskId}
-                              onSelect={() => onSelectTask(t.id)}
-                            />
+                        <Box sx={{ pt: 0.25 }}>
+                          {shownTasks.map((t, i) => (
+                            <TreeBranch key={t.id} isLast={i === gLeafCount - 1}>
+                              <TaskRow
+                                task={t}
+                                selected={t.id === selectedTaskId}
+                                onSelect={() => onSelectTask(t.id)}
+                              />
+                            </TreeBranch>
                           ))}
-                          {shownPkgs.length > 0 && (
-                            <Box sx={{ mt: 0.25 }}>
-                              <Typography
-                                sx={{
-                                  fontSize: 10,
-                                  fontWeight: 700,
-                                  letterSpacing: ".04em",
-                                  textTransform: "uppercase",
-                                  color: wsColors.muted2,
-                                  px: 1.25,
-                                  mb: 0.1,
-                                }}
-                              >
-                                Carved-out lump-sum
-                              </Typography>
-                              {shownPkgs.map((p) => (
-                                <PackageRow
-                                  key={p.id}
-                                  pkg={p}
-                                  onOpen={() => onOpenPackage(p)}
-                                />
-                              ))}
-                            </Box>
-                          )}
+                          {shownPkgs.map((p, j) => (
+                            <TreeBranch
+                              key={p.id}
+                              isLast={shownTasks.length + j === gLeafCount - 1}
+                            >
+                              <PackageRow pkg={p} onOpen={() => onOpenPackage(p)} />
+                            </TreeBranch>
+                          ))}
                         </Box>
                       </Collapse>
                     </Box>
@@ -823,9 +899,7 @@ export function ContractTree({
 
                 {/* Ungrouped (single-contractor) tasks */}
                 {(() => {
-                  const shown = q
-                    ? node.ungrouped.filter((t) => matchesQuery(t, q))
-                    : node.ungrouped;
+                  const shown = node.ungrouped.filter(taskVisible);
                   if (shown.length === 0) return null;
                   return (
                     <Box sx={{ mt: 0.5 }}>
@@ -856,14 +930,14 @@ export function ContractTree({
 
                 {/* Empty trade prompt — the trade is the contract, so the first
                     action is to set up the whole-scope job, not a "small task". */}
-                {count === 0 && !q && (
+                {count === 0 && !q && showAddAffordances && (
                   <Button
                     size="small"
                     startIcon={<Add sx={{ fontSize: 16 }} />}
-                    onClick={() => onAddTaskWork(node.category.id, null)}
+                    onClick={() => onAddTaskWork(node.category.id, null, addStatus)}
                     sx={{ ml: 0.5, mt: 0.25, textTransform: "none", color: wsColors.primary }}
                   >
-                    Set up {node.category.name} contract
+                    {activeTab === "future" ? "Plan" : "Set up"} {node.category.name} contract
                   </Button>
                 )}
               </Box>
@@ -872,21 +946,43 @@ export function ContractTree({
         );
   };
 
-  const tradeCount = (n: TradeNode) =>
-    n.tasks.length + (packagesByTrade.get(n.category.id)?.length ?? 0);
-  const activeTrades = visibleTrades.filter((n) => tradeCount(n) > 0);
-  const emptyTrades = visibleTrades.filter((n) => tradeCount(n) === 0);
-  const emptyOpen = emptyOpenRaw ?? activeTrades.length === 0;
+  const tradeCountInTab = (n: TradeNode) =>
+    n.tasks.filter(taskVisible).length +
+    (packagesByTrade.get(n.category.id) ?? []).filter(pkgVisible).length;
+  const activeTrades = visibleTrades.filter((n) => tradeCountInTab(n) > 0);
+  const emptyTrades = visibleTrades.filter((n) => tradeCountInTab(n) === 0);
+  const emptyOpen = emptyOpenRaw ?? false;
+  const emptySuffix =
+    activeTab === "future"
+      ? "nothing planned"
+      : activeTab === "completed"
+        ? "nothing completed"
+        : "no task work yet";
 
   return (
     <Box>
       {activeTrades.map(renderNode)}
-      {!q && emptyTrades.length > 0 && (
+
+      {/* Nothing in this tab at all — a calm empty state, not a wall of empty trades. */}
+      {!q && activeTrades.length === 0 && (
+        <Box sx={{ px: 1.5, py: 4, textAlign: "center" }}>
+          <Typography sx={{ fontSize: 13, fontWeight: 700, color: wsColors.ink2 }}>
+            {EMPTY_TAB_COPY[activeTab]}
+          </Typography>
+          <Typography sx={{ fontSize: 11.5, color: wsColors.muted, mt: 0.5 }}>
+            {activeTab === "completed"
+              ? "Finished contracts and packages collect here."
+              : activeTab === "future"
+                ? "Plan a contract ahead of time, then move it to Active."
+                : "Active work shows here once you set up a contract."}
+          </Typography>
+        </Box>
+      )}
+
+      {!q && activeTrades.length > 0 && emptyTrades.length > 0 && (
         <Box sx={{ mt: 0.75 }}>
           <Box
-            onClick={() =>
-              setEmptyOpen((o) => !(o ?? activeTrades.length === 0))
-            }
+            onClick={() => setEmptyOpen((o) => !(o ?? false))}
             sx={{
               display: "flex",
               alignItems: "center",
@@ -911,7 +1007,7 @@ export function ContractTree({
               noWrap
             >
               {emptyTrades.length} more{" "}
-              {emptyTrades.length === 1 ? "trade" : "trades"} · no task work yet
+              {emptyTrades.length === 1 ? "trade" : "trades"} · {emptySuffix}
             </Typography>
           </Box>
           <Collapse in={emptyOpen} unmountOnExit>

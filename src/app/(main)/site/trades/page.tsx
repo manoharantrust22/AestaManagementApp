@@ -79,6 +79,7 @@ export default function TradesPage() {
     tradeCategoryId: string;
     tradeName: string;
     stageId: string | null;
+    initialStatus: "draft" | "active";
   } | null>(null);
 
   // Legacy task-work package detail drawer + edit dialog.
@@ -100,12 +101,17 @@ export default function TradesPage() {
     return () => bc.close();
   }, [siteId, queryClient]);
 
-  const handleAddTaskWork = (tradeCategoryId: string, stageId: string | null) => {
+  const handleAddTaskWork = (
+    tradeCategoryId: string,
+    stageId: string | null,
+    initialStatus: "draft" | "active" = "active"
+  ) => {
     if (!siteId) return;
     setCreateCtx({
       tradeCategoryId,
       tradeName: categoryNameById.get(tradeCategoryId) ?? "Contract",
       stageId,
+      initialStatus,
     });
   };
 
@@ -144,6 +150,7 @@ export default function TradesPage() {
           tradeCategoryId={createCtx.tradeCategoryId}
           tradeName={createCtx.tradeName}
           stageId={createCtx.stageId}
+          initialStatus={createCtx.initialStatus}
           onCreatePackage={() => {
             setCreateCtx(null);
             setEditingPkg(null);

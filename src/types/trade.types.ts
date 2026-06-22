@@ -37,6 +37,14 @@ export interface TradeContract {
   status: ContractStatus;
   totalValue: number;
   /**
+   * Area-based pricing (optional — the hook always populates them, but they're
+   * optional on the projection so older callers/tests need not supply them).
+   * `measurementUnit: "sqft"` + rate + units lets the row show "1,200 sqft × ₹250".
+   */
+  measurementUnit?: string | null;
+  ratePerUnit?: number | null;
+  totalUnits?: number | null;
+  /**
    * Supervisor-set % of this task work that is complete (0–100), or null when not
    * tracked yet. Drives the Workforce exposure meter (paid vs value of work done).
    * Null → the meter shows a neutral "set progress" state instead of a verdict.

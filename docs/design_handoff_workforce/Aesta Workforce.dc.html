@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400,0..1,0&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#d3d7e0;border-radius:9px}
+::-webkit-scrollbar-track{background:transparent}
+@keyframes aestaSheet{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes aestaFade{from{opacity:0}to{opacity:1}}
+</style>
+</helmet>
+
+<div style="min-width:100%;min-height:100vh;width:max-content;box-sizing:border-box;padding:44px;background:#e7e6e1;font-variant-numeric:tabular-nums;color:#18202f;line-height:1.45">
+
+  <div style="max-width:1280px;margin-bottom:34px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+      <div style="width:30px;height:30px;border-radius:8px;background:#2f6bed;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:16px">A</div>
+      <div style="font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#8a8f9c">Aesta · Workforce redesign</div>
+    </div>
+    <div style="font-size:32px;font-weight:800;letter-spacing:-.02em;margin:6px 0 10px">Three ways to make the site legible at a glance</div>
+    <div style="font-size:16px;color:#5b6678;max-width:760px">Contract → Stage → Task Work, expressed three ways. The first is fully interactive — collapse the sidebar, switch trades, expand a task to reveal the over/under monitor, open “Add task work”. Below it, two alternate directions and the gauge studied on its own.</div>
+  </div>
+
+  <!-- ============================ DIRECTION 1 ============================ -->
+  <div style="margin-bottom:18px;display:flex;align-items:flex-end;gap:14px">
+    <div style="font-size:13px;font-weight:800;color:#2f6bed;background:#eaf1fe;padding:5px 12px;border-radius:999px">DIRECTION 1</div>
+    <div style="font-size:22px;font-weight:800;letter-spacing:-.01em">Trade Workspace <span style="color:#1f9d57;font-size:13px;font-weight:800;background:#e8f6ee;padding:4px 10px;border-radius:999px;vertical-align:middle">Recommended · interactive</span></div>
+  </div>
+  <div style="font-size:15px;color:#5b6678;max-width:900px;margin-bottom:22px">One trade in view at a time via a switcher, so 10 trades never become a 10-screen scroll. Inside a trade, stages are quiet groupers and task works are the heroes. Tap a task to progressively reveal the monitor — nothing dense is shown until you ask for it.</div>
+
+  <div style="display:flex;gap:40px;align-items:flex-start;margin-bottom:64px">
+
+    <!-- DESKTOP APP -->
+    <div style="flex:none">
+      <div style="font-size:13px;font-weight:700;color:#7c828f;margin-bottom:10px;display:flex;align-items:center;gap:7px"><span style="font-family:'Material Symbols Rounded';font-size:18px">desktop_windows</span> Desktop · 1280×800</div>
+      <div style="width:1280px;height:800px;background:#fff;border-radius:14px;box-shadow:0 10px 40px rgba(20,28,46,.13);overflow:hidden;position:relative;display:flex">
+
+        <!-- SIDEBAR -->
+        <aside style="width:{{ sidebarW }}px;flex:none;background:#0f1626;color:#cbd2e0;display:flex;flex-direction:column;transition:width .22s ease">
+          <div style="height:62px;flex:none;display:flex;align-items:center;gap:11px;padding:0 18px;border-bottom:1px solid rgba(255,255,255,.07)">
+            <div style="width:30px;height:30px;flex:none;border-radius:8px;background:#2f6bed;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800">A</div>
+            <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><div style="font-weight:800;font-size:17px;color:#fff;letter-spacing:-.01em">Aesta</div></sc-if>
+          </div>
+
+          <div style="padding:14px 12px 6px">
+            <div onClick="{{ toggleSidebar }}" style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:10px;background:rgba(255,255,255,.05);cursor:pointer">
+              <span style="font-family:'Material Symbols Rounded';font-size:20px;color:#9aa6bd">apartment</span>
+              <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}">
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:10px;color:#7e8aa3;font-weight:700;text-transform:uppercase;letter-spacing:.08em">Project</div>
+                  <div style="font-size:13px;color:#fff;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Padmavathy Apartments</div>
+                </div>
+                <span style="font-family:'Material Symbols Rounded';font-size:18px;color:#7e8aa3">unfold_more</span>
+              </sc-if>
+            </div>
+          </div>
+
+          <nav style="flex:1;overflow-y:auto;padding:10px 12px">
+            <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><div style="font-size:10px;font-weight:800;letter-spacing:.1em;color:#67718c;padding:8px 11px 4px">GENERAL</div></sc-if>
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 11px;border-radius:10px;cursor:pointer;color:#9aa6bd"><span style="font-family:'Material Symbols Rounded';font-size:21px">space_dashboard</span><sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span style="font-size:14px;font-weight:600">Overview</span></sc-if></div>
+
+            <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><div style="font-size:10px;font-weight:800;letter-spacing:.1em;color:#67718c;padding:14px 11px 4px">WORKFORCE</div></sc-if>
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 11px;border-radius:10px;cursor:pointer;background:#2f6bed;color:#fff;box-shadow:0 4px 14px rgba(47,107,237,.4);margin-bottom:2px"><span style="font-family:'Material Symbols Rounded';font-size:21px;font-variation-settings:'FILL' 1">groups</span><sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span style="font-size:14px;font-weight:700">Contracts</span></sc-if></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 11px;border-radius:10px;cursor:pointer;color:#9aa6bd"><span style="font-family:'Material Symbols Rounded';font-size:21px">table_rows</span><sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span style="font-size:14px;font-weight:600">Contract details</span></sc-if></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 11px;border-radius:10px;cursor:pointer;color:#9aa6bd"><span style="font-family:'Material Symbols Rounded';font-size:21px">event_available</span><sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span style="font-size:14px;font-weight:600">Attendance</span></sc-if></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 11px;border-radius:10px;cursor:pointer;color:#9aa6bd"><span style="font-family:'Material Symbols Rounded';font-size:21px">payments</span><sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span style="font-size:14px;font-weight:600">Salary settlements</span></sc-if></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 11px;border-radius:10px;cursor:pointer;color:#9aa6bd"><span style="font-family:'Material Symbols Rounded';font-size:21px">beach_access</span><sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span style="font-size:14px;font-weight:600">Holidays</span></sc-if></div>
+
+            <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><div style="font-size:10px;font-weight:800;letter-spacing:.1em;color:#67718c;padding:14px 11px 4px">INSIGHTS</div></sc-if>
+            <div style="display:flex;align-items:center;gap:12px;padding:10px 11px;border-radius:10px;cursor:pointer;color:#9aa6bd"><span style="font-family:'Material Symbols Rounded';font-size:21px">monitoring</span><sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span style="font-size:14px;font-weight:600">Reports</span></sc-if></div>
+          </nav>
+
+          <div onClick="{{ toggleSidebar }}" style="flex:none;border-top:1px solid rgba(255,255,255,.07);padding:13px 18px;display:flex;align-items:center;gap:11px;cursor:pointer;color:#9aa6bd">
+            <span style="font-family:'Material Symbols Rounded';font-size:21px">{{ collapseIcon }}</span>
+            <sc-if value="{{ showLabels }}" hint-placeholder-val="{{ true }}"><span style="font-size:13px;font-weight:600">Collapse</span></sc-if>
+          </div>
+        </aside>
+
+        <!-- MAIN -->
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#f4f6f9">
+          <!-- topbar -->
+          <header style="height:62px;flex:none;background:#fff;border-bottom:1px solid #e9ebf0;display:flex;align-items:center;gap:16px;padding:0 22px">
+            <div>
+              <div style="font-size:11px;color:#8a8f9c;font-weight:600;display:flex;align-items:center;gap:5px">Workforce <span style="font-family:'Material Symbols Rounded';font-size:13px">chevron_right</span> Contracts</div>
+              <div style="font-size:18px;font-weight:800;letter-spacing:-.01em">Padmavathy Apartments</div>
+            </div>
+            <div style="flex:1"></div>
+            <div style="display:flex;align-items:center;gap:9px;background:#f4f6f9;border:1px solid #e9ebf0;border-radius:10px;padding:9px 13px;width:230px;color:#9aa0ad">
+              <span style="font-family:'Material Symbols Rounded';font-size:19px">search</span><span style="font-size:13px">Search task work…</span>
+            </div>
+            <div onClick="{{ openDialog }}" style="display:flex;align-items:center;gap:7px;background:#2f6bed;color:#fff;font-weight:700;font-size:14px;padding:10px 16px;border-radius:10px;cursor:pointer;box-shadow:0 4px 14px rgba(47,107,237,.32)">
+              <span style="font-family:'Material Symbols Rounded';font-size:19px">add</span> Add task work
+            </div>
+            <div style="width:36px;height:36px;border-radius:50%;background:#dfe7f6;color:#2f6bed;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px">RK</div>
+          </header>
+
+          <!-- body -->
+          <div style="flex:1;overflow-y:auto;padding:22px 24px 40px">
+
+            <!-- summary band -->
+            <div style="display:flex;gap:14px;margin-bottom:22px">
+              <div style="flex:1;background:#fff;border:1px solid #e9ebf0;border-radius:14px;padding:15px 17px">
+                <div style="font-size:12px;color:#8a8f9c;font-weight:600;margin-bottom:5px">Quoted (all trades)</div>
+                <div style="font-size:23px;font-weight:800;letter-spacing:-.02em">₹86,40,000</div>
+              </div>
+              <div style="flex:1;background:#fff;border:1px solid #e9ebf0;border-radius:14px;padding:15px 17px">
+                <div style="font-size:12px;color:#8a8f9c;font-weight:600;margin-bottom:5px">Paid so far</div>
+                <div style="font-size:23px;font-weight:800;letter-spacing:-.02em;color:#2f6bed">₹52,10,000</div>
+                <div style="height:5px;background:#eef1f6;border-radius:9px;margin-top:8px;overflow:hidden"><div style="width:60%;height:100%;background:#2f6bed;border-radius:9px"></div></div>
+              </div>
+              <div style="flex:1;background:#fff;border:1px solid #e9ebf0;border-radius:14px;padding:15px 17px">
+                <div style="font-size:12px;color:#8a8f9c;font-weight:600;margin-bottom:5px">Balance to pay</div>
+                <div style="font-size:23px;font-weight:800;letter-spacing:-.02em">₹34,30,000</div>
+              </div>
+              <div style="flex:none;width:236px;background:#0f1626;border-radius:14px;padding:15px 17px;color:#fff">
+                <div style="font-size:12px;color:#9aa6bd;font-weight:600;margin-bottom:6px">Crew-pay health</div>
+                <div style="display:flex;align-items:center;gap:9px">
+                  <span style="font-family:'Material Symbols Rounded';font-size:26px;color:#36d07f;font-variation-settings:'FILL' 1">check_circle</span>
+                  <div><div style="font-size:16px;font-weight:800">Mostly fair</div><div style="font-size:12px;color:#9aa6bd">2 of 23 need a look</div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- trade switcher -->
+            <div style="display:flex;gap:8px;margin-bottom:8px;overflow-x:auto;padding-bottom:4px">
+              <sc-for list="{{ trades }}" as="tr" hint-placeholder-count="6">
+                <div onClick="{{ tr.onClick }}" style="flex:none;display:flex;align-items:center;gap:8px;padding:9px 15px;border-radius:11px;cursor:pointer;border:1px solid {{ tr.borderC }};background:{{ tr.bg }};color:{{ tr.fg }}">
+                  <span style="font-family:'Material Symbols Rounded';font-size:19px;font-variation-settings:'FILL' {{ tr.fill }}">{{ tr.icon }}</span>
+                  <span style="font-size:14px;font-weight:700">{{ tr.label }}</span>
+                  <span style="font-size:11px;font-weight:700;background:{{ tr.countBg }};color:{{ tr.countFg }};padding:1px 8px;border-radius:999px">{{ tr.count }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="height:1px;background:#e9ebf0;margin:6px 0 18px"></div>
+
+            <!-- empty state -->
+            <sc-if value="{{ activeEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="background:#fff;border:1px dashed #d6dbe6;border-radius:16px;padding:44px;text-align:center">
+                <div style="width:58px;height:58px;border-radius:16px;background:#eaf1fe;color:#2f6bed;display:flex;align-items:center;justify-content:center;margin:0 auto 14px"><span style="font-family:'Material Symbols Rounded';font-size:30px">construction</span></div>
+                <div style="font-size:18px;font-weight:800;margin-bottom:5px">No work in {{ activeTradeName }} yet</div>
+                <div style="font-size:14px;color:#5b6678;max-width:360px;margin:0 auto 18px">Hand a priced piece of work to a mesthri team or a specialist to get started.</div>
+                <div onClick="{{ openDialog }}" style="display:inline-flex;align-items:center;gap:7px;background:#2f6bed;color:#fff;font-weight:700;font-size:14px;padding:11px 18px;border-radius:11px;cursor:pointer"><span style="font-family:'Material Symbols Rounded';font-size:19px">add</span> Add first task work</div>
+              </div>
+            </sc-if>
+
+            <!-- stages -->
+            <sc-if value="{{ activeHasWork }}" hint-placeholder-val="{{ true }}">
+              <sc-for list="{{ stages }}" as="stage" hint-placeholder-count="2">
+                <div style="margin-bottom:22px">
+                  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                    <span style="font-family:'Material Symbols Rounded';font-size:20px;color:#9aa0ad">{{ stage.icon }}</span>
+                    <span style="font-size:15px;font-weight:800;letter-spacing:-.01em">{{ stage.name }}</span>
+                    <span style="font-size:12px;font-weight:700;color:#8a8f9c;background:#eef1f6;padding:2px 9px;border-radius:999px">{{ stage.count }}</span>
+                    <span style="font-size:13px;color:#9aa0ad">{{ stage.sub }}</span>
+                    <div style="flex:1"></div>
+                    <span style="font-family:'Material Symbols Rounded';font-size:19px;color:#c2c7d2;cursor:pointer">more_horiz</span>
+                  </div>
+
+                  <sc-for list="{{ stage.tasks }}" as="task" hint-placeholder-count="2">
+                    <div style="background:#fff;border:1px solid {{ task.cardBorder }};border-radius:15px;margin-bottom:11px;box-shadow:0 1px 2px rgba(20,28,46,.03)">
+                      <!-- row head -->
+                      <div onClick="{{ task.onToggle }}" style="display:flex;align-items:center;gap:15px;padding:15px 17px;cursor:pointer">
+                        <div style="width:42px;height:42px;flex:none;border-radius:11px;background:{{ task.avBg }};color:{{ task.avFg }};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px">{{ task.initial }}</div>
+                        <div style="flex:1;min-width:0">
+                          <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+                            <span style="font-size:12.5px;color:#5b6678;font-weight:600">{{ task.who }}</span>
+                            <span style="font-size:11px;color:#9aa0ad">· {{ task.party }}</span>
+                            <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#5b6678;background:#f0f2f6;padding:2px 8px;border-radius:999px"><span style="font-family:'Material Symbols Rounded';font-size:13px">{{ task.modeIcon }}</span>{{ task.mode }}</span>
+                          </div>
+                          <div style="font-size:16px;font-weight:800;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ task.title }}</div>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:26px;flex:none">
+                          <div style="text-align:right"><div style="font-size:11px;color:#8a8f9c;font-weight:600">Quoted</div><div style="font-size:15px;font-weight:800">{{ task.quotedF }}</div></div>
+                          <div style="text-align:right"><div style="font-size:11px;color:#8a8f9c;font-weight:600">Paid</div><div style="font-size:15px;font-weight:800;color:#2f6bed">{{ task.paidF }}</div></div>
+                          <div style="text-align:right"><div style="font-size:11px;color:#8a8f9c;font-weight:600">Balance</div><div style="font-size:15px;font-weight:800">{{ task.balanceF }}</div></div>
+                          <div style="display:flex;align-items:center;gap:5px;color:#8a8f9c"><span style="font-family:'Material Symbols Rounded';font-size:17px">calendar_month</span><span style="font-size:13px;font-weight:700">{{ task.days }}d</span></div>
+                          <span style="font-family:'Material Symbols Rounded';font-size:24px;color:#aeb4c0;transition:transform .2s;transform:rotate({{ task.chev }}deg)">expand_more</span>
+                        </div>
+                      </div>
+
+                      <!-- expanded -->
+                      <sc-if value="{{ task.expanded }}" hint-placeholder-val="{{ false }}">
+                        <div style="border-top:1px solid #eef1f6;padding:18px;background:#fafbfd;border-radius:0 0 15px 15px">
+
+                          <!-- reconciliation -->
+                          <div style="background:#fff;border:1px solid #eef1f6;border-radius:13px;padding:15px 17px;margin-bottom:14px">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:11px">
+                              <span style="font-size:13px;font-weight:800;color:#18202f">Quoted vs paid</span>
+                              <span style="font-size:12px;color:#5b6678">{{ task.paidPctLabel }} of the quote paid</span>
+                            </div>
+                            <div style="height:10px;background:#eef1f6;border-radius:9px;overflow:hidden;display:flex">
+                              <div style="width:{{ task.paidPct }};height:100%;background:#2f6bed"></div>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;margin-top:9px;font-size:12px;color:#5b6678">
+                              <span>Paid <b style="color:#2f6bed">{{ task.paidF }}</b></span>
+                              <span>Balance <b style="color:#18202f">{{ task.balanceF }}</b></span>
+                              <span>Quoted <b style="color:#18202f">{{ task.quotedF }}</b></span>
+                            </div>
+                          </div>
+
+                          <!-- MONITOR -->
+                          <div style="background:#fff;border:1px solid #eef1f6;border-radius:13px;padding:17px;margin-bottom:14px">
+                            <div style="font-size:13px;font-weight:800;margin-bottom:3px">Is this a good deal? <span style="font-weight:600;color:#8a8f9c">— day-wage benchmark vs the agreed price</span></div>
+                            <div style="display:flex;gap:22px;align-items:center;margin-top:10px">
+                              <!-- gauge -->
+                              <div style="flex:none;width:240px;text-align:center">
+                                <svg viewBox="0 0 200 124" width="220" style="display:block">
+                                  <path d="M20 100 A80 80 0 0 1 46.6 40.7" fill="none" stroke="#e7b3b3" stroke-width="15" stroke-linecap="round"/>
+                                  <path d="M52 36 A80 80 0 0 1 148 36" fill="none" stroke="#7fd3a3" stroke-width="15" stroke-linecap="round"/>
+                                  <path d="M153.4 40.7 A80 80 0 0 1 180 100" fill="none" stroke="#f1c889" stroke-width="15" stroke-linecap="round"/>
+                                  <line x1="100" y1="100" x2="{{ task.needleX }}" y2="{{ task.needleY }}" stroke="#18202f" stroke-width="4" stroke-linecap="round"/>
+                                  <circle cx="100" cy="100" r="8" fill="#18202f"/>
+                                  <circle cx="100" cy="100" r="3.5" fill="#fff"/>
+                                  <text x="20" y="119" font-size="10" fill="#d64545" font-weight="700" font-family="Plus Jakarta Sans">Underpaid</text>
+                                  <text x="86" y="20" font-size="10" fill="#1f9d57" font-weight="700" font-family="Plus Jakarta Sans">Fair</text>
+                                  <text x="150" y="119" font-size="10" fill="#d9870b" font-weight="700" font-family="Plus Jakarta Sans">Overpaid</text>
+                                </svg>
+                                <div style="display:inline-flex;align-items:center;gap:6px;background:{{ task.verdictBg }};color:{{ task.verdictFg }};font-weight:800;font-size:13px;padding:6px 13px;border-radius:999px;margin-top:2px"><span style="font-family:'Material Symbols Rounded';font-size:16px;font-variation-settings:'FILL' 1">{{ task.verdictIcon }}</span>{{ task.verdict }}</div>
+                              </div>
+                              <!-- numbers -->
+                              <div style="flex:1;display:flex;gap:11px">
+                                <div style="flex:1;background:#f6f7f9;border-radius:11px;padding:13px"><div style="font-size:11.5px;color:#8a8f9c;font-weight:600;margin-bottom:4px">Day-wage benchmark</div><div style="font-size:19px;font-weight:800">{{ task.benchmarkF }}</div><div style="font-size:11px;color:#9aa0ad">if paid daily wages</div></div>
+                                <div style="flex:1;background:#f6f7f9;border-radius:11px;padding:13px"><div style="font-size:11.5px;color:#8a8f9c;font-weight:600;margin-bottom:4px">Agreed price</div><div style="font-size:19px;font-weight:800">{{ task.agreedF }}</div><div style="font-size:11px;color:#9aa0ad">lump sum</div></div>
+                                <div style="flex:1;background:#e8f6ee;border-radius:11px;padding:13px"><div style="font-size:11.5px;color:#1f9d57;font-weight:700;margin-bottom:4px">Expected saving</div><div style="font-size:19px;font-weight:800;color:#1f9d57">{{ task.savingF }}</div><div style="font-size:11px;color:#1f9d57;font-weight:600">{{ task.savingPct }} cheaper</div></div>
+                              </div>
+                            </div>
+                            <!-- estimate -->
+                            <div style="margin-top:14px;border-top:1px dashed #e9ebf0;padding-top:12px">
+                              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:12px;font-weight:800;color:#5b6678">Worker estimate</span><span style="font-size:12px;color:#2f6bed;font-weight:700;display:flex;align-items:center;gap:4px"><span style="font-family:'Material Symbols Rounded';font-size:15px">add</span>Add worker</span></div>
+                              <sc-for list="{{ task.estimate }}" as="e" hint-placeholder-count="3">
+                                <div style="display:flex;align-items:center;gap:10px;font-size:13px;padding:6px 0;border-bottom:1px solid #f3f4f7">
+                                  <span style="flex:1;font-weight:700">{{ e.role }}</span>
+                                  <span style="color:#8a8f9c">{{ e.count }} × {{ e.days }}d × {{ e.rate }}</span>
+                                  <span style="width:96px;text-align:right;font-weight:800">{{ e.total }}</span>
+                                </div>
+                              </sc-for>
+                            </div>
+                          </div>
+
+                          <!-- tracking + activity -->
+                          <div style="display:flex;gap:14px">
+                            <div style="flex:1;background:#fff;border:1px solid #eef1f6;border-radius:13px;padding:15px">
+                              <div style="font-size:12px;font-weight:800;color:#5b6678;margin-bottom:9px">Tracking & rates</div>
+                              <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px"><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;background:#f0f2f6;padding:4px 10px;border-radius:999px"><span style="font-family:'Material Symbols Rounded';font-size:15px">{{ task.modeIcon }}</span>{{ task.mode }}</span><span style="font-size:12px;color:#9aa0ad">per-day record</span></div>
+                              <div style="font-size:13px;color:#5b6678;display:flex;justify-content:space-between;padding:3px 0"><span>Mason / day</span><b>₹950</b></div>
+                              <div style="font-size:13px;color:#5b6678;display:flex;justify-content:space-between;padding:3px 0"><span>Helper / day</span><b>₹650</b></div>
+                            </div>
+                            <div style="flex:1;background:#fff;border:1px solid #eef1f6;border-radius:13px;padding:15px">
+                              <div style="font-size:12px;font-weight:800;color:#5b6678;margin-bottom:9px">Activity</div>
+                              <div style="display:flex;gap:18px;margin-bottom:12px">
+                                <div><div style="font-size:21px;font-weight:800">{{ task.days }}</div><div style="font-size:11px;color:#8a8f9c">days logged</div></div>
+                                <div><div style="font-size:21px;font-weight:800">{{ task.payCount }}</div><div style="font-size:11px;color:#8a8f9c">payments</div></div>
+                              </div>
+                              <div style="display:flex;gap:9px">
+                                <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:#eaf1fe;color:#2f6bed;font-weight:700;font-size:12.5px;padding:9px;border-radius:9px;cursor:pointer"><span style="font-family:'Material Symbols Rounded';font-size:16px">how_to_reg</span>Attendance</div>
+                                <div style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:#eaf1fe;color:#2f6bed;font-weight:700;font-size:12.5px;padding:9px;border-radius:9px;cursor:pointer"><span style="font-family:'Material Symbols Rounded';font-size:16px">payments</span>Payment</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+
+                  <div onClick="{{ openDialog }}" style="display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#2f6bed;cursor:pointer;padding:4px 2px"><span style="font-family:'Material Symbols Rounded';font-size:17px">add</span>Add task work to {{ stage.name }}</div>
+                </div>
+              </sc-for>
+
+              <div style="display:flex;gap:10px;margin-top:6px">
+                <div onClick="{{ openDialog }}" style="display:inline-flex;align-items:center;gap:7px;border:1px solid #d6dbe6;color:#475067;font-weight:700;font-size:13px;padding:10px 15px;border-radius:11px;cursor:pointer;background:#fff"><span style="font-family:'Material Symbols Rounded';font-size:18px">layers</span>Add stage</div>
+                <div onClick="{{ openDialog }}" style="display:inline-flex;align-items:center;gap:7px;background:#2f6bed;color:#fff;font-weight:700;font-size:13px;padding:10px 16px;border-radius:11px;cursor:pointer"><span style="font-family:'Material Symbols Rounded';font-size:18px">add</span>Add task work</div>
+              </div>
+            </sc-if>
+
+          </div>
+        </div>
+
+        <!-- ADD TASK WORK MODAL -->
+        <sc-if value="{{ dialog }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;inset:0;background:rgba(15,22,38,.45);display:flex;align-items:center;justify-content:center;animation:aestaFade .15s ease;z-index:30">
+            <div style="width:560px;max-height:740px;background:#fff;border-radius:20px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(15,22,38,.4);animation:aestaSheet .22s ease">
+              <div style="padding:20px 24px;border-bottom:1px solid #eef1f6;display:flex;align-items:center;justify-content:space-between">
+                <div><div style="font-size:19px;font-weight:800;letter-spacing:-.01em">Add task work</div><div style="font-size:13px;color:#8a8f9c">Civil · Padmavathy Apartments</div></div>
+                <div onClick="{{ closeDialog }}" style="width:34px;height:34px;border-radius:9px;background:#f4f6f9;display:flex;align-items:center;justify-content:center;cursor:pointer"><span style="font-family:'Material Symbols Rounded';font-size:20px;color:#5b6678">close</span></div>
+              </div>
+              <div style="padding:22px 24px;overflow-y:auto">
+                <div style="display:flex;align-items:center;gap:9px;background:#f6f7f9;border-radius:11px;padding:11px 14px;margin-bottom:20px;font-size:12.5px;color:#5b6678"><span style="font-family:'Material Symbols Rounded';font-size:18px;color:#9aa0ad">workspace_premium</span>Need retention or man-day profitability? <span style="color:#2f6bed;font-weight:700;cursor:pointer">Create a fixed-price package →</span></div>
+
+                <div style="font-size:13px;font-weight:700;margin-bottom:7px">Who is doing the work?</div>
+                <div style="display:flex;gap:9px;margin-bottom:18px">
+                  <div style="flex:1;border:2px solid #2f6bed;background:#eaf1fe;border-radius:12px;padding:13px;cursor:pointer"><div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px"><span style="font-family:'Material Symbols Rounded';font-size:19px;color:#2f6bed">groups</span>Mesthri team</div><div style="font-size:11.5px;color:#5b6678;margin-top:3px">A labour gang & its leader</div></div>
+                  <div style="flex:1;border:1px solid #e0e4ec;border-radius:12px;padding:13px;cursor:pointer"><div style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px;color:#5b6678"><span style="font-family:'Material Symbols Rounded';font-size:19px;color:#9aa0ad">person</span>Specialist</div><div style="font-size:11.5px;color:#9aa0ad;margin-top:3px">One skilled individual</div></div>
+                </div>
+
+                <div style="font-size:13px;font-weight:700;margin-bottom:7px">Team</div>
+                <div style="display:flex;align-items:center;gap:9px;border:1px solid #e0e4ec;border-radius:11px;padding:12px 14px;margin-bottom:18px"><div style="width:30px;height:30px;border-radius:8px;background:#dfe7f6;color:#2f6bed;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:13px">KT</div><span style="font-weight:700;font-size:14px">Karthik Team</span><div style="flex:1"></div><span style="font-family:'Material Symbols Rounded';font-size:20px;color:#9aa0ad">unfold_more</span></div>
+
+                <div style="display:flex;gap:12px;margin-bottom:18px">
+                  <div style="flex:2"><div style="font-size:13px;font-weight:700;margin-bottom:7px">Task work title</div><div style="border:1px solid #e0e4ec;border-radius:11px;padding:12px 14px;font-size:14px;font-weight:600">1st Floor Construction</div></div>
+                  <div style="flex:1"><div style="font-size:13px;font-weight:700;margin-bottom:7px">Quoted total</div><div style="border:1px solid #e0e4ec;border-radius:11px;padding:12px 14px;font-size:14px;font-weight:800">₹6,65,000</div></div>
+                </div>
+
+                <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px"><span style="font-size:13px;font-weight:700">How closely to track labour?</span><span style="font-size:12px;color:#2f6bed;font-weight:700;cursor:pointer">Why does this matter?</span></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+                  <div style="border:1px solid #e0e4ec;border-radius:11px;padding:11px 13px;cursor:pointer"><div style="display:flex;align-items:center;gap:7px;font-weight:700;font-size:13px"><span style="font-family:'Material Symbols Rounded';font-size:17px;color:#9aa0ad">payments</span>Mesthri-only</div><div style="font-size:11px;color:#9aa0ad;margin-top:2px">Just money paid</div></div>
+                  <div style="border:1px solid #e0e4ec;border-radius:11px;padding:11px 13px;cursor:pointer"><div style="display:flex;align-items:center;gap:7px;font-weight:700;font-size:13px"><span style="font-family:'Material Symbols Rounded';font-size:17px;color:#9aa0ad">groups_2</span>Headcount</div><div style="font-size:11px;color:#9aa0ad;margin-top:2px">How many came</div></div>
+                  <div style="border:1px solid #e0e4ec;border-radius:11px;padding:11px 13px;cursor:pointer"><div style="display:flex;align-items:center;gap:7px;font-weight:700;font-size:13px"><span style="font-family:'Material Symbols Rounded';font-size:17px;color:#9aa0ad">checklist</span>Mid</div><div style="font-size:11px;color:#9aa0ad;margin-top:2px">Roster + daily total</div></div>
+                  <div style="border:2px solid #2f6bed;background:#eaf1fe;border-radius:11px;padding:11px 13px;cursor:pointer"><div style="display:flex;align-items:center;gap:7px;font-weight:800;font-size:13px"><span style="font-family:'Material Symbols Rounded';font-size:17px;color:#2f6bed">fact_check</span>Detailed</div><div style="font-size:11px;color:#5b6678;margin-top:2px">Per-person attendance</div></div>
+                </div>
+              </div>
+              <div style="padding:16px 24px;border-top:1px solid #eef1f6;display:flex;gap:10px;justify-content:flex-end">
+                <div onClick="{{ closeDialog }}" style="font-weight:700;font-size:14px;color:#5b6678;padding:11px 18px;border-radius:11px;cursor:pointer">Cancel</div>
+                <div onClick="{{ closeDialog }}" style="font-weight:700;font-size:14px;color:#fff;background:#2f6bed;padding:11px 22px;border-radius:11px;cursor:pointer;box-shadow:0 4px 14px rgba(47,107,237,.32)">Create task work</div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <!-- D1 MOBILE -->
+    <div style="flex:none">
+      <div style="font-size:13px;font-weight:700;color:#7c828f;margin-bottom:10px;display:flex;align-items:center;gap:7px"><span style="font-family:'Material Symbols Rounded';font-size:18px">smartphone</span> Phone · scales down</div>
+      <div style="width:390px;height:800px;background:#f4f6f9;border-radius:30px;box-shadow:0 10px 40px rgba(20,28,46,.13);overflow:hidden;position:relative;border:7px solid #0f1626">
+        <div style="height:34px;background:#0f1626"></div>
+        <div style="background:#fff;padding:13px 16px 11px;border-bottom:1px solid #e9ebf0;display:flex;align-items:center;gap:11px">
+          <span style="font-family:'Material Symbols Rounded';font-size:24px">menu</span>
+          <div style="flex:1"><div style="font-size:10px;color:#8a8f9c;font-weight:600">Workforce</div><div style="font-size:15px;font-weight:800">Padmavathy Apts</div></div>
+          <div style="width:32px;height:32px;border-radius:50%;background:#dfe7f6;color:#2f6bed;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:12px">RK</div>
+        </div>
+        <div style="padding:14px 16px;height:632px;overflow-y:auto">
+          <div style="display:flex;gap:9px;margin-bottom:14px">
+            <div style="flex:1;background:#fff;border:1px solid #e9ebf0;border-radius:12px;padding:11px"><div style="font-size:10px;color:#8a8f9c;font-weight:600">Paid</div><div style="font-size:16px;font-weight:800;color:#2f6bed">₹52.1L</div></div>
+            <div style="flex:1;background:#0f1626;border-radius:12px;padding:11px;color:#fff"><div style="font-size:10px;color:#9aa6bd;font-weight:600">Health</div><div style="font-size:14px;font-weight:800;display:flex;align-items:center;gap:5px"><span style="font-family:'Material Symbols Rounded';font-size:16px;color:#36d07f;font-variation-settings:'FILL' 1">check_circle</span>Fair</div></div>
+          </div>
+          <div style="display:flex;gap:7px;margin-bottom:14px;overflow-x:auto">
+            <div style="flex:none;display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:10px;background:#2f6bed;color:#fff;font-size:13px;font-weight:700"><span style="font-family:'Material Symbols Rounded';font-size:16px">foundation</span>Civil <span style="background:rgba(255,255,255,.25);padding:0 7px;border-radius:999px;font-size:11px">6</span></div>
+            <div style="flex:none;display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:10px;background:#fff;border:1px solid #e9ebf0;font-size:13px;font-weight:700;color:#5b6678"><span style="font-family:'Material Symbols Rounded';font-size:16px">bolt</span>Electrical</div>
+            <div style="flex:none;display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:10px;background:#fff;border:1px solid #e9ebf0;font-size:13px;font-weight:700;color:#5b6678"><span style="font-family:'Material Symbols Rounded';font-size:16px">format_paint</span>Painting</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px"><span style="font-family:'Material Symbols Rounded';font-size:18px;color:#9aa0ad">layers</span><span style="font-size:14px;font-weight:800">First Floor</span><span style="font-size:11px;font-weight:700;color:#8a8f9c;background:#eef1f6;padding:1px 8px;border-radius:999px">2</span></div>
+
+          <div style="background:#fff;border:1px solid #d9e2f6;border-radius:14px;padding:14px;margin-bottom:11px">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:11px">
+              <div style="width:38px;height:38px;border-radius:10px;background:#dfe7f6;color:#2f6bed;font-weight:800;display:flex;align-items:center;justify-content:center">K</div>
+              <div style="flex:1"><div style="font-size:11px;color:#8a8f9c;font-weight:600">Karthik Team · Mesthri</div><div style="font-size:15px;font-weight:800">1st Floor Construction</div></div>
+              <span style="font-family:'Material Symbols Rounded';font-size:22px;color:#2f6bed">expand_less</span>
+            </div>
+            <div style="height:8px;background:#eef1f6;border-radius:9px;overflow:hidden;margin-bottom:6px"><div style="width:47%;height:100%;background:#2f6bed"></div></div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#5b6678;margin-bottom:13px"><span>Paid <b style="color:#2f6bed">₹3,10,000</b></span><span>of ₹6,65,000</span></div>
+            <div style="background:#f6f7f9;border-radius:12px;padding:13px;text-align:center">
+              <svg viewBox="0 0 200 124" width="170" style="display:block;margin:0 auto">
+                <path d="M20 100 A80 80 0 0 1 46.6 40.7" fill="none" stroke="#e7b3b3" stroke-width="15" stroke-linecap="round"/>
+                <path d="M52 36 A80 80 0 0 1 148 36" fill="none" stroke="#7fd3a3" stroke-width="15" stroke-linecap="round"/>
+                <path d="M153.4 40.7 A80 80 0 0 1 180 100" fill="none" stroke="#f1c889" stroke-width="15" stroke-linecap="round"/>
+                <line x1="100" y1="100" x2="100" y2="34" stroke="#18202f" stroke-width="4" stroke-linecap="round"/>
+                <circle cx="100" cy="100" r="8" fill="#18202f"/><circle cx="100" cy="100" r="3.5" fill="#fff"/>
+              </svg>
+              <div style="display:inline-flex;align-items:center;gap:5px;background:#e8f6ee;color:#1f9d57;font-weight:800;font-size:12px;padding:5px 12px;border-radius:999px;margin-top:2px"><span style="font-family:'Material Symbols Rounded';font-size:15px;font-variation-settings:'FILL' 1">check_circle</span>Fair deal · saves ₹1,25,000</div>
+            </div>
+          </div>
+
+          <div style="background:#fff;border:1px solid #e9ebf0;border-radius:14px;padding:14px;margin-bottom:11px;display:flex;align-items:center;gap:10px">
+            <div style="width:38px;height:38px;border-radius:10px;background:#eef1f6;color:#5b6678;font-weight:800;display:flex;align-items:center;justify-content:center">A</div>
+            <div style="flex:1"><div style="font-size:11px;color:#8a8f9c">Anbu Team · Mid</div><div style="font-size:14px;font-weight:800">Brickwork balcony</div><div style="font-size:11px;color:#5b6678;margin-top:2px">₹40,000 paid · ₹45,000 left</div></div>
+            <span style="font-family:'Material Symbols Rounded';font-size:22px;color:#aeb4c0">expand_more</span>
+          </div>
+        </div>
+        <div style="position:absolute;right:18px;bottom:22px;width:54px;height:54px;border-radius:17px;background:#2f6bed;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 22px rgba(47,107,237,.45)"><span style="font-family:'Material Symbols Rounded';font-size:28px;color:#fff">add</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ DIRECTION 2 ============================ -->
+  <div style="margin-bottom:18px;display:flex;align-items:flex-end;gap:14px">
+    <div style="font-size:13px;font-weight:800;color:#2f6bed;background:#eaf1fe;padding:5px 12px;border-radius:999px">DIRECTION 2</div>
+    <div style="font-size:22px;font-weight:800;letter-spacing:-.01em">Master / Detail</div>
+  </div>
+  <div style="font-size:15px;color:#5b6678;max-width:900px;margin-bottom:22px">A three-pane workspace for office admins on wide screens: trades & stages as a navigable tree on the left, the selected task work fully open on the right — the monitor never competes for space with the list. On a phone the panes stack: list → tap → detail screen.</div>
+
+  <div style="display:flex;gap:40px;align-items:flex-start;margin-bottom:64px">
+    <div style="flex:none">
+      <div style="font-size:13px;font-weight:700;color:#7c828f;margin-bottom:10px;display:flex;align-items:center;gap:7px"><span style="font-family:'Material Symbols Rounded';font-size:18px">desktop_windows</span> Desktop</div>
+      <div style="width:1180px;height:740px;background:#f4f6f9;border-radius:14px;box-shadow:0 10px 40px rgba(20,28,46,.13);overflow:hidden;display:flex">
+        <div style="width:66px;background:#0f1626;flex:none;display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:6px">
+          <div style="width:34px;height:34px;border-radius:9px;background:#2f6bed;color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;margin-bottom:10px">A</div>
+          <div style="width:42px;height:42px;border-radius:11px;background:#2f6bed;color:#fff;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:22px;font-variation-settings:'FILL' 1">groups</span></div>
+          <div style="width:42px;height:42px;border-radius:11px;color:#9aa6bd;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:22px">table_rows</span></div>
+          <div style="width:42px;height:42px;border-radius:11px;color:#9aa6bd;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:22px">event_available</span></div>
+          <div style="width:42px;height:42px;border-radius:11px;color:#9aa6bd;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:22px">payments</span></div>
+        </div>
+        <!-- tree -->
+        <div style="width:360px;flex:none;background:#fff;border-right:1px solid #e9ebf0;display:flex;flex-direction:column">
+          <div style="padding:18px 18px 14px;border-bottom:1px solid #eef1f6"><div style="font-size:17px;font-weight:800">Padmavathy Apartments</div><div style="font-size:12px;color:#8a8f9c">23 task works · ₹86.4L quoted</div></div>
+          <div style="flex:1;overflow-y:auto;padding:10px 12px">
+            <div style="display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:9px;font-weight:800;font-size:14px"><span style="font-family:'Material Symbols Rounded';font-size:19px;color:#2f6bed">expand_more</span><span style="font-family:'Material Symbols Rounded';font-size:18px;color:#5b6678">foundation</span>Civil<span style="margin-left:auto;font-size:11px;color:#8a8f9c;background:#eef1f6;padding:1px 8px;border-radius:999px">6</span></div>
+            <div style="padding-left:20px">
+              <div style="font-size:11px;font-weight:800;color:#9aa0ad;padding:9px 10px 5px;letter-spacing:.04em">FIRST FLOOR</div>
+              <div style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:9px;background:#eaf1fe;border:1px solid #d9e2f6;margin-bottom:4px"><div style="width:8px;height:8px;border-radius:50%;background:#1f9d57"></div><div style="flex:1"><div style="font-size:13.5px;font-weight:800;color:#2f6bed">1st Floor Construction</div><div style="font-size:11px;color:#5b6678">Karthik Team · ₹3.1L / ₹6.65L</div></div></div>
+              <div style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:9px;margin-bottom:4px"><div style="width:8px;height:8px;border-radius:50%;background:#d9870b"></div><div style="flex:1"><div style="font-size:13.5px;font-weight:700">Brickwork balcony</div><div style="font-size:11px;color:#8a8f9c">Anbu Team · ₹40k / ₹85k</div></div></div>
+              <div style="font-size:11px;font-weight:800;color:#9aa0ad;padding:9px 10px 5px;letter-spacing:.04em">GROUND FLOOR</div>
+              <div style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:9px;margin-bottom:4px"><div style="width:8px;height:8px;border-radius:50%;background:#1f9d57"></div><div style="flex:1"><div style="font-size:13.5px;font-weight:700">Ground Floor Construction</div><div style="font-size:11px;color:#8a8f9c">Murugan Team · ₹4.2L / ₹6.65L</div></div></div>
+              <div style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:9px"><div style="width:8px;height:8px;border-radius:50%;background:#1f9d57"></div><div style="flex:1"><div style="font-size:13.5px;font-weight:700">Plaster staircase</div><div style="font-size:11px;color:#8a8f9c">Saravanan · done</div></div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:9px;font-weight:700;font-size:14px;color:#5b6678;margin-top:6px"><span style="font-family:'Material Symbols Rounded';font-size:19px;color:#aeb4c0">chevron_right</span><span style="font-family:'Material Symbols Rounded';font-size:18px;color:#9aa0ad">bolt</span>Electrical<span style="margin-left:auto;font-size:11px;color:#8a8f9c;background:#eef1f6;padding:1px 8px;border-radius:999px">4</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:9px;font-weight:700;font-size:14px;color:#5b6678"><span style="font-family:'Material Symbols Rounded';font-size:19px;color:#aeb4c0">chevron_right</span><span style="font-family:'Material Symbols Rounded';font-size:18px;color:#9aa0ad">format_paint</span>Painting<span style="margin-left:auto;font-size:11px;color:#8a8f9c;background:#eef1f6;padding:1px 8px;border-radius:999px">2</span></div>
+          </div>
+        </div>
+        <!-- detail -->
+        <div style="flex:1;min-width:0;overflow-y:auto;padding:24px 26px">
+          <div style="font-size:12px;color:#8a8f9c;font-weight:600;display:flex;align-items:center;gap:5px;margin-bottom:6px">Civil <span style="font-family:'Material Symbols Rounded';font-size:13px">chevron_right</span> First Floor</div>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
+            <div style="font-size:24px;font-weight:800;letter-spacing:-.02em">1st Floor Construction</div>
+            <span style="font-size:12px;font-weight:800;background:#e8f6ee;color:#1f9d57;padding:4px 11px;border-radius:999px">Active</span>
+          </div>
+          <div style="display:flex;gap:13px;margin-bottom:18px">
+            <div style="flex:1;background:#fff;border:1px solid #e9ebf0;border-radius:13px;padding:15px"><div style="font-size:12px;color:#8a8f9c;font-weight:600">Quoted</div><div style="font-size:21px;font-weight:800">₹6,65,000</div></div>
+            <div style="flex:1;background:#fff;border:1px solid #e9ebf0;border-radius:13px;padding:15px"><div style="font-size:12px;color:#8a8f9c;font-weight:600">Paid</div><div style="font-size:21px;font-weight:800;color:#2f6bed">₹3,10,000</div></div>
+            <div style="flex:1;background:#fff;border:1px solid #e9ebf0;border-radius:13px;padding:15px"><div style="font-size:12px;color:#8a8f9c;font-weight:600">Balance</div><div style="font-size:21px;font-weight:800">₹3,55,000</div></div>
+          </div>
+          <div style="background:#fff;border:1px solid #e9ebf0;border-radius:14px;padding:20px;display:flex;gap:24px;align-items:center">
+            <div style="flex:none;text-align:center">
+              <svg viewBox="0 0 200 124" width="230" style="display:block">
+                <path d="M20 100 A80 80 0 0 1 46.6 40.7" fill="none" stroke="#e7b3b3" stroke-width="16" stroke-linecap="round"/>
+                <path d="M52 36 A80 80 0 0 1 148 36" fill="none" stroke="#1f9d57" stroke-width="16" stroke-linecap="round"/>
+                <path d="M153.4 40.7 A80 80 0 0 1 180 100" fill="none" stroke="#f1c889" stroke-width="16" stroke-linecap="round"/>
+                <line x1="100" y1="100" x2="100" y2="32" stroke="#18202f" stroke-width="5" stroke-linecap="round"/>
+                <circle cx="100" cy="100" r="9" fill="#18202f"/><circle cx="100" cy="100" r="4" fill="#fff"/>
+              </svg>
+              <div style="display:inline-flex;align-items:center;gap:6px;background:#e8f6ee;color:#1f9d57;font-weight:800;font-size:14px;padding:7px 15px;border-radius:999px"><span style="font-family:'Material Symbols Rounded';font-size:17px;font-variation-settings:'FILL' 1">check_circle</span>Fair deal</div>
+            </div>
+            <div style="flex:1">
+              <div style="font-size:15px;font-weight:800;margin-bottom:12px">Day-wage benchmark vs agreed price</div>
+              <div style="display:flex;gap:12px">
+                <div style="flex:1;background:#f6f7f9;border-radius:11px;padding:14px"><div style="font-size:11.5px;color:#8a8f9c;font-weight:600">Benchmark</div><div style="font-size:19px;font-weight:800">₹7,90,000</div></div>
+                <div style="flex:1;background:#f6f7f9;border-radius:11px;padding:14px"><div style="font-size:11.5px;color:#8a8f9c;font-weight:600">Agreed</div><div style="font-size:19px;font-weight:800">₹6,65,000</div></div>
+                <div style="flex:1;background:#e8f6ee;border-radius:11px;padding:14px"><div style="font-size:11.5px;color:#1f9d57;font-weight:700">You save</div><div style="font-size:19px;font-weight:800;color:#1f9d57">₹1,25,000</div></div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:18px;margin-top:18px;border-bottom:1px solid #e9ebf0">
+            <div style="font-size:14px;font-weight:800;color:#2f6bed;padding-bottom:11px;border-bottom:2px solid #2f6bed">Overview</div>
+            <div style="font-size:14px;font-weight:600;color:#8a8f9c;padding-bottom:11px">Day log</div>
+            <div style="font-size:14px;font-weight:600;color:#8a8f9c;padding-bottom:11px">Payments</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- D2 mobile -->
+    <div style="flex:none">
+      <div style="font-size:13px;font-weight:700;color:#7c828f;margin-bottom:10px;display:flex;align-items:center;gap:7px"><span style="font-family:'Material Symbols Rounded';font-size:18px">smartphone</span> Phone · panes stack</div>
+      <div style="width:390px;height:740px;background:#f4f6f9;border-radius:30px;box-shadow:0 10px 40px rgba(20,28,46,.13);overflow:hidden;border:7px solid #0f1626">
+        <div style="height:30px;background:#0f1626"></div>
+        <div style="background:#fff;padding:13px 16px;border-bottom:1px solid #e9ebf0;display:flex;align-items:center;gap:11px"><span style="font-family:'Material Symbols Rounded';font-size:24px">arrow_back</span><div style="flex:1"><div style="font-size:10px;color:#8a8f9c">Civil · First Floor</div><div style="font-size:15px;font-weight:800">1st Floor Construction</div></div></div>
+        <div style="padding:16px;overflow-y:auto;height:610px">
+          <div style="display:flex;gap:8px;margin-bottom:16px">
+            <div style="flex:1;background:#fff;border:1px solid #e9ebf0;border-radius:11px;padding:11px"><div style="font-size:10px;color:#8a8f9c">Paid</div><div style="font-size:15px;font-weight:800;color:#2f6bed">₹3.1L</div></div>
+            <div style="flex:1;background:#fff;border:1px solid #e9ebf0;border-radius:11px;padding:11px"><div style="font-size:10px;color:#8a8f9c">Balance</div><div style="font-size:15px;font-weight:800">₹3.55L</div></div>
+          </div>
+          <div style="background:#fff;border:1px solid #e9ebf0;border-radius:14px;padding:18px;text-align:center">
+            <svg viewBox="0 0 200 124" width="200" style="display:block;margin:0 auto">
+              <path d="M20 100 A80 80 0 0 1 46.6 40.7" fill="none" stroke="#e7b3b3" stroke-width="16" stroke-linecap="round"/>
+              <path d="M52 36 A80 80 0 0 1 148 36" fill="none" stroke="#1f9d57" stroke-width="16" stroke-linecap="round"/>
+              <path d="M153.4 40.7 A80 80 0 0 1 180 100" fill="none" stroke="#f1c889" stroke-width="16" stroke-linecap="round"/>
+              <line x1="100" y1="100" x2="100" y2="32" stroke="#18202f" stroke-width="5" stroke-linecap="round"/>
+              <circle cx="100" cy="100" r="9" fill="#18202f"/><circle cx="100" cy="100" r="4" fill="#fff"/>
+            </svg>
+            <div style="display:inline-flex;align-items:center;gap:6px;background:#e8f6ee;color:#1f9d57;font-weight:800;font-size:14px;padding:7px 15px;border-radius:999px;margin-bottom:14px"><span style="font-family:'Material Symbols Rounded';font-size:17px;font-variation-settings:'FILL' 1">check_circle</span>Fair deal</div>
+            <div style="display:flex;gap:9px"><div style="flex:1;background:#f6f7f9;border-radius:10px;padding:11px"><div style="font-size:10px;color:#8a8f9c">Benchmark</div><div style="font-size:15px;font-weight:800">₹7.9L</div></div><div style="flex:1;background:#e8f6ee;border-radius:10px;padding:11px"><div style="font-size:10px;color:#1f9d57">Save</div><div style="font-size:15px;font-weight:800;color:#1f9d57">₹1.25L</div></div></div>
+          </div>
+          <div style="display:flex;gap:18px;margin-top:18px;border-bottom:1px solid #e9ebf0"><div style="font-size:13px;font-weight:800;color:#2f6bed;padding-bottom:10px;border-bottom:2px solid #2f6bed">Overview</div><div style="font-size:13px;font-weight:600;color:#8a8f9c;padding-bottom:10px">Day log</div><div style="font-size:13px;font-weight:600;color:#8a8f9c;padding-bottom:10px">Payments</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ DIRECTION 3 ============================ -->
+  <div style="margin-bottom:18px;display:flex;align-items:flex-end;gap:14px">
+    <div style="font-size:13px;font-weight:800;color:#2f6bed;background:#eaf1fe;padding:5px 12px;border-radius:999px">DIRECTION 3</div>
+    <div style="font-size:22px;font-weight:800;letter-spacing:-.01em">Site Dashboard</div>
+  </div>
+  <div style="font-size:15px;color:#5b6678;max-width:900px;margin-bottom:22px">Summary-first. The site’s money and crew-pay health lead; every trade becomes one compact health card with a verdict pill, so 10 trades stay scannable in a single glance. Tap a card to drill into Direction 1’s trade view. Best when the question is “where do I need to look?”</div>
+
+  <div style="display:flex;gap:40px;align-items:flex-start;margin-bottom:64px">
+    <div style="flex:none">
+      <div style="font-size:13px;font-weight:700;color:#7c828f;margin-bottom:10px;display:flex;align-items:center;gap:7px"><span style="font-family:'Material Symbols Rounded';font-size:18px">desktop_windows</span> Desktop</div>
+      <div style="width:1180px;height:740px;background:#f4f6f9;border-radius:14px;box-shadow:0 10px 40px rgba(20,28,46,.13);overflow:hidden;display:flex">
+        <div style="width:66px;background:#0f1626;flex:none;display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:6px">
+          <div style="width:34px;height:34px;border-radius:9px;background:#2f6bed;color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;margin-bottom:10px">A</div>
+          <div style="width:42px;height:42px;border-radius:11px;background:#2f6bed;color:#fff;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:22px;font-variation-settings:'FILL' 1">groups</span></div>
+          <div style="width:42px;height:42px;border-radius:11px;color:#9aa6bd;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:22px">table_rows</span></div>
+          <div style="width:42px;height:42px;border-radius:11px;color:#9aa6bd;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:22px">event_available</span></div>
+        </div>
+        <div style="flex:1;overflow-y:auto;padding:24px 26px">
+          <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:18px">
+            <div><div style="font-size:13px;color:#8a8f9c;font-weight:600">Workforce</div><div style="font-size:24px;font-weight:800;letter-spacing:-.02em">Padmavathy Apartments</div></div>
+            <div style="display:flex;align-items:center;gap:7px;background:#2f6bed;color:#fff;font-weight:700;font-size:14px;padding:10px 16px;border-radius:11px"><span style="font-family:'Material Symbols Rounded';font-size:19px">add</span>Add task work</div>
+          </div>
+          <!-- hero -->
+          <div style="display:flex;gap:14px;margin-bottom:22px">
+            <div style="flex:1;background:#fff;border:1px solid #e9ebf0;border-radius:15px;padding:18px"><div style="font-size:12px;color:#8a8f9c;font-weight:600">Quoted</div><div style="font-size:25px;font-weight:800">₹86,40,000</div></div>
+            <div style="flex:1;background:#fff;border:1px solid #e9ebf0;border-radius:15px;padding:18px"><div style="font-size:12px;color:#8a8f9c;font-weight:600">Paid</div><div style="font-size:25px;font-weight:800;color:#2f6bed">₹52,10,000</div><div style="height:5px;background:#eef1f6;border-radius:9px;margin-top:9px"><div style="width:60%;height:100%;background:#2f6bed;border-radius:9px"></div></div></div>
+            <div style="flex:none;width:300px;background:#0f1626;border-radius:15px;padding:18px;color:#fff;display:flex;align-items:center;gap:16px">
+              <svg viewBox="0 0 200 124" width="120" style="display:block">
+                <path d="M20 100 A80 80 0 0 1 46.6 40.7" fill="none" stroke="#7a3b3b" stroke-width="16" stroke-linecap="round"/>
+                <path d="M52 36 A80 80 0 0 1 148 36" fill="none" stroke="#36d07f" stroke-width="16" stroke-linecap="round"/>
+                <path d="M153.4 40.7 A80 80 0 0 1 180 100" fill="none" stroke="#8a6a2e" stroke-width="16" stroke-linecap="round"/>
+                <line x1="100" y1="100" x2="118" y2="44" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+                <circle cx="100" cy="100" r="9" fill="#fff"/>
+              </svg>
+              <div><div style="font-size:12px;color:#9aa6bd;font-weight:600">Crew-pay health</div><div style="font-size:19px;font-weight:800">Mostly fair</div><div style="font-size:12px;color:#9aa6bd">21 fair · 2 overpaid</div></div>
+            </div>
+          </div>
+          <div style="font-size:14px;font-weight:800;margin-bottom:12px">Trades · 10</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:13px">
+            <!-- card a -->
+            <div style="background:#fff;border:1px solid #e9ebf0;border-radius:14px;padding:16px">
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px"><div style="width:34px;height:34px;border-radius:9px;background:#eef1f6;color:#5b6678;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:19px">foundation</span></div><div style="font-size:15px;font-weight:800">Civil</div><span style="margin-left:auto;font-size:11px;font-weight:700;color:#8a8f9c">6 tasks</span></div>
+              <div style="height:7px;background:#eef1f6;border-radius:9px;overflow:hidden;margin-bottom:8px"><div style="width:55%;height:100%;background:#2f6bed"></div></div>
+              <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:12px;color:#5b6678">₹19.9L / ₹36L</span><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:800;background:#e8f6ee;color:#1f9d57;padding:3px 9px;border-radius:999px"><span style="width:6px;height:6px;border-radius:50%;background:#1f9d57"></span>Fair</span></div>
+            </div>
+            <!-- card b warn -->
+            <div style="background:#fff;border:1px solid #f4dcb6;border-radius:14px;padding:16px">
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px"><div style="width:34px;height:34px;border-radius:9px;background:#fdf2e0;color:#d9870b;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:19px">bolt</span></div><div style="font-size:15px;font-weight:800">Electrical</div><span style="margin-left:auto;font-size:11px;font-weight:700;color:#8a8f9c">4 tasks</span></div>
+              <div style="height:7px;background:#eef1f6;border-radius:9px;overflow:hidden;margin-bottom:8px"><div style="width:72%;height:100%;background:#2f6bed"></div></div>
+              <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:12px;color:#5b6678">₹8.6L / ₹12L</span><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:800;background:#fdf2e0;color:#d9870b;padding:3px 9px;border-radius:999px"><span style="width:6px;height:6px;border-radius:50%;background:#d9870b"></span>1 overpaid</span></div>
+            </div>
+            <!-- card c -->
+            <div style="background:#fff;border:1px solid #e9ebf0;border-radius:14px;padding:16px">
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px"><div style="width:34px;height:34px;border-radius:9px;background:#eef1f6;color:#5b6678;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:19px">format_paint</span></div><div style="font-size:15px;font-weight:800">Painting</div><span style="margin-left:auto;font-size:11px;font-weight:700;color:#8a8f9c">2 tasks</span></div>
+              <div style="height:7px;background:#eef1f6;border-radius:9px;overflow:hidden;margin-bottom:8px"><div style="width:30%;height:100%;background:#2f6bed"></div></div>
+              <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:12px;color:#5b6678">₹1.5L / ₹5L</span><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:800;background:#e8f6ee;color:#1f9d57;padding:3px 9px;border-radius:999px"><span style="width:6px;height:6px;border-radius:50%;background:#1f9d57"></span>Fair</span></div>
+            </div>
+            <!-- card d empty -->
+            <div style="background:#fafbfd;border:1px dashed #d6dbe6;border-radius:14px;padding:16px">
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px"><div style="width:34px;height:34px;border-radius:9px;background:#eef1f6;color:#9aa0ad;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:19px">plumbing</span></div><div style="font-size:15px;font-weight:800;color:#5b6678">Plumbing</div></div>
+              <div style="font-size:12px;color:#9aa0ad;margin-bottom:10px">No task work yet</div>
+              <div style="font-size:12px;font-weight:700;color:#2f6bed;display:flex;align-items:center;gap:5px"><span style="font-family:'Material Symbols Rounded';font-size:16px">add</span>Add first task</div>
+            </div>
+            <!-- card e -->
+            <div style="background:#fff;border:1px solid #f3c9c9;border-radius:14px;padding:16px">
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px"><div style="width:34px;height:34px;border-radius:9px;background:#fbeaea;color:#d64545;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:19px">water_drop</span></div><div style="font-size:15px;font-weight:800">Waterproofing</div><span style="margin-left:auto;font-size:11px;font-weight:700;color:#8a8f9c">1 task</span></div>
+              <div style="height:7px;background:#eef1f6;border-radius:9px;overflow:hidden;margin-bottom:8px"><div style="width:90%;height:100%;background:#2f6bed"></div></div>
+              <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:12px;color:#5b6678">₹1.8L / ₹2L</span><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:800;background:#fbeaea;color:#d64545;padding:3px 9px;border-radius:999px"><span style="width:6px;height:6px;border-radius:50%;background:#d64545"></span>Underpaid</span></div>
+            </div>
+            <!-- card f -->
+            <div style="background:#fff;border:1px solid #e9ebf0;border-radius:14px;padding:16px">
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px"><div style="width:34px;height:34px;border-radius:9px;background:#eef1f6;color:#5b6678;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:19px">grid_view</span></div><div style="font-size:15px;font-weight:800">Tiling</div><span style="margin-left:auto;font-size:11px;font-weight:700;color:#8a8f9c">3 tasks</span></div>
+              <div style="height:7px;background:#eef1f6;border-radius:9px;overflow:hidden;margin-bottom:8px"><div style="width:40%;height:100%;background:#2f6bed"></div></div>
+              <div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:12px;color:#5b6678">₹3.2L / ₹8L</span><span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:800;background:#e8f6ee;color:#1f9d57;padding:3px 9px;border-radius:999px"><span style="width:6px;height:6px;border-radius:50%;background:#1f9d57"></span>Fair</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- D3 mobile -->
+    <div style="flex:none">
+      <div style="font-size:13px;font-weight:700;color:#7c828f;margin-bottom:10px;display:flex;align-items:center;gap:7px"><span style="font-family:'Material Symbols Rounded';font-size:18px">smartphone</span> Phone · cards stack</div>
+      <div style="width:390px;height:740px;background:#f4f6f9;border-radius:30px;box-shadow:0 10px 40px rgba(20,28,46,.13);overflow:hidden;border:7px solid #0f1626">
+        <div style="height:30px;background:#0f1626"></div>
+        <div style="background:#fff;padding:13px 16px;border-bottom:1px solid #e9ebf0"><div style="font-size:10px;color:#8a8f9c;font-weight:600">Workforce</div><div style="font-size:16px;font-weight:800">Padmavathy Apts</div></div>
+        <div style="padding:16px;overflow-y:auto;height:610px">
+          <div style="background:#0f1626;border-radius:15px;padding:16px;color:#fff;display:flex;align-items:center;gap:14px;margin-bottom:16px">
+            <svg viewBox="0 0 200 124" width="100" style="display:block">
+              <path d="M20 100 A80 80 0 0 1 46.6 40.7" fill="none" stroke="#7a3b3b" stroke-width="16" stroke-linecap="round"/>
+              <path d="M52 36 A80 80 0 0 1 148 36" fill="none" stroke="#36d07f" stroke-width="16" stroke-linecap="round"/>
+              <path d="M153.4 40.7 A80 80 0 0 1 180 100" fill="none" stroke="#8a6a2e" stroke-width="16" stroke-linecap="round"/>
+              <line x1="100" y1="100" x2="118" y2="44" stroke="#fff" stroke-width="5" stroke-linecap="round"/><circle cx="100" cy="100" r="9" fill="#fff"/>
+            </svg>
+            <div><div style="font-size:11px;color:#9aa6bd">Crew-pay health</div><div style="font-size:17px;font-weight:800">Mostly fair</div><div style="font-size:11px;color:#9aa6bd">2 need a look</div></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="background:#fff;border:1px solid #e9ebf0;border-radius:13px;padding:14px;display:flex;align-items:center;gap:11px"><div style="width:34px;height:34px;border-radius:9px;background:#eef1f6;color:#5b6678;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:19px">foundation</span></div><div style="flex:1"><div style="font-size:14px;font-weight:800">Civil</div><div style="font-size:11px;color:#8a8f9c">6 tasks · ₹19.9L / ₹36L</div></div><span style="font-size:10px;font-weight:800;background:#e8f6ee;color:#1f9d57;padding:3px 8px;border-radius:999px">Fair</span></div>
+            <div style="background:#fff;border:1px solid #f4dcb6;border-radius:13px;padding:14px;display:flex;align-items:center;gap:11px"><div style="width:34px;height:34px;border-radius:9px;background:#fdf2e0;color:#d9870b;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:19px">bolt</span></div><div style="flex:1"><div style="font-size:14px;font-weight:800">Electrical</div><div style="font-size:11px;color:#8a8f9c">4 tasks · ₹8.6L / ₹12L</div></div><span style="font-size:10px;font-weight:800;background:#fdf2e0;color:#d9870b;padding:3px 8px;border-radius:999px">Overpaid</span></div>
+            <div style="background:#fff;border:1px solid #f3c9c9;border-radius:13px;padding:14px;display:flex;align-items:center;gap:11px"><div style="width:34px;height:34px;border-radius:9px;background:#fbeaea;color:#d64545;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:19px">water_drop</span></div><div style="flex:1"><div style="font-size:14px;font-weight:800">Waterproofing</div><div style="font-size:11px;color:#8a8f9c">1 task · ₹1.8L / ₹2L</div></div><span style="font-size:10px;font-weight:800;background:#fbeaea;color:#d64545;padding:3px 8px;border-radius:999px">Underpaid</span></div>
+            <div style="background:#fff;border:1px solid #e9ebf0;border-radius:13px;padding:14px;display:flex;align-items:center;gap:11px"><div style="width:34px;height:34px;border-radius:9px;background:#eef1f6;color:#5b6678;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:19px">format_paint</span></div><div style="flex:1"><div style="font-size:14px;font-weight:800">Painting</div><div style="font-size:11px;color:#8a8f9c">2 tasks · ₹1.5L / ₹5L</div></div><span style="font-size:10px;font-weight:800;background:#e8f6ee;color:#1f9d57;padding:3px 8px;border-radius:999px">Fair</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ MONITOR STUDY ============================ -->
+  <div style="margin-bottom:18px;display:flex;align-items:flex-end;gap:14px">
+    <div style="font-size:13px;font-weight:800;color:#2f6bed;background:#eaf1fe;padding:5px 12px;border-radius:999px">THE AHA VIEW</div>
+    <div style="font-size:22px;font-weight:800;letter-spacing:-.01em">Over / under-paid monitor · four states</div>
+  </div>
+  <div style="font-size:15px;color:#5b6678;max-width:900px;margin-bottom:22px">One gauge, read in a second: needle left = the crew is losing money (risk of walking off), centre = fair, right = you’re overpaying. Plain-language verdict and the one number that matters sit right under it.</div>
+
+  <div style="display:flex;gap:18px;align-items:flex-start;margin-bottom:30px">
+    <!-- fair -->
+    <div style="flex:none;width:288px;background:#fff;border-radius:16px;box-shadow:0 4px 20px rgba(20,28,46,.07);padding:20px;text-align:center">
+      <svg viewBox="0 0 200 124" width="220" style="display:block;margin:0 auto">
+        <path d="M20 100 A80 80 0 0 1 46.6 40.7" fill="none" stroke="#e7b3b3" stroke-width="16" stroke-linecap="round"/>
+        <path d="M52 36 A80 80 0 0 1 148 36" fill="none" stroke="#1f9d57" stroke-width="16" stroke-linecap="round"/>
+        <path d="M153.4 40.7 A80 80 0 0 1 180 100" fill="none" stroke="#f1c889" stroke-width="16" stroke-linecap="round"/>
+        <line x1="100" y1="100" x2="100" y2="32" stroke="#18202f" stroke-width="5" stroke-linecap="round"/>
+        <circle cx="100" cy="100" r="9" fill="#18202f"/><circle cx="100" cy="100" r="4" fill="#fff"/>
+      </svg>
+      <div style="display:inline-flex;align-items:center;gap:6px;background:#e8f6ee;color:#1f9d57;font-weight:800;font-size:14px;padding:7px 15px;border-radius:999px;margin:4px 0 14px"><span style="font-family:'Material Symbols Rounded';font-size:17px;font-variation-settings:'FILL' 1">check_circle</span>Fair deal</div>
+      <div style="font-size:13px;color:#5b6678">Paid <b>₹12,000</b> vs labour worth <b>₹14,400</b></div>
+      <div style="font-size:13px;color:#1f9d57;font-weight:700;margin-top:3px">Saving ₹2,400 · everyone’s happy</div>
+    </div>
+    <!-- overpaid -->
+    <div style="flex:none;width:288px;background:#fff;border-radius:16px;box-shadow:0 4px 20px rgba(20,28,46,.07);padding:20px;text-align:center">
+      <svg viewBox="0 0 200 124" width="220" style="display:block;margin:0 auto">
+        <path d="M20 100 A80 80 0 0 1 46.6 40.7" fill="none" stroke="#e7b3b3" stroke-width="16" stroke-linecap="round"/>
+        <path d="M52 36 A80 80 0 0 1 148 36" fill="none" stroke="#7fd3a3" stroke-width="16" stroke-linecap="round"/>
+        <path d="M153.4 40.7 A80 80 0 0 1 180 100" fill="none" stroke="#d9870b" stroke-width="16" stroke-linecap="round"/>
+        <line x1="100" y1="100" x2="157" y2="67" stroke="#18202f" stroke-width="5" stroke-linecap="round"/>
+        <circle cx="100" cy="100" r="9" fill="#18202f"/><circle cx="100" cy="100" r="4" fill="#fff"/>
+      </svg>
+      <div style="display:inline-flex;align-items:center;gap:6px;background:#fdf2e0;color:#d9870b;font-weight:800;font-size:14px;padding:7px 15px;border-radius:999px;margin:4px 0 14px"><span style="font-family:'Material Symbols Rounded';font-size:17px;font-variation-settings:'FILL' 1">trending_up</span>Likely overpaid</div>
+      <div style="font-size:13px;color:#5b6678">Paid <b>₹18,000</b> vs labour worth <b>₹14,400</b></div>
+      <div style="font-size:13px;color:#d9870b;font-weight:700;margin-top:3px">₹3,600 over — review the rate</div>
+    </div>
+    <!-- underpaid -->
+    <div style="flex:none;width:288px;background:#fff;border-radius:16px;box-shadow:0 4px 20px rgba(20,28,46,.07);padding:20px;text-align:center">
+      <svg viewBox="0 0 200 124" width="220" style="display:block;margin:0 auto">
+        <path d="M20 100 A80 80 0 0 1 46.6 40.7" fill="none" stroke="#d64545" stroke-width="16" stroke-linecap="round"/>
+        <path d="M52 36 A80 80 0 0 1 148 36" fill="none" stroke="#7fd3a3" stroke-width="16" stroke-linecap="round"/>
+        <path d="M153.4 40.7 A80 80 0 0 1 180 100" fill="none" stroke="#f1c889" stroke-width="16" stroke-linecap="round"/>
+        <line x1="100" y1="100" x2="43" y2="67" stroke="#18202f" stroke-width="5" stroke-linecap="round"/>
+        <circle cx="100" cy="100" r="9" fill="#18202f"/><circle cx="100" cy="100" r="4" fill="#fff"/>
+      </svg>
+      <div style="display:inline-flex;align-items:center;gap:6px;background:#fbeaea;color:#d64545;font-weight:800;font-size:14px;padding:7px 15px;border-radius:999px;margin:4px 0 14px"><span style="font-family:'Material Symbols Rounded';font-size:17px;font-variation-settings:'FILL' 1">warning</span>Underpaid · crew at loss</div>
+      <div style="font-size:13px;color:#5b6678">Paid <b>₹10,000</b> vs labour worth <b>₹14,400</b></div>
+      <div style="font-size:13px;color:#d64545;font-weight:700;margin-top:3px">₹4,400 short — risk of abandonment</div>
+    </div>
+    <!-- none -->
+    <div style="flex:none;width:288px;background:#fff;border-radius:16px;box-shadow:0 4px 20px rgba(20,28,46,.07);padding:20px;text-align:center">
+      <svg viewBox="0 0 200 124" width="220" style="display:block;margin:0 auto">
+        <path d="M20 100 A80 80 0 0 1 46.6 40.7" fill="none" stroke="#e6e8ee" stroke-width="16" stroke-linecap="round"/>
+        <path d="M52 36 A80 80 0 0 1 148 36" fill="none" stroke="#e6e8ee" stroke-width="16" stroke-linecap="round"/>
+        <path d="M153.4 40.7 A80 80 0 0 1 180 100" fill="none" stroke="#e6e8ee" stroke-width="16" stroke-linecap="round"/>
+        <line x1="100" y1="100" x2="100" y2="32" stroke="#c2c7d2" stroke-width="5" stroke-linecap="round" stroke-dasharray="4 5"/>
+        <circle cx="100" cy="100" r="9" fill="#c2c7d2"/>
+      </svg>
+      <div style="display:inline-flex;align-items:center;gap:6px;background:#f0f2f6;color:#8a8f9c;font-weight:800;font-size:14px;padding:7px 15px;border-radius:999px;margin:4px 0 14px"><span style="font-family:'Material Symbols Rounded';font-size:17px">hourglass_empty</span>No actuals yet</div>
+      <div style="font-size:13px;color:#5b6678">Agreed <b>₹12,000</b> · attendance not logged</div>
+      <div style="font-size:13px;color:#2f6bed;font-weight:700;margin-top:3px">Record a day to see the verdict</div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { collapsed:false, trade:'Civil', expanded:'civ-1f-1', dialog:false };
+
+  inr(n){
+    let s = String(Math.round(Math.abs(n)));
+    let last3 = s.slice(-3), rest = s.slice(0,-3);
+    if(rest) last3 = ',' + last3;
+    rest = rest.replace(/\B(?=(\d{2})+(?!\d))/g,',');
+    return (n<0?'-':'') + '₹' + rest + last3;
+  }
+
+  data(){
+    return {
+      Civil: { empty:false, stages:[
+        { name:'First Floor', icon:'layers', sub:'2 task works', tasks:[
+          { id:'civ-1f-1', who:'Karthik Team', party:'Mesthri', initial:'K', mode:'Detailed', modeIcon:'fact_check',
+            quoted:665000, paid:310000, days:28, payCount:5,
+            monitor:{ verdict:'fair', benchmark:790000, agreed:665000,
+              estimate:[ {role:'Mason', count:4, days:60, rate:950},
+                         {role:'Helper', count:5, days:60, rate:620},
+                         {role:'Bar bender', count:2, days:35, rate:1100} ] } },
+          { id:'civ-1f-2', who:'Anbu Team', party:'Mesthri', initial:'A', mode:'Mid', modeIcon:'checklist',
+            quoted:85000, paid:40000, days:9, payCount:2,
+            monitor:{ verdict:'over', benchmark:74000, agreed:85000,
+              estimate:[ {role:'Mason', count:2, days:9, rate:950},
+                         {role:'Helper', count:2, days:9, rate:620} ] } },
+        ]},
+        { name:'Ground Floor', icon:'layers', sub:'2 task works', tasks:[
+          { id:'civ-gf-1', who:'Murugan Team', party:'Mesthri', initial:'M', mode:'Detailed', modeIcon:'fact_check',
+            quoted:665000, paid:420000, days:42, payCount:7,
+            monitor:{ verdict:'fair', benchmark:760000, agreed:665000,
+              estimate:[ {role:'Mason', count:4, days:55, rate:950}, {role:'Helper', count:5, days:55, rate:620} ] } },
+          { id:'civ-gf-2', who:'Saravanan', party:'Specialist', initial:'S', mode:'Headcount', modeIcon:'groups_2',
+            quoted:25000, paid:25000, days:6, payCount:1,
+            monitor:{ verdict:'fair', benchmark:14400, agreed:12000,
+              estimate:[ {role:'Mason', count:2, days:6, rate:900}, {role:'Helper', count:1, days:6, rate:600} ] } },
+        ]},
+        { name:'Roof Slab', icon:'layers', sub:'1 task work', tasks:[
+          { id:'civ-rs-1', who:'Murugan Team', party:'Mesthri', initial:'M', mode:'Headcount', modeIcon:'groups_2',
+            quoted:180000, paid:0, days:0, payCount:0,
+            monitor:{ verdict:'none', benchmark:195000, agreed:180000,
+              estimate:[ {role:'Mason', count:6, days:8, rate:950}, {role:'Helper', count:6, days:8, rate:620} ] } },
+        ]},
+      ]},
+      Electrical: { empty:false, stages:[
+        { name:'Ungrouped', icon:'inventory_2', sub:'wiring & fittings', tasks:[
+          { id:'ele-1', who:'Vignesh', party:'Specialist', initial:'V', mode:'Mesthri-only', modeIcon:'payments',
+            quoted:240000, paid:175000, days:18, payCount:4,
+            monitor:{ verdict:'over', benchmark:210000, agreed:240000,
+              estimate:[ {role:'Electrician', count:2, days:30, rate:1100}, {role:'Helper', count:2, days:30, rate:650} ] } },
+        ]},
+      ]},
+      Painting: { empty:false, stages:[
+        { name:'Ungrouped', icon:'inventory_2', sub:'1 task work', tasks:[
+          { id:'pai-1', who:'Ramesh Team', party:'Mesthri', initial:'R', mode:'Mid', modeIcon:'checklist',
+            quoted:150000, paid:45000, days:7, payCount:2,
+            monitor:{ verdict:'fair', benchmark:168000, agreed:150000,
+              estimate:[ {role:'Painter', count:3, days:20, rate:850}, {role:'Helper', count:2, days:20, rate:600} ] } },
+        ]},
+      ]},
+      Plumbing: { empty:true, stages:[] },
+      Tiling: { empty:true, stages:[] },
+    };
+  }
+
+  needle(v){
+    if(v==='fair') return {x:100,y:32};
+    if(v==='over') return {x:157,y:67};
+    if(v==='under') return {x:43,y:67};
+    return {x:100,y:32};
+  }
+  verdictMeta(v){
+    if(v==='fair') return {label:'Fair deal', icon:'check_circle', fg:'#1f9d57', bg:'#e8f6ee'};
+    if(v==='over') return {label:'Likely overpaid', icon:'trending_up', fg:'#d9870b', bg:'#fdf2e0'};
+    if(v==='under') return {label:'Underpaid', icon:'warning', fg:'#d64545', bg:'#fbeaea'};
+    return {label:'No actuals yet', icon:'hourglass_empty', fg:'#8a8f9c', bg:'#f0f2f6'};
+  }
+
+  taskVM(tk){
+    const expanded = this.state.expanded === tk.id;
+    const balance = tk.quoted - tk.paid;
+    const pct = tk.quoted ? Math.round(tk.paid/tk.quoted*100) : 0;
+    const m = tk.monitor;
+    const bench = m.estimate.reduce((s,e)=>s + e.count*e.days*e.rate, 0);
+    const saving = bench - m.agreed;
+    const savingPct = bench ? Math.round(saving/bench*100) : 0;
+    const nd = this.needle(m.verdict);
+    const vm = this.verdictMeta(m.verdict);
+    return {
+      id:tk.id, who:tk.who, party:tk.party, initial:tk.initial, mode:tk.mode, modeIcon:tk.modeIcon,
+      title:this.titleFor(tk.id), days:tk.days, payCount:tk.payCount,
+      quotedF:this.inr(tk.quoted), paidF:this.inr(tk.paid), balanceF:this.inr(balance),
+      paidPct: pct + '%', paidPctLabel: pct + '%',
+      expanded, chev: expanded ? 180 : 0,
+      onToggle: () => this.setState(s => ({ expanded: s.expanded===tk.id ? null : tk.id })),
+      avBg: expanded ? '#dfe7f6' : '#eef1f6', avFg: expanded ? '#2f6bed' : '#5b6678',
+      cardBorder: expanded ? '#d9e2f6' : '#eef0f4',
+      benchmarkF:this.inr(bench), agreedF:this.inr(m.agreed), savingF:this.inr(saving), savingPct: savingPct + '%',
+      needleX:nd.x, needleY:nd.y, verdict:vm.label, verdictIcon:vm.icon, verdictFg:vm.fg, verdictBg:vm.bg,
+      estimate: m.estimate.map(e => ({ role:e.role, count:e.count, days:e.days,
+        rate:this.inr(e.rate), total:this.inr(e.count*e.days*e.rate) })),
+    };
+  }
+  titleFor(id){
+    const map = { 'civ-1f-1':'1st Floor Construction','civ-1f-2':'Brickwork balcony',
+      'civ-gf-1':'Ground Floor Construction','civ-gf-2':'Plaster staircase',
+      'civ-rs-1':'Roof slab concreting','ele-1':'Wiring & fittings — all floors','pai-1':'Interior emulsion — 1st floor' };
+    return map[id] || 'Task work';
+  }
+
+  tradeList(){
+    const defs = [
+      {key:'Civil', label:'Civil', icon:'foundation', count:6},
+      {key:'Electrical', label:'Electrical', icon:'bolt', count:4},
+      {key:'Painting', label:'Painting', icon:'format_paint', count:2},
+      {key:'Plumbing', label:'Plumbing', icon:'plumbing', count:0},
+      {key:'Tiling', label:'Tiling', icon:'grid_view', count:3},
+    ];
+    return defs.map(d => {
+      const active = this.state.trade === d.key;
+      return { label:d.label, icon:d.icon, count:d.count, fill: active?1:0,
+        onClick: () => this.setState({ trade:d.key, expanded: d.key==='Civil' ? 'civ-1f-1' : null }),
+        bg: active ? '#2f6bed' : '#fff', fg: active ? '#fff' : '#5b6678',
+        borderC: active ? '#2f6bed' : '#e9ebf0',
+        countBg: active ? 'rgba(255,255,255,.25)' : '#eef1f6',
+        countFg: active ? '#fff' : '#8a8f9c' };
+    });
+  }
+
+  renderVals(){
+    const trade = this.data()[this.state.trade];
+    const stages = (trade.stages||[]).map(st => ({
+      name:st.name, icon:st.icon, count:st.tasks.length, sub:st.sub,
+      tasks: st.tasks.map(tk => this.taskVM(tk)),
+    }));
+    return {
+      sidebarW: this.state.collapsed ? 76 : 248,
+      showLabels: !this.state.collapsed,
+      collapseIcon: this.state.collapsed ? 'right_panel_open' : 'left_panel_close',
+      toggleSidebar: () => this.setState(s => ({ collapsed: !s.collapsed })),
+      trades: this.tradeList(),
+      stages,
+      activeEmpty: !!trade.empty,
+      activeHasWork: !trade.empty,
+      activeTradeName: this.state.trade,
+      dialog: this.state.dialog,
+      openDialog: () => this.setState({ dialog:true }),
+      closeDialog: () => this.setState({ dialog:false }),
+    };
+  }
+}
+</script>
+</body>
+</html>

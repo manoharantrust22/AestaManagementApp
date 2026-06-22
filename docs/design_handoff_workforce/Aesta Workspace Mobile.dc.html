@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400,0..1,0&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.scr::-webkit-scrollbar{width:0}
+input,button{font-family:inherit}
+input[type=range]{-webkit-appearance:none;appearance:none;height:8px;border-radius:9px;background:#eef1f6;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:26px;height:26px;border-radius:50%;background:#2f6bed;border:3px solid #fff;box-shadow:0 2px 8px rgba(47,107,237,.5);cursor:pointer}
+@keyframes mSheet{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes mScrim{from{opacity:0}to{opacity:1}}
+@keyframes mToast{from{opacity:0;transform:transl(0,14px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;width:max-content;min-width:100%;box-sizing:border-box;padding:44px;background:#e7e6e1;color:#18202f;font-variant-numeric:tabular-nums;line-height:1.45">
+
+  <div style="max-width:760px;margin-bottom:30px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+      <div style="width:30px;height:30px;border-radius:8px;background:#2f6bed;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800">A</div>
+      <div style="font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#8a8f9c">Aesta Workspace · Working prototype</div>
+    </div>
+    <div style="font-size:30px;font-weight:800;letter-spacing:-.02em;margin:6px 0 10px">A prototype you can actually run</div>
+    <div style="font-size:16px;color:#5b6678">Record a payment and watch the meter swing toward “exposed”. Drag progress and watch it swing back. Add a task work from the <b>+</b> button. Every number is live.</div>
+  </div>
+
+  <div style="display:flex;gap:46px;align-items:flex-start">
+
+    <!-- =================== PHONE =================== -->
+    <div style="flex:none">
+      <div style="font-size:13px;font-weight:700;color:#7c828f;margin-bottom:12px;display:flex;align-items:center;gap:7px"><span style="font-family:'Material Symbols Rounded';font-size:18px">bolt</span> Fully interactive</div>
+      <div style="width:392px;height:844px;background:#0f1626;border-radius:46px;padding:11px;box-shadow:0 24px 60px rgba(20,28,46,.28)">
+        <div style="position:relative;width:100%;height:100%;background:#f4f6f9;border-radius:36px;overflow:hidden;display:flex;flex-direction:column">
+
+          <div style="height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 26px;font-size:14px;font-weight:700;background:#fff">
+            <span>9:41</span>
+            <div style="display:flex;align-items:center;gap:6px;font-family:'Material Symbols Rounded';font-size:18px"><span>signal_cellular_alt</span><span>wifi</span><span>battery_full</span></div>
+          </div>
+
+          <!-- ============ LIST SCREEN ============ -->
+          <sc-if value="{{ isList }}" hint-placeholder-val="{{ true }}">
+            <div style="height:778px;display:flex;flex-direction:column;min-height:0">
+              <div style="flex:none;background:#fff;padding:6px 18px 14px;border-bottom:1px solid #eef1f6">
+                <div style="display:flex;align-items:center;gap:12px">
+                  <span style="font-family:'Material Symbols Rounded';font-size:26px">menu</span>
+                  <div style="flex:1"><div style="font-size:11px;color:#8a8f9c;font-weight:600">Workforce · Contracts</div><div style="font-size:17px;font-weight:800;letter-spacing:-.01em">Padmavathy Apts</div></div>
+                  <div style="width:36px;height:36px;border-radius:50%;background:#dfe7f6;color:#2f6bed;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:13px">RK</div>
+                </div>
+                <div style="display:flex;gap:9px;margin-top:14px">
+                  <div style="flex:1;background:#f6f7f9;border-radius:12px;padding:10px 11px"><div style="font-size:10px;color:#8a8f9c;font-weight:600">Paid</div><div style="font-size:15px;font-weight:800;color:#2f6bed">{{ site.paidF }}</div></div>
+                  <div style="flex:1;background:#f6f7f9;border-radius:12px;padding:10px 11px"><div style="font-size:10px;color:#8a8f9c;font-weight:600">Work done</div><div style="font-size:15px;font-weight:800">{{ site.workPct }}</div></div>
+                  <div style="flex:1;background:{{ site.riskBg }};border-radius:12px;padding:10px 11px"><div style="font-size:10px;color:{{ site.riskFg }};font-weight:700">At risk</div><div style="font-size:15px;font-weight:800;color:{{ site.riskFg }}">{{ site.riskF }}</div></div>
+                </div>
+              </div>
+
+              <div class="scr" style="flex:1;overflow-y:auto;padding:12px 16px 110px">
+                <div style="display:flex;align-items:center;gap:9px;background:#fff;border:1px solid #e9ebf0;border-radius:12px;padding:11px 13px;color:#9aa0ad;margin-bottom:12px"><span style="font-family:'Material Symbols Rounded';font-size:20px">search</span><span style="font-size:14px">Search task work…</span></div>
+
+                <sc-for list="{{ tree }}" as="tr" hint-placeholder-count="4">
+                  <div style="background:#fff;border:1px solid #eef0f4;border-radius:16px;margin-bottom:11px;overflow:hidden">
+                    <div onClick="{{ tr.onToggle }}" style="display:flex;align-items:center;gap:11px;padding:14px 15px;cursor:pointer">
+                      <div style="width:38px;height:38px;flex:none;border-radius:10px;background:#eef1f6;color:#5b6678;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:21px">{{ tr.icon }}</span></div>
+                      <div style="flex:1;min-width:0">
+                        <div style="display:flex;align-items:center;gap:7px"><span style="font-size:15px;font-weight:800">{{ tr.name }}</span><span style="font-size:11px;font-weight:700;color:#8a8f9c;background:#eef1f6;padding:1px 8px;border-radius:999px">{{ tr.count }}</span></div>
+                        <sc-if value="{{ tr.hasWork }}" hint-placeholder-val="{{ true }}">
+                          <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+                            <div style="flex:1;height:6px;background:#eef1f6;border-radius:9px;overflow:hidden;position:relative">
+                              <div style="position:absolute;left:0;top:0;height:100%;width:{{ tr.workPct }};background:#cdd5e2;border-radius:9px"></div>
+                              <div style="position:absolute;left:0;top:0;height:100%;width:{{ tr.paidPct }};background:#2f6bed;border-radius:9px"></div>
+                            </div>
+                            <span style="width:9px;height:9px;border-radius:50%;background:{{ tr.dot }};flex:none"></span>
+                          </div>
+                        </sc-if>
+                      </div>
+                      <span style="font-family:'Material Symbols Rounded';font-size:24px;color:#aeb4c0;transition:transform .15s;transform:rotate({{ tr.chev }}deg)">expand_more</span>
+                    </div>
+                    <sc-if value="{{ tr.open }}" hint-placeholder-val="{{ true }}">
+                      <div style="padding:0 11px 8px">
+                        <sc-for list="{{ tr.stages }}" as="st" hint-placeholder-count="1">
+                          <div style="font-size:10.5px;font-weight:800;color:#9aa0ad;letter-spacing:.05em;padding:8px 6px 4px">{{ st.name }}</div>
+                          <sc-for list="{{ st.tasks }}" as="t" hint-placeholder-count="2">
+                            <div onClick="{{ t.onSelect }}" style="display:flex;align-items:center;gap:11px;padding:11px 10px;border-radius:12px;cursor:pointer;background:#fafbfd;margin-bottom:6px">
+                              <span style="width:10px;height:10px;border-radius:50%;background:{{ t.dot }};flex:none"></span>
+                              <div style="flex:1;min-width:0">
+                                <div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.title }}</div>
+                                <div style="font-size:11.5px;color:#8a8f9c;margin-top:1px">{{ t.who }} · paid {{ t.paidPct }} / work {{ t.workPct }}</div>
+                                <div style="display:flex;align-items:center;gap:7px;margin-top:6px">
+                                  <div style="flex:1;height:5px;background:#eef1f6;border-radius:9px;overflow:hidden;position:relative">
+                                    <div style="position:absolute;left:0;top:0;height:100%;width:{{ t.workPct }};background:#cdd5e2;border-radius:9px"></div>
+                                    <div style="position:absolute;left:0;top:0;height:100%;width:{{ t.paidPct }};background:#2f6bed;border-radius:9px"></div>
+                                  </div>
+                                  <span style="font-size:10.5px;font-weight:800;color:{{ t.dot }}">{{ t.tag }}</span>
+                                </div>
+                              </div>
+                              <span style="font-family:'Material Symbols Rounded';font-size:22px;color:#c2c7d2">chevron_right</span>
+                            </div>
+                          </sc-for>
+                        </sc-for>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+
+              <div onClick="{{ openAdd }}" style="position:absolute;right:18px;bottom:84px;width:56px;height:56px;border-radius:18px;background:#2f6bed;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 24px rgba(47,107,237,.45);cursor:pointer"><span style="font-family:'Material Symbols Rounded';font-size:30px;color:#fff">add</span></div>
+            </div>
+          </sc-if>
+
+          <!-- ============ DETAIL SCREEN ============ -->
+          <sc-if value="{{ isDetail }}" hint-placeholder-val="{{ false }}">
+            <div style="height:778px;display:flex;flex-direction:column;min-height:0">
+              <div style="flex:none;background:#fff;padding:8px 14px 13px;border-bottom:1px solid #eef1f6;display:flex;align-items:center;gap:10px">
+                <div onClick="{{ goList }}" style="width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer"><span style="font-family:'Material Symbols Rounded';font-size:26px">arrow_back</span></div>
+                <div style="flex:1;min-width:0"><div style="font-size:11px;color:#8a8f9c;font-weight:600">{{ d.trade }} · {{ d.stage }}</div><div style="font-size:16px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ d.title }}</div></div>
+                <span style="font-family:'Material Symbols Rounded';font-size:24px;color:#9aa0ad">more_vert</span>
+              </div>
+
+              <div class="scr" style="flex:1;overflow-y:auto;padding:16px 16px 96px">
+                <div style="display:flex;align-items:center;gap:11px;margin-bottom:15px">
+                  <div style="width:42px;height:42px;flex:none;border-radius:11px;background:#dfe7f6;color:#2f6bed;font-weight:800;display:flex;align-items:center;justify-content:center">{{ d.initial }}</div>
+                  <div style="flex:1;min-width:0"><div style="font-size:13px;color:#5b6678">{{ d.who }} · {{ d.party }}</div><div style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;color:#5b6678;background:#f0f2f6;padding:2px 9px;border-radius:999px;margin-top:3px"><span style="font-family:'Material Symbols Rounded';font-size:14px">{{ d.modeIcon }}</span>{{ d.mode }}</div></div>
+                  <span style="font-size:11.5px;font-weight:800;background:{{ d.statusBg }};color:{{ d.statusFg }};padding:5px 12px;border-radius:999px">{{ d.status }}</span>
+                </div>
+
+                <div style="display:flex;gap:9px;margin-bottom:14px">
+                  <div style="flex:1;background:#fff;border:1px solid #e9ebf0;border-radius:13px;padding:11px 12px"><div style="font-size:10px;color:#8a8f9c;font-weight:600">Contract</div><div style="font-size:16px;font-weight:800;letter-spacing:-.02em">{{ d.quotedF }}</div></div>
+                  <div style="flex:1;background:#fff;border:1px solid #e9ebf0;border-radius:13px;padding:11px 12px"><div style="font-size:10px;color:#8a8f9c;font-weight:600">Work {{ d.workPctLabel }}</div><div style="font-size:16px;font-weight:800;letter-spacing:-.02em">{{ d.workValueF }}</div></div>
+                  <div style="flex:1;background:#fff;border:1px solid #e9ebf0;border-radius:13px;padding:11px 12px"><div style="font-size:10px;color:#8a8f9c;font-weight:600">Paid</div><div style="font-size:16px;font-weight:800;letter-spacing:-.02em;color:#2f6bed">{{ d.paidF }}</div></div>
+                </div>
+
+                <!-- HERO meter -->
+                <div style="background:#fff;border:1px solid #e9ebf0;border-radius:16px;padding:16px;margin-bottom:14px">
+                  <div style="font-size:14.5px;font-weight:800;margin-bottom:2px">Have you paid ahead of the work?</div>
+                  <div style="font-size:12px;color:#8a8f9c;margin-bottom:14px">Your safety margin if the crew leaves.</div>
+                  <div style="position:relative;height:42px;border-radius:11px;overflow:hidden;display:flex">
+                    <div style="flex:1;background:#e8f6ee"></div>
+                    <div style="flex:1;background:#fdeede"></div>
+                    <div style="position:absolute;left:50%;top:0;bottom:0;width:2px;background:#c2c7d2;transform:translateX(-1px)"></div>
+                    <div style="position:absolute;top:7px;bottom:7px;left:{{ d.meterLeft }};width:{{ d.meterWidth }};background:{{ d.meterColor }};border-radius:7px;min-width:3px;transition:all .3s ease"></div>
+                    <div style="position:absolute;left:{{ d.markerLeft }};top:2px;bottom:2px;width:3px;background:#0f1626;border-radius:3px;transform:translateX(-1px)"></div>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;margin-top:7px;font-size:10.5px;font-weight:700">
+                    <span style="color:#1f9d57">◀ Safe</span><span style="color:#9aa0ad">In step</span><span style="color:#d9870b">Exposed ▶</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:11px;margin-top:15px;padding:13px;background:{{ d.verdictBg }};border-radius:12px">
+                    <span style="font-family:'Material Symbols Rounded';font-size:26px;color:{{ d.verdictFg }};font-variation-settings:'FILL' 1">{{ d.verdictIcon }}</span>
+                    <div style="flex:1"><div style="font-size:13.5px;font-weight:800;color:{{ d.verdictFg }}">{{ d.verdict }} · {{ d.exposureF }} {{ d.dirWord }}</div><div style="font-size:12px;color:#5b6678;margin-top:1px">{{ d.exposureSub }}</div></div>
+                  </div>
+                  <div style="display:flex;margin-top:13px;border-top:1px dashed #e9ebf0;padding-top:12px">
+                    <div style="flex:1;text-align:center"><div style="font-size:10.5px;color:#8a8f9c;font-weight:600">Work worth</div><div style="font-size:14px;font-weight:800">{{ d.workValueF }}</div></div>
+                    <div style="width:1px;background:#eef1f6"></div>
+                    <div style="flex:1;text-align:center"><div style="font-size:10.5px;color:#8a8f9c;font-weight:600">Paid</div><div style="font-size:14px;font-weight:800;color:#2f6bed">{{ d.paidF }}</div></div>
+                    <div style="width:1px;background:#eef1f6"></div>
+                    <div style="flex:1;text-align:center"><div style="font-size:10.5px;color:#8a8f9c;font-weight:600">{{ d.diffLabel }}</div><div style="font-size:14px;font-weight:800;color:{{ d.verdictFg }}">{{ d.exposureF }}</div></div>
+                  </div>
+                </div>
+
+                <!-- quick actions -->
+                <div style="display:flex;gap:9px;margin-bottom:14px">
+                  <div onClick="{{ openProgress }}" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:#fff;border:1px solid #e0e4ec;color:#475067;font-weight:700;font-size:13px;padding:12px;border-radius:12px;cursor:pointer"><span style="font-family:'Material Symbols Rounded';font-size:18px">trending_up</span>Progress</div>
+                  <div onClick="{{ openAttendance }}" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:#fff;border:1px solid #e0e4ec;color:#475067;font-weight:700;font-size:13px;padding:12px;border-radius:12px;cursor:pointer"><span style="font-family:'Material Symbols Rounded';font-size:18px">how_to_reg</span>Attendance</div>
+                </div>
+
+                <!-- payments -->
+                <div style="background:#fff;border:1px solid #e9ebf0;border-radius:14px;padding:14px;margin-bottom:14px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><span style="font-size:13px;font-weight:800">Payments</span><span style="font-size:11.5px;color:#8a8f9c;font-weight:600">{{ d.payCount }} · {{ d.days }} days logged</span></div>
+                  <sc-if value="{{ d.hasPayments }}" hint-placeholder-val="{{ true }}">
+                    <sc-for list="{{ d.payments }}" as="p" hint-placeholder-count="2">
+                      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid #f3f4f7">
+                        <span style="width:30px;height:30px;border-radius:8px;background:#eaf1fe;color:#2f6bed;display:flex;align-items:center;justify-content:center;flex:none"><span style="font-family:'Material Symbols Rounded';font-size:17px">{{ p.icon }}</span></span>
+                        <div style="flex:1"><div style="font-size:13px;font-weight:700">{{ p.amountF }}</div><div style="font-size:11px;color:#8a8f9c">{{ p.date }} · {{ p.method }}</div></div>
+                      </div>
+                    </sc-for>
+                  </sc-if>
+                  <sc-if value="{{ d.noPayments }}" hint-placeholder-val="{{ false }}">
+                    <div style="font-size:12.5px;color:#9aa0ad;padding:6px 0">No payments recorded yet.</div>
+                  </sc-if>
+                </div>
+
+                <div style="background:#fff;border:1px solid #e9ebf0;border-radius:14px;padding:14px">
+                  <div style="font-size:13px;font-weight:800;margin-bottom:10px">Is the price a good deal?</div>
+                  <div style="display:flex;gap:9px">
+                    <div style="flex:1;background:#f6f7f9;border-radius:10px;padding:10px"><div style="font-size:10px;color:#8a8f9c;font-weight:600">Day-wage</div><div style="font-size:14px;font-weight:800">{{ d.benchmarkF }}</div></div>
+                    <div style="flex:1;background:#f6f7f9;border-radius:10px;padding:10px"><div style="font-size:10px;color:#8a8f9c;font-weight:600">Agreed</div><div style="font-size:14px;font-weight:800">{{ d.agreedF }}</div></div>
+                    <div style="flex:1;background:#e8f6ee;border-radius:10px;padding:10px"><div style="font-size:10px;color:#1f9d57;font-weight:700">Saves</div><div style="font-size:14px;font-weight:800;color:#1f9d57">{{ d.savingF }}</div></div>
+                  </div>
+                </div>
+              </div>
+
+              <div style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #eef1f6;padding:13px 16px 20px">
+                <div onClick="{{ openPayment }}" style="display:flex;align-items:center;justify-content:center;gap:8px;background:#2f6bed;color:#fff;font-weight:800;font-size:15px;padding:14px;border-radius:14px;cursor:pointer;box-shadow:0 6px 18px rgba(47,107,237,.4)"><span style="font-family:'Material Symbols Rounded';font-size:20px">payments</span>Record payment</div>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- ============ SHEET (scrim + container) ============ -->
+          <sc-if value="{{ sheetOpen }}" hint-placeholder-val="{{ false }}">
+            <div onClick="{{ closeSheet }}" style="position:absolute;inset:0;background:rgba(15,22,38,.45);z-index:20;animation:mScrim .18s ease"></div>
+            <div style="position:absolute;left:0;right:0;bottom:0;z-index:21;background:#fff;border-radius:24px 24px 0 0;padding:8px 18px 24px;max-height:740px;overflow-y:auto;animation:mSheet .26s cubic-bezier(.2,.8,.2,1);box-shadow:0 -10px 40px rgba(15,22,38,.25)">
+              <div style="width:42px;height:5px;border-radius:9px;background:#e0e4ec;margin:6px auto 16px"></div>
+
+              <!-- PAYMENT -->
+              <sc-if value="{{ isPayment }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px"><div style="font-size:18px;font-weight:800">Record payment</div><div onClick="{{ closeSheet }}" style="width:32px;height:32px;border-radius:9px;background:#f4f6f9;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:20px;color:#5b6678">close</span></div></div>
+                <div style="font-size:12.5px;color:#8a8f9c;margin-bottom:16px">{{ d.title }} · {{ d.who }}</div>
+                <div style="font-size:12px;font-weight:700;color:#5b6678;margin-bottom:7px">Amount</div>
+                <div style="display:flex;align-items:center;gap:10px;border:2px solid #2f6bed;border-radius:13px;padding:10px 14px;margin-bottom:11px">
+                  <span style="font-size:22px;font-weight:800;color:#2f6bed">₹</span>
+                  <input type="number" value="{{ draft.amount }}" onInput="{{ onAmount }}" style="flex:1;border:none;outline:none;font-size:22px;font-weight:800;color:#18202f;width:100%;background:transparent"/>
+                </div>
+                <div style="display:flex;gap:8px;margin-bottom:16px">
+                  <sc-for list="{{ amtChips }}" as="c" hint-placeholder-count="3">
+                    <div onClick="{{ c.onClick }}" style="flex:1;text-align:center;font-size:12.5px;font-weight:700;color:#2f6bed;background:#eaf1fe;padding:9px;border-radius:10px;cursor:pointer">{{ c.label }}</div>
+                  </sc-for>
+                </div>
+                <div style="display:flex;gap:10px;margin-bottom:16px">
+                  <div style="flex:1"><div style="font-size:12px;font-weight:700;color:#5b6678;margin-bottom:7px">Method</div>
+                    <div style="display:flex;gap:6px">
+                      <sc-for list="{{ methodChips }}" as="m" hint-placeholder-count="3">
+                        <div onClick="{{ m.onClick }}" style="flex:1;text-align:center;font-size:12px;font-weight:700;padding:9px 4px;border-radius:9px;cursor:pointer;border:1px solid {{ m.border }};background:{{ m.bg }};color:{{ m.fg }}">{{ m.label }}</div>
+                      </sc-for>
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:11px;padding:13px;background:{{ payPreview.bg }};border-radius:12px;margin-bottom:18px">
+                  <span style="font-family:'Material Symbols Rounded';font-size:24px;color:{{ payPreview.fg }};font-variation-settings:'FILL' 1">{{ payPreview.icon }}</span>
+                  <div style="flex:1"><div style="font-size:13px;font-weight:800;color:{{ payPreview.fg }}">{{ payPreview.head }}</div><div style="font-size:12px;color:#5b6678;margin-top:1px">{{ payPreview.sub }}</div></div>
+                </div>
+                <div onClick="{{ confirmPayment }}" style="display:flex;align-items:center;justify-content:center;gap:8px;background:#2f6bed;color:#fff;font-weight:800;font-size:15px;padding:15px;border-radius:14px;cursor:pointer">Confirm payment</div>
+              </sc-if>
+
+              <!-- PROGRESS -->
+              <sc-if value="{{ isProgress }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px"><div style="font-size:18px;font-weight:800">Update work progress</div><div onClick="{{ closeSheet }}" style="width:32px;height:32px;border-radius:9px;background:#f4f6f9;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:20px;color:#5b6678">close</span></div></div>
+                <div style="font-size:12.5px;color:#8a8f9c;margin-bottom:20px">{{ d.title }} · how much is finished?</div>
+                <div style="text-align:center;margin-bottom:8px"><span style="font-size:46px;font-weight:800;letter-spacing:-.03em;color:#2f6bed">{{ draft.work }}%</span></div>
+                <input type="range" min="0" max="100" step="5" value="{{ draft.work }}" onInput="{{ onWork }}" style="width:100%;margin-bottom:6px"/>
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:#9aa0ad;font-weight:600;margin-bottom:20px"><span>Not started</span><span>Done</span></div>
+                <div style="background:#f6f7f9;border-radius:13px;padding:14px;margin-bottom:18px">
+                  <div style="font-size:11.5px;font-weight:700;color:#5b6678;margin-bottom:10px">Meter preview</div>
+                  <div style="position:relative;height:34px;border-radius:10px;overflow:hidden;display:flex">
+                    <div style="flex:1;background:#e8f6ee"></div><div style="flex:1;background:#fdeede"></div>
+                    <div style="position:absolute;left:50%;top:0;bottom:0;width:2px;background:#c2c7d2;transform:translateX(-1px)"></div>
+                    <div style="position:absolute;top:6px;bottom:6px;left:{{ progPreview.left }};width:{{ progPreview.width }};background:{{ progPreview.color }};border-radius:6px;min-width:3px;transition:all .25s ease"></div>
+                  </div>
+                  <div style="font-size:12.5px;font-weight:700;color:{{ progPreview.fg }};margin-top:10px">{{ progPreview.head }}</div>
+                  <div style="font-size:11.5px;color:#8a8f9c">Work now worth {{ progPreview.workValueF }} · paid {{ d.paidF }}</div>
+                </div>
+                <div onClick="{{ confirmProgress }}" style="display:flex;align-items:center;justify-content:center;gap:8px;background:#2f6bed;color:#fff;font-weight:800;font-size:15px;padding:15px;border-radius:14px;cursor:pointer">Save progress</div>
+              </sc-if>
+
+              <!-- ATTENDANCE -->
+              <sc-if value="{{ isAttendance }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px"><div style="font-size:18px;font-weight:800">Log today’s attendance</div><div onClick="{{ closeSheet }}" style="width:32px;height:32px;border-radius:9px;background:#f4f6f9;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:20px;color:#5b6678">close</span></div></div>
+                <div style="font-size:12.5px;color:#8a8f9c;margin-bottom:22px">{{ d.title }} · {{ d.who }}</div>
+                <div style="font-size:12px;font-weight:700;color:#5b6678;margin-bottom:12px;text-align:center">How many workers came today?</div>
+                <div style="display:flex;align-items:center;justify-content:center;gap:22px;margin-bottom:24px">
+                  <div onClick="{{ countDown }}" style="width:50px;height:50px;border-radius:14px;background:#f4f6f9;display:flex;align-items:center;justify-content:center;cursor:pointer"><span style="font-family:'Material Symbols Rounded';font-size:28px;color:#5b6678">remove</span></div>
+                  <div style="font-size:44px;font-weight:800;min-width:64px;text-align:center">{{ draft.count }}</div>
+                  <div onClick="{{ countUp }}" style="width:50px;height:50px;border-radius:14px;background:#eaf1fe;display:flex;align-items:center;justify-content:center;cursor:pointer"><span style="font-family:'Material Symbols Rounded';font-size:28px;color:#2f6bed">add</span></div>
+                </div>
+                <div onClick="{{ confirmAttendance }}" style="display:flex;align-items:center;justify-content:center;gap:8px;background:#2f6bed;color:#fff;font-weight:800;font-size:15px;padding:15px;border-radius:14px;cursor:pointer">Mark day present</div>
+              </sc-if>
+
+              <!-- ADD TASK -->
+              <sc-if value="{{ isAdd }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px"><div style="font-size:18px;font-weight:800">Add task work</div><div onClick="{{ closeSheet }}" style="width:32px;height:32px;border-radius:9px;background:#f4f6f9;display:flex;align-items:center;justify-content:center"><span style="font-family:'Material Symbols Rounded';font-size:20px;color:#5b6678">close</span></div></div>
+                <div style="font-size:12.5px;color:#8a8f9c;margin-bottom:16px">Padmavathy Apartments</div>
+
+                <div style="font-size:12px;font-weight:700;color:#5b6678;margin-bottom:7px">Trade</div>
+                <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:15px">
+                  <sc-for list="{{ tradeChips }}" as="c" hint-placeholder-count="5">
+                    <div onClick="{{ c.onClick }}" style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;padding:8px 12px;border-radius:10px;cursor:pointer;border:1px solid {{ c.border }};background:{{ c.bg }};color:{{ c.fg }}"><span style="font-family:'Material Symbols Rounded';font-size:16px">{{ c.icon }}</span>{{ c.label }}</div>
+                  </sc-for>
+                </div>
+
+                <div style="font-size:12px;font-weight:700;color:#5b6678;margin-bottom:7px">Who is doing it?</div>
+                <div style="display:flex;gap:8px;margin-bottom:13px">
+                  <sc-for list="{{ ctypeChips }}" as="c" hint-placeholder-count="2">
+                    <div onClick="{{ c.onClick }}" style="flex:1;text-align:center;font-size:13px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;border:1px solid {{ c.border }};background:{{ c.bg }};color:{{ c.fg }}">{{ c.label }}</div>
+                  </sc-for>
+                </div>
+
+                <input value="{{ draft.party }}" onInput="{{ onParty }}" placeholder="Team or specialist name (e.g. Murugan Team)" style="width:100%;border:1px solid #e0e4ec;border-radius:12px;padding:13px 14px;font-size:14px;font-weight:600;outline:none;margin-bottom:11px"/>
+                <input value="{{ draft.title }}" onInput="{{ onTitle }}" placeholder="Task work title (e.g. 2nd Floor Construction)" style="width:100%;border:1px solid #e0e4ec;border-radius:12px;padding:13px 14px;font-size:14px;font-weight:600;outline:none;margin-bottom:11px"/>
+                <div style="display:flex;align-items:center;gap:8px;border:1px solid #e0e4ec;border-radius:12px;padding:10px 14px;margin-bottom:15px">
+                  <span style="font-size:18px;font-weight:800;color:#5b6678">₹</span>
+                  <input type="number" value="{{ draft.quoted }}" onInput="{{ onQuoted }}" placeholder="Quoted total (lump sum)" style="flex:1;border:none;outline:none;font-size:15px;font-weight:700;width:100%"/>
+                </div>
+
+                <div style="font-size:12px;font-weight:700;color:#5b6678;margin-bottom:7px">Stage</div>
+                <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:15px">
+                  <sc-for list="{{ stageChips }}" as="c" hint-placeholder-count="4">
+                    <div onClick="{{ c.onClick }}" style="font-size:12.5px;font-weight:700;padding:8px 13px;border-radius:10px;cursor:pointer;border:1px solid {{ c.border }};background:{{ c.bg }};color:{{ c.fg }}">{{ c.label }}</div>
+                  </sc-for>
+                </div>
+
+                <div style="font-size:12px;font-weight:700;color:#5b6678;margin-bottom:7px">How closely to track?</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px">
+                  <sc-for list="{{ modeChips }}" as="c" hint-placeholder-count="4">
+                    <div onClick="{{ c.onClick }}" style="border:1px solid {{ c.border }};background:{{ c.bg }};border-radius:11px;padding:11px 12px;cursor:pointer"><div style="display:flex;align-items:center;gap:7px;font-weight:700;font-size:13px;color:{{ c.fg }}"><span style="font-family:'Material Symbols Rounded';font-size:17px">{{ c.icon }}</span>{{ c.label }}</div><div style="font-size:11px;color:#9aa0ad;margin-top:2px">{{ c.desc }}</div></div>
+                  </sc-for>
+                </div>
+
+                <div onClick="{{ confirmAdd }}" style="display:flex;align-items:center;justify-content:center;gap:8px;background:#2f6bed;color:#fff;font-weight:800;font-size:15px;padding:15px;border-radius:14px;cursor:pointer">Create task work</div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <!-- ============ TOAST ============ -->
+          <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;left:16px;right:16px;bottom:96px;z-index:40;display:flex;align-items:center;gap:11px;background:#0f1626;color:#fff;padding:13px 16px;border-radius:14px;box-shadow:0 12px 30px rgba(15,22,38,.4);animation:mToast .25s ease">
+              <span style="font-family:'Material Symbols Rounded';font-size:22px;color:{{ toast.color }};font-variation-settings:'FILL' 1">{{ toast.icon }}</span>
+              <div style="font-size:13.5px;font-weight:700">{{ toast.msg }}</div>
+            </div>
+          </sc-if>
+
+          <!-- bottom nav (list only) -->
+          <sc-if value="{{ isList }}" hint-placeholder-val="{{ true }}">
+            <div style="position:absolute;left:0;right:0;bottom:0;height:72px;background:#fff;border-top:1px solid #eef1f6;display:flex;align-items:flex-start;padding-top:9px">
+              <div style="flex:1;text-align:center;color:#2f6bed"><span style="font-family:'Material Symbols Rounded';font-size:24px;font-variation-settings:'FILL' 1">groups</span><div style="font-size:10px;font-weight:700">Contracts</div></div>
+              <div style="flex:1;text-align:center;color:#9aa0ad"><span style="font-family:'Material Symbols Rounded';font-size:24px">event_available</span><div style="font-size:10px;font-weight:600">Attendance</div></div>
+              <div style="flex:1;text-align:center;color:#9aa0ad"><span style="font-family:'Material Symbols Rounded';font-size:24px">payments</span><div style="font-size:10px;font-weight:600">Salary</div></div>
+              <div style="flex:1;text-align:center;color:#9aa0ad"><span style="font-family:'Material Symbols Rounded';font-size:24px">more_horiz</span><div style="font-size:10px;font-weight:600">More</div></div>
+            </div>
+          </sc-if>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- =================== ANNOTATIONS =================== -->
+    <div style="flex:none;width:300px;padding-top:46px">
+      <div style="background:#fff;border-radius:16px;padding:20px;box-shadow:0 4px 20px rgba(20,28,46,.06);margin-bottom:16px">
+        <div style="font-size:12px;font-weight:800;color:#2f6bed;letter-spacing:.06em;margin-bottom:12px">WORKING FEATURES</div>
+        <div style="display:flex;gap:11px;margin-bottom:13px"><span style="font-family:'Material Symbols Rounded';font-size:20px;color:#2f6bed">payments</span><div style="font-size:13.5px;color:#3a4252"><b>Record payment</b> adds to Paid and the meter swings — with a warning before you over-pay.</div></div>
+        <div style="display:flex;gap:11px;margin-bottom:13px"><span style="font-family:'Material Symbols Rounded';font-size:20px;color:#2f6bed">trending_up</span><div style="font-size:13.5px;color:#3a4252"><b>Update progress</b> — drag the slider and the meter swings back toward safe.</div></div>
+        <div style="display:flex;gap:11px;margin-bottom:13px"><span style="font-family:'Material Symbols Rounded';font-size:20px;color:#2f6bed">how_to_reg</span><div style="font-size:13.5px;color:#3a4252"><b>Attendance</b> logs a day on the task.</div></div>
+        <div style="display:flex;gap:11px"><span style="font-family:'Material Symbols Rounded';font-size:20px;color:#2f6bed">add_circle</span><div style="font-size:13.5px;color:#3a4252"><b>+</b> creates a real task work that appears in the list.</div></div>
+      </div>
+      <div style="background:#0f1626;border-radius:16px;padding:20px;color:#cbd2e0">
+        <div style="font-size:12px;font-weight:800;color:#6f7c95;letter-spacing:.06em;margin-bottom:10px">TRY THIS</div>
+        <div style="font-size:13.5px;line-height:1.6">Open <b style="color:#fff">Brickwork — balcony</b> → Record ₹25,000. Watch it tip into red “exposed”. Then Update progress to 70% and it swings back to safe.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  constructor(p){
+    super(p);
+    const T=(o)=>({ payments:[], ...o });
+    this.state = {
+      screen:'list', selected:'civ-bb',
+      open:{ Civil:true, Electrical:false, Painting:false, Tiling:false, Plumbing:false },
+      sheet:null, draft:{}, toast:null,
+      tasks:[
+        T({ id:'civ-1f', trade:'Civil', stage:'FIRST FLOOR', title:'1st Floor Construction', who:'Karthik Team', party:'Mesthri team', initial:'K', mode:'Detailed', modeIcon:'fact_check', quoted:665000, paid:310000, work:0.55, days:28, pays:5,
+          payments:[{amountF:'₹1,10,000',date:'14 Jun',method:'Bank',icon:'account_balance'},{amountF:'₹1,00,000',date:'2 Jun',method:'UPI',icon:'account_balance_wallet'}], bench:790000 }),
+        T({ id:'civ-bb', trade:'Civil', stage:'FIRST FLOOR', title:'Brickwork — balcony', who:'Anbu Team', party:'Mesthri team', initial:'A', mode:'Mid', modeIcon:'checklist', quoted:85000, paid:40000, work:0.25, days:9, pays:2,
+          payments:[{amountF:'₹25,000',date:'12 Jun',method:'Cash',icon:'payments'},{amountF:'₹15,000',date:'5 Jun',method:'UPI',icon:'account_balance_wallet'}], bench:74000 }),
+        T({ id:'civ-gf', trade:'Civil', stage:'GROUND FLOOR', title:'Ground Floor Construction', who:'Murugan Team', party:'Mesthri team', initial:'M', mode:'Detailed', modeIcon:'fact_check', quoted:665000, paid:420000, work:0.58, days:42, pays:7, bench:760000 }),
+        T({ id:'civ-ps', trade:'Civil', stage:'GROUND FLOOR', title:'Plaster staircase', who:'Saravanan', party:'Specialist', initial:'S', mode:'Headcount', modeIcon:'groups_2', quoted:25000, paid:25000, work:1.0, days:6, pays:1, bench:31000 }),
+        T({ id:'ele-w', trade:'Electrical', stage:'UNGROUPED', title:'Wiring & fittings', who:'Vignesh', party:'Specialist', initial:'V', mode:'Mesthri-only', modeIcon:'payments', quoted:240000, paid:175000, work:0.50, days:18, pays:4, bench:268000 }),
+        T({ id:'ele-d', trade:'Electrical', stage:'UNGROUPED', title:'DB & earthing', who:'Vignesh', party:'Specialist', initial:'V', mode:'Mesthri-only', modeIcon:'payments', quoted:90000, paid:30000, work:0.45, days:7, pays:2, bench:98000 }),
+        T({ id:'pai-e', trade:'Painting', stage:'UNGROUPED', title:'Interior emulsion — 1st floor', who:'Ramesh Team', party:'Mesthri team', initial:'R', mode:'Mid', modeIcon:'checklist', quoted:150000, paid:45000, work:0.30, days:7, pays:2, bench:168000 }),
+        T({ id:'til-f', trade:'Tiling', stage:'GROUND FLOOR', title:'Floor tiling — GF', who:'Anand Team', party:'Mesthri team', initial:'A', mode:'Mid', modeIcon:'checklist', quoted:320000, paid:150000, work:0.40, days:12, pays:3, bench:352000 }),
+      ],
+    };
+  }
+
+  TRADES=[['Civil','foundation'],['Electrical','bolt'],['Painting','format_paint'],['Tiling','grid_view'],['Plumbing','plumbing']];
+  MODES=[['Mesthri-only','payments','Just money paid'],['Headcount','groups_2','How many came'],['Mid','checklist','Roster + total'],['Detailed','fact_check','Per-person']];
+  STAGES=['Ground Floor','First Floor','Roof Slab','Ungrouped'];
+  METHODS=['UPI','Cash','Bank'];
+
+  inr(n){ let neg=n<0,s=String(Math.round(Math.abs(n))),l=s.slice(-3),r=s.slice(0,-3); if(r)l=','+l; r=r.replace(/\B(?=(\d{2})+(?!\d))/g,','); return (neg?'-':'')+'₹'+r+l; }
+  pct(n){ return Math.round(n*100)+'%'; }
+  tradeIcon(t){ const m=Object.fromEntries(this.TRADES); return m[t]||'inventory_2'; }
+  modeIcon(m){ const x={'Mesthri-only':'payments','Headcount':'groups_2','Mid':'checklist','Detailed':'fact_check'}; return x[m]||'fact_check'; }
+
+  meter(paid,quoted,work){
+    const workVal=quoted*work, exp=paid-workVal, r=quoted?exp/quoted:0;
+    let sev; if(work===0&&paid===0) sev='none'; else if(r>0.15)sev='high'; else if(r>0.04)sev='watch'; else if(r<-0.04)sev='safe'; else sev='instep';
+    const color={high:'#d64545',watch:'#d9870b',safe:'#1f9d57',instep:'#2f6bed',none:'#c2c7d2'}[sev];
+    const maxR=0.30, cl=Math.max(-maxR,Math.min(maxR,r)), wp=Math.abs(cl)/maxR*50;
+    let left,marker; if(exp>=0){left=50;marker=50+wp;} else {left=50-wp;marker=50-wp;}
+    return { workVal, exp, sev, color, left:left+'%', width:wp+'%', marker:marker+'%' };
+  }
+
+  updateTask(id,fn){ this.setState(s=>({ tasks:s.tasks.map(t=> t.id===id ? fn(t) : t) })); }
+  toast(msg,tone){ const c={good:'#36d07f',warn:'#f1b24a',info:'#7aa7ff'}[tone||'info']; const i={good:'check_circle',warn:'warning',info:'info'}[tone||'info'];
+    this.setState({toast:{msg,color:c,icon:i}}); clearTimeout(this._t); this._t=setTimeout(()=>this.setState({toast:null}),2800); }
+
+  sel(){ return this.state.tasks.find(t=>t.id===this.state.selected) || this.state.tasks[0]; }
+
+  // ---- sheets ----
+  openPayment=()=>this.setState({sheet:'payment',draft:{amount:25000,method:'UPI'}});
+  openProgress=()=>this.setState({sheet:'progress',draft:{work:Math.round(this.sel().work*100)}});
+  openAttendance=()=>this.setState({sheet:'attendance',draft:{count:4}});
+  openAdd=()=>this.setState({sheet:'add',draft:{trade:'Civil',ctype:'Mesthri team',party:'',title:'',quoted:'',stage:'Ground Floor',mode:'Detailed'}});
+  closeSheet=()=>this.setState({sheet:null});
+  setDraft=(p)=>this.setState(s=>({draft:{...s.draft,...p}}));
+
+  onAmount=(e)=>this.setDraft({amount:e.target.value});
+  onWork=(e)=>this.setDraft({work:Number(e.target.value)});
+  onParty=(e)=>this.setDraft({party:e.target.value});
+  onTitle=(e)=>this.setDraft({title:e.target.value});
+  onQuoted=(e)=>this.setDraft({quoted:e.target.value});
+  countUp=()=>this.setDraft({count:(Number(this.state.draft.count)||0)+1});
+  countDown=()=>this.setDraft({count:Math.max(1,(Number(this.state.draft.count)||1)-1)});
+
+  confirmPayment=()=>{
+    const amt=Number(this.state.draft.amount)||0; if(amt<=0){this.closeSheet();return;}
+    const method=this.state.draft.method||'UPI';
+    const micon={UPI:'account_balance_wallet',Cash:'payments',Bank:'account_balance'}[method];
+    const id=this.state.selected;
+    this.updateTask(id,t=>({...t, paid:t.paid+amt, pays:t.pays+1,
+      payments:[{amountF:this.inr(amt),date:'21 Jun',method,icon:micon}, ...(t.payments||[])]}));
+    this.closeSheet(); this.toast('Paid '+this.inr(amt)+' recorded','good');
+  };
+  confirmProgress=()=>{ const w=(Number(this.state.draft.work)||0)/100; this.updateTask(this.state.selected,t=>({...t,work:w})); this.closeSheet(); this.toast('Progress set to '+Math.round(w*100)+'%','good'); };
+  confirmAttendance=()=>{ const c=Number(this.state.draft.count)||1; this.updateTask(this.state.selected,t=>({...t,days:t.days+1})); this.closeSheet(); this.toast('Day logged · '+c+' workers','good'); };
+  confirmAdd=()=>{
+    const d=this.state.draft; const q=Number(d.quoted)||0;
+    const id='new-'+Date.now();
+    const task={ id, trade:d.trade||'Civil', stage:(d.stage||'Ungrouped').toUpperCase(), title:d.title||'Untitled task work',
+      who:d.party||'New crew', party:d.ctype||'Mesthri team', initial:(d.party||'N').trim().charAt(0).toUpperCase()||'N',
+      mode:d.mode||'Detailed', modeIcon:this.modeIcon(d.mode||'Detailed'), quoted:q, paid:0, work:0, days:0, pays:0, bench:Math.round(q*1.12), payments:[] };
+    this.setState(s=>({ tasks:[...s.tasks,task], sheet:null, screen:'detail', selected:id, open:{...s.open,[task.trade]:true} }));
+    this.toast('Task work created','good');
+  };
+
+  // ---- view models ----
+  rowVM(t){ const m=this.meter(t.paid,t.quoted,t.work);
+    return { title:t.title, who:t.who, paidPct:this.pct(t.paid/t.quoted), workPct:this.pct(t.work),
+      dot:m.color, tag:{high:'Risk',watch:'Watch',safe:'Safe',instep:'OK',none:'New'}[m.sev],
+      onSelect:()=>this.setState({screen:'detail',selected:t.id}) }; }
+
+  tradeVM(name,icon){
+    const tasks=this.state.tasks.filter(t=>t.trade===name); const has=tasks.length>0;
+    const q=tasks.reduce((a,t)=>a+t.quoted,0),p=tasks.reduce((a,t)=>a+t.paid,0),w=tasks.reduce((a,t)=>a+t.quoted*t.work,0);
+    const m=this.meter(p,q,q?w/q:0);
+    const stageOrder=[]; const byStage={};
+    tasks.forEach(t=>{ if(!byStage[t.stage]){byStage[t.stage]=[];stageOrder.push(t.stage);} byStage[t.stage].push(t); });
+    const open=!!this.state.open[name];
+    return { name, icon, count:tasks.length, hasWork:has, open, chev:open?180:0,
+      paidPct:q?this.pct(p/q):'0%', workPct:q?this.pct(w/q):'0%', dot:has?m.color:'#c2c7d2',
+      onToggle:()=>this.setState(s=>({open:{...s.open,[name]:!s.open[name]}})),
+      stages:stageOrder.map(sn=>({name:sn,tasks:byStage[sn].map(t=>this.rowVM(t))})) };
+  }
+
+  detailVM(){
+    const t=this.sel(); const m=this.meter(t.paid,t.quoted,t.work);
+    const exp=m.exp;
+    const verdict={high:'High risk',watch:'Watch',safe:'Safe',instep:'In step',none:'Not started'}[m.sev];
+    const vIcon={high:'warning',watch:'priority_high',safe:'shield',instep:'check_circle',none:'hourglass_empty'}[m.sev];
+    const bg={high:'#fbeaea',watch:'#fdf2e0',safe:'#e8f6ee',instep:'#eaf1fe',none:'#f0f2f6'}[m.sev];
+    let sub,diffLabel,dirWord;
+    if(m.sev==='none'){sub='No work and no payments yet — nothing at risk.';diffLabel='Difference';dirWord='';}
+    else if(exp>0){diffLabel='Paid ahead';dirWord='ahead';sub=(m.sev==='high')?'If the crew leaves now, this money is gone. Hold the next payment.':'A little ahead — watch before paying more.';}
+    else if(exp<0){diffLabel='In hand';dirWord='in hand';sub='Safely behind — the crew has done more than they’ve been paid.';}
+    else {diffLabel='Difference';dirWord='in step';sub='Pay matches the work exactly.';}
+    let status='Active',sBg='#e8f6ee',sFg='#1f9d57';
+    if(t.work>=1){status='Completed';sBg='#eaf1fe';sFg='#2f6bed';} else if(t.work===0&&t.paid===0){status='Draft';sBg='#f0f2f6';sFg='#8a8f9c';}
+    const pmts=(t.payments||[]).slice(0,4);
+    return { trade:t.trade, stage:t.stage, title:t.title, who:t.who, party:t.party, initial:t.initial, mode:t.mode, modeIcon:t.modeIcon,
+      status, statusBg:sBg, statusFg:sFg,
+      quotedF:this.inr(t.quoted), paidF:this.inr(t.paid), workValueF:this.inr(m.workVal),
+      workPctLabel:this.pct(t.work), meterLeft:m.left, meterWidth:m.width, markerLeft:m.marker, meterColor:m.color,
+      verdict, verdictIcon:vIcon, verdictFg:m.color, verdictBg:bg, exposureSub:sub, diffLabel, dirWord, exposureF:this.inr(Math.abs(exp)),
+      days:t.days, payCount:t.pays, payments:pmts, hasPayments:pmts.length>0, noPayments:pmts.length===0,
+      benchmarkF:this.inr(t.bench), agreedF:this.inr(t.quoted), savingF:this.inr(Math.max(0,t.bench-t.quoted)) };
+  }
+
+  siteVM(){
+    const ts=this.state.tasks; const p=ts.reduce((a,t)=>a+t.paid,0), q=ts.reduce((a,t)=>a+t.quoted,0), w=ts.reduce((a,t)=>a+t.quoted*t.work,0);
+    const risk=ts.reduce((a,t)=>{const e=t.paid-t.quoted*t.work; return a+(e>0?e:0);},0);
+    const short=(n)=> n>=10000000?'₹'+(n/10000000).toFixed(1)+'Cr' : n>=100000?'₹'+(n/100000).toFixed(1)+'L' : '₹'+Math.round(n/1000)+'k';
+    return { paidF:short(p), workPct:this.pct(q?w/q:0), riskF:short(risk), riskBg: risk>50000?'#fdf2e0':'#e8f6ee', riskFg: risk>50000?'#d9870b':'#1f9d57' };
+  }
+
+  chips(){
+    const d=this.state.draft;
+    const styleOn={border:'#2f6bed',bg:'#eaf1fe',fg:'#2f6bed'}, styleOff={border:'#e0e4ec',bg:'#fff',fg:'#5b6678'};
+    const pick=(on)=> on?styleOn:styleOff;
+    return {
+      amtChips:[10000,25000,50000].map(n=>({label:'+₹'+(n/1000)+'k',onClick:()=>this.setDraft({amount:(Number(d.amount)||0)+n})})),
+      methodChips:this.METHODS.map(mname=>{const on=d.method===mname;const s=pick(on);return{label:mname,...s,onClick:()=>this.setDraft({method:mname})};}),
+      tradeChips:this.TRADES.map(([n,ic])=>{const on=d.trade===n;const s=pick(on);return{label:n,icon:ic,...s,onClick:()=>this.setDraft({trade:n})};}),
+      ctypeChips:['Mesthri team','Specialist'].map(c=>{const on=d.ctype===c;const s=pick(on);return{label:c,...s,onClick:()=>this.setDraft({ctype:c})};}),
+      stageChips:this.STAGES.map(c=>{const on=d.stage===c;const s=pick(on);return{label:c,...s,onClick:()=>this.setDraft({stage:c})};}),
+      modeChips:this.MODES.map(([n,ic,desc])=>{const on=d.mode===n;const s=pick(on);return{label:n,icon:ic,desc,...s,onClick:()=>this.setDraft({mode:n})};}),
+    };
+  }
+
+  renderVals(){
+    const sheet=this.state.sheet, d=this.detailVM();
+    let payPreview={bg:'#f0f2f6',fg:'#5b6678',icon:'info',head:'',sub:''}, progPreview={left:'50%',width:'0%',color:'#c2c7d2',fg:'#5b6678',head:'',workValueF:''};
+    if(sheet==='payment'){ const t=this.sel(); const amt=Number(this.state.draft.amount)||0; const m=this.meter(t.paid+amt,t.quoted,t.work);
+      const head = m.exp>0 ? 'After this you’ll be '+this.inr(m.exp)+' ahead of work' : (m.exp<0?this.inr(-m.exp)+' still safely in hand':'Pay will match the work');
+      const sub = m.sev==='high'?'High exposure — only release if you trust the crew.': m.sev==='watch'?'Slightly exposed — keep an eye on it.':'You stay on the safe side.';
+      payPreview={ bg:{high:'#fbeaea',watch:'#fdf2e0',safe:'#e8f6ee',instep:'#eaf1fe',none:'#eaf1fe'}[m.sev], fg:m.color, icon:{high:'warning',watch:'priority_high',safe:'shield',instep:'check_circle',none:'info'}[m.sev], head, sub }; }
+    if(sheet==='progress'){ const t=this.sel(); const w=(Number(this.state.draft.work)||0)/100; const m=this.meter(t.paid,t.quoted,w);
+      const head = m.exp>0?'Paid '+this.inr(m.exp)+' ahead of work':(m.exp<0?this.inr(-m.exp)+' still in hand':'Pay matches work');
+      progPreview={ left:m.left, width:m.width, color:m.color, fg:m.color, head, workValueF:this.inr(t.quoted*w) }; }
+
+    return {
+      isList:this.state.screen==='list', isDetail:this.state.screen==='detail',
+      goList:()=>this.setState({screen:'list',sheet:null}),
+      tree:this.TRADES.map(([n,ic])=>this.tradeVM(n,ic)).filter(tr=>tr.count>0 || tr.name!=='Plumbing'),
+      d, site:this.siteVM(),
+      sheetOpen:!!sheet, isPayment:sheet==='payment', isProgress:sheet==='progress', isAttendance:sheet==='attendance', isAdd:sheet==='add',
+      openPayment:this.openPayment, openProgress:this.openProgress, openAttendance:this.openAttendance, openAdd:this.openAdd, closeSheet:this.closeSheet,
+      onAmount:this.onAmount, onWork:this.onWork, onParty:this.onParty, onTitle:this.onTitle, onQuoted:this.onQuoted,
+      countUp:this.countUp, countDown:this.countDown,
+      confirmPayment:this.confirmPayment, confirmProgress:this.confirmProgress, confirmAttendance:this.confirmAttendance, confirmAdd:this.confirmAdd,
+      draft:this.state.draft, payPreview, progPreview, ...this.chips(),
+      hasToast:!!this.state.toast, toast:this.state.toast||{},
+    };
+  }
+}
+</script>
+</body>
+</html>

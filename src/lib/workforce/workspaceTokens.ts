@@ -27,7 +27,7 @@ import FactCheck from "@mui/icons-material/FactCheck";
 import Diversity3 from "@mui/icons-material/Diversity3";
 import Payments from "@mui/icons-material/Payments";
 import type { Severity } from "./exposure";
-import type { LaborTrackingMode } from "@/types/trade.types";
+import type { ContractStatus, LaborTrackingMode } from "@/types/trade.types";
 
 export const wsColors = {
   primary: "#2f6bed",
@@ -150,6 +150,30 @@ export const modeMeta: Record<LaborTrackingMode, ModeMeta> = {
   headcount: { label: "Daily headcount", short: "Headcount", icon: Groups },
   mid: { label: "Crew roster + daily total", short: "Mid", icon: Diversity3 },
   mesthri_only: { label: "Money paid only", short: "Mesthri-only", icon: Payments },
+};
+
+export interface StatusMeta {
+  /** Short chip label (distinct from the raw enum wording). */
+  label: string;
+  color: string;
+  bg: string;
+}
+
+/**
+ * Lifecycle-status palette for the small status chip.
+ *
+ * IMPORTANT: this is a DIFFERENT axis from the exposure verdict (`severityMeta`),
+ * which owns the saturated green/amber/red risk dot. Status uses calm *tints* so the
+ * two signals never read as the same thing. With the Future/Active/Completed tabs
+ * separating buckets, the chip mainly earns its place flagging the odd `on_hold`
+ * row that mixes into the Active tab.
+ */
+export const statusMeta: Record<ContractStatus, StatusMeta> = {
+  draft: { label: "Planned", color: wsColors.ink2, bg: "#eef1f6" },
+  active: { label: "Active", color: wsColors.primary, bg: wsColors.primaryTint },
+  on_hold: { label: "On hold", color: wsColors.amber, bg: wsColors.amberBg },
+  completed: { label: "Done", color: wsColors.green, bg: wsColors.greenBg },
+  cancelled: { label: "Cancelled", color: wsColors.muted2, bg: "#f0f2f6" },
 };
 
 const TRADE_ICONS: Array<[RegExp, SvgIconComponent]> = [

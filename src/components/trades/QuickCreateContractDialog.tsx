@@ -53,6 +53,8 @@ interface QuickCreateContractDialogProps {
   stageId?: string | null;
   /** Switch to creating a fixed-price package (retention / man-day profitability) instead. */
   onCreatePackage?: () => void;
+  /** Initial lifecycle status. "draft" lands the contract in the Future (planning) tab. */
+  initialStatus?: "draft" | "active";
 }
 
 export function QuickCreateContractDialog({
@@ -64,6 +66,7 @@ export function QuickCreateContractDialog({
   tradeName,
   stageId = null,
   onCreatePackage,
+  initialStatus = "active",
 }: QuickCreateContractDialogProps) {
   const supabase = createClient();
   const queryClient = useQueryClient();
@@ -88,6 +91,12 @@ export function QuickCreateContractDialog({
   );
   const [title, setTitle] = useState("");
   const [totalValue, setTotalValue] = useState<string>("");
+  // Area-based pricing: when on, total = area × rate and we store sqft + rate so the
+  // app can later reconcile actual sqft. Lump sum stays the default.
+  const [pricedBySqft, setPricedBySqft] = useState(false);
+  const [sqft, setSqft] = useState<string>("");
+  const [ratePerSqft, setRatePerSqft] = useState<string>("");
+  const [status, setStatus] = useState<"draft" | "active">(initialStatus);
   const [laborTrackingMode, setLaborTrackingMode] =
     useState<LaborTrackingMode>("mesthri_only");
   const [submitting, setSubmitting] = useState(false);
@@ -117,6 +126,10 @@ export function QuickCreateContractDialog({
     setNewStageName("");
     setTitle("");
     setTotalValue("");
+    setPricedBySqft(false);
+    setSqft("");
+    setRatePerSqft("");
+    setStatus(initialStatus);
     setLaborTrackingMode("mesthri_only");
     setError(null);
     setShowNewTeam(false);
@@ -160,7 +173,12 @@ export function QuickCreateContractDialog({
       })
       .catch((e) => setError(`Failed to load options: ${e.message}`))
       .finally(() => setOptionsLoading(false));
-  }, [open, supabase, stageId]);
+  }, [open, supabase, stageId, initialStatus]);
+
+  // Area-based pricing math (₹ total = area × rate). Lump-sum uses `totalValue`.
+  const sqftNum = sqft ? Number(sqft) : 0;
+  const rateNum = ratePerSqft ? Number(ratePerSqft) : 0;
+  const sqftTotal = sqftNum > 0 && rateNum > 0 ? sqftNum * rateNum : 0;
 
   const handleCreateStage = async () => {
     setError(null);
@@ -306,10 +324,22 @@ export function QuickCreateContractDialog({
     setError(null);
     setSubmitting(true);
     try {
-      const totalValueNum = totalValue ? Number(totalValue) : 0;
-      if (Number.isNaN(totalValueNum) || totalValueNum < 0) {
-        throw new Error("Quoted total must be a positive number");
-      }
+      // Money basis depends on the pricing toggle.
+      const pricing: Record<string, unknown> = pricedBySqft
+        ? {
+            total_value: sqftTotal,
+            is_rate_based: true,
+            measurement_unit: "sqft",
+            total_units: sqftNum || null,
+            rate_per_unit: rateNum || null,
+          }
+        : (() => {
+            const totalValueNum = totalValue ? Number(totalValue) : 0;
+            if (Number.isNaN(totalValueNum) || totalValueNum < 0) {
+              throw new Error("Quoted total must be a positive number");
+            }
+            return { total_value: totalValueNum, is_rate_based: false };
+          })();
 
       const payload: Record<string, unknown> = {
         site_id: siteId,
@@ -317,11 +347,10 @@ export function QuickCreateContractDialog({
         stage_id: selectedStageId,
         contract_type: contractType,
         title: title.trim(),
-        total_value: totalValueNum,
         labor_tracking_mode: laborTrackingMode,
         is_in_house: false,
-        is_rate_based: false,
-        status: "active",
+        status,
+        ...pricing,
       };
       if (contractType === "mesthri") payload.team_id = selectedTeamId;
       else payload.laborer_id = selectedLaborerId;
@@ -722,16 +751,79 @@ export function QuickCreateContractDialog({
               helperText={`e.g. "Brickwork — Asis Mesthri"`}
             />
 
-            <TextField
-              label="Quoted total (lump sum)"
-              value={totalValue}
-              onChange={(e) => setTotalValue(e.target.value.replace(/[^0-9.]/g, ""))}
-              fullWidth
-              InputProps={{
-                startAdornment: <InputAdornment position="start">₹</InputAdornment>,
-              }}
-              helperText="Leave 0 if no fixed quote yet (e.g. daily-rate only)."
-            />
+            <FormControl>
+              <FormLabel>Pricing</FormLabel>
+              <ToggleButtonGroup
+                value={pricedBySqft ? "sqft" : "lump"}
+                exclusive
+                onChange={(_, v) => v && setPricedBySqft(v === "sqft")}
+                size="small"
+                sx={{ mt: 1 }}
+              >
+                <ToggleButton value="lump">Lump sum</ToggleButton>
+                <ToggleButton value="sqft">By area (sq ft)</ToggleButton>
+              </ToggleButtonGroup>
+            </FormControl>
+
+            {pricedBySqft ? (
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems="flex-start">
+                <TextField
+                  label="Total area"
+                  value={sqft}
+                  onChange={(e) => setSqft(e.target.value.replace(/[^0-9.]/g, ""))}
+                  fullWidth
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">sq ft</InputAdornment>,
+                  }}
+                  helperText="Built-up area for this building / scope."
+                />
+                <TextField
+                  label="Rate"
+                  value={ratePerSqft}
+                  onChange={(e) => setRatePerSqft(e.target.value.replace(/[^0-9.]/g, ""))}
+                  fullWidth
+                  InputProps={{
+                    startAdornment: <InputAdornment position="start">₹</InputAdornment>,
+                    endAdornment: <InputAdornment position="end">/sq ft</InputAdornment>,
+                  }}
+                  helperText={
+                    sqftTotal > 0
+                      ? `= ₹${sqftTotal.toLocaleString("en-IN")}`
+                      : "Agreed rate per sq ft."
+                  }
+                />
+              </Stack>
+            ) : (
+              <TextField
+                label="Quoted total (lump sum)"
+                value={totalValue}
+                onChange={(e) => setTotalValue(e.target.value.replace(/[^0-9.]/g, ""))}
+                fullWidth
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">₹</InputAdornment>,
+                }}
+                helperText="Leave 0 if no fixed quote yet (e.g. daily-rate only)."
+              />
+            )}
+
+            <FormControl>
+              <FormLabel>Start as</FormLabel>
+              <ToggleButtonGroup
+                value={status}
+                exclusive
+                onChange={(_, v) => v && setStatus(v)}
+                size="small"
+                sx={{ mt: 1 }}
+              >
+                <ToggleButton value="active">Active (work starting)</ToggleButton>
+                <ToggleButton value="draft">Planned (Future)</ToggleButton>
+              </ToggleButtonGroup>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                {status === "draft"
+                  ? "Saved under the Future tab — move it to Active when work begins."
+                  : "Shows in the Active workspace right away."}
+              </Typography>
+            </FormControl>
 
             <FormControl>
               <FormLabel>Labor tracking</FormLabel>

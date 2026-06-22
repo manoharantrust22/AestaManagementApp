@@ -20,6 +20,7 @@ import type {
   WorkStage,
 } from "@/types/trade.types";
 import { computeExposure, rollupTasks, type ExposureResult, type RollupResult, type RollupTask } from "./exposure";
+import { statusBucket, type StatusTab } from "./statusTabs";
 
 export interface WorkspaceTask {
   id: string;
@@ -44,6 +45,10 @@ export interface WorkspaceTask {
   contractorKey: string;
   quoted: number;
   paid: number;
+  /** Area-based pricing (when measurementUnit === "sqft"): units × rate. Null otherwise. */
+  measurementUnit: string | null;
+  ratePerUnit: number | null;
+  totalUnits: number | null;
   /** Fraction complete 0–1, or null when not tracked. */
   work: number | null;
   workPercent: number | null;
@@ -102,6 +107,12 @@ export interface WorkspaceModel {
   trades: TradeNode[];
   /** Whole-site rollup over every task. */
   site: RollupResult;
+  /**
+   * Whole-site rollup split by status tab (Future / Active / Completed), using the
+   * same de-duped inputs as `site` (a parent counts once via its own leftover plus
+   * each child). Powers the tab-aware summary tiles without double-counting parents.
+   */
+  siteByTab: Record<StatusTab, RollupResult>;
 }
 
 export function computeInitials(name: string): string {
@@ -134,6 +145,17 @@ export function buildWorkspaceModel({
   // own "leftover" quoted (value not covered by children, e.g. a hidden completed child)
   // plus each child — so a parent's value is counted exactly once, never doubled.
   const allInputs: RollupTask[] = [];
+  // Same de-duped inputs, split by status tab (each input keyed to its source task's
+  // status) so the tab summary tiles stay accurate. `cancelled` inputs fall out.
+  const tabInputs: Record<StatusTab, RollupTask[]> = {
+    future: [],
+    active: [],
+    completed: [],
+  };
+  const pushTab = (status: ContractStatus, input: RollupTask) => {
+    const b = statusBucket(status);
+    if (b) tabInputs[b].push(input);
+  };
 
   for (const trade of trades) {
     const tasks: WorkspaceTask[] = trade.contracts.map((c) => {
@@ -183,6 +205,9 @@ export function buildWorkspaceModel({
         contractorKey,
         quoted,
         paid,
+        measurementUnit: c.measurementUnit ?? null,
+        ratePerUnit: c.ratePerUnit ?? null,
+        totalUnits: c.totalUnits ?? null,
         work,
         workPercent: c.workProgressPercent,
         days,
@@ -231,12 +256,16 @@ export function buildWorkspaceModel({
       consumed.add(t.id);
       for (const c of children) consumed.add(c.id);
       tradeInputs.push(ownInput, ...childInputs);
+      pushTab(t.status, ownInput);
+      children.forEach((c, i) => pushTab(c.status, childInputs[i]));
     }
 
     // Everything not folded into a parent flows through the normal stage/contractor view.
     const normalTasks = tasks.filter((t) => !consumed.has(t.id));
     for (const t of normalTasks) {
-      tradeInputs.push({ quoted: t.quoted, paid: t.paid, work: t.work });
+      const input: RollupTask = { quoted: t.quoted, paid: t.paid, work: t.work };
+      tradeInputs.push(input);
+      pushTab(t.status, input);
     }
 
     // Group by stage. Known stages keep their order; the rest fall into "ungrouped".
@@ -304,6 +333,11 @@ export function buildWorkspaceModel({
   return {
     trades: tradeNodes,
     site: rollupTasks(allInputs),
+    siteByTab: {
+      future: rollupTasks(tabInputs.future),
+      active: rollupTasks(tabInputs.active),
+      completed: rollupTasks(tabInputs.completed),
+    },
   };
 }
 

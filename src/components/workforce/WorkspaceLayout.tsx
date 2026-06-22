@@ -38,6 +38,7 @@ import type { TaskWorkPackageWithMeta } from "@/types/taskWork.types";
 import { buildWorkspaceModel, findGroup, findParentContract, findTask } from "@/lib/workforce/workspaceModel";
 import type { ContractorGroup, WorkspaceTask } from "@/lib/workforce/workspaceModel";
 import { UNCATEGORIZED_TRADE_ID } from "@/hooks/queries/useTrades";
+import { DEFAULT_STATUS_TAB, type StatusTab } from "@/lib/workforce/statusTabs";
 import {
   WS_MOBILE_BREAKPOINT,
   tradeIcon,
@@ -80,7 +81,11 @@ export function WorkspaceLayout({
   canEdit: boolean;
   packagesByTrade: Map<string, TaskWorkPackageWithMeta[]>;
   onOpenPackage: (pkg: TaskWorkPackageWithMeta) => void;
-  onAddTaskWork: (tradeCategoryId: string, stageId: string | null) => void;
+  onAddTaskWork: (
+    tradeCategoryId: string,
+    stageId: string | null,
+    initialStatus?: "draft" | "active"
+  ) => void;
 }) {
   const router = useRouter();
   const mobile = useMediaQuery(`(max-width:${WS_MOBILE_BREAKPOINT}px)`);
@@ -94,6 +99,7 @@ export function WorkspaceLayout({
   const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(null);
   const [openTrades, setOpenTrades] = useState<Record<string, boolean>>({});
   const [query, setQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<StatusTab>(DEFAULT_STATUS_TAB);
   const [sheet, setSheet] = useState<null | "payment" | "progress">(null);
   const [modeOpen, setModeOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -197,6 +203,8 @@ export function WorkspaceLayout({
       onSelectGroup={handleSelectGroup}
       query={query}
       onQueryChange={setQuery}
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
       packagesByTrade={packagesByTrade}
       onOpenPackage={onOpenPackage}
       onAddTaskWork={onAddTaskWork}
@@ -333,7 +341,11 @@ export function WorkspaceLayout({
             key={node.category.id}
             onClick={() => {
               setAddAnchor(null);
-              onAddTaskWork(node.category.id, null);
+              onAddTaskWork(
+                node.category.id,
+                null,
+                activeTab === "future" ? "draft" : "active"
+              );
             }}
           >
             <ListItemIcon>

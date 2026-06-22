@@ -89,6 +89,9 @@ interface RawContractRow {
   contract_type: "mesthri" | "specialist";
   status: ContractStatus;
   total_value: number | string | null;
+  measurement_unit: string | null;
+  rate_per_unit: number | string | null;
+  total_units: number | string | null;
   work_progress_percent: number | null;
   created_at: string;
   team_id: string | null;
@@ -119,6 +122,7 @@ export function useSiteTrades(siteId: string | undefined) {
             `
             id, site_id, trade_category_id, stage_id, title,
             labor_tracking_mode, is_in_house, contract_type, status, total_value,
+            measurement_unit, rate_per_unit, total_units,
             work_progress_percent, created_at, team_id, laborer_id, contractor_name,
             parent_subcontract_id,
             team:teams(leader_name),
@@ -126,7 +130,9 @@ export function useSiteTrades(siteId: string | undefined) {
           `
           )
           .eq("site_id", siteId)
-          .in("status", ["draft", "active", "on_hold"]),
+          // `completed` is included so the workspace's Completed tab can review
+          // finished contracts; `cancelled` stays excluded (shown in no tab).
+          .in("status", ["draft", "active", "on_hold", "completed"]),
       ]);
 
       if (catsRes.error) throw catsRes.error;
@@ -153,6 +159,9 @@ export function useSiteTrades(siteId: string | undefined) {
           contractType: r.contract_type,
           status: r.status,
           totalValue: Number(r.total_value ?? 0),
+          measurementUnit: r.measurement_unit ?? null,
+          ratePerUnit: r.rate_per_unit == null ? null : Number(r.rate_per_unit),
+          totalUnits: r.total_units == null ? null : Number(r.total_units),
           workProgressPercent:
             r.work_progress_percent == null ? null : Number(r.work_progress_percent),
           teamId: r.team_id,

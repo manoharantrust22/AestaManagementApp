@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   Box,
   Typography,
@@ -9,6 +10,11 @@ import {
 import Add from "@mui/icons-material/Add";
 import Search from "@mui/icons-material/Search";
 import type { WorkspaceModel } from "@/lib/workforce/workspaceModel";
+import {
+  statusBucket,
+  STATUS_TABS,
+  type StatusTab,
+} from "@/lib/workforce/statusTabs";
 import { wsColors, wsRadius, wsShadow } from "@/lib/workforce/workspaceTokens";
 import type { TaskWorkPackageWithMeta } from "@/types/taskWork.types";
 import { SiteSummaryTiles } from "./SiteSummaryTiles";
@@ -26,6 +32,8 @@ export function ContractListPane({
   onSelectGroup,
   query,
   onQueryChange,
+  activeTab,
+  onTabChange,
   packagesByTrade,
   onOpenPackage,
   onAddTaskWork,
@@ -43,13 +51,35 @@ export function ContractListPane({
   onSelectGroup: (key: string) => void;
   query: string;
   onQueryChange: (q: string) => void;
+  activeTab: StatusTab;
+  onTabChange: (tab: StatusTab) => void;
   packagesByTrade: Map<string, TaskWorkPackageWithMeta[]>;
   onOpenPackage: (pkg: TaskWorkPackageWithMeta) => void;
-  onAddTaskWork: (tradeCategoryId: string, stageId: string | null) => void;
+  onAddTaskWork: (
+    tradeCategoryId: string,
+    stageId: string | null,
+    initialStatus?: "draft" | "active"
+  ) => void;
   /** Opens the trade-picker Add menu (owned by the layout, shared with the mobile FAB). */
   onAddClick: (anchorEl: HTMLElement) => void;
   canEdit: boolean;
 }) {
+  // Per-tab item counts (contracts + packages) for the segmented control badges.
+  const tabCounts = useMemo(() => {
+    const c: Record<StatusTab, number> = { future: 0, active: 0, completed: 0 };
+    for (const node of model.trades)
+      for (const t of node.tasks) {
+        const b = statusBucket(t.status);
+        if (b) c[b] += 1;
+      }
+    for (const arr of packagesByTrade.values())
+      for (const p of arr) {
+        const b = statusBucket(p.status);
+        if (b) c[b] += 1;
+      }
+    return c;
+  }, [model, packagesByTrade]);
+
   return (
     <Box
       sx={{
@@ -91,7 +121,68 @@ export function ContractListPane({
         </Box>
 
         <Box sx={{ mt: 1.25 }}>
-          <SiteSummaryTiles site={model.site} />
+          <SiteSummaryTiles
+            model={model}
+            packagesByTrade={packagesByTrade}
+            activeTab={activeTab}
+          />
+        </Box>
+
+        {/* Future / Active / Completed segmented control. */}
+        <Box
+          sx={{
+            mt: 1.25,
+            display: "flex",
+            gap: 0.5,
+            bgcolor: wsColors.canvas,
+            border: `1px solid ${wsColors.hairline}`,
+            borderRadius: `${wsRadius.input}px`,
+            p: 0.4,
+          }}
+        >
+          {STATUS_TABS.map((t) => {
+            const sel = t.key === activeTab;
+            return (
+              <Box
+                key={t.key}
+                onClick={() => onTabChange(t.key)}
+                sx={{
+                  flex: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 0.6,
+                  cursor: "pointer",
+                  py: 0.55,
+                  borderRadius: `${wsRadius.input - 3}px`,
+                  bgcolor: sel ? wsColors.surface : "transparent",
+                  boxShadow: sel ? wsShadow.card : "none",
+                  color: sel ? wsColors.primary : wsColors.muted,
+                  fontWeight: sel ? 800 : 700,
+                  fontSize: 12.5,
+                  transition: "background-color .15s, color .15s",
+                  "&:hover": { color: sel ? wsColors.primary : wsColors.ink2 },
+                }}
+              >
+                <span>{t.label}</span>
+                <Box
+                  component="span"
+                  sx={{
+                    fontSize: 10,
+                    fontWeight: 800,
+                    color: sel ? wsColors.primary : wsColors.muted2,
+                    bgcolor: sel ? wsColors.primaryTint : wsColors.hairline2,
+                    borderRadius: 999,
+                    px: 0.55,
+                    minWidth: 16,
+                    textAlign: "center",
+                  }}
+                >
+                  {tabCounts[t.key]}
+                </Box>
+              </Box>
+            );
+          })}
         </Box>
 
         <Box
@@ -130,6 +221,7 @@ export function ContractListPane({
           openTrades={openTrades}
           onToggleTrade={onToggleTrade}
           query={query}
+          activeTab={activeTab}
           packagesByTrade={packagesByTrade}
           onOpenPackage={onOpenPackage}
           onAddTaskWork={onAddTaskWork}
