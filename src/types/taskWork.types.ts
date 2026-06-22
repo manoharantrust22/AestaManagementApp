@@ -85,6 +85,22 @@ export interface TaskWorkPackageWithMeta extends TaskWorkPackage {
   parent_subcontract_title?: string | null;
 }
 
+/**
+ * One worker-type line within a day log. `kind` records where the type came
+ * from: a labour role (rate book), a specific named laborer, or a free-typed
+ * custom label. `count` may be fractional (0.5 = half day). The line's value is
+ * `count × daily_rate`.
+ */
+export type DayWorkerLineKind = "role" | "laborer" | "custom";
+
+export interface DayWorkerLine {
+  kind: DayWorkerLineKind;
+  ref_id: string | null; // role_id or laborer_id; null for custom
+  label: string;
+  count: number;
+  daily_rate: number;
+}
+
 export interface TaskWorkDayLog {
   id: string;
   package_id: string;
@@ -93,6 +109,8 @@ export interface TaskWorkDayLog {
   worker_count: number;
   worker_note: string | null;
   man_days: number;
+  // Per-type breakdown. NULL/absent on legacy headcount-only rows.
+  worker_lines: DayWorkerLine[] | null;
   recorded_by: string | null;
   created_at: string;
 }
@@ -117,6 +135,34 @@ export interface TaskWorkPayment {
   created_by: string | null;
   created_by_name: string | null;
   created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Variations (extras / change orders) — task_work_variations
+// ---------------------------------------------------------------------------
+
+export type TaskWorkVariationStatus = "pending" | "approved" | "rejected";
+
+export interface TaskWorkVariation {
+  id: string;
+  package_id: string;
+  site_id: string;
+  amount: number;
+  reason: string;
+  status: TaskWorkVariationStatus;
+  requested_date: string;
+  decided_date: string | null;
+  decided_note: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface TaskWorkVariationInput {
+  package_id: string;
+  site_id: string;
+  amount: number;
+  reason: string;
+  requested_date: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,9 +239,10 @@ export interface TaskWorkDayLogInput {
   package_id: string;
   site_id: string;
   log_date: string;
-  worker_count: number;
   worker_note?: string | null;
-  man_days?: number | null; // defaults to worker_count when omitted
+  // The per-type breakdown is the source of truth; worker_count and man_days are
+  // derived from it by the upsert service (Σ counts).
+  worker_lines: DayWorkerLine[];
 }
 
 export interface TaskWorkPaymentInput {

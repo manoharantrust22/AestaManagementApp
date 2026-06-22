@@ -117,6 +117,7 @@ export const queryKeys = {
     bySite: (siteId: string) => ['task-work', 'site', siteId] as const,
     byId: (id: string) => ['task-work', id] as const,
     dayLogs: (packageId: string) => ['task-work', packageId, 'day-logs'] as const,
+    variations: (packageId: string) => ['task-work', packageId, 'variations'] as const,
     payments: (packageId: string) => ['task-work', packageId, 'payments'] as const,
     profitability: (packageId: string) => ['task-work', packageId, 'profitability'] as const,
     profitabilityBySite: (siteId: string) =>

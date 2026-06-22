@@ -10,6 +10,7 @@ import {
   Grid,
   IconButton,
   Paper,
+  Stack,
   Tab,
   Tabs,
   Typography,
@@ -26,7 +27,11 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useAuth } from "@/contexts/AuthContext";
 import { hasEditPermission } from "@/lib/permissions";
 import { computeProfitability } from "@/lib/taskWork/profitability";
+import { sumDayLogValue } from "@/lib/taskWork/dayLogCost";
+import { computeCostStatus, type CostVerdict } from "@/lib/taskWork/costStatus";
 import { useTaskWorkProfitability } from "@/hooks/queries/useTaskWorkProfitability";
+import { useTaskWorkDayLogs } from "@/hooks/queries/useTaskWorkDayLogs";
+import { useTaskWorkVariations } from "@/hooks/queries/useTaskWorkVariations";
 import { useUpdateTaskWorkPackage } from "@/hooks/queries/useTaskWorkPackages";
 import {
   TASK_WORK_STATUS_LABEL,
@@ -34,6 +39,7 @@ import {
   type TaskWorkPackageWithMeta,
 } from "@/types/taskWork.types";
 import TaskWorkEffortPanel from "./TaskWorkEffortPanel";
+import TaskWorkVariationsSection from "./TaskWorkVariationsSection";
 import TaskWorkPaymentsPanel from "./TaskWorkPaymentsPanel";
 import TaskWorkPaymentDialog from "./TaskWorkPaymentDialog";
 import TaskWorkCompleteDialog from "./TaskWorkCompleteDialog";
@@ -73,6 +79,39 @@ function Stat({
   );
 }
 
+const COST_VERDICT: Record<
+  CostVerdict,
+  { label: string; color: "warning" | "success" | "info" | "default"; border: string }
+> = {
+  ahead: { label: "Paid ahead", color: "warning", border: "warning.main" },
+  behind: { label: "Behind work", color: "info", border: "info.main" },
+  fair: { label: "On track", color: "success", border: "success.main" },
+  unknown: { label: "No work value yet", color: "default", border: "divider" },
+};
+
+function Row({
+  label,
+  value,
+  color,
+  bold,
+}: {
+  label: string;
+  value: React.ReactNode;
+  color?: string;
+  bold?: boolean;
+}) {
+  return (
+    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+      <Typography variant="body2" color="text.secondary">
+        {label}
+      </Typography>
+      <Typography variant="body2" fontWeight={bold ? 700 : 600} color={color}>
+        {value}
+      </Typography>
+    </Box>
+  );
+}
+
 export default function TaskWorkDetailDrawer({ open, onClose, pkg, onEdit }: Props) {
   const isMobile = useIsMobile();
   const { userProfile } = useAuth();
@@ -81,6 +120,8 @@ export default function TaskWorkDetailDrawer({ open, onClose, pkg, onEdit }: Pro
   const [payOpen, setPayOpen] = useState(false);
   const [completeOpen, setCompleteOpen] = useState(false);
   const { data: prof } = useTaskWorkProfitability(pkg?.id);
+  const { data: dayLogs = [] } = useTaskWorkDayLogs(pkg?.id);
+  const { data: variations = [] } = useTaskWorkVariations(pkg?.id);
   const updateMut = useUpdateTaskWorkPackage();
 
   if (!pkg) return null;
@@ -90,6 +131,17 @@ export default function TaskWorkDetailDrawer({ open, onClose, pkg, onEdit }: Pro
   const paid = prof?.paid ?? 0;
   const balanceDue = prof?.balance ?? (pkg.total_value || 0);
   const isClosed = pkg.status === "completed" || pkg.status === "cancelled";
+
+  // Money vs work — effective agreed (base + approved extras) against the value
+  // of the work logged so far and what's been paid.
+  const approvedExtras = variations
+    .filter((v) => v.status === "approved")
+    .reduce((s, v) => s + Number(v.amount || 0), 0);
+  const baseAgreed = pkg.total_value || 0;
+  const effectiveAgreed = baseAgreed + approvedExtras;
+  const workValue = sumDayLogValue(dayLogs);
+  const costStatus = computeCostStatus({ effectiveAgreed, workValue, paid });
+  const verdict = COST_VERDICT[costStatus.verdict];
 
   const handleCompleteConfirm = (choice: CompletionChoice, reason: string) => {
     updateMut.mutate(
@@ -213,6 +265,65 @@ export default function TaskWorkDetailDrawer({ open, onClose, pkg, onEdit }: Pro
               </Grid>
             )}
           </Grid>
+
+          {/* Money vs work — agreed (incl. approved extras) vs work value vs paid. */}
+          <Divider sx={{ my: 2 }} />
+          <Typography variant="subtitle2" gutterBottom>
+            Money vs work
+          </Typography>
+          <Paper
+            variant="outlined"
+            sx={{ p: 1.5, borderRadius: 2, mb: 2, borderColor: verdict.border }}
+          >
+            <Stack spacing={0.75}>
+              <Row label="Base agreed" value={inr(baseAgreed)} />
+              {approvedExtras > 0 && (
+                <Row
+                  label="+ Approved extras"
+                  value={`+${inr(approvedExtras)}`}
+                  color="success.main"
+                />
+              )}
+              {approvedExtras > 0 && (
+                <Row label="Effective agreed" value={inr(effectiveAgreed)} bold />
+              )}
+              <Divider />
+              <Row label="Work value logged" value={inr(workValue)} />
+              <Row label="Paid so far" value={inr(paid)} color="success.main" />
+              <Row
+                label="Balance (vs agreed)"
+                value={inr(costStatus.balance)}
+                color={costStatus.balance > 0 ? "error.main" : undefined}
+              />
+            </Stack>
+            <Box
+              sx={{
+                mt: 1.25,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 1,
+                flexWrap: "wrap",
+              }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                {costStatus.verdict === "ahead"
+                  ? `Paid ${inr(costStatus.paidVsWork)} ahead of the work logged so far.`
+                  : costStatus.verdict === "behind"
+                  ? `Paid ${inr(Math.abs(costStatus.paidVsWork))} behind the work logged so far.`
+                  : costStatus.verdict === "fair"
+                  ? "Payments track the work logged so far."
+                  : "Log days with worker types & rates to compare paid against work done."}
+              </Typography>
+              <Chip size="small" label={verdict.label} color={verdict.color} />
+            </Box>
+          </Paper>
+
+          <TaskWorkVariationsSection
+            packageId={pkg.id}
+            siteId={pkg.site_id}
+            canEdit={canEdit}
+          />
 
           {pkg.scope_of_work && (
             <>
@@ -455,7 +566,12 @@ export default function TaskWorkDetailDrawer({ open, onClose, pkg, onEdit }: Pro
       )}
 
       {tab === 1 && (
-        <TaskWorkEffortPanel packageId={pkg.id} siteId={pkg.site_id} canEdit={canEdit} />
+        <TaskWorkEffortPanel
+          packageId={pkg.id}
+          siteId={pkg.site_id}
+          laborCategoryId={pkg.labor_category_id}
+          canEdit={canEdit}
+        />
       )}
 
       {tab === 2 && <TaskWorkPaymentsPanel pkg={pkg} canEdit={canEdit} />}

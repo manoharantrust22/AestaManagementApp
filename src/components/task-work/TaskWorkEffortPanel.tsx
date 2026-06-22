@@ -18,20 +18,34 @@ import {
   useTaskWorkDayLogs,
   useDeleteTaskWorkDayLog,
 } from "@/hooks/queries/useTaskWorkDayLogs";
+import {
+  dayLogValue,
+  sumDayLogValue,
+  summarizeLines,
+} from "@/lib/taskWork/dayLogCost";
 import type { TaskWorkDayLog } from "@/types/taskWork.types";
 import TaskWorkDayLogDialog from "./TaskWorkDayLogDialog";
 
 interface Props {
   packageId: string;
   siteId: string;
+  laborCategoryId: string | null;
   canEdit: boolean;
 }
 
+const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
+
 /**
- * Daily headcount log + running man-day totals for a package. This is the raw
- * material for the profitability numbers — it is effort tracking, not payroll.
+ * Daily per-type log + running totals for a package. Each day carries a worker
+ * breakdown (Mason ×2 @ ₹1000 …) whose value rolls up into "Labour value" — the
+ * basis for the over/under-paid view. Effort + value tracking, not payroll.
  */
-export default function TaskWorkEffortPanel({ packageId, siteId, canEdit }: Props) {
+export default function TaskWorkEffortPanel({
+  packageId,
+  siteId,
+  laborCategoryId,
+  canEdit,
+}: Props) {
   const { data: logs = [], isLoading } = useTaskWorkDayLogs(packageId);
   const deleteMut = useDeleteTaskWorkDayLog();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -39,7 +53,7 @@ export default function TaskWorkEffortPanel({ packageId, siteId, canEdit }: Prop
 
   const totals = useMemo(() => {
     const manDays = logs.reduce((s, l) => s + (l.man_days || 0), 0);
-    return { manDays, days: logs.length };
+    return { manDays, days: logs.length, value: sumDayLogValue(logs) };
   }, [logs]);
 
   const openNew = () => {
@@ -63,12 +77,20 @@ export default function TaskWorkEffortPanel({ packageId, siteId, canEdit }: Prop
               {totals.manDays}
             </Typography>
           </Box>
-          <Box sx={{ textAlign: "right" }}>
+          <Box sx={{ textAlign: "center" }}>
             <Typography variant="caption" color="text.secondary">
               Working days
             </Typography>
             <Typography variant="h6" fontWeight={700}>
               {totals.days}
+            </Typography>
+          </Box>
+          <Box sx={{ textAlign: "right" }}>
+            <Typography variant="caption" color="text.secondary">
+              Labour value
+            </Typography>
+            <Typography variant="h6" fontWeight={700} color="primary.main">
+              {inr(totals.value)}
             </Typography>
           </Box>
         </Box>
@@ -100,47 +122,72 @@ export default function TaskWorkEffortPanel({ packageId, siteId, canEdit }: Prop
         </Typography>
       ) : (
         <List dense disablePadding>
-          {logs.map((l) => (
-            <ListItem
-              key={l.id}
-              disableGutters
-              secondaryAction={
-                canEdit ? (
-                  <Box>
-                    <IconButton size="small" onClick={() => openEdit(l)}>
-                      <Edit fontSize="small" />
-                    </IconButton>
-                    <IconButton
-                      size="small"
-                      color="error"
-                      onClick={() =>
-                        deleteMut.mutate({
-                          id: l.id,
-                          packageId,
-                          siteId,
-                        })
-                      }
-                    >
-                      <Delete fontSize="small" />
-                    </IconButton>
-                  </Box>
-                ) : undefined
-              }
-            >
-              <ListItemText
-                primary={
-                  <Typography variant="body2" fontWeight={600}>
-                    {dayjs(l.log_date).format("ddd, DD MMM")} ·{" "}
-                    {l.worker_count} workers
-                    {l.man_days !== l.worker_count
-                      ? ` (${l.man_days} man-days)`
-                      : ""}
-                  </Typography>
+          {logs.map((l) => {
+            const breakdown = summarizeLines(l.worker_lines);
+            const value = dayLogValue(l);
+            const secondaryBits = [breakdown, l.worker_note]
+              .filter(Boolean)
+              .join(" — ");
+            return (
+              <ListItem
+                key={l.id}
+                disableGutters
+                secondaryAction={
+                  canEdit ? (
+                    <Box>
+                      <IconButton size="small" onClick={() => openEdit(l)}>
+                        <Edit fontSize="small" />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() =>
+                          deleteMut.mutate({
+                            id: l.id,
+                            packageId,
+                            siteId,
+                          })
+                        }
+                      >
+                        <Delete fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  ) : undefined
                 }
-                secondary={l.worker_note || undefined}
-              />
-            </ListItem>
-          ))}
+              >
+                <ListItemText
+                  primary={
+                    <Box
+                      component="span"
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 1,
+                        pr: canEdit ? 7 : 0,
+                      }}
+                    >
+                      <Typography variant="body2" fontWeight={600} component="span">
+                        {dayjs(l.log_date).format("ddd, DD MMM")} · {l.worker_count}{" "}
+                        worker{l.worker_count === 1 ? "" : "s"}
+                      </Typography>
+                      {value > 0 && (
+                        <Typography
+                          variant="body2"
+                          fontWeight={700}
+                          color="primary.main"
+                          component="span"
+                        >
+                          {inr(value)}
+                        </Typography>
+                      )}
+                    </Box>
+                  }
+                  primaryTypographyProps={{ component: "div" }}
+                  secondary={secondaryBits || undefined}
+                />
+              </ListItem>
+            );
+          })}
         </List>
       )}
 
@@ -149,6 +196,7 @@ export default function TaskWorkEffortPanel({ packageId, siteId, canEdit }: Prop
         onClose={() => setDialogOpen(false)}
         packageId={packageId}
         siteId={siteId}
+        laborCategoryId={laborCategoryId}
         editing={editing}
       />
     </Box>

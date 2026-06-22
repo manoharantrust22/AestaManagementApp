@@ -5,6 +5,7 @@ import { createClient, ensureFreshSession } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
 import { wrapQueryFn } from "@/lib/utils/timeout";
 import { useAuth } from "@/contexts/AuthContext";
+import { deriveCountsFromLines } from "@/lib/taskWork/dayLogCost";
 import type { TaskWorkDayLog, TaskWorkDayLogInput } from "@/types/taskWork.types";
 
 const dl = (supabase: ReturnType<typeof createClient>) =>
@@ -52,9 +53,10 @@ function invalidate(
 }
 
 /**
- * Insert or update a day's headcount. There's one row per (package, date), so
- * re-logging the same date overwrites it (upsert on the unique constraint).
- * man_days defaults to worker_count unless a fractional value is supplied.
+ * Insert or update a day's per-type breakdown. There's one row per
+ * (package, date), so re-logging the same date overwrites it (upsert on the
+ * unique constraint). worker_count and man_days are DERIVED from the lines
+ * (Σ counts); man_days keeps decimals so half-days are preserved.
  */
 export function useUpsertTaskWorkDayLog() {
   const queryClient = useQueryClient();
@@ -64,19 +66,17 @@ export function useUpsertTaskWorkDayLog() {
     mutationFn: async (input: TaskWorkDayLogInput) => {
       await ensureFreshSession();
       const supabase = createClient();
-      const manDays =
-        input.man_days != null && input.man_days > 0
-          ? input.man_days
-          : input.worker_count;
+      const { worker_count, man_days } = deriveCountsFromLines(input.worker_lines);
       const { data, error } = await dl(supabase)
         .upsert(
           {
             package_id: input.package_id,
             site_id: input.site_id,
             log_date: input.log_date,
-            worker_count: input.worker_count,
+            worker_count,
             worker_note: input.worker_note ?? null,
-            man_days: manDays,
+            man_days,
+            worker_lines: input.worker_lines,
             recorded_by: userProfile?.id ?? null,
           },
           { onConflict: "package_id,log_date" }
