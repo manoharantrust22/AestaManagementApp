@@ -25,22 +25,38 @@ describe("buildContractScopeHref", () => {
     expect(new URL(href, "http://x").searchParams.get("contractId")).toBe("c9");
   });
 
-  it("Civil-category contracts resolve to the default Civil flow (no params)", () => {
-    expect(
-      buildContractScopeHref("/site/attendance", make({ tradeName: "Civil", tradeCategoryId: "cat-civil" }))
-    ).toBe("/site/attendance");
+  it("Civil attendance carries ONLY contractId (stays on the per-laborer flow)", () => {
+    const href = buildContractScopeHref(
+      "/site/attendance",
+      make({ id: "civ1", tradeName: "Civil", tradeCategoryId: "cat-civil" })
+    );
+    const url = new URL(href, "http://x");
+    expect(url.pathname).toBe("/site/attendance");
+    expect(url.searchParams.get("contractId")).toBe("civ1");
+    // Must NOT carry the trade triple, or the page would switch to the headcount view.
+    expect(url.searchParams.get("categoryId")).toBeNull();
+    expect(url.searchParams.get("trade")).toBeNull();
   });
 
-  it("in-house contracts resolve to the default flow", () => {
+  it("Civil PAYMENTS still resolves to the default flow (no params)", () => {
+    expect(
+      buildContractScopeHref("/site/payments", make({ tradeName: "Civil", tradeCategoryId: "cat-civil" }))
+    ).toBe("/site/payments");
+  });
+
+  it("in-house contracts resolve to the default flow (payments)", () => {
     expect(
       buildContractScopeHref("/site/payments", make({ isInHouse: true }))
     ).toBe("/site/payments");
   });
 
-  it("trade-less (uncategorized) contracts resolve to the default flow", () => {
+  it("trade-less attendance carries contractId; payments stays bare", () => {
     expect(
-      buildContractScopeHref("/site/attendance", make({ tradeCategoryId: null }))
-    ).toBe("/site/attendance");
+      buildContractScopeHref("/site/attendance", make({ id: "u1", tradeCategoryId: null }))
+    ).toBe("/site/attendance?contractId=u1");
+    expect(
+      buildContractScopeHref("/site/payments", make({ tradeCategoryId: null }))
+    ).toBe("/site/payments");
   });
 
   it("encodes trade names with spaces / symbols", () => {

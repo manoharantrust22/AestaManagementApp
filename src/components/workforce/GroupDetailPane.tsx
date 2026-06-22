@@ -303,8 +303,8 @@ export function GroupDetailPane({
             <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.75, px: 0.5 }}>
               <InfoOutlined sx={{ fontSize: 15, color: wsColors.muted, mt: 0.1 }} />
               <Typography sx={{ fontSize: 11, color: wsColors.muted }}>
-                Logging labour still asks which floor it belongs to. A &ldquo;whole contract / no specific
-                floor&rdquo; option is coming next.
+                When the work spans floors, tick &ldquo;Whole contract — not a specific floor&rdquo; on the
+                attendance screen instead of forcing a floor.
               </Typography>
             </Box>
           </Box>

@@ -28,6 +28,12 @@ export function buildContractScopeHref(
   // Civil-category, in-house, or trade-less contracts use the page default
   // (the per-laborer Civil flow). Mirror TradeChipFilter's "Civil" test.
   if (task.isInHouse || !task.tradeCategoryId || task.tradeName === "Civil") {
+    // For attendance, carry the contract id ALONE (not the categoryId+trade triple,
+    // which would switch the page to the trade headcount view). The attendance screen
+    // reads it to offer "whole contract / no specific floor" tagging for this contract.
+    if (base === "/site/attendance") {
+      return `${base}?contractId=${encodeURIComponent(task.id)}`;
+    }
     return base;
   }
   const params = new URLSearchParams({

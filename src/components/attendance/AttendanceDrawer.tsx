@@ -53,6 +53,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { ensureFreshSession } from "@/lib/auth/sessionManager";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSearchParams } from "next/navigation";
 import dayjs from "dayjs";
 import LaborerSelectionDialog from "./LaborerSelectionDialog";
 import MarketLaborerDialog from "./MarketLaborerDialog";
@@ -354,6 +355,19 @@ export default function AttendanceDrawer({
   );
   const [sectionId, setSectionId] = useState<string>("");
   const [sectionName, setSectionName] = useState<string>("");
+
+  // "Whole contract / no specific floor": when the user comes from a contract's
+  // "Log attendance" button (?contractId=…), they're logging work that spans floors
+  // (e.g. outer plastering, or a bathroom + slab the same day). Skips the section and
+  // links the attendance straight to that contract. Default ON when deep-linked from a
+  // contract; otherwise off (a floor is required as before).
+  const searchParams = useSearchParams();
+  const scopedContractId = searchParams.get("contractId");
+  // Default ON only for a fresh entry deep-linked from a contract; for editing an
+  // existing day we reflect that record's own floor (set in the load effect below).
+  const [wholeContract, setWholeContract] = useState<boolean>(
+    !!scopedContractId && !initialDate
+  );
   const [selectedLaborers, setSelectedLaborers] = useState<
     Map<string, SelectedLaborer>
   >(new Map());
@@ -680,6 +694,11 @@ export default function AttendanceDrawer({
 
       if (loadedSectionId) {
         setSectionId(loadedSectionId);
+      }
+      // Editing an existing day: reflect whether it was logged against a floor or as
+      // a whole-contract (no-floor) entry, so the toggle matches what's on screen.
+      if (existingSelected.size > 0) {
+        setWholeContract(!loadedSectionId);
       }
 
       // Load existing market laborers for this date
@@ -1185,8 +1204,8 @@ export default function AttendanceDrawer({
       return;
     }
 
-    if (!sectionId) {
-      setError("Please select a section");
+    if (!wholeContract && !sectionId) {
+      setError("Please select a section, or tick “Whole contract — not a specific floor”.");
       return;
     }
 
@@ -1336,7 +1355,10 @@ export default function AttendanceDrawer({
           date: selectedDate,
           laborer_id: s.laborerId,
           site_id: siteId,
-          section_id: sectionId,
+          section_id: wholeContract ? null : (sectionId || null),
+          // Whole-contract attendance (no floor) links straight to the contract the
+          // user came from; floor-specific attendance stays unlinked until settlement.
+          subcontract_id: wholeContract ? (scopedContractId ?? null) : null,
           work_days: s.dayUnits,
           hours_worked: s.workHours || 0,
           daily_rate_applied: s.dailyRate,
@@ -1494,7 +1516,8 @@ export default function AttendanceDrawer({
           const effectiveRate = m.salaryOverridePerPerson ?? m.ratePerPerson;
           const record: Record<string, unknown> = {
             site_id: siteId,
-            section_id: sectionId,
+            section_id: wholeContract ? null : (sectionId || null),
+            subcontract_id: wholeContract ? (scopedContractId ?? null) : null,
             date: selectedDate,
             role_id: m.roleId,
             worker_index: m.workerIndex || 1, // Worker index for same-role differentiation
@@ -1683,7 +1706,7 @@ export default function AttendanceDrawer({
                 date: selectedDate,
                 amount: totalAmount,
                 site_id: siteId,
-                section_id: sectionId,
+                section_id: wholeContract ? null : (sectionId || null),
                 description: `Daily labor - ${
                   summary.totalCount
                 } laborers (Salary: ₹${summary.totalSalary.toLocaleString()})`,
@@ -1806,8 +1829,8 @@ export default function AttendanceDrawer({
       return;
     }
 
-    if (!sectionId) {
-      setError("Please select a section");
+    if (!wholeContract && !sectionId) {
+      setError("Please select a section, or tick “Whole contract — not a specific floor”.");
       return;
     }
 
@@ -1951,15 +1974,44 @@ export default function AttendanceDrawer({
                 />
                 <SectionAutocomplete
                   siteId={siteId}
-                  value={sectionId || null}
+                  value={wholeContract ? null : (sectionId || null)}
                   onChange={(id) => setSectionId(id || "")}
                   onNameChange={(name) => setSectionName(name)}
                   size="small"
                   label="Section"
-                  autoSelectDefault={!initialDate}
+                  disabled={wholeContract}
+                  autoSelectDefault={!initialDate && !wholeContract}
                   sx={{ flex: { xs: "none", sm: 2 }, width: "100%" }}
                 />
               </Box>
+
+              {/* Whole-contract / no-specific-floor toggle. For work that spans floors
+                  (outer plastering, a bathroom + slab the same day) the user shouldn't be
+                  forced to pick one floor. When ticked, the section is skipped and the
+                  attendance links to the contract they came from (if any). */}
+              <FormControlLabel
+                sx={{ alignItems: "flex-start", mb: 1.5, ml: 0 }}
+                control={
+                  <Checkbox
+                    size="small"
+                    checked={wholeContract}
+                    onChange={(e) => setWholeContract(e.target.checked)}
+                    sx={{ pt: 0 }}
+                  />
+                }
+                label={
+                  <Box component="span">
+                    <Typography component="span" variant="body2" sx={{ fontWeight: 600 }}>
+                      Whole contract — not a specific floor
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                      {scopedContractId
+                        ? "Skips the floor and links this attendance to the contract you came from."
+                        : "Skips the floor. The work links to a contract when you settle the salary."}
+                    </Typography>
+                  </Box>
+                }
+              />
 
               {/* Unified Laborers Section */}
               <Box
