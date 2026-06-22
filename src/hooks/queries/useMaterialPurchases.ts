@@ -992,10 +992,17 @@ export function useSettleMaterialPurchase() {
         updated_at: new Date().toISOString(),
       };
 
-      // Only set settlement reference/date for non-vendor-only payments
+      // Always record the business settlement date — the vendor WAS paid on a
+      // date, even for a group vendor-only payment. Leaving this NULL (the old
+      // behaviour) made a paid row inconsistent (paid_date set, settlement_date
+      // NULL) and starved every settlement_date reader. Safe: v_all_expenses
+      // still excludes the group parent because that gate is on
+      // settlement_reference, not settlement_date.
+      updateData.settlement_date = data.settlement_date;
+      // Only mint/keep a settlement_reference for non-vendor-only (inter-site)
+      // settlements — a vendor-only payment must not look inter-site-settled.
       if (!data.isVendorPaymentOnly) {
         updateData.settlement_reference = settlementRef;
-        updateData.settlement_date = data.settlement_date;
       }
       // Always store payer source and payer name. Phase 4: when the dialog
       // sends a split payload, `payer_source` arrives as the "split" sentinel

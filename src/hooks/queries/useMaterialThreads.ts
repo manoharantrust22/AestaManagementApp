@@ -1182,9 +1182,13 @@ function mapStandardThread(
             settlement.payment_channel === "engineer_wallet"
               ? settlement.engineer_tx?.recorded_by ?? null
               : null,
-          // Prefer the audit timestamp (who/when the row was actually marked
-          // paid); fall back to the business paid_date for pre-audit rows.
-          settled_at: settlement.settled_at ?? settlement.paid_date,
+          // Show the editable business payment date (paid_date) — the value the
+          // Edit-settlement dialog actually writes. settled_at is an audit
+          // timestamp stamped ONCE on the is_paid false->true transition and
+          // never re-stamped, so binding the card to it made a corrected
+          // Payment Date look like it "reverted to today". Fall back to
+          // settled_at only for rows with no paid_date.
+          settled_at: settlement.paid_date ?? settlement.settled_at,
           settled_by_name: settlement.settled_by_name,
           expense_ref: settlement.ref_code,
           expense_id: settlement.id,
