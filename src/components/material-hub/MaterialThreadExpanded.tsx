@@ -623,7 +623,7 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               <DetailRow label="Vendor" value={t.po.vendor_name ?? "—"} />
               <DetailRow
                 label="Type"
-                value={`${t.kind === "group" ? "Group" : "Own"}${t.advance ? " · Advance" : ""}`}
+                value={`${t.kind === "group" ? "Group" : "Own"}${t.advance ? " · Bulk advance" : ""}`}
                 tone={t.kind === "group" ? "warn" : "default"}
               />
               <DetailRow label="Amount" value={inr(t.po.amount)} emphasis />

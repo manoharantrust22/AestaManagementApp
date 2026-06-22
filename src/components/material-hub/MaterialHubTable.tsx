@@ -110,7 +110,7 @@ export default function MaterialHubTable({
                 : "Group · own"
               : "Own"
           );
-          if (t.advance) parts.push("Advance");
+          if (t.advance || t.delivery_type === "bulk") parts.push("Bulk advance");
           if (t.purchase_type === "spot") parts.push("Spot");
           return parts.join(" · ");
         },

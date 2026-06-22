@@ -51,7 +51,9 @@ export default function MaterialThreadRow({
 }: MaterialThreadRowProps) {
   const isMobile = useMediaQuery(`(max-width:${HUB_BREAKPOINT_PX - 1}px)`);
   const isGroup = thread.kind === "group";
-  const isAdvance = thread.advance;
+  // "Bulk advance" = the PO is paid upfront (advance) OR the engineer flagged the
+  // request as bulk at request time — so the chip shows from the request stage.
+  const isBulkAdvance = thread.advance || thread.delivery_type === "bulk";
   const isSpot = thread.purchase_type === "spot";
   // Brand shown as a muted subtitle prefix so the engineer can tell which
   // brand a material is (e.g. "Chettinad", "Amman"). Null → nothing shown.
@@ -171,9 +173,9 @@ export default function MaterialThreadRow({
                 Shared from {thread.mirrored_from_site_name ?? "other site"}
               </ThreadChip>
             )}
-            {isAdvance && (
+            {isBulkAdvance && (
               <ThreadChip tone="warn">
-                <Dot color={hubTokens.warn} /> Advance
+                <Dot color={hubTokens.warn} /> Bulk advance
               </ThreadChip>
             )}
             {(thread.priority === "high" || thread.priority === "urgent") && (

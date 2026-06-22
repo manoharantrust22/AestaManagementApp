@@ -1122,6 +1122,10 @@ function mapStandardThread(
     inter_site_pending: hasPendingInterSite || undefined,
     inter_site_status: interSiteStatus === "none" ? undefined : interSiteStatus,
     advance: po?.payment_timing === "advance",
+    // Engineer's request-time intent. Lets the Hub show "Bulk advance" from the
+    // request stage (before any PO exists). Does NOT drive the advance stage
+    // machinery — that stays keyed off po.payment_timing above.
+    delivery_type: (mr as any).delivery_type ?? undefined,
     material_id: primaryItem?.material_id ?? "",
     material_name: (primaryItem as any)?.material?.name ?? "—",
     material_unit: (primaryItem as any)?.material?.unit ?? "nos",

@@ -297,6 +297,10 @@ export interface MaterialThread {
    *  manual (the silent auto-trigger was dropped in migration 20260601130000). */
   self_use_expense?: { ref_code: string; amount: number } | null;
   advance: boolean;
+  /** Engineer's request-time intent: 'bulk' = bulk advance (large discounted buy,
+   *  delivered part-by-part); 'one_time' = regular. Surfaces the "Bulk advance"
+   *  label from the request stage, before a PO exists. */
+  delivery_type?: "one_time" | "bulk";
 
   // Material (primary, when multi-line)
   material_id: string;

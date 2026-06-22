@@ -1852,8 +1852,14 @@ export function useRecordAdvancePayment() {
           authUserId,
         );
 
+        // "advance" only belongs on a true bulk-advance buy (vendor paid upfront,
+        // delivered part-by-part). A regular group buy is "Group stock payment",
+        // not "Group stock advance payment".
+        const isAdvanceBuy = (po as { payment_timing?: string }).payment_timing === "advance";
         walletDescription = built.isGroupStock
-          ? "Group stock advance payment"
+          ? isAdvanceBuy
+            ? "Group stock advance payment"
+            : "Group stock payment"
           : `Material payment: ${po.vendor?.name ?? "vendor"}${po.po_number ? ` (${po.po_number})` : ""}`;
 
         if (expenseId) {
