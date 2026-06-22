@@ -36,6 +36,7 @@ import WalletSourcePoolsCard from "@/components/wallet-v2/WalletSourcePoolsCard"
 import AddFundsDialog from "@/components/wallet-v2/AddFundsDialog";
 import EditDepositDialog from "@/components/wallet-v2/EditDepositDialog";
 import SpendDetailDialog from "@/components/wallet-v2/SpendDetailDialog";
+import WalletStatementDialog from "@/components/wallet-v2/WalletStatementDialog";
 import type {
   EngineerSiteBalance,
   WalletEnabledEngineer,
@@ -105,6 +106,13 @@ export default function CompanyEngineerWalletPage() {
   }>({ open: false, siteId: "", engineerId: "" });
   const [editingDeposit, setEditingDeposit] = useState<WalletLedgerEntry | null>(null);
   const [detailRow, setDetailRow] = useState<WalletLedgerEntry | null>(null);
+  const [statementState, setStatementState] = useState<{
+    open: boolean;
+    siteId: string;
+    siteName: string;
+    engineerId: string;
+    engineerName: string;
+  }>({ open: false, siteId: "", siteName: "", engineerId: "", engineerName: "" });
 
   const canEditDeposits = userProfile?.role !== "site_engineer";
 
@@ -200,6 +208,16 @@ export default function CompanyEngineerWalletPage() {
           onReturn={(s) =>
             setReturnState({ open: true, siteId: s, engineerId: selectedEngineer.user_id })
           }
+          onStatement={(s) => {
+            const site = selectedEngineer.sites.find((x) => x.site_id === s);
+            setStatementState({
+              open: true,
+              siteId: s,
+              siteName: site?.site_name ?? "Site",
+              engineerId: selectedEngineer.user_id,
+              engineerName: selectedEngineer.name,
+            });
+          }}
           onEditDeposit={canEditDeposits ? (row) => setEditingDeposit(row) : undefined}
           onViewSpend={(row) => setDetailRow(row)}
         />
@@ -262,6 +280,16 @@ export default function CompanyEngineerWalletPage() {
         onClose={() => setDetailRow(null)}
         row={detailRow}
       />
+      {statementState.open && (
+        <WalletStatementDialog
+          open={statementState.open}
+          onClose={() => setStatementState((s) => ({ ...s, open: false }))}
+          engineerId={statementState.engineerId}
+          engineerName={statementState.engineerName}
+          siteId={statementState.siteId}
+          siteName={statementState.siteName}
+        />
+      )}
     </Container>
   );
 }
@@ -485,6 +513,7 @@ function EngineerDetailPanel({
   onChangeTab,
   onAdd,
   onReturn,
+  onStatement,
   onEditDeposit,
   onViewSpend,
 }: {
@@ -499,6 +528,7 @@ function EngineerDetailPanel({
   onChangeTab: (t: LedgerTab) => void;
   onAdd: (siteId: string) => void;
   onReturn: (siteId: string) => void;
+  onStatement: (siteId: string) => void;
   onEditDeposit?: (row: WalletLedgerEntry) => void;
   onViewSpend: (row: WalletLedgerEntry) => void;
 }) {
@@ -637,6 +667,7 @@ function EngineerDetailPanel({
           onSelect={onSelectSite}
           onAdd={onAdd}
           onReturn={onReturn}
+          onStatement={onStatement}
           emptyMessage="No active sites for this company."
         />
       </Stack>

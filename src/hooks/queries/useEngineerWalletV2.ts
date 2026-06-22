@@ -23,6 +23,7 @@ import {
   getUnlinkedWalletSpends,
   getWalletEnabledEngineers,
   getWalletLedger,
+  getWalletStatement,
 } from "@/lib/services/engineerWalletV2";
 import type {
   EngineerSiteBalance,
@@ -49,6 +50,8 @@ export const ENGINEER_WALLET_KEYS = {
     ["engineer-wallet", "pools", userId, siteId] as const,
   unlinkedSpends: (userIds: string[], siteId: string | null) =>
     ["engineer-wallet", "unlinked-spends", userIds.slice().sort().join(","), siteId] as const,
+  statement: (userId: string, siteId: string) =>
+    ["engineer-wallet", "statement", userId, siteId] as const,
 };
 
 /** One row of v_engineer_wallet_pools — per-source pool balance per (engineer, site). */
@@ -187,6 +190,32 @@ export function useEngineerWalletLedger(
         cursor: pageParam as WalletLedgerPage["next_cursor"],
       }),
     getNextPageParam: (lastPage) => lastPage.next_cursor,
+  });
+}
+
+/**
+ * Full chronological statement (oldest→newest, all active rows) for one
+ * engineer+site, for the printable Wallet Statement dialog. Fetched only while
+ * the dialog is open (`enabled`). Unpaginated — the per-site set is small.
+ */
+export function useWalletStatement(
+  userId: string | undefined,
+  siteId: string | undefined,
+  enabled = true
+) {
+  useCrossTabInvalidate();
+  const supabase = createClient();
+  const on = Boolean(userId && siteId) && enabled;
+  return useQuery<WalletLedgerEntry[]>({
+    queryKey: on
+      ? ENGINEER_WALLET_KEYS.statement(userId as string, siteId as string)
+      : ["engineer-wallet", "statement", "_disabled"],
+    enabled: on,
+    staleTime: 30_000,
+    queryFn: wrapQueryFn(
+      () => getWalletStatement(supabase, userId as string, siteId as string),
+      { operationName: "useWalletStatement" }
+    ),
   });
 }
 

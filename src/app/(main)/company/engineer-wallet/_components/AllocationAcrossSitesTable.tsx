@@ -24,6 +24,7 @@ import {
   KeyboardReturn,
   LocationOn,
   CheckCircle,
+  ReceiptLong,
 } from "@mui/icons-material";
 import dayjs from "dayjs";
 import type { EngineerSiteBalance } from "@/types/engineer-wallet-v2.types";
@@ -39,6 +40,8 @@ interface AllocationAcrossSitesTableProps {
   /** When provided, each row shows per-row Add Funds / Return CTAs (Mode B). */
   onAdd?: (siteId: string) => void;
   onReturn?: (siteId: string) => void;
+  /** When provided (Mode B — engineer known), each row shows a "Statement" CTA. */
+  onStatement?: (siteId: string) => void;
   /** When false, the table renders without the Held column's "currently held" label
    *  context — used in aggregate mode where it still applies. Reserved for future. */
   emptyMessage?: string;
@@ -51,6 +54,7 @@ export default function AllocationAcrossSitesTable({
   onSelect,
   onAdd,
   onReturn,
+  onStatement,
   emptyMessage = "No active sites yet.",
 }: AllocationAcrossSitesTableProps) {
   const theme = useTheme();
@@ -88,6 +92,7 @@ export default function AllocationAcrossSitesTable({
             onClick={() => onSelect(r.site_id === selectedSiteId ? null : r.site_id)}
             onAdd={onAdd ? () => onAdd(r.site_id) : undefined}
             onReturn={onReturn ? () => onReturn(r.site_id) : undefined}
+            onStatement={onStatement ? () => onStatement(r.site_id) : undefined}
           />
         ))}
       </Stack>
@@ -107,7 +112,7 @@ export default function AllocationAcrossSitesTable({
             <TableCell align="right" sx={{ fontWeight: 700 }}>Deposited</TableCell>
             <TableCell align="right" sx={{ fontWeight: 700 }}>Spent</TableCell>
             <TableCell sx={{ fontWeight: 700 }}>Last activity</TableCell>
-            {(onAdd || onReturn) && (
+            {(onAdd || onReturn || onStatement) && (
               <TableCell align="right" sx={{ fontWeight: 700 }}>Actions</TableCell>
             )}
           </TableRow>
@@ -170,7 +175,7 @@ export default function AllocationAcrossSitesTable({
                     {r.last_txn_at ? dayjs(r.last_txn_at).format("D MMM YYYY") : "—"}
                   </Typography>
                 </TableCell>
-                {(onAdd || onReturn) && (
+                {(onAdd || onReturn || onStatement) && (
                   <TableCell align="right" onClick={(e) => e.stopPropagation()}>
                     <Stack direction="row" spacing={0.5} justifyContent="flex-end">
                       {onAdd && (
@@ -197,6 +202,17 @@ export default function AllocationAcrossSitesTable({
                           Return
                         </Button>
                       )}
+                      {onStatement && (
+                        <Button
+                          size="small"
+                          variant="text"
+                          startIcon={<ReceiptLong fontSize="small" />}
+                          onClick={() => onStatement(r.site_id)}
+                          sx={{ textTransform: "none", minWidth: 0, color: "text.secondary" }}
+                        >
+                          Statement
+                        </Button>
+                      )}
                     </Stack>
                   </TableCell>
                 )}
@@ -215,12 +231,14 @@ function SiteAllocationCard({
   onClick,
   onAdd,
   onReturn,
+  onStatement,
 }: {
   row: EngineerSiteBalance;
   isSelected: boolean;
   onClick: () => void;
   onAdd?: () => void;
   onReturn?: () => void;
+  onStatement?: () => void;
 }) {
   return (
     <Card
@@ -283,37 +301,48 @@ function SiteAllocationCard({
           />
         )}
       </Stack>
-      {(onAdd || onReturn) && (
-        <Stack
-          direction="row"
-          spacing={1}
-          sx={{ mt: 1.25 }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {onAdd && (
-            <Button
-              fullWidth
-              size="small"
-              variant="outlined"
-              startIcon={<AddIcon fontSize="small" />}
-              onClick={onAdd}
-              sx={{ textTransform: "none" }}
-            >
-              Add funds
-            </Button>
+      {(onAdd || onReturn || onStatement) && (
+        <Stack spacing={0.75} sx={{ mt: 1.25 }} onClick={(e) => e.stopPropagation()}>
+          {(onAdd || onReturn) && (
+            <Stack direction="row" spacing={1}>
+              {onAdd && (
+                <Button
+                  fullWidth
+                  size="small"
+                  variant="outlined"
+                  startIcon={<AddIcon fontSize="small" />}
+                  onClick={onAdd}
+                  sx={{ textTransform: "none" }}
+                >
+                  Add funds
+                </Button>
+              )}
+              {onReturn && (
+                <Button
+                  fullWidth
+                  size="small"
+                  variant="outlined"
+                  color="info"
+                  startIcon={<KeyboardReturn fontSize="small" />}
+                  onClick={onReturn}
+                  disabled={row.balance <= 0}
+                  sx={{ textTransform: "none" }}
+                >
+                  Return
+                </Button>
+              )}
+            </Stack>
           )}
-          {onReturn && (
+          {onStatement && (
             <Button
               fullWidth
               size="small"
-              variant="outlined"
-              color="info"
-              startIcon={<KeyboardReturn fontSize="small" />}
-              onClick={onReturn}
-              disabled={row.balance <= 0}
-              sx={{ textTransform: "none" }}
+              variant="text"
+              startIcon={<ReceiptLong fontSize="small" />}
+              onClick={onStatement}
+              sx={{ textTransform: "none", color: "text.secondary" }}
             >
-              Return
+              Statement
             </Button>
           )}
         </Stack>

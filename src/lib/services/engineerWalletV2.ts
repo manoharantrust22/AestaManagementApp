@@ -177,6 +177,32 @@ export async function getWalletLedger(
 }
 
 /**
+ * Full chronological statement for one (engineer, site) pool — every active row
+ * in ASCENDING order (oldest first), so a running balance can be carried down
+ * the list and the final value equals the card's Held. Unpaginated: a single
+ * site's lifetime row count is small (tens to low hundreds), so one fetch is fine.
+ * Drives the printable / shareable Wallet Statement.
+ */
+export async function getWalletStatement(
+  supabase: SupabaseClient,
+  userId: string,
+  siteId: string
+): Promise<WalletLedgerEntry[]> {
+  const { data, error } = await supabase
+    .from("site_engineer_transactions")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("site_id", siteId)
+    .is("cancelled_at", null)
+    .order("transaction_date", { ascending: true })
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as WalletLedgerEntry[];
+}
+
+/**
  * Combined ledger across multiple engineers — used by the company All Engineers
  * overview. Same shape and cursor as getWalletLedger; just swaps eq(user_id) for
  * in(user_id, …) so we can paginate the union without N parallel queries.
