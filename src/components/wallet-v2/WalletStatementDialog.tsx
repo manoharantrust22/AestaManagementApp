@@ -205,7 +205,7 @@ export default function WalletStatementDialog({
         const inCol = isDep ? `₹${fmt(r.amount)}` : "";
         const outCol = !isDep ? `₹${fmt(r.amount)}` : "";
         const balCls = ln.balance < 0 ? "bal neg" : "bal";
-        return `<tr><td class="c">${ln.idx}</td><td>${date}</td><td>${part}</td><td class="r in">${inCol}</td><td class="r out">${outCol}</td><td class="r ${balCls}">₹${fmt(
+        return `<tr><td class="idx">${ln.idx}</td><td class="date">${date}</td><td>${part}</td><td class="r in">${inCol}</td><td class="r out">${outCol}</td><td class="r ${balCls}">₹${fmt(
           ln.balance
         )}</td><td class="tick"></td></tr>`;
       })
@@ -219,43 +219,76 @@ export default function WalletStatementDialog({
 <title>Wallet Statement — ${escapeHtml(siteName)}</title>
 <style>
   * { box-sizing: border-box; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; margin: 24px; }
-  h1 { font-size: 18px; margin: 0 0 2px; }
-  .sub { color: #555; font-size: 12px; margin-bottom: 12px; }
-  .totals { display: flex; gap: 18px; margin: 10px 0 16px; flex-wrap: wrap; }
-  .totals div { font-size: 13px; }
-  .totals b { display: block; font-size: 16px; }
-  .held b { color: #0a6b2e; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  th, td { border: 1px solid #ccc; padding: 4px 6px; }
-  th { background: #f2f2f2; text-align: left; }
+  body {
+    font-family: "Segoe UI", Arial, Helvetica, sans-serif; color: #1a1a1a;
+    margin: 22px; font-size: 11px;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .head {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    gap: 24px; border-bottom: 2px solid #0a6b2e; padding-bottom: 9px; margin-bottom: 14px;
+  }
+  h1 { font-size: 16px; margin: 0 0 3px; letter-spacing: .2px; }
+  .sub { color: #555; font-size: 11px; }
+  .totals { display: flex; gap: 22px; text-align: right; white-space: nowrap; }
+  .totals div { font-size: 9px; color: #8a8a8a; text-transform: uppercase; letter-spacing: .4px; }
+  .totals b { display: block; font-size: 15px; color: #1a1a1a; text-transform: none; letter-spacing: 0; margin-top: 1px; }
+  .totals span { display: block; font-size: 8.5px; color: #aaa; text-transform: none; }
+  .totals .held b { color: #0a6b2e; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+  th, td { border: 1px solid #dcdcdc; padding: 3px 6px; vertical-align: top; overflow-wrap: break-word; word-break: break-word; }
+  thead th {
+    background: #0a6b2e; color: #fff; text-align: left; font-weight: 600;
+    font-size: 10px; text-transform: uppercase; letter-spacing: .3px; border-color: #0a6b2e;
+  }
+  tbody tr:nth-child(even) { background: #f6f8f6; }
   td.r, th.r { text-align: right; }
   td.c, th.c { text-align: center; }
+  td.r { font-variant-numeric: tabular-nums; }
+  td.idx { color: #aaa; text-align: center; }
+  td.date { white-space: nowrap; color: #444; }
   td.in { color: #0a6b2e; }
   td.out { color: #b00020; }
   td.bal { font-weight: 700; }
   td.bal.neg { color: #b00020; }
-  td.tick { width: 26px; }
-  .src { color: #777; font-weight: 400; }
-  h2 { font-size: 13px; margin: 18px 0 6px; }
-  .note { font-size: 11px; color: #666; margin-top: 14px; }
-  @media print { body { margin: 8mm; } }
+  .src { color: #999; font-weight: 400; }
+  h2 { font-size: 11px; margin: 16px 0 5px; text-transform: uppercase; letter-spacing: .4px; color: #555; }
+  .note { font-size: 9.5px; color: #888; margin-top: 12px; border-top: 1px solid #eee; padding-top: 6px; }
+  .sumtable { width: 320px; }
+  @media print {
+    body { margin: 10mm 8mm; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+  }
 </style></head><body>
-  <h1>Wallet Statement — ${escapeHtml(siteName)}</h1>
-  <div class="sub">Engineer: ${escapeHtml(engineerName)} &nbsp;·&nbsp; As on ${today}</div>
-  <div class="totals">
-    <div>Deposited<b>₹${fmt(deposited)}</b><span>${depositCount} entries</span></div>
-    <div>Spent<b>₹${fmt(spent)}</b><span>${spendCount} entries</span></div>
-    ${returned > 0 ? `<div>Returned<b>₹${fmt(returned)}</b></div>` : ""}
-    <div class="held">Held now<b>₹${fmt(held)}</b></div>
+  <div class="head">
+    <div>
+      <h1>Wallet Statement — ${escapeHtml(siteName)}</h1>
+      <div class="sub">Engineer: ${escapeHtml(engineerName)} &nbsp;·&nbsp; As on ${today}</div>
+    </div>
+    <div class="totals">
+      <div>Deposited<b>₹${fmt(deposited)}</b><span>${depositCount} entries</span></div>
+      <div>Spent<b>₹${fmt(spent)}</b><span>${spendCount} entries</span></div>
+      ${returned > 0 ? `<div>Returned<b>₹${fmt(returned)}</b></div>` : ""}
+      <div class="held">Held now<b>₹${fmt(held)}</b></div>
+    </div>
   </div>
   <table>
+    <colgroup>
+      <col style="width:26px" />
+      <col style="width:68px" />
+      <col />
+      <col style="width:62px" />
+      <col style="width:62px" />
+      <col style="width:74px" />
+      <col style="width:28px" />
+    </colgroup>
     <thead><tr><th class="c">#</th><th>Date</th><th>Particulars</th><th class="r">In</th><th class="r">Out</th><th class="r">Balance</th><th class="c">✓</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
   </table>
   ${
     summaryHtml
-      ? `<h2>Spends by type</h2><table><thead><tr><th>Type</th><th class="c">#</th><th class="r">Total</th></tr></thead><tbody>${summaryHtml}</tbody></table>`
+      ? `<h2>Spends by type</h2><table class="sumtable"><colgroup><col /><col style="width:38px" /><col style="width:84px" /></colgroup><thead><tr><th>Type</th><th class="c">#</th><th class="r">Total</th></tr></thead><tbody>${summaryHtml}</tbody></table>`
       : ""
   }
   <div class="note">Cancelled / duplicate entries are excluded. Balance is cumulative — the last row equals the current Held amount.</div>
