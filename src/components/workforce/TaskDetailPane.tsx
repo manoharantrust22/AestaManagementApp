@@ -30,6 +30,7 @@ import { BalanceMeter } from "./BalanceMeter";
 import { StatCard } from "./StatCard";
 import { GoodDealCard } from "./GoodDealCard";
 import { PaymentsHistoryCard } from "./PaymentsHistoryCard";
+import { ScopeSheetPanel } from "./ScopeSheetPanel";
 
 const STATUS_PILL: Record<ContractStatus, { label: string; color: string; bg: string }> = {
   active: { label: "Active", color: wsColors.green, bg: wsColors.greenBg },
@@ -360,6 +361,9 @@ export function TaskDetailPane({
 
         {/* Hero balance meter */}
         <BalanceMeter exposure={task.exposure} />
+
+        {/* Agreed scope + same-angle before/after photos (anti scope-creep) */}
+        <ScopeSheetPanel key={task.id} subcontractId={task.id} canEdit={canEdit} />
 
         {/* Bottom row */}
         <Box sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, gap: 1.5 }}>

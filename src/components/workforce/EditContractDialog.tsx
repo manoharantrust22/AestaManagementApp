@@ -24,6 +24,8 @@ import { createClient } from "@/lib/supabase/client";
 import { blurOnWheel } from "@/lib/utils/numberInput";
 import type { ContractStatus } from "@/types/trade.types";
 import type { WorkspaceTask } from "@/lib/workforce/workspaceModel";
+import { useSubcontractScopeSheet } from "@/hooks/queries/useSubcontractScopeSheet";
+import { isMissingAfter } from "@/types/scopeSheet.types";
 
 const STATUS_OPTIONS: { value: ContractStatus; label: string }[] = [
   { value: "draft", label: "Draft" },
@@ -64,6 +66,10 @@ export default function EditContractDialog({ open, onClose, siteId, task, onSave
   const [status, setStatus] = useState<ContractStatus>("active");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+
+  // Scope sheet — to remind (not block) when closing with "after" photos still missing.
+  const { data: scopeItems } = useSubcontractScopeSheet(open ? task.id : undefined);
+  const missingAfter = (scopeItems ?? []).filter(isMissingAfter).length;
 
   // Load the full row (the workspace model only carries a projection).
   useEffect(() => {
@@ -223,6 +229,14 @@ export default function EditContractDialog({ open, onClose, siteId, task, onSave
                 />
               </Grid>
             </Grid>
+
+            {status === "completed" && missingAfter > 0 && (
+              <Alert severity="warning">
+                Reminder: {missingAfter} work item{missingAfter === 1 ? "" : "s"} still{" "}
+                {missingAfter === 1 ? "has" : "have"} no &ldquo;after&rdquo; photo. You can close now
+                and add {missingAfter === 1 ? "it" : "them"} later under Scope &amp; photos.
+              </Alert>
+            )}
 
             <Link
               component="button"

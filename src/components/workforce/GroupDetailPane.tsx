@@ -17,6 +17,7 @@ import { formatCurrencyFull } from "@/lib/formatters";
 import { BalanceMeter } from "./BalanceMeter";
 import { StatCard } from "./StatCard";
 import { MiniDualProgressBar } from "./MiniDualProgressBar";
+import { ScopeSheetPanel } from "./ScopeSheetPanel";
 
 /**
  * Extra props supplied when this view backs a REAL parent contract (a `subcontracts`
@@ -263,6 +264,15 @@ export function GroupDetailPane({
             })}
           </Box>
         </Box>
+
+        {/* Agreed scope + same-angle before/after photos for the whole contract */}
+        {(parentMode?.parent.id ?? group.key) && (
+          <ScopeSheetPanel
+            key={parentMode?.parent.id ?? group.key}
+            subcontractId={parentMode?.parent.id ?? group.key}
+            canEdit={canEdit}
+          />
+        )}
 
         {/* Promote a virtual group into a real, named contract */}
         {!isParent && onMakeOneContract && (
