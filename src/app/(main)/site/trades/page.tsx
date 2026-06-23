@@ -19,6 +19,7 @@ import { useSiteWorkStages } from "@/hooks/queries/useWorkStages";
 import { WorkspaceLayout } from "@/components/workforce/WorkspaceLayout";
 import { QuickCreateContractDialog } from "@/components/trades/QuickCreateContractDialog";
 import { useTaskWorkPackages } from "@/hooks/queries/useTaskWorkPackages";
+import { useSiteTaskWorkProfitability } from "@/hooks/queries/useTaskWorkProfitability";
 import TaskWorkDetailDrawer from "@/components/task-work/TaskWorkDetailDrawer";
 import TaskWorkPackageDialog from "@/components/task-work/TaskWorkPackageDialog";
 import type {
@@ -38,8 +39,17 @@ export default function TradesPage() {
   const { data: activity } = useSiteTradeActivity(siteId);
   const { data: stages } = useSiteWorkStages(siteId);
   const { data: taskWorkPackages = [] } = useTaskWorkPackages(siteId, "all");
+  const { data: packageProfitability = [] } = useSiteTaskWorkProfitability(siteId);
 
-  // Group legacy fixed-price packages under their trade (labor_category_id).
+  // paid-to-date per package (Σ non-deleted task_work_payments, via v_task_work_profitability).
+  const paidByPackage = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of packageProfitability) map.set(row.package_id, Number(row.paid ?? 0));
+    return map;
+  }, [packageProfitability]);
+
+  // Group legacy fixed-price packages under their trade (labor_category_id), with their
+  // paid-to-date merged on so the workforce rollup can fold them into the parent contract.
   // Packages with no work type land in the "Other / Uncategorized" node (same
   // key the trades hook uses for trade-less contracts) so they stay visible and
   // openable instead of being silently dropped.
@@ -48,11 +58,11 @@ export default function TradesPage() {
     for (const p of taskWorkPackages) {
       const key = p.labor_category_id ?? UNCATEGORIZED_TRADE_ID;
       const arr = map.get(key) ?? [];
-      arr.push(p);
+      arr.push({ ...p, paid: paidByPackage.get(p.id) ?? 0 });
       map.set(key, arr);
     }
     return map;
-  }, [taskWorkPackages]);
+  }, [taskWorkPackages, paidByPackage]);
 
   // The trades hook only emits the "Other / Uncategorized" node when a *contract*
   // has no trade. If only a fixed-price package is uncategorized, add an empty

@@ -52,6 +52,7 @@ export function GroupDetailPane({
   group,
   tradeName,
   onSelectTask,
+  onOpenPackage,
   onLogAttendance,
   onSettleSalary,
   canEdit,
@@ -64,6 +65,8 @@ export function GroupDetailPane({
   tradeName: string;
   /** Drill into one part (single-task detail). */
   onSelectTask: (id: string) => void;
+  /** Open a fixed-price package's drawer. */
+  onOpenPackage?: (packageId: string) => void;
   onLogAttendance: () => void;
   onSettleSalary: () => void;
   canEdit: boolean;
@@ -80,6 +83,9 @@ export function GroupDetailPane({
   const displayName = parentMode?.title ?? group.who;
   const partsWord = parentMode?.partLabel ?? "part";
   const partsWordTitle = `${partsWord[0].toUpperCase()}${partsWord.slice(1)}`;
+  // What this node itself is called (its parts are one level below it).
+  const selfWord = partsWord === "task" ? "section" : "contract";
+  const remaining = r.quoted - r.paid;
   // Combine the per-task exposures into the shape BalanceMeter expects.
   const groupExposure: ExposureResult = {
     tracked,
@@ -205,6 +211,9 @@ export function GroupDetailPane({
           />
         </Box>
 
+        {/* Plain balance: what's still owed on the whole contract (agreed − paid). */}
+        <RemainingStrip quoted={r.quoted} paid={r.paid} remaining={remaining} />
+
         {/* Combined balance meter */}
         <BalanceMeter exposure={groupExposure} />
 
@@ -231,34 +240,49 @@ export function GroupDetailPane({
               overflow: "hidden",
             }}
           >
-            {group.tasks.map((t, i) => {
-              const paidPct = Math.round(t.paidPctOfQuoted * 100);
-              const workTxt = t.workPercent == null ? "—" : `${t.workPercent}%`;
+            {group.parts.map((p, i) => {
+              const clickable =
+                (p.kind === "subcontract") || (p.kind === "package" && !!onOpenPackage);
+              const onClick = clickable
+                ? () => (p.kind === "package" ? onOpenPackage?.(p.id) : onSelectTask(p.id))
+                : undefined;
+              const title =
+                p.kind === "direct" ? `Directly on the ${selfWord}` : p.title;
+              const line =
+                p.kind === "direct" && p.quoted <= 0
+                  ? `paid ${formatCurrencyFull(p.paid)} · not tied to a ${partsWord}`
+                  : `${formatCurrencyFull(p.quoted)} · paid ${formatCurrencyFull(
+                      p.paid
+                    )} · ${formatCurrencyFull(p.remaining)} left`;
               return (
                 <Box
-                  key={t.id}
-                  onClick={() => onSelectTask(t.id)}
+                  key={`${p.kind}:${p.id}`}
+                  onClick={onClick}
                   sx={{
                     display: "flex",
                     alignItems: "center",
                     gap: 1,
                     px: 1.5,
                     py: 1.1,
-                    cursor: "pointer",
+                    cursor: clickable ? "pointer" : "default",
                     borderTop: i === 0 ? "none" : `1px solid ${wsColors.hairline2}`,
-                    "&:hover": { bgcolor: wsColors.canvas },
+                    "&:hover": clickable ? { bgcolor: wsColors.canvas } : {},
                   }}
                 >
                   <Box sx={{ minWidth: 0, flex: 1 }}>
-                    <Typography noWrap sx={{ fontSize: 13.5, fontWeight: 700, color: wsColors.ink }}>
-                      {t.title}
-                    </Typography>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.625, minWidth: 0 }}>
+                      <Typography noWrap sx={{ fontSize: 13.5, fontWeight: 700, color: wsColors.ink }}>
+                        {title}
+                      </Typography>
+                      {p.kind === "package" && <PartTag label="Fixed price" />}
+                      {p.kind === "direct" && <PartTag label="Whole contract" />}
+                    </Box>
                     <Typography noWrap sx={{ fontSize: 11.5, color: wsColors.muted }}>
-                      {formatCurrencyFull(t.quoted)} · paid {paidPct}% · work {workTxt}
+                      {line}
                     </Typography>
                   </Box>
-                  <MiniDualProgressBar paidPct={t.paidPctOfQuoted} workPct={t.work} width={46} height={8} />
-                  <ChevronRight sx={{ fontSize: 18, color: wsColors.muted }} />
+                  <MiniDualProgressBar paidPct={p.paidFraction} workPct={p.workFraction} width={46} height={8} />
+                  {clickable && <ChevronRight sx={{ fontSize: 18, color: wsColors.muted }} />}
                 </Box>
               );
             })}
@@ -379,6 +403,88 @@ function ActionTile({
         </Typography>
       </Box>
       <ChevronRight sx={{ fontSize: 20, color: wsColors.muted }} />
+    </Box>
+  );
+}
+
+/** Plain "what's still owed" balance (agreed − paid), the way the owner thinks about it. */
+function RemainingStrip({
+  quoted,
+  paid,
+  remaining,
+}: {
+  quoted: number;
+  paid: number;
+  remaining: number;
+}) {
+  const overpaid = remaining < 0;
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 1,
+        px: 1.75,
+        py: 1.25,
+        borderRadius: `${wsRadius.card}px`,
+        bgcolor: wsColors.surface,
+        border: `1px solid ${wsColors.hairline}`,
+        boxShadow: wsShadow.card,
+      }}
+    >
+      <Box sx={{ minWidth: 0 }}>
+        <Typography
+          sx={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: ".04em",
+            textTransform: "uppercase",
+            color: wsColors.muted,
+          }}
+        >
+          {overpaid ? "Overpaid" : "Remaining to pay"}
+        </Typography>
+        <Typography noWrap sx={{ fontSize: 11.5, color: wsColors.muted }}>
+          {formatCurrencyFull(paid)} paid of {formatCurrencyFull(quoted)}
+        </Typography>
+      </Box>
+      <Typography
+        sx={{
+          fontSize: 19,
+          fontWeight: 800,
+          letterSpacing: "-.02em",
+          color: overpaid ? wsColors.amber : wsColors.ink,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {formatCurrencyFull(Math.abs(remaining))}
+      </Typography>
+    </Box>
+  );
+}
+
+/** A tiny uppercase tag distinguishing package / whole-contract rows from sections. */
+function PartTag({ label }: { label: string }) {
+  return (
+    <Box
+      component="span"
+      sx={{
+        flexShrink: 0,
+        fontSize: 9.5,
+        fontWeight: 800,
+        letterSpacing: ".03em",
+        textTransform: "uppercase",
+        color: wsColors.muted,
+        bgcolor: wsColors.canvas,
+        border: `1px solid ${wsColors.hairline2}`,
+        borderRadius: 1,
+        px: 0.625,
+        py: 0.125,
+        lineHeight: 1.6,
+      }}
+    >
+      {label}
     </Box>
   );
 }

@@ -359,6 +359,56 @@ export function TaskDetailPane({
           />
         </Box>
 
+        {/* Plain balance: what's still owed (agreed − paid). */}
+        {(() => {
+          const remaining = task.quoted - task.paid;
+          const overpaid = remaining < 0;
+          return (
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 1,
+                px: 1.75,
+                py: 1.25,
+                borderRadius: `${wsRadius.card}px`,
+                bgcolor: wsColors.surface,
+                border: `1px solid ${wsColors.hairline}`,
+                boxShadow: wsShadow.card,
+              }}
+            >
+              <Box sx={{ minWidth: 0 }}>
+                <Typography
+                  sx={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: ".04em",
+                    textTransform: "uppercase",
+                    color: wsColors.muted,
+                  }}
+                >
+                  {overpaid ? "Overpaid" : "Remaining to pay"}
+                </Typography>
+                <Typography noWrap sx={{ fontSize: 11.5, color: wsColors.muted }}>
+                  {formatCurrencyFull(task.paid)} paid of {formatCurrencyFull(task.quoted)}
+                </Typography>
+              </Box>
+              <Typography
+                sx={{
+                  fontSize: 19,
+                  fontWeight: 800,
+                  letterSpacing: "-.02em",
+                  color: overpaid ? wsColors.amber : wsColors.ink,
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {formatCurrencyFull(Math.abs(remaining))}
+              </Typography>
+            </Box>
+          );
+        })()}
+
         {/* Hero balance meter */}
         <BalanceMeter exposure={task.exposure} />
 

@@ -27,7 +27,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useAuth } from "@/contexts/AuthContext";
 import { hasEditPermission } from "@/lib/permissions";
 import { computeProfitability } from "@/lib/taskWork/profitability";
-import { sumDayLogValue } from "@/lib/taskWork/dayLogCost";
+import { sumDayLogValue, summarizeLines } from "@/lib/taskWork/dayLogCost";
 import { computeCostStatus, type CostVerdict } from "@/lib/taskWork/costStatus";
 import { useTaskWorkProfitability } from "@/hooks/queries/useTaskWorkProfitability";
 import { useTaskWorkDayLogs } from "@/hooks/queries/useTaskWorkDayLogs";
@@ -456,6 +456,15 @@ export default function TaskWorkDetailDrawer({ open, onClose, pkg, onEdit }: Pro
                   />
                 </Grid>
               </Grid>
+              {pkg.estimate_lines?.length ? (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ mt: 1, display: "block" }}
+                >
+                  Crew: {summarizeLines(pkg.estimate_lines)}
+                </Typography>
+              ) : null}
               {!hasActuals && (
                 <Typography
                   variant="caption"

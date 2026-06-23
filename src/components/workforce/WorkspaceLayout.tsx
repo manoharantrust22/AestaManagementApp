@@ -29,12 +29,13 @@ import TuneRounded from "@mui/icons-material/TuneRounded";
 import type {
   ContractActivity,
   ContractReconciliation,
+  ContractStatus,
   Trade,
   WorkStage,
 } from "@/types/trade.types";
 import type { TaskWorkPackageWithMeta } from "@/types/taskWork.types";
 import { buildWorkspaceModel, contractorGroupFromNode, findContractNode, findTask } from "@/lib/workforce/workspaceModel";
-import type { WorkspaceTask } from "@/lib/workforce/workspaceModel";
+import type { WorkspacePackage, WorkspaceTask } from "@/lib/workforce/workspaceModel";
 import { DEFAULT_STATUS_TAB, type StatusTab } from "@/lib/workforce/statusTabs";
 import {
   WS_MOBILE_BREAKPOINT,
@@ -83,9 +84,36 @@ export function WorkspaceLayout({
   const router = useRouter();
   const mobile = useMediaQuery(`(max-width:${WS_MOBILE_BREAKPOINT}px)`);
 
+  // Flatten packages (with paid merged on in page.tsx) into the shape the model folds in.
+  const packages = useMemo<WorkspacePackage[]>(() => {
+    const out: WorkspacePackage[] = [];
+    for (const [tradeCatId, pkgs] of packagesByTrade) {
+      for (const p of pkgs) {
+        out.push({
+          id: p.id,
+          title: p.title,
+          tradeCategoryId: tradeCatId,
+          parentSubcontractId: p.parent_subcontract_id,
+          who: p.maistry_name ?? "—",
+          quoted: Number(p.total_value ?? 0),
+          paid: Number(p.paid ?? 0),
+          status: p.status as unknown as ContractStatus,
+        });
+      }
+    }
+    return out;
+  }, [packagesByTrade]);
+
+  // id → package, so a "package" part can open its drawer from the detail pane.
+  const pkgById = useMemo(() => {
+    const m = new Map<string, TaskWorkPackageWithMeta>();
+    for (const pkgs of packagesByTrade.values()) for (const p of pkgs) m.set(p.id, p);
+    return m;
+  }, [packagesByTrade]);
+
   const model = useMemo(
-    () => buildWorkspaceModel({ trades, reconciliations, activity, stages }),
-    [trades, reconciliations, activity, stages]
+    () => buildWorkspaceModel({ trades, reconciliations, activity, stages, packages }),
+    [trades, reconciliations, activity, stages, packages]
   );
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -158,6 +186,10 @@ export function WorkspaceLayout({
       tradeName={selectedNode.trade.category.name}
       canEdit={canEdit}
       onSelectTask={handleSelect}
+      onOpenPackage={(id) => {
+        const pkg = pkgById.get(id);
+        if (pkg) onOpenPackage(pkg);
+      }}
       onLogAttendance={() =>
         router.push(buildContractScopeHref("/site/attendance", selectedNode.node.task))
       }

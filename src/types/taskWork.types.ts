@@ -64,6 +64,11 @@ export interface TaskWorkPackage {
   estimated_crew_size: number | null;
   estimated_days: number | null;
   benchmark_daily_rate: number | null;
+  // Per-worker-type daywage estimate breakdown (Mason ×2 @ ₹1000, helper ×3 @
+  // ₹600, …), all sharing estimated_days. The scalar fields above are the
+  // rolled-up summary kept in sync from these for v_task_work_profitability.
+  // NULL on legacy rows that only had a single crew size + daily wage.
+  estimate_lines: DayWorkerLine[] | null;
   planned_start_date: string | null;
   planned_end_date: string | null;
   actual_start_date: string | null;
@@ -83,6 +88,8 @@ export interface TaskWorkPackage {
 export interface TaskWorkPackageWithMeta extends TaskWorkPackage {
   category_name?: string | null;
   parent_subcontract_title?: string | null;
+  /** Σ non-deleted task_work_payments, joined in for the workforce rollup. */
+  paid?: number;
 }
 
 /**
@@ -223,6 +230,7 @@ export interface TaskWorkPackageInput {
   estimated_crew_size?: number | null;
   estimated_days?: number | null;
   benchmark_daily_rate?: number | null;
+  estimate_lines?: DayWorkerLine[] | null;
   planned_start_date?: string | null;
   planned_end_date?: string | null;
   actual_start_date?: string | null;

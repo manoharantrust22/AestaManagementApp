@@ -37,6 +37,13 @@ import {
   useUpdateTaskWorkPackage,
 } from "@/hooks/queries/useTaskWorkPackages";
 import { computeProfitability } from "@/lib/taskWork/profitability";
+import { estimateRollup } from "@/lib/taskWork/estimateLines";
+import EstimateLinesEditor, {
+  type DraftLine,
+  emptyDraftLine,
+  draftFromLines,
+  cleanDraftLines,
+} from "@/components/task-work/EstimateLinesEditor";
 import { blurOnWheel } from "@/lib/utils/numberInput";
 import type {
   TaskWorkMeasurementUnit,
@@ -73,9 +80,10 @@ interface FormState {
   measurement_unit: TaskWorkMeasurementUnit;
   rate_per_unit: number;
   total_units: number;
-  estimated_crew_size: number;
   estimated_days: number;
-  benchmark_daily_rate: number;
+  // Per-worker-type daywage estimate rows; crew size + blended rate are derived
+  // from these on save (estimateRollup) for v_task_work_profitability.
+  estimate_lines: DraftLine[];
   planned_start_date: string;
   planned_end_date: string;
   retention_percent: number;
@@ -96,9 +104,8 @@ const EMPTY: FormState = {
   measurement_unit: "sqft",
   rate_per_unit: 0,
   total_units: 0,
-  estimated_crew_size: 0,
   estimated_days: 0,
-  benchmark_daily_rate: 0,
+  estimate_lines: [emptyDraftLine()],
   planned_start_date: dayjs().format("YYYY-MM-DD"),
   planned_end_date: "",
   retention_percent: 0,
@@ -159,9 +166,23 @@ export default function TaskWorkPackageDialog({
         measurement_unit: (editing.measurement_unit ?? "sqft") as TaskWorkMeasurementUnit,
         rate_per_unit: editing.rate_per_unit ?? 0,
         total_units: editing.total_units ?? 0,
-        estimated_crew_size: editing.estimated_crew_size ?? 0,
         estimated_days: editing.estimated_days ?? 0,
-        benchmark_daily_rate: editing.benchmark_daily_rate ?? 0,
+        estimate_lines: editing.estimate_lines?.length
+          ? draftFromLines(editing.estimate_lines)
+          : // Legacy package: a single crew size + daily wage → one row, so the
+            // old estimate still shows and stays editable.
+            (editing.estimated_crew_size ?? 0) > 0 ||
+              (editing.benchmark_daily_rate ?? 0) > 0
+            ? [
+                {
+                  kind: "custom" as const,
+                  ref_id: null,
+                  label: "Crew",
+                  count: String(editing.estimated_crew_size ?? ""),
+                  daily_rate: String(editing.benchmark_daily_rate ?? ""),
+                },
+              ]
+            : [emptyDraftLine()],
         planned_start_date: editing.planned_start_date ?? "",
         planned_end_date: editing.planned_end_date ?? "",
         retention_percent: editing.retention_percent ?? 0,
@@ -190,12 +211,17 @@ export default function TaskWorkPackageDialog({
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((p) => ({ ...p, [key]: value }));
 
-  // Live benchmark + win-win preview from the estimate.
-  const estManDays = (form.estimated_crew_size || 0) * (form.estimated_days || 0);
+  // Live benchmark + win-win preview from the per-type estimate. The rows are
+  // rolled up to man-days + a count-weighted blended ₹/day so the same
+  // computeProfitability (and the SQL view) math applies unchanged.
+  const estRoll = estimateRollup(
+    cleanDraftLines(form.estimate_lines),
+    form.estimated_days
+  );
   const preview = computeProfitability({
     totalValue: form.total_value,
-    manDays: estManDays,
-    benchmarkDailyRate: form.benchmark_daily_rate,
+    manDays: estRoll.manDays,
+    benchmarkDailyRate: estRoll.blendedRate,
     retentionPercent: form.retention_percent,
     totalUnits: form.pricing_mode === "rate_based" ? form.total_units : null,
   });
@@ -221,6 +247,11 @@ export default function TaskWorkPackageDialog({
       return;
     }
 
+    // Roll the per-type rows up into the scalar summary columns the
+    // profitability view reads, and persist the full breakdown for re-editing.
+    const cleanedLines = cleanDraftLines(form.estimate_lines);
+    const roll = estimateRollup(cleanedLines, form.estimated_days);
+
     const payload: TaskWorkPackageInput = {
       site_id: siteId,
       title: form.title.trim(),
@@ -235,9 +266,10 @@ export default function TaskWorkPackageDialog({
       measurement_unit:
         form.pricing_mode === "rate_based" ? form.measurement_unit : null,
       total_units: form.pricing_mode === "rate_based" ? form.total_units : null,
-      estimated_crew_size: form.estimated_crew_size || null,
-      estimated_days: form.estimated_days || null,
-      benchmark_daily_rate: form.benchmark_daily_rate || null,
+      estimated_crew_size: roll.crewSize || null,
+      estimated_days: roll.days || null,
+      benchmark_daily_rate: roll.blendedRate || null,
+      estimate_lines: cleanedLines.length ? cleanedLines : null,
       planned_start_date: form.planned_start_date || null,
       planned_end_date: form.planned_end_date || null,
       retention_percent: form.retention_percent || 0,
@@ -509,55 +541,29 @@ export default function TaskWorkPackageDialog({
             <Typography variant="subtitle2" color="text.secondary">
               Daywage estimate (basis for the price)
             </Typography>
-            <Typography variant="caption" color="text.secondary">
-              How many workers × days you reckon this needs, and the daily wage
-              you&apos;d otherwise pay. Used to show whether the deal is a saving
-              for the company.
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: "block", mb: 1 }}
+            >
+              The crew you reckon this needs — one row per worker type (Mason,
+              male/female helper…) with its own daily wage, all over the same
+              days. Used to show whether the deal is a saving for the company.
             </Typography>
-            <Grid container spacing={2} sx={{ mt: 0.5 }}>
-              <Grid size={{ xs: 4 }}>
-                <TextField
-                  fullWidth
-                  label="Crew size"
-                  type="number"
-                  value={form.estimated_crew_size || ""}
-                  onChange={(e) =>
-                    set("estimated_crew_size", Number(e.target.value))
-                  }
-                  onWheel={blurOnWheel}
-                />
-              </Grid>
-              <Grid size={{ xs: 4 }}>
-                <TextField
-                  fullWidth
-                  label="Days"
-                  type="number"
-                  value={form.estimated_days || ""}
-                  onChange={(e) => set("estimated_days", Number(e.target.value))}
-                  onWheel={blurOnWheel}
-                />
-              </Grid>
-              <Grid size={{ xs: 4 }}>
-                <TextField
-                  fullWidth
-                  label="Daily wage"
-                  type="number"
-                  value={form.benchmark_daily_rate || ""}
-                  onChange={(e) =>
-                    set("benchmark_daily_rate", Number(e.target.value))
-                  }
-                  onWheel={blurOnWheel}
-                  slotProps={{ input: { startAdornment: "₹" } }}
-                />
-              </Grid>
-            </Grid>
-            {estManDays > 0 && form.benchmark_daily_rate > 0 && (
+            <EstimateLinesEditor
+              lines={form.estimate_lines}
+              onLinesChange={(next) => set("estimate_lines", next)}
+              days={form.estimated_days ? String(form.estimated_days) : ""}
+              onDaysChange={(v) => set("estimated_days", Number(v) || 0)}
+              laborCategoryId={form.labor_category_id || null}
+            />
+            {estRoll.benchmarkCost > 0 && (
               <Alert
                 severity={preview.companySaving >= 0 ? "success" : "warning"}
                 sx={{ mt: 1.5 }}
               >
-                Daywork estimate: {estManDays} man-days × ₹
-                {form.benchmark_daily_rate.toLocaleString("en-IN")} = ₹
+                Daywork estimate: {estRoll.manDays} man-days × ₹
+                {estRoll.blendedRate.toLocaleString("en-IN")}/day avg = ₹
                 {preview.daywageBenchmarkCost.toLocaleString("en-IN")}.{" "}
                 {preview.companySaving >= 0
                   ? `This package saves ~₹${preview.companySaving.toLocaleString(

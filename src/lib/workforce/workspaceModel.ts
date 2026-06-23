@@ -9,8 +9,10 @@
  * de-duped roll-up (a parent's value counts once — its own leftover plus each child).
  *
  * Pure (no React) so it's unit-testable. Components feed it query results.
- * Legacy `task_work_packages` are NOT modelled here — they stay a separate list the
- * tree attaches at render time by `parent_subcontract_id`, with their own drawer.
+ * Fixed-price `task_work_packages` are folded in as ADDITIVE rollup inputs attached to
+ * their `parent_subcontract_id` node (their value is never inside a subcontract's
+ * `total_value`), so a parent's totals + parts list include them. They keep their own
+ * drawer for the day-log/margin detail.
  */
 import type {
   ContractActivity,
@@ -68,14 +70,59 @@ export interface WorkspaceTask {
 export type ContractTier = "contract" | "section" | "task";
 
 /**
+ * A fixed-price `task_work_packages` row folded into the ladder under its
+ * `parent_subcontract_id`. Carries just what the rollup + parts list need; the full
+ * package opens in its own drawer.
+ */
+export interface WorkspacePackage {
+  id: string;
+  title: string;
+  /** Which trade (labor_category_id) this package belongs under. */
+  tradeCategoryId: string | null;
+  /** The subcontract node it rolls up under, or null/unknown = loose (trade-level only). */
+  parentSubcontractId: string | null;
+  who: string;
+  quoted: number;
+  paid: number;
+  status: ContractStatus;
+}
+
+/**
+ * One row in a container's "parts" breakdown. Money figures are the part's OWN subtree
+ * (a section reflects money paid to its tasks), so the parts always add up to the header.
+ *  • `subcontract` — a child Section/Task (rolled up).
+ *  • `package` — a fixed-price package folded under this node.
+ *  • `direct` — the node's own value/paid not tied to any part (e.g. a payment recorded on
+ *    the whole contract). Emitted only when nonzero so the breakdown reconciles.
+ */
+export type GroupPartKind = "subcontract" | "package" | "direct";
+
+export interface GroupPart {
+  kind: GroupPartKind;
+  id: string;
+  title: string;
+  quoted: number;
+  paid: number;
+  /** max(0, quoted − paid). */
+  remaining: number;
+  /** 0–1 fraction (paid ÷ quoted) for the bar + "paid X%" label. */
+  paidFraction: number;
+  /** 0–1 fraction for the bar + work label; null = untracked ("—"). */
+  workFraction: number | null;
+  status?: ContractStatus;
+}
+
+/**
  * A node in a Contract's recursive subtree. Backed by a real, editable `subcontracts`
- * row. `rollup` folds this node's own leftover value together with every descendant so
- * a parent is counted exactly once.
+ * row. `rollup` folds this node's own leftover value together with every descendant (and
+ * any attached packages) so a parent is counted exactly once.
  */
 export interface ContractNode {
   task: WorkspaceTask;
   tier: ContractTier;
   children: ContractNode[];
+  /** Fixed-price packages whose `parent_subcontract_id` is this node. */
+  packages: WorkspacePackage[];
   rollup: RollupResult;
 }
 
@@ -87,7 +134,10 @@ export interface ContractNode {
 export interface ContractorGroup {
   key: string;
   who: string;
+  /** The direct subcontract children (kept for mode/attendance logic + the "N sections" count). */
   tasks: WorkspaceTask[];
+  /** The money breakdown rows: children (rolled up) + packages + the node's own "direct" share. */
+  parts: GroupPart[];
   rollup: RollupResult;
 }
 
@@ -130,6 +180,8 @@ interface BuildInput {
   activity: Map<string, ContractActivity> | undefined;
   /** Accepted for call-site compatibility; Stages are no longer rendered as a tier. */
   stages?: WorkStage[] | undefined;
+  /** Fixed-price packages to fold into the ladder (additive, by `parentSubcontractId`). */
+  packages?: WorkspacePackage[] | undefined;
 }
 
 export function buildWorkspaceModel({
@@ -137,9 +189,19 @@ export function buildWorkspaceModel({
   reconciliations,
   activity,
   stages,
+  packages,
 }: BuildInput): WorkspaceModel {
   const stageById = new Map<string, WorkStage>();
   for (const s of stages ?? []) stageById.set(s.id, s);
+
+  // Packages grouped by their trade (labor_category_id), matched to `trade.category.id`.
+  const packagesByTradeCat = new Map<string, WorkspacePackage[]>();
+  for (const p of packages ?? []) {
+    const key = p.tradeCategoryId ?? "";
+    const arr = packagesByTradeCat.get(key) ?? [];
+    arr.push(p);
+    packagesByTradeCat.set(key, arr);
+  }
 
   const tradeNodes: TradeNode[] = [];
   // Flattened rollup inputs for the whole-site total. Each node contributes ONLY its own
@@ -228,10 +290,27 @@ export function buildWorkspaceModel({
       }
     }
 
+    // Packages of this trade, indexed by the subcontract node they attach to.
+    const tradePkgs = packagesByTradeCat.get(trade.category.id) ?? [];
+    const pkgsByParent = new Map<string, WorkspacePackage[]>();
+    for (const p of tradePkgs) {
+      if (p.parentSubcontractId && taskById.has(p.parentSubcontractId)) {
+        const arr = pkgsByParent.get(p.parentSubcontractId) ?? [];
+        arr.push(p);
+        pkgsByParent.set(p.parentSubcontractId, arr);
+      }
+    }
+    const pkgInput = (p: WorkspacePackage): RollupTask => ({
+      quoted: p.quoted,
+      paid: p.paid,
+      work: p.status === "completed" ? 1 : null,
+    });
+
     const tradeInputs: RollupTask[] = [];
     // Build a node + collect every descendant's "own" input. A node's own quoted is the
     // value not already represented by its DIRECT children, so a subtree sums to the
-    // root's quoted exactly once (matches the trusted single-level parent math).
+    // root's quoted exactly once (matches the trusted single-level parent math). Packages
+    // are ADDITIVE on top (never inside a subcontract's total_value).
     const buildNode = (task: WorkspaceTask, depth: number): {
       node: ContractNode;
       subtreeInputs: RollupTask[];
@@ -246,12 +325,25 @@ export function buildWorkspaceModel({
       };
       pushTab(task.status, ownInput);
       tradeInputs.push(ownInput);
-      const subtreeInputs = [ownInput, ...childBuilds.flatMap((cb) => cb.subtreeInputs)];
+
+      const myPkgs = pkgsByParent.get(task.id) ?? [];
+      const pkgInputs = myPkgs.map(pkgInput);
+      myPkgs.forEach((p, i) => {
+        pushTab(p.status, pkgInputs[i]);
+        tradeInputs.push(pkgInputs[i]);
+      });
+
+      const subtreeInputs = [
+        ownInput,
+        ...pkgInputs,
+        ...childBuilds.flatMap((cb) => cb.subtreeInputs),
+      ];
       return {
         node: {
           task,
           tier: tierForDepth(depth),
           children: childBuilds.map((cb) => cb.node),
+          packages: myPkgs,
           rollup: rollupTasks(subtreeInputs),
         },
         subtreeInputs,
@@ -264,6 +356,15 @@ export function buildWorkspaceModel({
       (t) => !t.parentSubcontractId || !taskById.has(t.parentSubcontractId)
     );
     const contracts = roots.map((r) => buildNode(r, 0).node);
+
+    // Loose packages (no parent, or a parent not visible here) still belong to this trade's
+    // totals — they render as their own top-level rows in the tree. Count each once.
+    for (const p of tradePkgs) {
+      if (p.parentSubcontractId && taskById.has(p.parentSubcontractId)) continue;
+      const looseInput = pkgInput(p);
+      pushTab(p.status, looseInput);
+      tradeInputs.push(looseInput);
+    }
 
     tradeNodes.push({
       category: trade.category,
@@ -326,10 +427,68 @@ export function findContractNode(
 
 /** Build the presentational "combined contract" shape from a container node's children. */
 export function contractorGroupFromNode(node: ContractNode): ContractorGroup {
+  const parts: GroupPart[] = [];
+
+  // 1) Subcontract children — each as its OWN subtree rollup, so a section reflects money
+  //    paid to its tasks (not just its bare row).
+  for (const c of node.children) {
+    const q = c.rollup.quoted;
+    const pd = c.rollup.paid;
+    parts.push({
+      kind: "subcontract",
+      id: c.task.id,
+      title: c.task.title,
+      quoted: q,
+      paid: pd,
+      remaining: Math.max(0, q - pd),
+      paidFraction: q > 0 ? clamp01(pd / q) : 0,
+      workFraction:
+        c.rollup.trackedCount > 0 && c.rollup.quotedTracked > 0
+          ? clamp01(c.rollup.workValue / c.rollup.quotedTracked)
+          : null,
+      status: c.task.status,
+    });
+  }
+
+  // 2) Fixed-price packages folded under this node.
+  for (const p of node.packages) {
+    parts.push({
+      kind: "package",
+      id: p.id,
+      title: p.title,
+      quoted: p.quoted,
+      paid: p.paid,
+      remaining: Math.max(0, p.quoted - p.paid),
+      paidFraction: p.quoted > 0 ? clamp01(p.paid / p.quoted) : 0,
+      workFraction: p.status === "completed" ? 1 : null,
+      status: p.status,
+    });
+  }
+
+  // 3) The node's OWN money not tied to a child/package (e.g. a payment recorded on the
+  //    whole contract). Only when nonzero, so the parts add up to the header.
+  const childQuotedSum = node.children.reduce((s, c) => s + c.task.quoted, 0);
+  const ownQuoted = Math.max(0, node.task.quoted - childQuotedSum);
+  const ownPaid = node.task.paid;
+  if (ownQuoted > 0 || ownPaid > 0) {
+    parts.push({
+      kind: "direct",
+      id: node.task.id,
+      title: node.task.title,
+      quoted: ownQuoted,
+      paid: ownPaid,
+      remaining: Math.max(0, ownQuoted - ownPaid),
+      paidFraction: ownQuoted > 0 ? clamp01(ownPaid / ownQuoted) : 0,
+      workFraction: node.task.work === null ? null : clamp01(node.task.work),
+      status: node.task.status,
+    });
+  }
+
   return {
     key: node.task.id,
     who: node.task.who,
     tasks: node.children.map((c) => c.task),
+    parts,
     rollup: node.rollup,
   };
 }

@@ -6,6 +6,7 @@ import {
   findContractNode,
   findTask,
 } from "./workspaceModel";
+import type { WorkspacePackage } from "./workspaceModel";
 import type {
   ContractReconciliation,
   Trade,
@@ -35,6 +36,19 @@ function contract(over: Partial<TradeContract>): TradeContract {
 }
 
 const civilCat = { id: "civil", name: "Civil", isSystemSeed: true, isActive: true };
+
+function wpkg(over: Partial<WorkspacePackage> & { id: string }): WorkspacePackage {
+  return {
+    title: "Package",
+    tradeCategoryId: "civil",
+    parentSubcontractId: null,
+    who: "Murugesan",
+    quoted: 0,
+    paid: 0,
+    status: "active",
+    ...over,
+  };
+}
 
 function recon(
   over: Partial<ContractReconciliation> & { subcontractId: string }
@@ -184,6 +198,83 @@ describe("findContractNode / contractorGroupFromNode / findTask", () => {
   it("findTask resolves any row by id", () => {
     expect(findTask(model, "T")?.title).toBe("Footing grid");
     expect(findTask(model, "missing")).toBeNull();
+  });
+});
+
+describe("fixed-price packages fold into the rollup + parts", () => {
+  // Jithin: 3 floors summing to the contract value, ₹9,87,095 paid on the WHOLE contract
+  // (not a floor), plus a ₹60,000 package (₹40,000 paid) hanging under the contract.
+  const P = contract({ id: "P", title: "Jithin Civil contract", teamId: "tJ", totalValue: 1936000 });
+  const gf = contract({ id: "GF", title: "Ground Floor", teamId: "tJ", totalValue: 513000, parentSubcontractId: "P" });
+  const f1 = contract({ id: "F1", title: "1st Floor", teamId: "tJ", totalValue: 665000, parentSubcontractId: "P" });
+  const f2 = contract({ id: "F2", title: "2nd Floor", teamId: "tJ", totalValue: 758000, parentSubcontractId: "P" });
+  const reconciliations = new Map<string, ContractReconciliation>([
+    ["P", recon({ subcontractId: "P", quotedAmount: 1936000, amountPaid: 987095 })],
+  ]);
+  const saroja = wpkg({ id: "PKG", title: "Saroja Plastering", parentSubcontractId: "P", quoted: 60000, paid: 40000 });
+  const model = buildWorkspaceModel({
+    trades: [{ category: civilCat, contracts: [P, gf, f1, f2] }],
+    reconciliations,
+    activity: undefined,
+    packages: [saroja],
+  });
+  const pc = model.trades[0].contracts[0];
+
+  it("adds the package value + paid to the contract (and trade/site) totals", () => {
+    expect(pc.rollup.quoted).toBe(1996000); // 1,936,000 floors + 60,000 package
+    expect(pc.rollup.paid).toBe(1027095); // 987,095 whole-contract + 40,000 package
+    expect(model.trades[0].rollup.quoted).toBe(1996000);
+    expect(model.site.paid).toBe(1027095);
+  });
+
+  it("lists a package part, a whole-contract 'direct' part, and reconciles to the header", () => {
+    const g = contractorGroupFromNode(pc);
+    const kinds = g.parts.map((p) => p.kind);
+    expect(kinds.filter((k) => k === "subcontract")).toHaveLength(3);
+    expect(kinds).toContain("package");
+    expect(kinds).toContain("direct");
+
+    const pkgPart = g.parts.find((p) => p.kind === "package")!;
+    expect(pkgPart.quoted).toBe(60000);
+    expect(pkgPart.paid).toBe(40000);
+    expect(pkgPart.remaining).toBe(20000);
+
+    const direct = g.parts.find((p) => p.kind === "direct")!;
+    expect(direct.paid).toBe(987095); // the whole-contract payment surfaces here
+    expect(direct.quoted).toBe(0);
+
+    // Parts add up to the header — nothing hidden.
+    const sumQ = g.parts.reduce((s, p) => s + p.quoted, 0);
+    const sumP = g.parts.reduce((s, p) => s + p.paid, 0);
+    expect(sumQ).toBe(g.rollup.quoted);
+    expect(sumP).toBe(g.rollup.paid);
+  });
+
+  it("a section's part reflects money paid to its tasks (not just its own row)", () => {
+    const task = contract({ id: "T", title: "Footing grid", teamId: "tJ", totalValue: 100000, parentSubcontractId: "GF" });
+    const recons2 = new Map<string, ContractReconciliation>([
+      ["T", recon({ subcontractId: "T", quotedAmount: 100000, amountPaid: 25000 })],
+    ]);
+    const m2 = buildWorkspaceModel({
+      trades: [{ category: civilCat, contracts: [P, gf, f1, f2, task] }],
+      reconciliations: recons2,
+      activity: undefined,
+    });
+    const g2 = contractorGroupFromNode(m2.trades[0].contracts[0]);
+    const gfPart = g2.parts.find((p) => p.kind === "subcontract" && p.id === "GF")!;
+    expect(gfPart.paid).toBe(25000); // rolled up from its task, not "paid 0%"
+  });
+
+  it("counts a loose package (no visible parent) in the trade total once", () => {
+    const loose = wpkg({ id: "LOOSE", parentSubcontractId: null, quoted: 30000, paid: 10000 });
+    const m3 = buildWorkspaceModel({
+      trades: [{ category: civilCat, contracts: [contract({ id: "solo", totalValue: 50000 })] }],
+      reconciliations: undefined,
+      activity: undefined,
+      packages: [loose],
+    });
+    expect(m3.trades[0].rollup.quoted).toBe(80000); // 50,000 contract + 30,000 loose package
+    expect(m3.trades[0].rollup.paid).toBe(10000);
   });
 });
 
