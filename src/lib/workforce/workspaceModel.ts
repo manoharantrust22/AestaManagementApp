@@ -49,6 +49,10 @@ export interface WorkspaceTask {
   contractorKey: string;
   quoted: number;
   paid: number;
+  /** Of `paid`: the part from salary settlements off attendance (the Workspace). */
+  paidWorkspace: number;
+  /** Of `paid`: the part from fixed-price subcontract payments (sections / contract-direct). */
+  paidFixed: number;
   /** Area-based pricing (when measurementUnit === "sqft"): units × rate. Null otherwise. */
   measurementUnit: string | null;
   ratePerUnit: number | null;
@@ -138,7 +142,23 @@ export interface ContractorGroup {
   tasks: WorkspaceTask[];
   /** The money breakdown rows: children (rolled up) + packages + the node's own "direct" share. */
   parts: GroupPart[];
+  /** Paid-out split by source (Workspace settlements / Sections fixed-price / Task-work packages). */
+  moneySplit: ContractMoneySplit;
   rollup: RollupResult;
+}
+
+/**
+ * The contract's paid-out money split by where it came from, summed across the whole
+ * subtree. `workspace + sections + taskWork === rollup.paid`.
+ *  • `workspace` — salary settlements off attendance (only when the contract runs the Workspace).
+ *  • `sections` — fixed-price subcontract payments (the contract + its sections).
+ *  • `taskWork` — fixed-price task-work packages folded under the contract.
+ */
+export interface ContractMoneySplit {
+  workspace: number;
+  sections: number;
+  taskWork: number;
+  total: number;
 }
 
 export interface TradeNode {
@@ -225,6 +245,10 @@ export function buildWorkspaceModel({
       const rec = reconciliations?.get(c.id);
       const quoted = rec?.quotedAmount ?? c.totalValue ?? 0;
       const paid = rec?.amountPaid ?? 0;
+      // Split of `paid` by source — settlements (Workspace) vs fixed-price subcontract
+      // payments (Sections). Sum to `paid`. Powers the contract dashboard breakdown.
+      const paidWorkspace = rec?.amountPaidSettlements ?? 0;
+      const paidFixed = rec?.amountPaidSubcontractPayments ?? 0;
       const work =
         c.workProgressPercent == null ? null : clamp01(c.workProgressPercent / 100);
       const act = activity?.get(c.id);
@@ -268,6 +292,8 @@ export function buildWorkspaceModel({
         contractorKey,
         quoted,
         paid,
+        paidWorkspace,
+        paidFixed,
         measurementUnit: c.measurementUnit ?? null,
         ratePerUnit: c.ratePerUnit ?? null,
         totalUnits: c.totalUnits ?? null,
@@ -425,6 +451,30 @@ export function findContractNode(
   return null;
 }
 
+/**
+ * Sum a contract node's paid-out money by source across its whole subtree:
+ * salary settlements (workspace), fixed-price subcontract payments (sections), and
+ * fixed-price packages (task-work). Works for any node (container or leaf).
+ */
+export function contractMoneySplit(node: ContractNode): ContractMoneySplit {
+  const walk = (
+    n: ContractNode
+  ): { workspace: number; sections: number; taskWork: number } => {
+    let workspace = n.task.paidWorkspace;
+    let sections = n.task.paidFixed;
+    let taskWork = n.packages.reduce((s, p) => s + p.paid, 0);
+    for (const c of n.children) {
+      const sub = walk(c);
+      workspace += sub.workspace;
+      sections += sub.sections;
+      taskWork += sub.taskWork;
+    }
+    return { workspace, sections, taskWork };
+  };
+  const { workspace, sections, taskWork } = walk(node);
+  return { workspace, sections, taskWork, total: workspace + sections + taskWork };
+}
+
 /** Build the presentational "combined contract" shape from a container node's children. */
 export function contractorGroupFromNode(node: ContractNode): ContractorGroup {
   const parts: GroupPart[] = [];
@@ -489,6 +539,7 @@ export function contractorGroupFromNode(node: ContractNode): ContractorGroup {
     who: node.task.who,
     tasks: node.children.map((c) => c.task),
     parts,
+    moneySplit: contractMoneySplit(node),
     rollup: node.rollup,
   };
 }

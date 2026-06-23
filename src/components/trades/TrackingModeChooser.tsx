@@ -4,13 +4,14 @@ import { Box, Stack, Typography, Radio } from "@mui/material";
 import type { SvgIconComponent } from "@mui/icons-material";
 import Payments from "@mui/icons-material/Payments";
 import Groups from "@mui/icons-material/Groups";
-import Diversity3 from "@mui/icons-material/Diversity3";
 import FactCheck from "@mui/icons-material/FactCheck";
-import Inventory2Rounded from "@mui/icons-material/Inventory2Rounded";
 import type { LaborTrackingMode } from "@/types/trade.types";
 
-/** A real tracking mode, or the "package" handoff (a different object — a fixed-price package). */
-export type TrackingChoice = LaborTrackingMode | "package";
+/**
+ * A labour-tracking mode. Three clear choices, in order of how much daily work they ask of you.
+ * (Fixed-price maistry packages are created through their own handoff, not as a mode here.)
+ */
+export type TrackingChoice = LaborTrackingMode;
 
 interface OptionDef {
   key: TrackingChoice;
@@ -28,10 +29,9 @@ interface OptionDef {
   bestFor: string;
 }
 
-// Civil/structural trades are the only ones whose per-laborer ("detailed") attendance
-// screen is built — so we hide that card elsewhere to avoid sending users to a dead end.
-const CIVIL_RE = /civil|concret|found|struct|masonry/i;
-
+// The three ways to handle a job, lightest → fullest. Available for every trade —
+// not just Civil — so Electrical / Painting / Tiling / Fabrication can run the same
+// machinery when they need it.
 const OPTIONS: OptionDef[] = [
   {
     key: "mesthri_only",
@@ -46,71 +46,39 @@ const OPTIONS: OptionDef[] = [
     key: "headcount",
     icon: Groups,
     badge: "Most used",
-    title: "Daily headcount by role",
+    title: "Count labourers by role",
     daily: "Tap how many came, by role.",
     sample: "Mason ×3    Helper ×2",
     tells: "“Today ≈ ₹4,100 of work” → at the end: over- or under-paid?",
     bestFor: "You pay per head, with set roles.",
   },
   {
-    key: "mid",
-    icon: Diversity3,
-    title: "Crew roster + one day total",
-    daily: "Tick who came, type one ₹ total + how much got done.",
-    sample: "5 present · ₹8,000 · 1½ days’ work",
-    tells: "The day’s work value vs what you’ve paid.",
-    bestFor: "Mesthri quotes one daily price for the crew.",
-  },
-  {
-    key: "package",
-    icon: Inventory2Rounded,
-    badge: "Like Barun’s",
-    title: "Fixed price + man-day log",
-    daily: "Quick crew log in a drawer: 1 Mason + 2 Helpers.",
-    sample: "Day log → “company saving ₹12,000”",
-    tells: "Your margin — paid vs man-day value; was the price a good deal?",
-    bestFor: "A maistry job at a fixed price. Opens its own setup + day-log drawer.",
-  },
-  {
     key: "detailed",
     icon: FactCheck,
-    title: "Per-laborer attendance",
-    daily: "In/out time for each laborer (the Civil flow).",
-    sample: "Ravi 9:00–17:30 · Kumar 9:15–18:00",
-    tells: "Exact labour cost from each person’s pay.",
-    bestFor: "Labourers on your own books (you pay them direct).",
+    badge: "Like Civil",
+    title: "Full workspace (attendance + salary)",
+    daily: "Mark each labourer's day, then run salary settlements, holidays & tea — the full Civil flow.",
+    sample: "Ravi 9:00–17:30 · settle wages weekly",
+    tells: "Exact labour cost, and you pay & settle wages right here.",
+    bestFor: "Any trade you run day-to-day on your own books.",
   },
 ];
 
 /**
- * "How will you handle this work?" — selectable cards, each showing a concrete SAMPLE of
- * the daily entry + what the app tells you back, so the choice is obvious. Replaces the
- * old four cryptic radios. Optionally surfaces the fixed-price "package" as a first-class
- * option (it routes to its own setup, not a tracking mode).
+ * "How will you handle this work?" — three selectable cards (lightest → fullest), each
+ * showing a concrete SAMPLE of the daily entry + what the app tells you back, so the
+ * choice is obvious. Every mode is offered for every trade.
  */
 export function TrackingModeChooser({
   value,
   onChange,
-  tradeName,
-  includePackage = false,
 }: {
   value: TrackingChoice | null;
   onChange: (v: TrackingChoice) => void;
-  tradeName?: string;
-  includePackage?: boolean;
 }) {
-  const isCivil = CIVIL_RE.test(tradeName ?? "");
-  const options = OPTIONS.filter((o) => {
-    if (o.key === "package") return includePackage;
-    // Only offer per-laborer "detailed" where its screen exists (Civil), or when the
-    // contract is already on that mode (so a change-dialog can show the current state).
-    if (o.key === "detailed") return isCivil || value === "detailed";
-    return true;
-  });
-
   return (
     <Stack spacing={1}>
-      {options.map((o) => {
+      {OPTIONS.map((o) => {
         const Icon = o.icon;
         const selected = value === o.key;
         return (

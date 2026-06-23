@@ -36,19 +36,82 @@ export type AddTaskWork = (
   initialStatus?: "draft" | "active"
 ) => void;
 
-function SeverityDot({ severity, size = 8 }: { severity: Severity; size?: number }) {
+/** Over-exposed severities — the only ones that earn a row-level flag. */
+const isAtRisk = (severity: Severity): boolean =>
+  severity === "high" || severity === "watch";
+
+/**
+ * Exception-based risk flag. Shown ONLY when a row is over-exposed (paid running ahead
+ * of work). Healthy rows stay calm — the paid/work bar already carries their status, and
+ * the Future/Active/Completed tabs carry lifecycle, so an always-on dot would just be noise.
+ */
+function AtRiskChip({ severity }: { severity: Severity }) {
+  const m = severityMeta[severity];
+  const Icon = m.icon;
   return (
     <Box
+      component="span"
       sx={{
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        bgcolor: severityMeta[severity].dot,
         flexShrink: 0,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 0.3,
+        fontSize: 9.5,
+        fontWeight: 800,
+        letterSpacing: ".02em",
+        lineHeight: 1.5,
+        px: 0.6,
+        py: 0.05,
+        borderRadius: 999,
+        color: m.color,
+        bgcolor: m.bg,
+        whiteSpace: "nowrap",
       }}
-    />
+    >
+      <Icon sx={{ fontSize: 11 }} />
+      {m.label}
+    </Box>
   );
 }
+
+/**
+ * The trailing zone overlaps two layers in one grid cell so quiet status (at rest) and the
+ * contextual actions (on hover / always on touch) crossfade in the SAME spot — no layout
+ * shift, no permanent whitespace. Both children share row 1 / column 1.
+ */
+const overlapSlotSx = {
+  display: "grid",
+  alignItems: "center",
+  justifyItems: "end",
+  flexShrink: 0,
+  "& > *": { gridColumn: 1, gridRow: 1 },
+} as const;
+
+/**
+ * Hover/touch reveal applied to a row: status fades out and the action group fades in on
+ * hover (desktop) or keyboard focus; on touch devices (no hover) the actions are always
+ * shown and the status layer is hidden. Pure CSS — no JS device sniffing, no re-renders.
+ */
+const revealSx = {
+  "& .ws-status": { transition: "opacity .14s ease" },
+  "& .ws-actions": {
+    opacity: 0,
+    pointerEvents: "none",
+    transition: "opacity .14s ease",
+  },
+  "&:hover .ws-status, &:focus-within .ws-status": {
+    opacity: 0,
+    pointerEvents: "none",
+  },
+  "&:hover .ws-actions, &:focus-within .ws-actions": {
+    opacity: 1,
+    pointerEvents: "auto",
+  },
+  "@media (hover: none)": {
+    "& .ws-status": { display: "none" },
+    "& .ws-actions": { opacity: 1, pointerEvents: "auto" },
+  },
+} as const;
 
 /**
  * Small lifecycle-status chip (Planned / On hold / Done …). Tinted, deliberately
@@ -197,6 +260,45 @@ function PackageRow({
   );
 }
 
+/**
+ * Inviting first-child prompt shown inside a container that has nothing under it yet.
+ * Turns an empty Contract/Section into a clear next step instead of a dead end.
+ */
+function EmptyChildCTA({
+  childLabel,
+  planMode,
+  onAdd,
+}: {
+  childLabel: string;
+  planMode: boolean;
+  onAdd: () => void;
+}) {
+  return (
+    <Box
+      onClick={onAdd}
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 0.5,
+        py: 0.9,
+        px: 1,
+        borderRadius: `${wsRadius.row}px`,
+        border: `1.5px dashed ${wsColors.hairline}`,
+        cursor: "pointer",
+        color: wsColors.primary,
+        fontSize: 12.5,
+        fontWeight: 700,
+        transition: "background-color .14s ease, border-color .14s ease",
+        "&:hover": { bgcolor: wsColors.primaryTint, borderColor: wsColors.primary },
+      }}
+    >
+      <Add sx={{ fontSize: 16 }} />
+      {planMode ? `Plan the first ${childLabel}` : `Add the first ${childLabel}`}
+    </Box>
+  );
+}
+
 function matchesQuery(task: WorkspaceTask, q: string): boolean {
   if (!q) return true;
   const hay = `${task.title} ${task.who} ${task.tradeName} ${task.stageName ?? ""}`.toLowerCase();
@@ -300,6 +402,7 @@ function ContractRow({
 
   // Severity + dual bar: a node with parts reflects its rollup; a single job, itself.
   const sev = hasParts ? rollupSeverity(node.rollup) : t.exposure.severity;
+  const atRisk = isAtRisk(sev);
   const r = node.rollup;
   const showBar = hasParts ? r.trackedCount > 0 : t.work != null || t.paid > 0;
   const barPaid = hasParts ? (r.quotedTracked > 0 ? r.paidTracked / r.quotedTracked : 0) : t.paidPctOfQuoted;
@@ -324,6 +427,9 @@ function ContractRow({
           borderRadius: `${wsRadius.row}px`,
           cursor: "pointer",
           ...selectSx,
+          // Containers reveal their "＋ add child / open" actions on hover (desktop) or
+          // always (touch); leaf tasks just open on row-tap, so no reveal needed.
+          ...(expandable ? revealSx : {}),
         }}
       >
         {expandable ? (
@@ -337,7 +443,8 @@ function ContractRow({
             }}
           />
         ) : (
-          <SeverityDot severity={sev} />
+          // Spacer keeps leaf titles aligned with their expandable siblings.
+          <Box sx={{ width: 18, flexShrink: 0 }} />
         )}
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
@@ -360,27 +467,68 @@ function ContractRow({
             {secondary}
           </Typography>
         </Box>
-        {showBar && (
-          <MiniDualProgressBar paidPct={barPaid} workPct={barWork} width={40} height={7} />
-        )}
         {expandable ? (
-          <>
-            <SeverityDot severity={sev} size={8} />
-            <Tooltip title="Open details">
-              <IconButton
-                size="small"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  ctx.onSelectTask(t.id);
-                }}
-                aria-label="Open details"
-                sx={{ p: 0.4, ml: -0.25, color: wsColors.muted }}
-              >
-                <LaunchRounded sx={{ fontSize: 16 }} />
-              </IconButton>
-            </Tooltip>
-          </>
-        ) : null}
+          // Container: quiet status (paid/work bar + at-risk flag) crossfades to the
+          // contextual actions — "＋ Add {child}" (the hero) and "Open ↗".
+          <Box className="ws-trailing" sx={overlapSlotSx}>
+            <Box
+              className="ws-status"
+              sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
+            >
+              {showBar && (
+                <MiniDualProgressBar paidPct={barPaid} workPct={barWork} width={40} height={7} />
+              )}
+              {atRisk && <AtRiskChip severity={sev} />}
+            </Box>
+            <Box
+              className="ws-actions"
+              sx={{ display: "flex", alignItems: "center", gap: 0.25 }}
+            >
+              {ctx.showAddAffordances && (
+                <Tooltip title={`Add ${tm.childLabel}`}>
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      ctx.onAddTaskWork(
+                        ctx.tradeCategoryId,
+                        { parentId: t.id, tier: node.tier === "contract" ? "section" : "task" },
+                        ctx.addStatus
+                      );
+                    }}
+                    aria-label={`Add ${tm.childLabel}`}
+                    sx={{ p: 0.4, color: wsColors.primary }}
+                  >
+                    <Add sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Tooltip>
+              )}
+              <Tooltip title="Open details">
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    ctx.onSelectTask(t.id);
+                  }}
+                  aria-label="Open details"
+                  sx={{ p: 0.4, color: wsColors.muted }}
+                >
+                  <LaunchRounded sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+        ) : (
+          // Leaf task: status only (tap the row to open its detail).
+          (showBar || atRisk) && (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
+              {showBar && (
+                <MiniDualProgressBar paidPct={barPaid} workPct={barWork} width={40} height={7} />
+              )}
+              {atRisk && <AtRiskChip severity={sev} />}
+            </Box>
+          )
+        )}
       </Box>
 
       {expandable && (
@@ -401,20 +549,34 @@ function ContractRow({
             ))}
             {ctx.showAddAffordances && (
               <TreeBranch isLast>
-                <Button
-                  size="small"
-                  startIcon={<Add sx={{ fontSize: 16 }} />}
-                  onClick={() =>
-                    ctx.onAddTaskWork(
-                      ctx.tradeCategoryId,
-                      { parentId: t.id, tier: node.tier === "contract" ? "section" : "task" },
-                      ctx.addStatus
-                    )
-                  }
-                  sx={{ textTransform: "none", color: wsColors.primary, fontWeight: 700 }}
-                >
-                  {ctx.addStatus === "draft" ? "Plan a" : "Add a"} {tm.childLabel}
-                </Button>
+                {hasParts ? (
+                  <Button
+                    size="small"
+                    startIcon={<Add sx={{ fontSize: 16 }} />}
+                    onClick={() =>
+                      ctx.onAddTaskWork(
+                        ctx.tradeCategoryId,
+                        { parentId: t.id, tier: node.tier === "contract" ? "section" : "task" },
+                        ctx.addStatus
+                      )
+                    }
+                    sx={{ textTransform: "none", color: wsColors.primary, fontWeight: 700 }}
+                  >
+                    {ctx.addStatus === "draft" ? "Plan a" : "Add a"} {tm.childLabel}
+                  </Button>
+                ) : (
+                  <EmptyChildCTA
+                    childLabel={tm.childLabel}
+                    planMode={ctx.addStatus === "draft"}
+                    onAdd={() =>
+                      ctx.onAddTaskWork(
+                        ctx.tradeCategoryId,
+                        { parentId: t.id, tier: node.tier === "contract" ? "section" : "task" },
+                        ctx.addStatus
+                      )
+                    }
+                  />
+                )}
               </TreeBranch>
             )}
           </Box>
@@ -483,8 +645,24 @@ export function ContractTree({
     const count =
       node.tasks.filter(taskVisible).length + pkgs.filter(pkgVisible).length;
     const open = q ? true : openTrades[node.category.id] ?? false;
-    const sev = rollupSeverity(node.rollup);
     const Trade = tradeIcon(node.category.name);
+    const headerBar =
+      node.rollup.trackedCount > 0 ? (
+        <MiniDualProgressBar
+          paidPct={
+            node.rollup.quotedTracked > 0
+              ? node.rollup.paidTracked / node.rollup.quotedTracked
+              : 0
+          }
+          workPct={
+            node.rollup.quotedTracked > 0
+              ? node.rollup.workValue / node.rollup.quotedTracked
+              : 0
+          }
+          width={40}
+          height={7}
+        />
+      ) : null;
 
     // Attach each package to the node (Contract/Section/Task) it names as its parent.
     const allNodeIds = new Set<string>();
@@ -539,6 +717,8 @@ export function ContractTree({
             borderRadius: `${wsRadius.row}px`,
             cursor: "pointer",
             "&:hover": { bgcolor: wsColors.canvas },
+            // Reveal "＋ Add contract" on hover (desktop) / always (touch).
+            ...(showAddAffordances ? revealSx : {}),
           }}
         >
           <ChevronRight
@@ -579,23 +759,34 @@ export function ContractTree({
               {count}
             </Box>
           )}
-          {node.rollup.trackedCount > 0 && (
-            <MiniDualProgressBar
-              paidPct={
-                node.rollup.quotedTracked > 0
-                  ? node.rollup.paidTracked / node.rollup.quotedTracked
-                  : 0
-              }
-              workPct={
-                node.rollup.quotedTracked > 0
-                  ? node.rollup.workValue / node.rollup.quotedTracked
-                  : 0
-              }
-              width={40}
-              height={7}
-            />
+          {showAddAffordances ? (
+            <Box className="ws-trailing" sx={overlapSlotSx}>
+              <Box className="ws-status" sx={{ display: "flex", alignItems: "center" }}>
+                {headerBar}
+              </Box>
+              <Box className="ws-actions" sx={{ display: "flex", alignItems: "center" }}>
+                <Tooltip title={`Add ${node.category.name} contract`}>
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAddTaskWork(
+                        node.category.id,
+                        { parentId: null, tier: "contract" },
+                        addStatus
+                      );
+                    }}
+                    aria-label={`Add ${node.category.name} contract`}
+                    sx={{ p: 0.4, color: wsColors.primary }}
+                  >
+                    <Add sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            </Box>
+          ) : (
+            headerBar
           )}
-          <SeverityDot severity={sev} size={9} />
         </Box>
 
         <Collapse in={open} unmountOnExit>

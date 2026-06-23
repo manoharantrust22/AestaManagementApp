@@ -28,6 +28,7 @@ import { modeMeta, tierMeta, wsColors, wsRadius, wsShadow } from "@/lib/workforc
 import { formatCurrencyFull } from "@/lib/formatters";
 import { BalanceMeter } from "./BalanceMeter";
 import { StatCard } from "./StatCard";
+import { PaidSourceBreakdown } from "./GroupDetailPane";
 import { GoodDealCard } from "./GoodDealCard";
 import { PaymentsHistoryCard } from "./PaymentsHistoryCard";
 import { ScopeSheetPanel } from "./ScopeSheetPanel";
@@ -358,6 +359,16 @@ export function TaskDetailPane({
             sub={`${paidPctOfValue}% of value`}
           />
         </Box>
+
+        {/* Where the paid-out money came from (Workspace settlements vs fixed-price). */}
+        <PaidSourceBreakdown
+          split={{
+            workspace: task.paidWorkspace,
+            sections: task.paidFixed,
+            taskWork: 0,
+            total: task.paidWorkspace + task.paidFixed,
+          }}
+        />
 
         {/* Plain balance: what's still owed (agreed − paid). */}
         {(() => {

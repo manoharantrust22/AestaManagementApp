@@ -59,6 +59,13 @@ interface Props {
   siteId: string;
   editing?: TaskWorkPackage | null;
   onSaved?: () => void;
+  /**
+   * When set (and not editing), the new package auto-nests under this contract/section
+   * and the "Part of subcontract" picker is hidden — the parent is already known because
+   * the dialog was opened from a "+" on that row in the tree. Left undefined when opened
+   * from the top "Add" button, where the picker is still shown.
+   */
+  parentSubcontractId?: string | null;
 }
 
 interface MaistryOption {
@@ -120,6 +127,7 @@ export default function TaskWorkPackageDialog({
   siteId,
   editing,
   onSaved,
+  parentSubcontractId,
 }: Props) {
   const isMobile = useIsMobile();
   const [form, setForm] = useState<FormState>(EMPTY);
@@ -191,10 +199,11 @@ export default function TaskWorkPackageDialog({
         notes: editing.notes ?? "",
       });
     } else {
-      setForm(EMPTY);
+      // New package: when opened from a row's "+", auto-nest under that parent.
+      setForm({ ...EMPTY, parent_subcontract_id: parentSubcontractId ?? "" });
     }
     setError("");
-  }, [open, editing]);
+  }, [open, editing, parentSubcontractId]);
 
   // Auto-calculate total for rate-based pricing.
   useEffect(() => {
@@ -210,6 +219,13 @@ export default function TaskWorkPackageDialog({
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((p) => ({ ...p, [key]: value }));
+
+  // Opened from a row's "+": the parent contract/section is already known, so we
+  // nest under it automatically and hide the picker (no "standalone vs subcontract"
+  // question). Only the top "Add" button (no parentSubcontractId) shows the picker.
+  const lockedParent = !editing && !!parentSubcontractId;
+  const lockedParentTitle =
+    subcontracts.find((s) => s.id === parentSubcontractId)?.title ?? null;
 
   // Live benchmark + win-win preview from the per-type estimate. The rows are
   // rolled up to man-days + a count-weighted blended ₹/day so the same
@@ -623,25 +639,39 @@ export default function TaskWorkPackageDialog({
             </Grid>
           </Grid>
 
-          <FormControl fullWidth>
-            <InputLabel shrink>Part of subcontract (optional)</InputLabel>
-            <Select
-              value={form.parent_subcontract_id}
-              label="Part of subcontract (optional)"
-              displayEmpty
-              notched
-              onChange={(e) => set("parent_subcontract_id", e.target.value)}
+          {lockedParent ? (
+            <Paper
+              variant="outlined"
+              sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "action.hover" }}
             >
-              <MenuItem value="">
-                <em>Standalone — not under a subcontract</em>
-              </MenuItem>
-              {subcontracts.map((s) => (
-                <MenuItem key={s.id} value={s.id}>
-                  {s.title}
+              <Typography variant="caption" color="text.secondary">
+                Inside
+              </Typography>
+              <Typography variant="body2" fontWeight={700}>
+                {lockedParentTitle ?? "the selected contract"}
+              </Typography>
+            </Paper>
+          ) : (
+            <FormControl fullWidth>
+              <InputLabel shrink>Part of subcontract (optional)</InputLabel>
+              <Select
+                value={form.parent_subcontract_id}
+                label="Part of subcontract (optional)"
+                displayEmpty
+                notched
+                onChange={(e) => set("parent_subcontract_id", e.target.value)}
+              >
+                <MenuItem value="">
+                  <em>Standalone — not under a subcontract</em>
                 </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+                {subcontracts.map((s) => (
+                  <MenuItem key={s.id} value={s.id}>
+                    {s.title}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
 
           <TextField
             fullWidth

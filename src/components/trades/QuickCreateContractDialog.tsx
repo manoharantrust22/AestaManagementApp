@@ -115,11 +115,9 @@ export function QuickCreateContractDialog({
   const [sqft, setSqft] = useState<string>("");
   const [ratePerSqft, setRatePerSqft] = useState<string>("");
   const [status, setStatus] = useState<"draft" | "active">(initialStatus);
-  // "How will you handle this work?" — a tracking mode, or the "package" handoff.
+  // "How will you handle this work?" — one of the three tracking modes.
   const [choice, setChoice] = useState<TrackingChoice>("mesthri_only");
-  const laborTrackingMode: LaborTrackingMode =
-    choice === "package" ? "mesthri_only" : choice;
-  const isPackageChoice = choice === "package";
+  const laborTrackingMode: LaborTrackingMode = choice;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(false);
@@ -436,26 +434,43 @@ export function QuickCreateContractDialog({
             {/* The primary decision first: how will you handle this work? */}
             <FormControl>
               <FormLabel sx={{ mb: 1 }}>How will you handle this work?</FormLabel>
-              <TrackingModeChooser
-                value={choice}
-                onChange={setChoice}
-                tradeName={tradeName}
-                includePackage={!!onCreatePackage}
-              />
+              <TrackingModeChooser value={choice} onChange={setChoice} />
+              {onCreatePackage && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: "block", mt: 1 }}
+                >
+                  Fixed-price maistry job (like Barun&apos;s)?{" "}
+                  <Box
+                    component="span"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                      onCreatePackage();
+                      onClose();
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onCreatePackage();
+                        onClose();
+                      }
+                    }}
+                    sx={{
+                      color: "primary.main",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      "&:hover": { textDecoration: "underline" },
+                    }}
+                  >
+                    Set up a package →
+                  </Box>
+                </Typography>
+              )}
             </FormControl>
 
-            {isPackageChoice ? (
-              <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "action.hover" }}>
-                <Typography variant="body2" fontWeight={700} gutterBottom>
-                  Fixed-price package
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Packages have their own quick setup — the agreed price, the maistry crew,
-                  optional retention, and the daily man-day log. Continue to set it up.
-                </Typography>
-              </Box>
-            ) : (
-              <>
+            <>
             <FormControl>
               <FormLabel>Contractor type</FormLabel>
               <ToggleButtonGroup
@@ -736,8 +751,7 @@ export function QuickCreateContractDialog({
                   : "Shows in the Active workspace right away."}
               </Typography>
             </FormControl>
-              </>
-            )}
+            </>
 
             {error && <Alert severity="error">{error}</Alert>}
           </Stack>
@@ -747,26 +761,14 @@ export function QuickCreateContractDialog({
         <Button onClick={onClose} disabled={submitting}>
           Cancel
         </Button>
-        {isPackageChoice ? (
-          <Button
-            variant="contained"
-            onClick={() => {
-              onCreatePackage?.();
-              onClose();
-            }}
-          >
-            Set up package →
-          </Button>
-        ) : (
-          <Button
-            variant="contained"
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-            startIcon={submitting ? <CircularProgress size={16} /> : null}
-          >
-            {submitting ? "Saving…" : tierCopy.submit}
-          </Button>
-        )}
+        <Button
+          variant="contained"
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          startIcon={submitting ? <CircularProgress size={16} /> : null}
+        >
+          {submitting ? "Saving…" : tierCopy.submit}
+        </Button>
       </DialogActions>
     </Dialog>
   );

@@ -10,7 +10,7 @@ import InfoOutlined from "@mui/icons-material/InfoOutlined";
 import EditOutlined from "@mui/icons-material/EditOutlined";
 import CallMerge from "@mui/icons-material/CallMerge";
 import ReceiptLong from "@mui/icons-material/ReceiptLong";
-import { computeInitials, type ContractorGroup, type WorkspaceTask } from "@/lib/workforce/workspaceModel";
+import { computeInitials, type ContractMoneySplit, type ContractorGroup, type WorkspaceTask } from "@/lib/workforce/workspaceModel";
 import { rollupSeverity, type ExposureResult } from "@/lib/workforce/exposure";
 import { wsColors, wsRadius, wsShadow } from "@/lib/workforce/workspaceTokens";
 import { formatCurrencyFull } from "@/lib/formatters";
@@ -211,6 +211,10 @@ export function GroupDetailPane({
           />
         </Box>
 
+        {/* Where the paid-out money came from: Workspace (attendance/salary) vs Sections
+            (fixed-price) vs Task-work (packages). */}
+        <PaidSourceBreakdown split={group.moneySplit} />
+
         {/* Plain balance: what's still owed on the whole contract (agreed − paid). */}
         <RemainingStrip quoted={r.quoted} paid={r.paid} remaining={remaining} />
 
@@ -403,6 +407,68 @@ function ActionTile({
         </Typography>
       </Box>
       <ChevronRight sx={{ fontSize: 20, color: wsColors.muted }} />
+    </Box>
+  );
+}
+
+/**
+ * "Paid out, by source" — splits the contract's paid total into Workspace (salary
+ * settlements off attendance), Sections (fixed-price subcontract payments), and Task-work
+ * (fixed-price packages), as a thin stacked bar + legend. Only the buckets with money
+ * show; hidden entirely until something is paid.
+ */
+export function PaidSourceBreakdown({ split }: { split: ContractMoneySplit }) {
+  const segs = [
+    { key: "workspace", label: "Workspace", hint: "attendance + salary", value: split.workspace, color: wsColors.primary },
+    { key: "sections", label: "Sections", hint: "fixed price", value: split.sections, color: "#0d9488" },
+    { key: "taskWork", label: "Task-work", hint: "packages", value: split.taskWork, color: "#7c3aed" },
+  ].filter((s) => s.value > 0);
+  if (split.total <= 0 || segs.length === 0) return null;
+  return (
+    <Box
+      sx={{
+        px: 1.75,
+        py: 1.25,
+        borderRadius: `${wsRadius.card}px`,
+        bgcolor: wsColors.surface,
+        border: `1px solid ${wsColors.hairline}`,
+        boxShadow: wsShadow.card,
+      }}
+    >
+      <Typography
+        sx={{
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: ".04em",
+          textTransform: "uppercase",
+          color: wsColors.muted,
+          mb: 0.75,
+        }}
+      >
+        Paid out · by source
+      </Typography>
+      <Box sx={{ display: "flex", height: 9, borderRadius: 999, overflow: "hidden", mb: 0.875 }}>
+        {segs.map((s) => (
+          <Box
+            key={s.key}
+            sx={{ width: `${(s.value / split.total) * 100}%`, bgcolor: s.color, minWidth: 2 }}
+          />
+        ))}
+      </Box>
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.25 }}>
+        {segs.map((s) => (
+          <Box key={s.key} sx={{ display: "flex", alignItems: "center", gap: 0.625, minWidth: 0 }}>
+            <Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: s.color, flexShrink: 0 }} />
+            <Typography sx={{ fontSize: 12, color: wsColors.ink2 }}>
+              <Box component="span" sx={{ fontWeight: 800, color: wsColors.ink }}>
+                {s.label}
+              </Box>{" "}
+              {formatCurrencyFull(s.value)}
+              <Box component="span" sx={{ color: wsColors.muted }}> · {s.hint}</Box>
+            </Typography>
+          </Box>
+        ))}
+      </Box>
     </Box>
   );
 }

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildWorkspaceModel,
   computeInitials,
+  contractMoneySplit,
   contractorGroupFromNode,
   findContractNode,
   findTask,
@@ -275,6 +276,41 @@ describe("fixed-price packages fold into the rollup + parts", () => {
     });
     expect(m3.trades[0].rollup.quoted).toBe(80000); // 50,000 contract + 30,000 loose package
     expect(m3.trades[0].rollup.paid).toBe(10000);
+  });
+});
+
+describe("contractMoneySplit — paid out by source", () => {
+  it("splits paid into Workspace (settlements) / Sections (fixed) / Task-work (packages) across the subtree", () => {
+    const P = contract({ id: "P", teamId: "tJ", totalValue: 1000000 });
+    const S = contract({ id: "S", teamId: "tJ", totalValue: 1000000, parentSubcontractId: "P" });
+    const recons = new Map<string, ContractReconciliation>([
+      ["P", recon({
+        subcontractId: "P", quotedAmount: 1000000, amountPaid: 600000,
+        amountPaidSettlements: 500000, amountPaidSubcontractPayments: 100000,
+      })],
+      ["S", recon({
+        subcontractId: "S", quotedAmount: 1000000, amountPaid: 250000,
+        amountPaidSettlements: 200000, amountPaidSubcontractPayments: 50000,
+      })],
+    ]);
+    const pkg = wpkg({ id: "PKG", parentSubcontractId: "P", quoted: 60000, paid: 40000 });
+    const model = buildWorkspaceModel({
+      trades: [{ category: civilCat, contracts: [P, S] }],
+      reconciliations: recons,
+      activity: undefined,
+      packages: [pkg],
+    });
+    const node = findContractNode(model, "P")!.node;
+    const split = contractMoneySplit(node);
+
+    expect(split.workspace).toBe(700000); // 500k + 200k salary settlements
+    expect(split.sections).toBe(150000); // 100k + 50k fixed-price subcontract payments
+    expect(split.taskWork).toBe(40000); // the package's paid
+    expect(split.total).toBe(890000);
+    // The split reconciles to the contract's rolled-up Paid out.
+    expect(split.total).toBe(node.rollup.paid);
+    // The combined-contract shape carries the same split.
+    expect(contractorGroupFromNode(node).moneySplit).toEqual(split);
   });
 });
 

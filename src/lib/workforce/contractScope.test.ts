@@ -63,4 +63,34 @@ describe("buildContractScopeHref", () => {
     const href = buildContractScopeHref("/site/attendance", make({ tradeName: "Water Proofing & Sealing" }));
     expect(new URL(href, "http://x").searchParams.get("trade")).toBe("Water Proofing & Sealing");
   });
+
+  it("a non-Civil trade on the FULL workspace (detailed) uses the per-laborer flow", () => {
+    // Painting on "detailed" → attendance carries contractId ONLY (not the trade triple),
+    // so the page renders the full per-laborer flow, the same one Civil uses.
+    const href = buildContractScopeHref(
+      "/site/attendance",
+      make({ id: "p7", tradeName: "Painting", tradeCategoryId: "cat-paint", mode: "detailed" })
+    );
+    const url = new URL(href, "http://x");
+    expect(url.pathname).toBe("/site/attendance");
+    expect(url.searchParams.get("contractId")).toBe("p7");
+    expect(url.searchParams.get("categoryId")).toBeNull();
+    expect(url.searchParams.get("trade")).toBeNull();
+  });
+
+  it("a non-Civil DETAILED contract resolves payments to the default settlement flow", () => {
+    expect(
+      buildContractScopeHref("/site/payments", make({ tradeName: "Painting", mode: "detailed" }))
+    ).toBe("/site/payments");
+  });
+
+  it("a non-Civil HEADCOUNT trade still gets the trade-scoped triple", () => {
+    const href = buildContractScopeHref(
+      "/site/attendance",
+      make({ id: "p8", tradeName: "Painting", tradeCategoryId: "cat-paint", mode: "headcount" })
+    );
+    const url = new URL(href, "http://x");
+    expect(url.searchParams.get("categoryId")).toBe("cat-paint");
+    expect(url.searchParams.get("trade")).toBe("Painting");
+  });
 });

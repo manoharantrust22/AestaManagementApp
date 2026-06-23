@@ -14,7 +14,7 @@ import {
 } from "@mui/material";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
-import { TrackingModeChooser, type TrackingChoice } from "./TrackingModeChooser";
+import { TrackingModeChooser } from "./TrackingModeChooser";
 
 type Mode = "detailed" | "headcount" | "mesthri_only" | "mid";
 
@@ -53,7 +53,6 @@ export function ChangeTrackingModeDialog({
   contractTitle,
   currentMode,
   tradeCategoryId,
-  tradeName,
 }: ChangeTrackingModeDialogProps) {
   const queryClient = useQueryClient();
   const supabase = createClient();
@@ -202,14 +201,7 @@ export function ChangeTrackingModeDialog({
           </Stack>
         )}
 
-        <TrackingModeChooser
-          value={target}
-          onChange={(v: TrackingChoice) => {
-            if (v !== "package") setTarget(v);
-          }}
-          tradeName={tradeName}
-          includePackage={false}
-        />
+        <TrackingModeChooser value={target} onChange={setTarget} />
 
         {blockedReason && (
           <Alert severity="warning" sx={{ mt: 2 }}>
