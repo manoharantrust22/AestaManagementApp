@@ -210,6 +210,7 @@ export function WorkspaceLayout({
   ) : (
     <TaskDetailPane
       task={selectedTask}
+      siteId={siteId}
       canEdit={canEdit}
       onUpdateProgress={() => setSheet("progress")}
       onRecordPayment={() => setSheet("payment")}

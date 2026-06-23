@@ -95,8 +95,12 @@ export function GroupDetailPane({
     ratio: tracked ? r.ratio : null,
   };
   const paidPctOfValue = r.quoted > 0 ? Math.round((r.paid / r.quoted) * 100) : 0;
-  // Attendance + salary exist only on tracked contracts (any mode but mesthri-only).
-  const anyTracked = group.tasks.some((t) => t.mode !== "mesthri_only");
+  // Attendance + salary exist only on a "Full workspace" (detailed) contract —
+  // either this contract itself or one of its parts. Count-by-role / lump parts
+  // don't put this contract on the attendance & salary screens.
+  const anyTracked =
+    parentMode?.parent.mode === "detailed" ||
+    group.tasks.some((t) => t.mode === "detailed");
 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: wsColors.canvas, minWidth: 0 }}>

@@ -15,6 +15,7 @@ import ArrowBack from "@mui/icons-material/ArrowBack";
 import TuneRounded from "@mui/icons-material/TuneRounded";
 import PaymentsRounded from "@mui/icons-material/PaymentsRounded";
 import HowToReg from "@mui/icons-material/HowToReg";
+import Groups from "@mui/icons-material/Groups";
 import OpenInNew from "@mui/icons-material/OpenInNew";
 import AccountTreeRounded from "@mui/icons-material/AccountTreeRounded";
 import CheckCircleRounded from "@mui/icons-material/CheckCircleRounded";
@@ -29,6 +30,7 @@ import { formatCurrencyFull } from "@/lib/formatters";
 import { BalanceMeter } from "./BalanceMeter";
 import { StatCard } from "./StatCard";
 import { PaidSourceBreakdown } from "./GroupDetailPane";
+import { HeadcountEntryInline } from "@/components/trades/HeadcountEntryInline";
 import { GoodDealCard } from "./GoodDealCard";
 import { PaymentsHistoryCard } from "./PaymentsHistoryCard";
 import { ScopeSheetPanel } from "./ScopeSheetPanel";
@@ -50,6 +52,7 @@ const TIER_LEGEND: Array<{ tier: ContractTier; desc: string }> = [
 
 export function TaskDetailPane({
   task,
+  siteId,
   onUpdateProgress,
   onRecordPayment,
   onLogAttendance,
@@ -63,6 +66,7 @@ export function TaskDetailPane({
   onBack,
 }: {
   task: WorkspaceTask | null;
+  siteId: string;
   onUpdateProgress: () => void;
   onRecordPayment: () => void;
   onLogAttendance: () => void;
@@ -147,11 +151,41 @@ export function TaskDetailPane({
   const ModeIcon = modeMeta[task.mode].icon;
   const paidPctOfValue = task.quoted > 0 ? Math.round((task.paid / task.quoted) * 100) : 0;
 
-  // "Tracked workspace" = this contract records daily attendance and settles
-  // salary (any mode except mesthri-only, which is lump payments only). This is
-  // the per-trade opt-in surfaced below; onChangeMode flips it on/off.
-  const tracked = task.mode !== "mesthri_only";
+  // "Workspace" = the FULL per-laborer mode ("detailed"): daily attendance +
+  // salary settlements (the Civil machinery). Count-by-role ("headcount") logs
+  // role counts INLINE here instead; lump ("mesthri_only") is payments only.
+  const tracked = task.mode === "detailed";
+  const isHeadcount = task.mode === "headcount";
   const canChangeMode = canEdit && !!onChangeMode && !!task.tradeCategoryId;
+
+  // Mode banner: full workspace (green) / count-by-role (blue) / lump (grey).
+  const wsBanner =
+    task.mode === "detailed"
+      ? {
+          bg: wsColors.greenBg,
+          border: "#cdebd6",
+          icon: <CheckCircleRounded sx={{ fontSize: 18, color: wsColors.green }} />,
+          titleColor: "#1f7a44",
+          title: "Full workspace · Attendance + Salary",
+          sub: "Daily attendance and salary are recorded for this contract.",
+        }
+      : task.mode === "headcount"
+        ? {
+            bg: wsColors.primaryTint,
+            border: "#d3e0fb",
+            icon: <Groups sx={{ fontSize: 18, color: wsColors.primary }} />,
+            titleColor: wsColors.primary,
+            title: "Count labourers by role",
+            sub: "Log the daily role counts below — no full attendance/salary.",
+          }
+        : {
+            bg: "#f0f2f6",
+            border: wsColors.hairline,
+            icon: <RequestQuoteRounded sx={{ fontSize: 18, color: wsColors.muted }} />,
+            titleColor: wsColors.ink2,
+            title: "Just payments — not tracked",
+            sub: "Payments only — no attendance or salary workspace.",
+          };
 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: wsColors.canvas, minWidth: 0 }}>
@@ -305,7 +339,7 @@ export function TaskDetailPane({
           </Box>
         </Box>
 
-        {/* Tracked-workspace opt-in: does this contract record Attendance + Salary? */}
+        {/* Mode banner: how this contract is handled (Full workspace / Count by role / Just payments). */}
         <Box
           sx={{
             display: "flex",
@@ -314,23 +348,17 @@ export function TaskDetailPane({
             px: 1.25,
             py: 0.85,
             borderRadius: `${wsRadius.input}px`,
-            bgcolor: tracked ? wsColors.greenBg : "#f0f2f6",
-            border: `1px solid ${tracked ? "#cdebd6" : wsColors.hairline}`,
+            bgcolor: wsBanner.bg,
+            border: `1px solid ${wsBanner.border}`,
           }}
         >
-          {tracked ? (
-            <CheckCircleRounded sx={{ fontSize: 18, color: wsColors.green }} />
-          ) : (
-            <RequestQuoteRounded sx={{ fontSize: 18, color: wsColors.muted }} />
-          )}
+          {wsBanner.icon}
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontSize: 12.5, fontWeight: 800, color: tracked ? "#1f7a44" : wsColors.ink2 }} noWrap>
-              {tracked ? "Tracked · Attendance + Salary" : "Lump only — not tracked"}
+            <Typography sx={{ fontSize: 12.5, fontWeight: 800, color: wsBanner.titleColor }} noWrap>
+              {wsBanner.title}
             </Typography>
             <Typography sx={{ fontSize: 11, color: wsColors.muted }} noWrap>
-              {tracked
-                ? "Daily attendance and salary are recorded for this contract."
-                : "Payments only — no attendance or salary workspace."}
+              {wsBanner.sub}
             </Typography>
           </Box>
           {canChangeMode && (
@@ -339,7 +367,7 @@ export function TaskDetailPane({
               onClick={onChangeMode}
               sx={{ textTransform: "none", fontWeight: 700, color: wsColors.primary, minWidth: 0, flexShrink: 0 }}
             >
-              {tracked ? "Change" : "Turn on"}
+              Change
             </Button>
           )}
         </Box>
@@ -431,9 +459,11 @@ export function TaskDetailPane({
           <PaymentsHistoryCard contractId={task.id} />
           <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1.5 }}>
             <GoodDealCard contractId={task.id} quoted={task.quoted} />
-            {/* Attendance + Salary live only on tracked contracts; a lump
-                (mesthri-only) contract has no workspace — pay it via Record
-                payment in the header instead. */}
+            {/* Count-by-role contracts log their daily role counts right here,
+                inline (section-style) — no full attendance page. */}
+            {isHeadcount && <HeadcountEntryInline siteId={siteId} contractId={task.id} />}
+            {/* Attendance + Salary live only on a Full-workspace (detailed)
+                contract; lighter modes pay via Record payment in the header. */}
             {tracked && (
               <>
                 <ActionTile

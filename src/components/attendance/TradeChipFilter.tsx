@@ -63,12 +63,11 @@ export function TradeChipFilter({
     );
   }
 
-  // A contract is a "tracked workspace" when its labor tracking mode records
-  // attendance (anything other than mesthri-only, which is lump payments with
-  // no attendance/salary). Opted-out (mesthri-only) contracts don't belong on
-  // the attendance / salary screens, so we drop them from the chips — they're
-  // paid from the Workforce workspace's Record-payment action instead.
-  const isTracked = (c: TradeContract) => c.laborTrackingMode !== "mesthri_only";
+  // A contract has a "Workspace" only on the FULL per-laborer mode ("detailed").
+  // Count-by-role ("headcount") and lump ("mesthri_only") contracts do their
+  // counts/payouts inline on the contract and don't belong on the attendance /
+  // salary screens, so we drop them from the chips.
+  const isTracked = (c: TradeContract) => c.laborTrackingMode === "detailed";
 
   // Civil + non-civil trades that have at least one tracked contract.
   const visibleTrades = (trades ?? [])
