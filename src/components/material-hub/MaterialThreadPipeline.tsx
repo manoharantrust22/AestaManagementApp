@@ -21,7 +21,12 @@ import { Box } from "@mui/material";
 import CheckIcon from "@mui/icons-material/Check";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { fmtQty } from "@/lib/formatters";
-import { M_STAGES, getVisibleStages, stageIndex } from "@/lib/material-hub/stageHelpers";
+import {
+  M_STAGES,
+  getVisibleStages,
+  stageIndex,
+  advanceAwaitingSettle,
+} from "@/lib/material-hub/stageHelpers";
 import type { MaterialThread, ThreadStage } from "@/lib/material-hub/threadTypes";
 import {
   type InterSiteStatus,
@@ -110,7 +115,7 @@ export function buildMaterialPipeline(thread: MaterialThread): MaterialPipelineM
   const interSiteStatus = resolveInterSiteStatus(thread);
   const interSiteActive =
     isInterSiteOutstanding(interSiteStatus) && thread.stage === "exhausted";
-  const nextKey =
+  let nextKey =
     !isTerminal && idx + 1 < M_STAGES.length ? M_STAGES[idx + 1] : null;
 
   const po = thread.po;
@@ -118,6 +123,13 @@ export function buildMaterialPipeline(thread: MaterialThread): MaterialPipelineM
   const receivedQty = po?.received_qty ?? 0;
   const isAdvancePaid =
     !!po && po.payment_timing === "advance" && po.advance_paid > 0;
+
+  // Bulk/advance PO not yet paid: the vendor is settled BEFORE delivery, so the
+  // pulsing "current" step is SETTLE — not DELIVER. Redirecting nextKey makes
+  // SETTLE pulse and DELIVER go quiet via the `current = stageKey === nextKey`
+  // rule below; no other change is needed for the no-delivery case.
+  const needsSettleFirst = advanceAwaitingSettle(thread);
+  if (needsSettleFirst) nextKey = "settled";
   const deliverFraction =
     po && orderedQty > 0 ? Math.min(receivedQty / orderedQty, 1) : 0;
   const deliverFullyDone = deliverFraction >= 1;
@@ -186,11 +198,14 @@ export function buildMaterialPipeline(thread: MaterialThread): MaterialPipelineM
       }
     }
 
-    // DELIVER: partial-progress arc + fraction caption; keep the pulse here.
+    // DELIVER: partial-progress arc + fraction caption; keep the pulse here —
+    // unless the vendor still has to be settled first (a rare pre-settlement
+    // partial), in which case SETTLE keeps the pulse and DELIVER just shows the
+    // progress arc without stealing "current".
     if (stageKey === "delivered" && po && receivedQty > 0 && !deliverFullyDone) {
       progress = deliverFraction;
       caption = `${fmtQty(receivedQty)}/${fmtQty(orderedQty)}`;
-      current = true;
+      if (!needsSettleFirst) current = true;
     }
 
     // SETTLE: done once the vendor is actually settled (status='settled'),

@@ -1,4 +1,5 @@
 import type { MaterialThread } from "./threadTypes";
+import { advanceAwaitingSettle } from "./stageHelpers";
 
 export type NextActionWho = "admin" | "engineer" | "office";
 
@@ -35,6 +36,16 @@ export function nextAction(t: MaterialThread): NextAction | null {
   if (t.stage === "rejected") return null;
   if (t.stage === "requested") return { who: "admin", label: "Approve →", verb: "Approve" };
   if (t.stage === "approved") return { who: "admin", label: "Create PO →", verb: "Create PO" };
+
+  // Advance (bulk) POs are paid BEFORE the vendor delivers — the money goes out
+  // first, then the goods arrive part-by-part. Until the advance is recorded the
+  // primary action is to settle the vendor, NOT to record a delivery (which
+  // stays available as a secondary action inside the expanded card). Once the
+  // advance is paid (advance_paid > 0) or a settlement row exists this is false
+  // and we fall through to the normal delivery flow below.
+  if (advanceAwaitingSettle(t)) {
+    return { who: "office", label: "Settle vendor →", verb: "Settle" };
+  }
 
   // 'ordered' covers both no-delivery-yet AND partial-delivered. The next
   // action is always to record the next delivery installment. (Labelled

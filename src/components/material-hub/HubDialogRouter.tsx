@@ -27,6 +27,7 @@ import WaterfallUsageDialog from "@/components/materials/WaterfallUsageDialog";
 import OwnSiteUsageDialog from "@/components/material-hub/OwnSiteUsageDialog";
 import { SpotPurchaseAllocatorDialog } from "@/components/materials/SpotPurchaseAllocatorDialog";
 import { usePurchaseOrder } from "@/hooks/queries/usePurchaseOrders";
+import { advanceAwaitingSettle } from "@/lib/material-hub/stageHelpers";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 import type { MaterialRequestWithDetails } from "@/types/material.types";
 
@@ -118,6 +119,14 @@ export const HubDialogRouter = forwardRef<
       if (thread.stage === "approved") {
         const mr = materialRequestById.get(thread.source_row_id);
         if (mr) setDialog({ kind: "create-po", mr });
+        return;
+      }
+      // Bulk/advance PO not yet paid: the vendor is settled BEFORE delivery, so
+      // the row's primary button reads "Settle vendor" (nextAction) and must
+      // open the settlement dialog — not the delivery dialog. MaterialSettlementDialog
+      // handles an undelivered advance PO via its isPOAdvancePayment path.
+      if (advanceAwaitingSettle(thread)) {
+        if (thread.po?.id) setDialog({ kind: "settle", poId: thread.po.id });
         return;
       }
       if (thread.stage === "ordered") {

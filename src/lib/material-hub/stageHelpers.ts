@@ -1,5 +1,29 @@
-import type { ThreadStage } from "./threadTypes";
+import type { MaterialThread, ThreadStage } from "./threadTypes";
 import { hubTokens, type HubTone } from "./tokens";
+
+/**
+ * A bulk/advance PO whose vendor has NOT been paid yet. For advance buys the
+ * money goes out BEFORE the goods arrive (the vendor delivers part-by-part only
+ * after the upfront payment), so until the advance is recorded the primary next
+ * step is to SETTLE the vendor — not to record a delivery. Recording a delivery
+ * stays possible but secondary.
+ *
+ * Scoped to the unpaid `ordered` state only: the instant the advance is paid
+ * (`advance_paid > 0`) or a settlement row exists, this is false and the thread
+ * reverts to the normal flow (DELIVER pulses, "Record delivery" is primary).
+ *
+ * Single source of truth shared by nextAction (row/table button),
+ * buildMaterialPipeline (which step pulses), HubDialogRouter (which dialog the
+ * button opens) and the in-card RecordSettlementButton — so they can't disagree.
+ */
+export function advanceAwaitingSettle(t: MaterialThread): boolean {
+  return (
+    t.advance &&
+    t.stage === "ordered" &&
+    (t.po?.advance_paid ?? 0) <= 0 &&
+    t.settlement?.status !== "settled"
+  );
+}
 
 /**
  * Canonical stage order. Index into this list = pipeline position.

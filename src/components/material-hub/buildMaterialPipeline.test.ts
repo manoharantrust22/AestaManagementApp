@@ -103,6 +103,31 @@ describe("buildMaterialPipeline", () => {
     ]);
   });
 
+  it("advance NOT yet paid (ordered) → SETTLE pulses, DELIVER upcoming", () => {
+    // Bulk advance: the vendor must be paid BEFORE delivery. Until the advance
+    // is recorded, SETTLE is the next pending step — DELIVER must not pulse.
+    const { steps } = buildMaterialPipeline(
+      makeThread({
+        advance: true,
+        stage: "ordered",
+        po: makePO({
+          status: "ordered",
+          qty: 200,
+          received_qty: 0,
+          payment_timing: "advance",
+          advance_paid: 0,
+          delivery_batches: [],
+        }),
+        settlement: undefined,
+        inventory: undefined,
+      })
+    );
+    const byKey = Object.fromEntries(steps.map((s) => [s.key, s]));
+    expect(byKey["settled"].state).toBe("current");
+    expect(byKey["delivered"].state).toBe("upcoming");
+    expect(byKey["inventory"].state).toBe("upcoming");
+  });
+
   it("advance-paid before delivery → SETTLE done ('advance'), STOCK still upcoming", () => {
     const { steps } = buildMaterialPipeline(
       makeThread({

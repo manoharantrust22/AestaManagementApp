@@ -34,7 +34,7 @@ import { formatPayerSource } from "@/lib/settlement/payerSource";
 import { inr } from "@/lib/material-hub/formatters";
 import { fmtDateShort } from "@/lib/material-hub/formatters";
 import { fmtQty } from "@/lib/formatters";
-import { M_STAGES, stageIndex } from "@/lib/material-hub/stageHelpers";
+import { M_STAGES, stageIndex, advanceAwaitingSettle } from "@/lib/material-hub/stageHelpers";
 import {
   useBatchSettlementSummary,
   useBatchVariantSummary,
@@ -49,6 +49,7 @@ import UsageLogList from "@/components/inventory/UsageLogList";
 import type { UsageLogItem } from "@/hooks/queries/useUsageLog";
 import ThreadCorrectionMenu from "@/components/material-hub/ThreadCorrectionMenu";
 import RecordDeliveryButton from "@/components/material-hub/RecordDeliveryButton";
+import RecordSettlementButton from "@/components/material-hub/RecordSettlementButton";
 import BatchCorrectionControl from "@/components/material-hub/BatchCorrectionControl";
 import PerSiteUsageBar from "@/components/material-hub/PerSiteUsageBar";
 import PhotoLightbox from "@/components/dashboard/PhotoLightbox";
@@ -1263,6 +1264,20 @@ export default function MaterialThreadExpanded({ thread }: MaterialThreadExpande
               >
                 Vendor bill on /site/material-settlements.
               </Typography>
+            </>
+          ) : advanceAwaitingSettle(t) ? (
+            <>
+              <Typography
+                sx={{ fontSize: 11.5, color: hubTokens.muted, lineHeight: 1.45 }}
+              >
+                Bulk advance — pay the vendor before delivery. The vendor starts
+                delivering part-by-part once the advance is settled.
+              </Typography>
+              <RecordSettlementButton
+                thread={t}
+                canEdit={canEdit}
+                siteId={selectedSite?.id ?? t.site_id}
+              />
             </>
           ) : (
             <Typography sx={{ fontSize: 12, color: hubTokens.subtle, fontStyle: "italic" }}>
