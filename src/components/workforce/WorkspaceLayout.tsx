@@ -52,6 +52,7 @@ import { PackageDetailPane } from "./PackageDetailPane";
 import { RecordDrawer } from "./RecordDrawer";
 import { buildContractScopeHref } from "@/lib/workforce/contractScope";
 import { useMoveSubcontractNode, useUndoMove } from "@/hooks/queries/useMoveSubcontractNode";
+import { useEnsureTradeInHouseContract } from "@/hooks/queries/useTradeInHouseContract";
 import { ChangeTrackingModeDialog } from "@/components/trades/ChangeTrackingModeDialog";
 import EditContractDialog from "./EditContractDialog";
 import DeleteContractDialog from "./DeleteContractDialog";
@@ -162,6 +163,29 @@ export function WorkspaceLayout({
   const notify = (msg: string, severity: "success" | "error" = "success") =>
     setSnack({ open: true, msg, severity });
 
+  // ── Per-trade attendance / salary entry (ensure in-house contract, then deep-link) ───
+  const ensureInHouse = useEnsureTradeInHouseContract(siteId);
+  const handleOpenTradeWorkspace = async (
+    tradeCategoryId: string,
+    tradeName: string,
+    base: "/site/attendance" | "/site/payments"
+  ) => {
+    try {
+      const contractId = await ensureInHouse.mutateAsync(tradeCategoryId);
+      router.push(
+        buildContractScopeHref(base, {
+          id: contractId,
+          tradeCategoryId,
+          tradeName,
+          isInHouse: true,
+          mode: "detailed",
+        })
+      );
+    } catch (e) {
+      notify((e as Error).message || "Couldn't open the workspace", "error");
+    }
+  };
+
   // ── Drag-and-drop re-parenting ─────────────────────────────────────────────
   const moveNode = useMoveSubcontractNode(siteId);
   const undoMove = useUndoMove(siteId);
@@ -225,6 +249,7 @@ export function WorkspaceLayout({
       onMoveNode={canEdit ? handleMoveNode : undefined}
       onAddClick={(el) => setAddAnchor(el)}
       canEdit={canEdit}
+      onOpenTradeWorkspace={canEdit ? handleOpenTradeWorkspace : undefined}
     />
   );
 

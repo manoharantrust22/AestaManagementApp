@@ -38,6 +38,7 @@ export function ContractListPane({
   onMoveNode,
   onAddClick,
   canEdit,
+  onOpenTradeWorkspace,
 }: {
   siteId: string;
   siteName: string;
@@ -58,6 +59,7 @@ export function ContractListPane({
   /** Opens the trade-picker Add menu (owned by the layout, shared with the mobile FAB). */
   onAddClick: (anchorEl: HTMLElement) => void;
   canEdit: boolean;
+  onOpenTradeWorkspace?: (tradeCategoryId: string, tradeName: string, base: "/site/attendance" | "/site/payments") => void;
 }) {
   // Per-tab item counts (contracts + packages) for the segmented control badges.
   const tabCounts = useMemo(() => {
@@ -219,6 +221,7 @@ export function ContractListPane({
           onOpenPackage={onOpenPackage}
           onAddTaskWork={onAddTaskWork}
           onMoveNode={onMoveNode}
+          onOpenTradeWorkspace={onOpenTradeWorkspace}
         />
       </Box>
     </Box>

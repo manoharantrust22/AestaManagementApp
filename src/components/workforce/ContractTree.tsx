@@ -7,6 +7,8 @@ import Add from "@mui/icons-material/Add";
 import LaunchRounded from "@mui/icons-material/LaunchRounded";
 import DriveFileMoveRounded from "@mui/icons-material/DriveFileMoveRounded";
 import DragIndicator from "@mui/icons-material/DragIndicator";
+import HowToReg from "@mui/icons-material/HowToReg";
+import ReceiptLongRounded from "@mui/icons-material/ReceiptLongRounded";
 import {
   DndContext,
   DragOverlay,
@@ -23,6 +25,7 @@ import {
 import { restrictToWindowEdges } from "@dnd-kit/modifiers";
 import { rollupSeverity } from "@/lib/workforce/exposure";
 import type { ContractNode, TradeNode, WorkspaceTask } from "@/lib/workforce/workspaceModel";
+import { UNCATEGORIZED_TRADE_ID } from "@/hooks/queries/useTrades";
 import { isValidMove } from "@/lib/workforce/moveTargets";
 import { MoveNodeSheet } from "./MoveNodeSheet";
 import {
@@ -756,6 +759,7 @@ export function ContractTree({
   onOpenPackage,
   onAddTaskWork,
   onMoveNode,
+  onOpenTradeWorkspace,
 }: {
   siteId: string;
   canEdit: boolean;
@@ -772,6 +776,8 @@ export function ContractTree({
   onAddTaskWork: AddTaskWork;
   /** Re-parent a node (newParentId = null → top-level). Undefined disables re-parenting. */
   onMoveNode?: (nodeId: string, newParentId: string | null) => void;
+  /** Open per-trade attendance or salary surface (ensures in-house contract). Non-Civil only. */
+  onOpenTradeWorkspace?: (tradeCategoryId: string, tradeName: string, base: "/site/attendance" | "/site/payments") => void;
 }) {
   const q = query.trim().toLowerCase();
   const taskVisible = (t: WorkspaceTask) =>
@@ -998,6 +1004,39 @@ export function ContractTree({
                 {headerBar}
               </Box>
               <Box className="ws-actions" sx={{ display: "flex", alignItems: "center" }}>
+                {onOpenTradeWorkspace &&
+                  node.category.hasWorkspace &&
+                  node.category.name !== "Civil" &&
+                  node.category.id !== UNCATEGORIZED_TRADE_ID && (
+                    <>
+                      <Tooltip title="Attendance">
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenTradeWorkspace(node.category.id, node.category.name, "/site/attendance");
+                          }}
+                          aria-label={`${node.category.name} attendance`}
+                          sx={{ p: 0.4, color: wsColors.primary }}
+                        >
+                          <HowToReg sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Settle salary">
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenTradeWorkspace(node.category.id, node.category.name, "/site/payments");
+                          }}
+                          aria-label={`${node.category.name} settle salary`}
+                          sx={{ p: 0.4, color: wsColors.muted }}
+                        >
+                          <ReceiptLongRounded sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </Tooltip>
+                    </>
+                  )}
                 <Tooltip title={`Add ${node.category.name} contract`}>
                   <IconButton
                     size="small"
