@@ -48,6 +48,7 @@ import {
 import { ContractListPane } from "./ContractListPane";
 import { TaskDetailPane } from "./TaskDetailPane";
 import { GroupDetailPane } from "./GroupDetailPane";
+import { PackageDetailPane } from "./PackageDetailPane";
 import { RecordDrawer } from "./RecordDrawer";
 import { buildContractScopeHref } from "@/lib/workforce/contractScope";
 import { ChangeTrackingModeDialog } from "@/components/trades/ChangeTrackingModeDialog";
@@ -65,7 +66,7 @@ export function WorkspaceLayout({
   loading,
   canEdit,
   packagesByTrade,
-  onOpenPackage,
+  onEditPackage,
   onAddTaskWork,
 }: {
   siteId: string;
@@ -77,7 +78,8 @@ export function WorkspaceLayout({
   loading: boolean;
   canEdit: boolean;
   packagesByTrade: Map<string, TaskWorkPackageWithMeta[]>;
-  onOpenPackage: (pkg: TaskWorkPackageWithMeta) => void;
+  /** Opens the package edit dialog (owned by the page). */
+  onEditPackage: (pkg: TaskWorkPackageWithMeta) => void;
   onAddTaskWork: AddTaskWork;
 }) {
   const router = useRouter();
@@ -116,6 +118,10 @@ export function WorkspaceLayout({
   );
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  // A selected fixed-price package opens IN-PANE (PackageDetailPane), mutually
+  // exclusive with a selected contract/section/task. Held by id so edits to the
+  // package reflect live (looked up from the fresh pkgById map).
+  const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
   const [openTrades, setOpenTrades] = useState<Record<string, boolean>>({});
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<StatusTab>(DEFAULT_STATUS_TAB);
@@ -146,6 +152,9 @@ export function WorkspaceLayout({
 
   const selectedTask = findTask(model, selectedTaskId);
   const selectedNode = findContractNode(model, selectedTaskId);
+  // Looked up live so package edits reflect without re-selecting; falls back to
+  // null (→ empty pane) if the package is deleted/closed out of the map.
+  const selectedPackage = selectedPackageId ? pkgById.get(selectedPackageId) ?? null : null;
   // A selected node WITH children renders the combined "one contract" view (its parts
   // listed below); a leaf renders the single-task detail.
   const containerSelected = !!selectedNode && selectedNode.node.children.length > 0;
@@ -155,8 +164,16 @@ export function WorkspaceLayout({
   const toggleTrade = (categoryId: string) =>
     setOpenTrades((m) => ({ ...m, [categoryId]: !(m[categoryId] ?? false) }));
 
-  // One detail pane at a time — every selection is a subcontract id.
-  const handleSelect = (id: string) => setSelectedTaskId(id);
+  // One detail pane at a time. Selecting a contract/section/task clears any package.
+  const handleSelect = (id: string) => {
+    setSelectedTaskId(id);
+    setSelectedPackageId(null);
+  };
+  // Opening a fixed-price package selects it in-pane (clears any task selection).
+  const handleOpenPackage = (pkg: TaskWorkPackageWithMeta) => {
+    setSelectedPackageId(pkg.id);
+    setSelectedTaskId(null);
+  };
 
   const listPane = (
     <ContractListPane
@@ -172,14 +189,22 @@ export function WorkspaceLayout({
       activeTab={activeTab}
       onTabChange={setActiveTab}
       packagesByTrade={packagesByTrade}
-      onOpenPackage={onOpenPackage}
+      onOpenPackage={handleOpenPackage}
       onAddTaskWork={onAddTaskWork}
       onAddClick={(el) => setAddAnchor(el)}
       canEdit={canEdit}
     />
   );
 
-  const detailPane = containerSelected && selectedNode ? (
+  const detailPane = selectedPackage ? (
+    <PackageDetailPane
+      pkg={selectedPackage}
+      canEdit={canEdit}
+      onEdit={onEditPackage}
+      showBack={mobile}
+      onBack={() => setSelectedPackageId(null)}
+    />
+  ) : containerSelected && selectedNode ? (
     <GroupDetailPane
       group={contractorGroupFromNode(selectedNode.node)}
       tradeName={selectedNode.trade.category.name}
@@ -187,7 +212,7 @@ export function WorkspaceLayout({
       onSelectTask={handleSelect}
       onOpenPackage={(id) => {
         const pkg = pkgById.get(id);
-        if (pkg) onOpenPackage(pkg);
+        if (pkg) handleOpenPackage(pkg);
       }}
       onRecord={() => setRecordOpen(true)}
       parentMode={{
@@ -368,7 +393,7 @@ export function WorkspaceLayout({
 
   // ---- Mobile: single column with screen push ----
   if (mobile) {
-    const showingDetail = !!selectedTaskId;
+    const showingDetail = !!selectedTaskId || !!selectedPackage;
     return (
       <Box sx={rootSx}>
         {fontLinks}

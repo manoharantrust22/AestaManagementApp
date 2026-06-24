@@ -20,7 +20,6 @@ import { WorkspaceLayout } from "@/components/workforce/WorkspaceLayout";
 import { QuickCreateContractDialog } from "@/components/trades/QuickCreateContractDialog";
 import { useTaskWorkPackages } from "@/hooks/queries/useTaskWorkPackages";
 import { useSiteTaskWorkProfitability } from "@/hooks/queries/useTaskWorkProfitability";
-import TaskWorkDetailDrawer from "@/components/task-work/TaskWorkDetailDrawer";
 import TaskWorkPackageDialog from "@/components/task-work/TaskWorkPackageDialog";
 import type {
   TaskWorkPackage,
@@ -94,8 +93,8 @@ export default function TradesPage() {
     initialStatus: "draft" | "active";
   } | null>(null);
 
-  // Legacy task-work package detail drawer + edit dialog.
-  const [detailPkg, setDetailPkg] = useState<TaskWorkPackageWithMeta | null>(null);
+  // Fixed-price packages now open IN-PANE (PackageDetailPane via WorkspaceLayout);
+  // the page only owns the create/edit dialog.
   const [editingPkg, setEditingPkg] = useState<TaskWorkPackage | null>(null);
   const [pkgDialogOpen, setPkgDialogOpen] = useState(false);
   // When a package is created from a row's "+", the originating parent so it
@@ -151,7 +150,10 @@ export default function TradesPage() {
         loading={isLoading}
         canEdit={canEdit}
         packagesByTrade={packagesByTrade}
-        onOpenPackage={(pkg) => setDetailPkg(pkg)}
+        onEditPackage={(p) => {
+          setEditingPkg(p);
+          setPkgDialogOpen(true);
+        }}
         onAddTaskWork={handleAddTaskWork}
       />
 
@@ -178,17 +180,6 @@ export default function TradesPage() {
           }}
         />
       )}
-
-      <TaskWorkDetailDrawer
-        open={!!detailPkg}
-        onClose={() => setDetailPkg(null)}
-        pkg={detailPkg}
-        onEdit={(p) => {
-          setDetailPkg(null);
-          setEditingPkg(p);
-          setPkgDialogOpen(true);
-        }}
-      />
 
       <TaskWorkPackageDialog
         open={pkgDialogOpen}
