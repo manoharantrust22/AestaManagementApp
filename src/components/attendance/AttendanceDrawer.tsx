@@ -62,6 +62,9 @@ import TeaShopEntryModeDialog from "../tea-shop/TeaShopEntryModeDialog";
 import GroupTeaShopEntryDialog from "../tea-shop/GroupTeaShopEntryDialog";
 import { useSiteGroup } from "@/hooks/queries/useSiteGroups";
 import { useGroupTeaShopAccount } from "@/hooks/queries/useGroupTeaShop";
+import { useQuery } from "@tanstack/react-query";
+import { useSubcontractMeta } from "@/hooks/queries/useSubcontractMeta";
+import { scopedLaborerIds } from "@/lib/workforce/laborerScope";
 import type { SiteGroupWithSites } from "@/types/material.types";
 import AttendanceSaveConfirmDialog from "./AttendanceSaveConfirmDialog";
 import { WorkUpdatesSection } from "./work-updates";
@@ -363,6 +366,37 @@ export default function AttendanceDrawer({
   // contract; otherwise off (a floor is required as before).
   const searchParams = useSearchParams();
   const scopedContractId = searchParams.get("contractId");
+
+  // Trade-scoping: resolve contract meta to check if it's a detailed in-house contract.
+  // scopeTradeId is non-null only when we should scope the add-attendance roster to a trade.
+  const meta = useSubcontractMeta(scopedContractId);
+  const scopeTradeId =
+    meta.data &&
+    meta.data.labor_tracking_mode === "detailed" &&
+    meta.data.trade_category_id
+      ? meta.data.trade_category_id
+      : null;
+
+  // Historical attendees: labourers who already have attendance under this contract must
+  // remain selectable even if their category_id changed — prevents silent disappearance.
+  const { data: attendedIdsData } = useQuery({
+    queryKey: ["contract-attended-laborers", scopedContractId],
+    enabled: !!scopeTradeId,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<string[]> => {
+      const supabaseQ: any = createClient();
+      const { data, error } = await supabaseQ
+        .from("daily_attendance")
+        .select("laborer_id")
+        .eq("subcontract_id", scopedContractId)
+        .eq("is_deleted", false)
+        .not("laborer_id", "is", null);
+      if (error) throw error;
+      return Array.from(new Set<string>((data || []).map((r: any) => r.laborer_id as string)));
+    },
+  });
+  const attendedIds: string[] = attendedIdsData ?? [];
+
   // Default ON only for a fresh entry deep-linked from a contract; for editing an
   // existing day we reflect that record's own floor (set in the load effect below).
   const [wholeContract, setWholeContract] = useState<boolean>(
@@ -395,6 +429,19 @@ export default function AttendanceDrawer({
   // Data state
   const [laborers, setLaborers] = useState<LaborerWithCategory[]>([]);
   const [laborRoles, setLaborRoles] = useState<LaborRole[]>([]);
+
+  // Trade-scoped roster: when scopeTradeId is set, filter to trade labourers + historical
+  // attendees; otherwise use the full roster unchanged (same reference, no filtered copy).
+  const visibleRoster = useMemo<LaborerWithCategory[]>(() => {
+    if (!scopeTradeId) return laborers; // non-scoped path — same reference
+    const scope = scopedLaborerIds({
+      laborers: laborers.map((l) => ({ id: l.id, category_id: l.category_id ?? null })),
+      tradeCategoryId: scopeTradeId,
+      historicallyAttendedIds: attendedIds,
+    });
+    return laborers.filter((l) => scope.has(l.id));
+  }, [laborers, scopeTradeId, attendedIds]);
+
   const [laborerDialogOpen, setLaborerDialogOpen] = useState(false);
   const [marketLaborerDialogOpen, setMarketLaborerDialogOpen] = useState(false);
   const [showMarketPrompt, setShowMarketPrompt] = useState(false);
@@ -3138,6 +3185,7 @@ export default function AttendanceDrawer({
                   onClose={() => setLaborerDialogOpen(false)}
                   siteId={siteId}
                   selectedLaborers={selectedLaborers}
+                  allowedLaborerIds={scopeTradeId ? new Set(visibleRoster.map((l) => l.id)) : undefined}
                   onConfirm={(selected) => {
                     // Merge new selections with existing time data
                     const merged = new Map<string, SelectedLaborer>();

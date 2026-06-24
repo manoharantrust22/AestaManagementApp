@@ -45,6 +45,8 @@ interface LaborerSelectionDialogProps {
   siteId: string;
   selectedLaborers: Map<string, SelectedLaborer>;
   onConfirm: (selected: Map<string, SelectedLaborer>) => void;
+  /** When set, only labourers whose id is in this set are shown (trade-scoped roster). */
+  allowedLaborerIds?: Set<string>;
 }
 
 export default function LaborerSelectionDialog({
@@ -53,6 +55,7 @@ export default function LaborerSelectionDialog({
   siteId,
   selectedLaborers,
   onConfirm,
+  allowedLaborerIds,
 }: LaborerSelectionDialogProps) {
   const supabase = createClient();
 
@@ -121,6 +124,9 @@ export default function LaborerSelectionDialog({
   // Filter laborers based on search and filters
   const filteredLaborers = useMemo(() => {
     return laborers.filter((laborer) => {
+      // Trade-scope filter: when allowedLaborerIds is set, only show those labourers
+      if (allowedLaborerIds && !allowedLaborerIds.has(laborer.id)) return false;
+
       const matchesSearch =
         searchQuery === "" ||
         laborer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -140,7 +146,7 @@ export default function LaborerSelectionDialog({
 
       return matchesSearch && matchesCategory && matchesTeam && matchesLanguage;
     });
-  }, [laborers, searchQuery, categoryFilter, teamFilter, languageFilter]);
+  }, [laborers, searchQuery, categoryFilter, teamFilter, languageFilter, allowedLaborerIds]);
 
   // Get unique categories and teams for filters
   const categories = useMemo(() => {
