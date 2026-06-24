@@ -233,8 +233,8 @@ function useSiteSpotPurchases(
           vendor:vendors(id, name, is_draft),
           items:material_purchase_expense_items(
             id, material_id, brand_id, quantity, unit_price, total_price,
-            material:materials(id, name, unit, is_draft),
-            brand:material_brands(id, brand_name, variant_name)
+            material:materials(id, name, unit, is_draft, image_url),
+            brand:material_brands(id, brand_name, variant_name, image_url)
           ),
           allocations:spot_purchase_allocations(site_id, percentage, is_final)
           `
@@ -804,6 +804,19 @@ function mapStandardThread(
     brand_name: (primaryItem as any)?.brand?.brand_name ?? null,
   };
 
+  // Thumbnail for the Hub card. Once a PO exists, prefer the exact brand/variant
+  // image, then that PO line's material image; before a PO (or if neither set),
+  // fall back to the requested material's catalog default. Null → initials.
+  const poPrimaryItem =
+    (po?.items ?? []).find(
+      (it: any) => it.material_id === primaryItem?.material_id
+    ) ?? ((po?.items?.[0] as any) ?? null);
+  const imageUrl =
+    poPrimaryItem?.brand?.image_url ||
+    poPrimaryItem?.material?.image_url ||
+    (primaryItem as any)?.material?.image_url ||
+    null;
+
   // A thread raised on a different site than the one being viewed.
   const isSiblingRequest =
     !!deps.currentSiteId && mr.site_id !== deps.currentSiteId;
@@ -1131,6 +1144,7 @@ function mapStandardThread(
     material_unit: (primaryItem as any)?.material?.unit ?? "nos",
     brand_id: primaryBrand.brand_id,
     brand_name: primaryBrand.brand_name,
+    image_url: imageUrl,
     qty: totalQty || Number(primaryItem?.requested_qty ?? 0),
     request_number: mr.request_number,
     requested_by: mr.requested_by,
@@ -1291,6 +1305,10 @@ function mapSpotThread(sp: SpotPurchaseExpense): MaterialThread {
     material_unit: primary?.material?.unit ?? "nos",
     brand_id: (primary as any)?.brand_id ?? null,
     brand_name: (primary as any)?.brand?.brand_name ?? null,
+    image_url:
+      (primary as any)?.brand?.image_url ||
+      (primary as any)?.material?.image_url ||
+      null,
     qty: totalQty,
     requested_by: null,
     requested_at: sp.purchase_date,

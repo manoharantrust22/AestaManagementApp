@@ -311,6 +311,11 @@ export interface MaterialThread {
    *  filter can match single-item threads too. */
   brand_id?: string | null;
   brand_name?: string | null;
+  /** Resolved thumbnail for the Hub card: the brand/variant image once a PO
+   *  exists (material_brands.image_url), falling back to the PO line's material
+   *  image, then the requested material's catalog default. Null → the avatar
+   *  renders an initials fallback. */
+  image_url?: string | null;
   qty: number;
 
   // Request meta

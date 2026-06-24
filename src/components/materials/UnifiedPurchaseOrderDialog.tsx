@@ -559,15 +559,17 @@ export default function UnifiedPurchaseOrderDialog({
         }
       }
 
-      // Auto-fill dates based on mode
+      // Auto-fill dates based on mode. Expected Delivery defaults to the same
+      // value as Purchase Date (the request's required_by_date when set, else
+      // today) so it is never left blank; both stay manually editable.
       if (isRequestMode && request) {
-        // Both Purchase Date and Expected Delivery use required_by_date from the material request
         const requiredByDate = toDateInputFormat(request.required_by_date);
-        setPurchaseDate(requiredByDate || today);
-        setExpectedDeliveryDate(requiredByDate);
+        const baseDate = requiredByDate || today;
+        setPurchaseDate(baseDate);
+        setExpectedDeliveryDate(baseDate);
       } else {
         setPurchaseDate(today);
-        setExpectedDeliveryDate("");
+        setExpectedDeliveryDate(today);
       }
 
       setDeliveryAddress("");

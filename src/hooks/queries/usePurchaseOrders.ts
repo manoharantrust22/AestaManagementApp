@@ -138,8 +138,8 @@ export function usePurchaseOrdersForHub(
           items:purchase_order_items(
             id, material_id, brand_id, quantity, received_qty, unit_price,
             pricing_mode, calculated_weight, actual_weight, tax_rate,
-            material:materials(id, name, unit),
-            brand:material_brands(id, brand_name, variant_name)
+            material:materials(id, name, unit, image_url),
+            brand:material_brands(id, brand_name, variant_name, image_url)
           )
         `
         )

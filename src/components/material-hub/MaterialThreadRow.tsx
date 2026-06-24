@@ -34,6 +34,8 @@ import MaterialThreadPipeline, {
 import MaterialThreadExpanded from "./MaterialThreadExpanded";
 import ThreadActionButton from "./ThreadActionButton";
 import ThreadDeleteMenu from "./ThreadDeleteMenu";
+import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
+import { normalizeImageUrl } from "@/lib/utils/storageUrl";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 
 export interface MaterialThreadRowProps {
@@ -128,7 +130,15 @@ export default function MaterialThreadRow({
         )}
 
         {/* Material block */}
-        <Box sx={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+          {/* Thumbnail: catalog default before a PO, exact brand/variant image after. */}
+          <EntityImageAvatar
+            src={normalizeImageUrl(thread.image_url)}
+            name={thread.material_name}
+            size={44}
+            radius={1.5}
+          />
+          <Box sx={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
             <Typography
               component="span"
@@ -227,6 +237,7 @@ export default function MaterialThreadRow({
             {thread.floor && thread.floor !== "—" ? ` · ${thread.floor}` : ""}
             {" · "}requested {fmtDateShort(thread.requested_at)}
           </Typography>
+          </Box>
         </Box>
 
         {/* Pipeline (desktop only) */}
