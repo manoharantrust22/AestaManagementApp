@@ -3,13 +3,10 @@
 import { Box, Typography, IconButton } from "@mui/material";
 import ArrowBack from "@mui/icons-material/ArrowBack";
 import GroupWork from "@mui/icons-material/GroupWork";
-import HowToReg from "@mui/icons-material/HowToReg";
 import PaymentsRounded from "@mui/icons-material/PaymentsRounded";
 import ChevronRight from "@mui/icons-material/ChevronRight";
-import InfoOutlined from "@mui/icons-material/InfoOutlined";
 import EditOutlined from "@mui/icons-material/EditOutlined";
 import CallMerge from "@mui/icons-material/CallMerge";
-import ReceiptLong from "@mui/icons-material/ReceiptLong";
 import { computeInitials, type ContractMoneySplit, type ContractorGroup, type WorkspaceTask } from "@/lib/workforce/workspaceModel";
 import { rollupSeverity, type ExposureResult } from "@/lib/workforce/exposure";
 import { wsColors, wsRadius, wsShadow } from "@/lib/workforce/workspaceTokens";
@@ -33,8 +30,6 @@ export interface ParentMode {
   partLabel?: string;
   /** Open the edit/rename dialog for the parent. */
   onEdit?: () => void;
-  /** Record a payment directly on the whole contract (not a single part). */
-  onRecordPayment?: () => void;
 }
 
 /**
@@ -53,8 +48,7 @@ export function GroupDetailPane({
   tradeName,
   onSelectTask,
   onOpenPackage,
-  onLogAttendance,
-  onSettleSalary,
+  onRecord,
   canEdit,
   showBack = false,
   onBack,
@@ -67,8 +61,8 @@ export function GroupDetailPane({
   onSelectTask: (id: string) => void;
   /** Open a fixed-price package's drawer. */
   onOpenPackage?: (packageId: string) => void;
-  onLogAttendance: () => void;
-  onSettleSalary: () => void;
+  /** Opens the unified "Record" drawer for the whole contract. */
+  onRecord: () => void;
   canEdit: boolean;
   showBack?: boolean;
   onBack?: () => void;
@@ -317,42 +311,20 @@ export function GroupDetailPane({
           />
         )}
 
-        {/* Record a payment on the whole parent contract (not floor-specific) */}
-        {isParent && parentMode?.onRecordPayment && (
+        {/* One "Record" surface for the whole contract — opens the drawer with payment,
+            progress, and (for a Full-workspace contract) attendance / salary. */}
+        {canEdit && (
           <ActionTile
-            icon={<ReceiptLong sx={{ fontSize: 19, color: wsColors.primary }} />}
-            label="Record payment"
-            sub="Pay against the whole contract"
-            onClick={parentMode.onRecordPayment}
+            icon={<PaymentsRounded sx={{ fontSize: 19, color: wsColors.primary }} />}
+            label="Record"
+            sub={
+              anyTracked
+                ? "Payment, progress, attendance or salary"
+                : "Record a payment or update progress"
+            }
+            onClick={onRecord}
             enabled={canEdit}
           />
-        )}
-
-        {/* Contractor-level actions */}
-        {anyTracked && (
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-            <ActionTile
-              icon={<HowToReg sx={{ fontSize: 19, color: wsColors.primary }} />}
-              label="Log attendance"
-              sub={`Record days for ${group.who}'s crew`}
-              onClick={onLogAttendance}
-              enabled={canEdit}
-            />
-            <ActionTile
-              icon={<PaymentsRounded sx={{ fontSize: 19, color: wsColors.primary }} />}
-              label="Settle salary"
-              sub="Open this crew's salary settlement"
-              onClick={onSettleSalary}
-              enabled={canEdit}
-            />
-            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.75, px: 0.5 }}>
-              <InfoOutlined sx={{ fontSize: 15, color: wsColors.muted, mt: 0.1 }} />
-              <Typography sx={{ fontSize: 11, color: wsColors.muted }}>
-                When the work spans floors, tick &ldquo;Whole contract — not a specific floor&rdquo; on the
-                attendance screen instead of forcing a floor.
-              </Typography>
-            </Box>
-          </Box>
         )}
       </Box>
     </Box>

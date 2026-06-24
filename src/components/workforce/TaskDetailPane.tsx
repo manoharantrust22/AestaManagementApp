@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import {
   Box,
   Typography,
@@ -12,9 +12,7 @@ import {
   ListItemText,
 } from "@mui/material";
 import ArrowBack from "@mui/icons-material/ArrowBack";
-import TuneRounded from "@mui/icons-material/TuneRounded";
 import PaymentsRounded from "@mui/icons-material/PaymentsRounded";
-import HowToReg from "@mui/icons-material/HowToReg";
 import Groups from "@mui/icons-material/Groups";
 import OpenInNew from "@mui/icons-material/OpenInNew";
 import AccountTreeRounded from "@mui/icons-material/AccountTreeRounded";
@@ -30,7 +28,6 @@ import { formatCurrencyFull } from "@/lib/formatters";
 import { BalanceMeter } from "./BalanceMeter";
 import { StatCard } from "./StatCard";
 import { PaidSourceBreakdown } from "./GroupDetailPane";
-import { HeadcountEntryInline } from "@/components/trades/HeadcountEntryInline";
 import { GoodDealCard } from "./GoodDealCard";
 import { PaymentsHistoryCard } from "./PaymentsHistoryCard";
 import { ScopeSheetPanel } from "./ScopeSheetPanel";
@@ -52,11 +49,7 @@ const TIER_LEGEND: Array<{ tier: ContractTier; desc: string }> = [
 
 export function TaskDetailPane({
   task,
-  siteId,
-  onUpdateProgress,
-  onRecordPayment,
-  onLogAttendance,
-  onSettleSalary,
+  onRecord,
   onChangeMode,
   onEdit,
   onDelete,
@@ -66,11 +59,8 @@ export function TaskDetailPane({
   onBack,
 }: {
   task: WorkspaceTask | null;
-  siteId: string;
-  onUpdateProgress: () => void;
-  onRecordPayment: () => void;
-  onLogAttendance: () => void;
-  onSettleSalary: () => void;
+  /** Opens the unified "Record" drawer (payment / progress / count / attendance / settle). */
+  onRecord: () => void;
   /** Opens the tracking-mode dialog (the per-trade Attendance+Salary opt-in). */
   onChangeMode?: () => void;
   /** Opens the edit-contract dialog. */
@@ -151,11 +141,6 @@ export function TaskDetailPane({
   const ModeIcon = modeMeta[task.mode].icon;
   const paidPctOfValue = task.quoted > 0 ? Math.round((task.paid / task.quoted) * 100) : 0;
 
-  // "Workspace" = the FULL per-laborer mode ("detailed"): daily attendance +
-  // salary settlements (the Civil machinery). Count-by-role ("headcount") logs
-  // role counts INLINE here instead; lump ("mesthri_only") is payments only.
-  const tracked = task.mode === "detailed";
-  const isHeadcount = task.mode === "headcount";
   const canChangeMode = canEdit && !!onChangeMode && !!task.tradeCategoryId;
 
   // Mode banner: full workspace (green) / count-by-role (blue) / lump (grey).
@@ -217,23 +202,9 @@ export function TaskDetailPane({
         {canEdit && (
           <Box sx={{ display: { xs: "none", sm: "flex" }, gap: 1 }}>
             <Button
-              variant="outlined"
-              startIcon={<TuneRounded />}
-              onClick={onUpdateProgress}
-              sx={{
-                textTransform: "none",
-                fontWeight: 700,
-                borderRadius: `${wsRadius.input}px`,
-                borderColor: wsColors.hairline,
-                color: wsColors.ink2,
-              }}
-            >
-              Update progress
-            </Button>
-            <Button
               variant="contained"
               startIcon={<PaymentsRounded />}
-              onClick={onRecordPayment}
+              onClick={onRecord}
               disableElevation
               sx={{
                 textTransform: "none",
@@ -244,7 +215,7 @@ export function TaskDetailPane({
                 "&:hover": { bgcolor: "#2a60d6" },
               }}
             >
-              Record payment
+              Record
             </Button>
           </Box>
         )}
@@ -459,33 +430,6 @@ export function TaskDetailPane({
           <PaymentsHistoryCard contractId={task.id} />
           <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1.5 }}>
             <GoodDealCard contractId={task.id} quoted={task.quoted} />
-            {/* Count-by-role contracts log their daily role counts right here,
-                inline (section-style) — no full attendance page. */}
-            {isHeadcount && <HeadcountEntryInline siteId={siteId} contractId={task.id} />}
-            {/* Attendance + Salary live only on a Full-workspace (detailed)
-                contract; lighter modes pay via Record payment in the header. */}
-            {tracked && (
-              <>
-                <ActionTile
-                  icon={<HowToReg sx={{ fontSize: 19, color: wsColors.primary }} />}
-                  label="Log attendance"
-                  sub={
-                    task.days > 0
-                      ? `${task.days} day${task.days === 1 ? "" : "s"} recorded`
-                      : "No days recorded yet"
-                  }
-                  onClick={onLogAttendance}
-                  enabled={canEdit}
-                />
-                <ActionTile
-                  icon={<PaymentsRounded sx={{ fontSize: 19, color: wsColors.primary }} />}
-                  label="Settle salary"
-                  sub="Open this contract's salary settlement"
-                  onClick={onSettleSalary}
-                  enabled={canEdit}
-                />
-              </>
-            )}
           </Box>
         </Box>
       </Box>
@@ -493,54 +437,3 @@ export function TaskDetailPane({
   );
 }
 
-/** A clickable card linking out to a contract-scoped screen (attendance / salary). */
-function ActionTile({
-  icon,
-  label,
-  sub,
-  onClick,
-  enabled,
-}: {
-  icon: ReactNode;
-  label: string;
-  sub: string;
-  onClick: () => void;
-  enabled: boolean;
-}) {
-  return (
-    <Box
-      onClick={enabled ? onClick : undefined}
-      sx={{
-        bgcolor: wsColors.surface,
-        border: `1px solid ${wsColors.hairline}`,
-        borderRadius: `${wsRadius.card}px`,
-        boxShadow: wsShadow.card,
-        p: 1.75,
-        display: "flex",
-        alignItems: "center",
-        gap: 1.25,
-        cursor: enabled ? "pointer" : "default",
-        "&:hover": enabled ? { borderColor: "#d3e0fb", bgcolor: wsColors.primaryTint } : undefined,
-      }}
-    >
-      <Box
-        sx={{
-          width: 36,
-          height: 36,
-          borderRadius: `${wsRadius.input}px`,
-          bgcolor: wsColors.primaryTint,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-        }}
-      >
-        {icon}
-      </Box>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography sx={{ fontSize: 13.5, fontWeight: 800, color: wsColors.ink }}>{label}</Typography>
-        <Typography sx={{ fontSize: 12, color: wsColors.muted }}>{sub}</Typography>
-      </Box>
-    </Box>
-  );
-}

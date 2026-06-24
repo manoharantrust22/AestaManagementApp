@@ -48,8 +48,7 @@ import {
 import { ContractListPane } from "./ContractListPane";
 import { TaskDetailPane } from "./TaskDetailPane";
 import { GroupDetailPane } from "./GroupDetailPane";
-import { RecordPaymentSheet } from "./RecordPaymentSheet";
-import { UpdateProgressSheet } from "./UpdateProgressSheet";
+import { RecordDrawer } from "./RecordDrawer";
 import { buildContractScopeHref } from "@/lib/workforce/contractScope";
 import { ChangeTrackingModeDialog } from "@/components/trades/ChangeTrackingModeDialog";
 import EditContractDialog from "./EditContractDialog";
@@ -120,7 +119,7 @@ export function WorkspaceLayout({
   const [openTrades, setOpenTrades] = useState<Record<string, boolean>>({});
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<StatusTab>(DEFAULT_STATUS_TAB);
-  const [sheet, setSheet] = useState<null | "payment" | "progress">(null);
+  const [recordOpen, setRecordOpen] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -190,19 +189,13 @@ export function WorkspaceLayout({
         const pkg = pkgById.get(id);
         if (pkg) onOpenPackage(pkg);
       }}
-      onLogAttendance={() =>
-        router.push(buildContractScopeHref("/site/attendance", selectedNode.node.task))
-      }
-      onSettleSalary={() =>
-        router.push(buildContractScopeHref("/site/payments", selectedNode.node.task))
-      }
+      onRecord={() => setRecordOpen(true)}
       parentMode={{
         parent: selectedNode.node.task,
         title: selectedNode.node.task.title,
         // A Contract's parts are Sections; a Section's parts are Tasks.
         partLabel: selectedNode.node.tier === "contract" ? "section" : "task",
         onEdit: () => setEditOpen(true),
-        onRecordPayment: () => setSheet("payment"),
       }}
       showBack={mobile}
       onBack={() => setSelectedTaskId(null)}
@@ -210,16 +203,8 @@ export function WorkspaceLayout({
   ) : (
     <TaskDetailPane
       task={selectedTask}
-      siteId={siteId}
       canEdit={canEdit}
-      onUpdateProgress={() => setSheet("progress")}
-      onRecordPayment={() => setSheet("payment")}
-      onLogAttendance={() =>
-        selectedTask && router.push(buildContractScopeHref("/site/attendance", selectedTask))
-      }
-      onSettleSalary={() =>
-        selectedTask && router.push(buildContractScopeHref("/site/payments", selectedTask))
-      }
+      onRecord={() => setRecordOpen(true)}
       onChangeMode={() => setModeOpen(true)}
       onEdit={() => setEditOpen(true)}
       onDelete={() => setDeleteOpen(true)}
@@ -313,22 +298,19 @@ export function WorkspaceLayout({
   );
 
   const sheets = selectedTask && (
-    <>
-      <RecordPaymentSheet
-        open={sheet === "payment"}
-        onClose={() => setSheet(null)}
-        siteId={siteId}
-        task={selectedTask}
-        notify={notify}
-      />
-      <UpdateProgressSheet
-        open={sheet === "progress"}
-        onClose={() => setSheet(null)}
-        siteId={siteId}
-        task={selectedTask}
-        notify={notify}
-      />
-    </>
+    <RecordDrawer
+      open={recordOpen}
+      onClose={() => setRecordOpen(false)}
+      task={selectedTask}
+      siteId={siteId}
+      notify={notify}
+      onLogAttendance={() =>
+        router.push(buildContractScopeHref("/site/attendance", selectedTask))
+      }
+      onSettleSalary={() =>
+        router.push(buildContractScopeHref("/site/payments", selectedTask))
+      }
+    />
   );
 
   // Per-trade Attendance + Salary opt-in (changes labor_tracking_mode). Needs a
@@ -392,8 +374,8 @@ export function WorkspaceLayout({
           {showingDetail ? (
             <>
               <Box sx={{ flex: 1, minHeight: 0 }}>{detailPane}</Box>
-              {/* Progress / Record payment act on a single task work, not a whole contract. */}
-              {canEdit && selectedTask && !containerSelected && (
+              {/* One "Record" button opens the drawer with the node's daily actions. */}
+              {canEdit && selectedTask && (
                 <Paper
                   elevation={8}
                   sx={{
@@ -405,22 +387,13 @@ export function WorkspaceLayout({
                 >
                   <Button
                     fullWidth
-                    variant="outlined"
-                    startIcon={<TuneRounded />}
-                    onClick={() => setSheet("progress")}
-                    sx={{ textTransform: "none", fontWeight: 700, borderRadius: `${wsRadius.input}px`, borderColor: wsColors.hairline, color: wsColors.ink2 }}
-                  >
-                    Progress
-                  </Button>
-                  <Button
-                    fullWidth
                     variant="contained"
                     disableElevation
                     startIcon={<PaymentsRounded />}
-                    onClick={() => setSheet("payment")}
+                    onClick={() => setRecordOpen(true)}
                     sx={{ textTransform: "none", fontWeight: 700, borderRadius: `${wsRadius.input}px`, bgcolor: wsColors.primary, "&:hover": { bgcolor: "#2a60d6" } }}
                   >
-                    Record payment
+                    Record
                   </Button>
                 </Paper>
               )}
