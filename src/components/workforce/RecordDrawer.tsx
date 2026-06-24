@@ -24,6 +24,7 @@ import HowToReg from "@mui/icons-material/HowToReg";
 import ReceiptLongRounded from "@mui/icons-material/ReceiptLongRounded";
 import ChevronRight from "@mui/icons-material/ChevronRight";
 import ArrowBack from "@mui/icons-material/ArrowBack";
+import PhotoCamera from "@mui/icons-material/PhotoCamera";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -39,6 +40,7 @@ import {
 import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
 import WalletBalancePreview from "@/components/wallet-v2/WalletBalancePreview";
 import { HeadcountEntryInline } from "@/components/trades/HeadcountEntryInline";
+import { ContractWorkUpdatesPanel } from "@/components/trades/ContractWorkUpdatesPanel";
 import type { PayerSource } from "@/types/settlement.types";
 import type { WorkspaceTask } from "@/lib/workforce/workspaceModel";
 import { severityMeta, wsColors, wsRadius } from "@/lib/workforce/workspaceTokens";
@@ -46,7 +48,7 @@ import { formatCurrencyFull } from "@/lib/formatters";
 import { ResponsiveSheet } from "./ResponsiveSheet";
 import { BalanceMeter } from "./BalanceMeter";
 
-type RecordView = "menu" | "payment" | "progress" | "count";
+type RecordView = "menu" | "payment" | "progress" | "count" | "workupdate";
 
 const QUICK_ADDS = [10000, 25000, 50000];
 const PAYMENT_TYPES: Array<{ value: string; label: string }> = [
@@ -98,7 +100,10 @@ export function RecordDrawer({
     if (open) setView("menu");
   }, [open]);
 
-  const isDetailed = task.mode === "detailed";
+  // Per-labourer attendance + salary belong to the trade's WORKSPACE. A detailed
+  // node only shows those affordances when its trade still has the workspace surface;
+  // a workspace-off trade keeps the ladder (payments / progress / headcount) only.
+  const isDetailed = task.mode === "detailed" && task.hasWorkspace;
   const isHeadcount = task.mode === "headcount";
 
   const subtitle = `${task.who} · ${task.title}`;
@@ -152,10 +157,17 @@ export function RecordDrawer({
       });
     }
     items.push({
+      key: "workupdate",
+      icon: <PhotoCamera sx={{ fontSize: 20, color: wsColors.primary }} />,
+      label: "Photo update + % done",
+      sub: "Today's work photos; sets the progress meter",
+      onClick: () => setView("workupdate"),
+    });
+    items.push({
       key: "progress",
       icon: <TuneRounded sx={{ fontSize: 20, color: wsColors.primary }} />,
       label: "Update progress",
-      sub: "How much of the work is done",
+      sub: "Quick % without photos",
       onClick: () => setView("progress"),
     });
 
@@ -234,6 +246,17 @@ export function RecordDrawer({
         subtitle={subtitle}
         notify={notify}
       />
+    );
+  }
+
+  if (view === "workupdate") {
+    return (
+      <ResponsiveSheet open={open} onClose={onClose} title="Today's work" subtitle={subtitle}>
+        <Box sx={{ py: 1 }}>
+          <BackRow onBack={() => setView("menu")} />
+          <ContractWorkUpdatesPanel siteId={siteId} contractId={task.id} />
+        </Box>
+      </ResponsiveSheet>
     );
   }
 

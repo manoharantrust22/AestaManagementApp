@@ -30,6 +30,8 @@ export interface WorkspaceTask {
   id: string;
   tradeCategoryId: string | null;
   tradeName: string;
+  /** Whether this node's trade runs the full workspace (attendance + salary + tea + holidays). */
+  hasWorkspace: boolean;
   stageId: string | null;
   stageName: string | null;
   title: string;
@@ -277,6 +279,7 @@ export function buildWorkspaceModel({
         id: c.id,
         tradeCategoryId: c.tradeCategoryId,
         tradeName: trade.category.name,
+        hasWorkspace: trade.category.hasWorkspace ?? true,
         stageId: c.stageId,
         stageName: c.stageId ? (stageById.get(c.stageId)?.name ?? null) : null,
         title: c.title,

@@ -315,7 +315,9 @@ export function WorkspaceLayout({
 
   // Per-trade Attendance + Salary opt-in (changes labor_tracking_mode). Needs a
   // real trade category; uncategorized rows can't switch mode.
-  const modeDialog = selectedTask && selectedTask.tradeCategoryId ? (
+  // Changing tracking mode only makes sense for a trade that runs the workspace
+  // (a workspace-off trade has no attendance/salary mode to opt into).
+  const modeDialog = selectedTask && selectedTask.tradeCategoryId && selectedTask.hasWorkspace ? (
     <ChangeTrackingModeDialog
       open={modeOpen}
       onClose={() => setModeOpen(false)}

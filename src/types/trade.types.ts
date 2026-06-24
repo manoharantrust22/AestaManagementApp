@@ -22,6 +22,12 @@ export interface TradeCategory {
   name: string;
   isSystemSeed: boolean;
   isActive: boolean;
+  /**
+   * When true, this trade runs the full workspace surface (per-labourer attendance,
+   * salary settlements, tea & holidays). When false, only the Contract ▸ Section ▸ Task
+   * ladder is shown. Optional so older callers/tests need not supply it (treated as true).
+   */
+  hasWorkspace?: boolean;
 }
 
 export interface TradeContract {

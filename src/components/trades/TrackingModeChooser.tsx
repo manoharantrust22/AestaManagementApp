@@ -65,20 +65,28 @@ const OPTIONS: OptionDef[] = [
 ];
 
 /**
- * "How will you handle this work?" — three selectable cards (lightest → fullest), each
- * showing a concrete SAMPLE of the daily entry + what the app tells you back, so the
- * choice is obvious. Every mode is offered for every trade.
+ * "How will you handle this work?" — selectable cards (lightest → fullest), each showing
+ * a concrete SAMPLE of the daily entry + what the app tells you back, so the choice is obvious.
+ *
+ * The "Full workspace (attendance + salary)" / `detailed` card is a property of the TRADE,
+ * not of an individual contract/section/task — so it is OFF by default here. Node-level
+ * create/change pickers leave `allowDetailed` false (only "record payments" + "count by
+ * role"); only a trade-level surface that genuinely runs detailed passes `allowDetailed`.
  */
 export function TrackingModeChooser({
   value,
   onChange,
+  allowDetailed = false,
 }: {
   value: TrackingChoice | null;
   onChange: (v: TrackingChoice) => void;
+  /** Show the "Full workspace (attendance + salary)" card. Default false (trade-level only). */
+  allowDetailed?: boolean;
 }) {
+  const options = allowDetailed ? OPTIONS : OPTIONS.filter((o) => o.key !== "detailed");
   return (
     <Stack spacing={1}>
-      {OPTIONS.map((o) => {
+      {options.map((o) => {
         const Icon = o.icon;
         const selected = value === o.key;
         return (

@@ -35,6 +35,41 @@ export function useContractWorkUpdates(
   });
 }
 
+export interface DatedWorkUpdate {
+  date: string;
+  workUpdates: WorkUpdates;
+}
+
+/**
+ * The most recent days that have a saved work update for this contract
+ * (newest first), for the contract-detail "work photos" timeline.
+ */
+export function useRecentContractWorkUpdates(
+  contractId: string | undefined,
+  limit = 6
+) {
+  const supabase = createClient();
+  return useQuery({
+    queryKey: ["contract-work-updates-recent", contractId],
+    enabled: !!contractId,
+    staleTime: 60 * 1000,
+    queryFn: wrapQueryFn(async (): Promise<DatedWorkUpdate[]> => {
+      if (!contractId) return [];
+      const sb = supabase as any;
+      const { data, error } = await sb
+        .from("subcontract_work_updates")
+        .select("date, work_updates")
+        .eq("subcontract_id", contractId)
+        .order("date", { ascending: false })
+        .limit(limit);
+      if (error) throw error;
+      return ((data ?? []) as Array<{ date: string; work_updates: WorkUpdates | null }>)
+        .filter((r) => r.work_updates)
+        .map((r) => ({ date: r.date, workUpdates: r.work_updates as WorkUpdates }));
+    }, { operationName: "useRecentContractWorkUpdates" }),
+  });
+}
+
 interface SaveContractWorkUpdatesInput {
   contractId: string;
   date: string;
@@ -69,6 +104,9 @@ export function useSaveContractWorkUpdates() {
     onSuccess: (_, input) => {
       queryClient.invalidateQueries({
         queryKey: ["contract-work-updates", input.contractId, input.date],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["contract-work-updates-recent", input.contractId],
       });
     },
   });

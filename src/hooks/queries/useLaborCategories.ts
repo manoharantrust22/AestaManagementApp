@@ -21,6 +21,12 @@ export interface LaborCategory {
   is_active: boolean;
   is_system_seed: boolean;
   company_id: string | null;
+  /**
+   * When true, this trade exposes the full workspace surface (per-labourer
+   * attendance, salary settlements, tea-shop, holidays). When false, only the
+   * Contract ▸ Section ▸ Task ladder is shown. Hide-only — never deletes data.
+   */
+  has_workspace: boolean;
 }
 
 /** A custom trade still referenced somewhere can't be hard-deleted — disable it instead. */
@@ -46,6 +52,8 @@ function invalidateAll(queryClient: QueryClient) {
   // The workspace reads trades under ["trades","site",siteId] — invalidate the
   // broad prefix so every open site workspace refreshes.
   queryClient.invalidateQueries({ queryKey: ["trades"] });
+  // The Trade Management toggle reads workspace-data counts to decide its lock.
+  queryClient.invalidateQueries({ queryKey: ["trade-workspace-usage"] });
 }
 
 export function useLaborCategories(activeOnly = false) {
@@ -55,7 +63,9 @@ export function useLaborCategories(activeOnly = false) {
     queryFn: async () => {
       let query = supabase
         .from("labor_categories")
-        .select("id, name, description, display_order, is_active, is_system_seed, company_id")
+        .select(
+          "id, name, description, display_order, is_active, is_system_seed, company_id, has_workspace"
+        )
         .order("display_order", { ascending: true })
         .order("name", { ascending: true });
       if (activeOnly) query = query.eq("is_active", true);
@@ -72,6 +82,8 @@ export interface LaborCategoryInput {
   description?: string | null;
   display_order?: number;
   is_active?: boolean;
+  /** Full workspace surface on/off for this trade. New trades default ON. */
+  has_workspace?: boolean;
 }
 
 export function useCreateLaborCategory() {
@@ -89,6 +101,7 @@ export function useCreateLaborCategory() {
         description: input.description?.trim() || null,
         display_order: input.display_order ?? 0,
         is_active: input.is_active ?? true,
+        has_workspace: input.has_workspace ?? true,
       });
       if (error) throw error;
     },
@@ -109,6 +122,7 @@ export function useUpdateLaborCategory() {
       if (rest.description !== undefined) payload.description = rest.description?.trim() || null;
       if (rest.display_order !== undefined) payload.display_order = rest.display_order;
       if (rest.is_active !== undefined) payload.is_active = rest.is_active;
+      if (rest.has_workspace !== undefined) payload.has_workspace = rest.has_workspace;
       const { error } = await supabase.from("labor_categories").update(payload).eq("id", id);
       if (error) throw error;
     },

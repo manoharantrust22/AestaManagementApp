@@ -28,6 +28,7 @@ import { formatCurrencyFull } from "@/lib/formatters";
 import { BalanceMeter } from "./BalanceMeter";
 import { StatCard } from "./StatCard";
 import { PaidSourceBreakdown } from "./GroupDetailPane";
+import { WorkPhotosCard } from "./WorkPhotosCard";
 import { GoodDealCard } from "./GoodDealCard";
 import { PaymentsHistoryCard } from "./PaymentsHistoryCard";
 import { ScopeSheetPanel } from "./ScopeSheetPanel";
@@ -141,7 +142,8 @@ export function TaskDetailPane({
   const ModeIcon = modeMeta[task.mode].icon;
   const paidPctOfValue = task.quoted > 0 ? Math.round((task.paid / task.quoted) * 100) : 0;
 
-  const canChangeMode = canEdit && !!onChangeMode && !!task.tradeCategoryId;
+  // Mode = the trade's workspace machinery; a workspace-off trade has nothing to switch.
+  const canChangeMode = canEdit && !!onChangeMode && !!task.tradeCategoryId && task.hasWorkspace;
 
   // Mode banner: full workspace (green) / count-by-role (blue) / lump (grey).
   const wsBanner =
@@ -421,6 +423,9 @@ export function TaskDetailPane({
 
         {/* Hero balance meter */}
         <BalanceMeter exposure={task.exposure} />
+
+        {/* Recent work-update photos + the day's % done (visual progress). */}
+        <WorkPhotosCard contractId={task.id} />
 
         {/* Agreed scope + same-angle before/after photos (anti scope-creep) */}
         <ScopeSheetPanel key={task.id} subcontractId={task.id} canEdit={canEdit} />

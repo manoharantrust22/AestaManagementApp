@@ -25,6 +25,7 @@ import {
   useContractWorkUpdates,
   useSaveContractWorkUpdates,
 } from "@/hooks/queries/useContractWorkUpdates";
+import { useUpdateSubcontractProgress } from "@/hooks/queries/useSubcontractProgress";
 import type {
   WorkUpdates,
   MorningUpdate,
@@ -64,6 +65,9 @@ export function ContractWorkUpdatesPanel({
   const [date, setDate] = useState<string>(todayISO());
   const { data: existing, isLoading } = useContractWorkUpdates(contractId, date);
   const saveMutation = useSaveContractWorkUpdates();
+  // The evening "% done" doubles as the contract's work progress, so saving an
+  // update also moves the progress meter (and refreshes the trade tree).
+  const progressMut = useUpdateSubcontractProgress(siteId);
 
   // Local form state — initialized from `existing` and synced via the
   // form children's onChange callbacks.
@@ -110,6 +114,19 @@ export function ContractWorkUpdatesPanel({
         workUpdates: payload,
         userId: userProfile?.id,
       });
+      // Carry the evening "% done" through to the contract's progress meter.
+      // Best-effort: the work update is already saved, so a progress-write
+      // hiccup shouldn't surface as a failure of the save.
+      if (evening && typeof evening.completionPercent === "number") {
+        try {
+          await progressMut.mutateAsync({
+            contractId,
+            percent: evening.completionPercent,
+          });
+        } catch {
+          /* progress is a derived convenience; ignore */
+        }
+      }
       setSavedFlash(true);
       setDirty(false);
       setTimeout(() => setSavedFlash(false), 2000);

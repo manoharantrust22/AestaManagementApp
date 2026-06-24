@@ -23,6 +23,8 @@ export const UNCATEGORIZED_CATEGORY: TradeCategory = {
   name: "Other / Uncategorized",
   isSystemSeed: false,
   isActive: true,
+  // The catch-all bucket has no trade settings — never expose a workspace for it.
+  hasWorkspace: false,
 };
 
 /**
@@ -76,6 +78,7 @@ interface RawCategoryRow {
   name: string;
   is_system_seed: boolean;
   is_active: boolean;
+  has_workspace: boolean | null;
 }
 
 interface RawContractRow {
@@ -115,7 +118,7 @@ export function useSiteTrades(siteId: string | undefined) {
       const [catsRes, contractsRes] = await Promise.all([
         supabase
           .from("labor_categories")
-          .select("id, name, is_system_seed, is_active"),
+          .select("id, name, is_system_seed, is_active, has_workspace"),
         supabase
           .from("subcontracts")
           .select(
@@ -144,6 +147,8 @@ export function useSiteTrades(siteId: string | undefined) {
           name: r.name,
           isSystemSeed: r.is_system_seed,
           isActive: r.is_active,
+          // Null only for rows predating the column; treat the absence as "has workspace".
+          hasWorkspace: r.has_workspace ?? true,
         })
       );
 

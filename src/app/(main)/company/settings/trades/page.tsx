@@ -32,6 +32,7 @@ import {
   SystemSeedTradeError,
   type LaborCategory,
 } from "@/hooks/queries/useLaborCategories";
+import { useTradeWorkspaceUsage } from "@/hooks/queries/useTradeWorkspaceUsage";
 
 interface FormState {
   name: string;
@@ -52,10 +53,18 @@ export default function TradesSettingsPage() {
   const canEdit = hasEditPermission(userProfile?.role);
 
   const { data: categories = [], isLoading } = useLaborCategories(false);
+  const { data: usage = [] } = useTradeWorkspaceUsage();
   const createC = useCreateLaborCategory();
   const updateC = useUpdateLaborCategory();
   const deleteC = useDeleteLaborCategory();
   const saving = createC.isPending || updateC.isPending || deleteC.isPending;
+
+  // Workspace-data counts per trade → lock the "Workspace" toggle ON when a trade
+  // already holds data (turning it off is hide-only and must never lose anything).
+  const usageMap = useMemo(
+    () => new Map(usage.map((u) => [u.trade_category_id, u.total_workspace_rows])),
+    [usage]
+  );
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<LaborCategory | null>(null);
@@ -164,6 +173,18 @@ export default function TradesSettingsPage() {
     }
   };
 
+  const handleToggleWorkspace = async (c: LaborCategory) => {
+    // Guard (defensive — the disabled Switch already blocks this): a trade holding
+    // workspace data can never be switched off. Turning off is hide-only; data stays.
+    const lockedOn = (usageMap.get(c.id) ?? 0) > 0;
+    if (c.has_workspace && lockedOn) return;
+    try {
+      await updateC.mutateAsync({ id: c.id, has_workspace: !c.has_workspace });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   const handleDelete = async (c: LaborCategory) => {
     if (c.is_system_seed) {
       setError(`"${c.name}" is a built-in trade — disable it instead of deleting.`);
@@ -198,7 +219,20 @@ export default function TradesSettingsPage() {
     }
   };
 
-  const renderCard = (c: LaborCategory) => (
+  const renderCard = (c: LaborCategory) => {
+    // Workspace toggle guard: any live workspace data locks it ON.
+    const usageRows = usageMap.get(c.id) ?? 0;
+    const lockedOn = usageRows > 0;
+    const wsDisabled = !canEdit || saving || (c.has_workspace && lockedOn);
+    const wsTooltip = c.has_workspace
+      ? lockedOn
+        ? `Workspace ON — this trade has ${usageRows} attendance / settlement ${
+            usageRows === 1 ? "entry" : "entries"
+          } linked to all-site expenses, so it can't be switched off.`
+        : "Workspace ON — full attendance, salary, tea & holidays. No data yet, so you can switch it off."
+      : "Workspace OFF — ladder only (contracts, sections, tasks). Switch on to add attendance, salary, tea & holidays.";
+
+    return (
     <Card key={c.id} variant="outlined" sx={{ p: 1.5, opacity: c.is_active ? 1 : 0.6 }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
         <Box sx={{ minWidth: 0 }}>
@@ -208,6 +242,7 @@ export default function TradesSettingsPage() {
             </Typography>
             {c.is_system_seed && <Chip size="small" variant="outlined" label="built-in" />}
             {!c.is_active && <Chip size="small" color="warning" label="disabled" />}
+            {!c.has_workspace && <Chip size="small" variant="outlined" label="ladder only" />}
           </Stack>
           {c.description && (
             <Typography variant="body2" color="text.secondary">
@@ -215,14 +250,34 @@ export default function TradesSettingsPage() {
             </Typography>
           )}
         </Box>
-        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexShrink: 0 }}>
-          <Tooltip title={c.is_active ? "Active — shown in the workspace" : "Disabled — hidden from new contracts"}>
-            <Switch
-              size="small"
-              checked={c.is_active}
-              disabled={!canEdit || saving}
-              onChange={() => handleToggleActive(c)}
-            />
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexShrink: 0 }}>
+          {/* Workspace = the full attendance/salary/tea/holiday surface for this trade. */}
+          <Tooltip title={wsTooltip}>
+            <Box sx={{ textAlign: "center" }}>
+              <Typography variant="caption" sx={{ display: "block", color: "text.secondary", lineHeight: 1.1 }}>
+                Workspace
+              </Typography>
+              <Switch
+                size="small"
+                checked={c.has_workspace}
+                disabled={wsDisabled}
+                onChange={() => handleToggleWorkspace(c)}
+              />
+            </Box>
+          </Tooltip>
+          {/* Active = offered as a choice when creating new contracts. */}
+          <Tooltip title={c.is_active ? "Active — offered for new contracts" : "Disabled — hidden from new contracts"}>
+            <Box sx={{ textAlign: "center" }}>
+              <Typography variant="caption" sx={{ display: "block", color: "text.secondary", lineHeight: 1.1 }}>
+                Active
+              </Typography>
+              <Switch
+                size="small"
+                checked={c.is_active}
+                disabled={!canEdit || saving}
+                onChange={() => handleToggleActive(c)}
+              />
+            </Box>
           </Tooltip>
           {!c.is_active && (
             <Tooltip title="Reactivate">
@@ -245,7 +300,8 @@ export default function TradesSettingsPage() {
         </Stack>
       </Stack>
     </Card>
-  );
+    );
+  };
 
   return (
     <Box>
@@ -260,9 +316,12 @@ export default function TradesSettingsPage() {
       />
 
       <Alert severity="info" sx={{ mb: 2 }}>
-        Trades are shared across <strong>every site</strong> in this company. A trade shows in the Workforce
-        workspace when it&apos;s active, or whenever it still has a contract. Built-in trades can be disabled
-        but not deleted.
+        Trades are shared across <strong>every site</strong>. <strong>Workspace ON</strong> gives a trade its own
+        full operating surface — per-labourer attendance, salary settlements, tea &amp; holidays (like Civil).
+        <strong> Workspace OFF</strong> keeps only the contract ▸ section ▸ task ladder (organise, cost &amp;
+        pay out) — no attendance or salary. Once a trade holds attendance/settlement data its workspace locks
+        ON (turning off only hides — it never deletes). <strong>Active</strong> simply controls whether the
+        trade is offered when creating new contracts. Built-in trades can be disabled but not deleted.
       </Alert>
 
       {error && (

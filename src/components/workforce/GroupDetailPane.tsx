@@ -15,6 +15,7 @@ import { BalanceMeter } from "./BalanceMeter";
 import { StatCard } from "./StatCard";
 import { MiniDualProgressBar } from "./MiniDualProgressBar";
 import { ScopeSheetPanel } from "./ScopeSheetPanel";
+import { WorkPhotosCard } from "./WorkPhotosCard";
 
 /**
  * Extra props supplied when this view backs a REAL parent contract (a `subcontracts`
@@ -89,12 +90,12 @@ export function GroupDetailPane({
     ratio: tracked ? r.ratio : null,
   };
   const paidPctOfValue = r.quoted > 0 ? Math.round((r.paid / r.quoted) * 100) : 0;
-  // Attendance + salary exist only on a "Full workspace" (detailed) contract —
-  // either this contract itself or one of its parts. Count-by-role / lump parts
-  // don't put this contract on the attendance & salary screens.
+  // Attendance + salary exist only on a "Full workspace" (detailed) contract whose
+  // trade still runs the workspace — either this contract itself or one of its parts.
+  // Count-by-role / lump parts, and any workspace-off trade, stay off those screens.
   const anyTracked =
-    parentMode?.parent.mode === "detailed" ||
-    group.tasks.some((t) => t.mode === "detailed");
+    (parentMode?.parent.mode === "detailed" && parentMode.parent.hasWorkspace) ||
+    group.tasks.some((t) => t.mode === "detailed" && t.hasWorkspace);
 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: wsColors.canvas, minWidth: 0 }}>
@@ -218,6 +219,9 @@ export function GroupDetailPane({
 
         {/* Combined balance meter */}
         <BalanceMeter exposure={groupExposure} />
+
+        {/* Recent work-update photos + % done for the whole contract. */}
+        <WorkPhotosCard contractId={parentMode?.parent.id ?? group.key} />
 
         {/* Parts of this contract */}
         <Box>

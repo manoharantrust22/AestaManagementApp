@@ -84,7 +84,7 @@ export function QuickCreateContractDialog({
     },
     section: {
       title: "Add a section",
-      sub: "A floor or scope inside the contract, usually priced by square feet.",
+      sub: "A floor or scope (usually priced by square feet) that holds the task works under it.",
       titleLabel: "Section name",
       titleHelper: `e.g. "Ground Floor" or "External plastering — all floors"`,
       submit: "Add section",
@@ -434,7 +434,9 @@ export function QuickCreateContractDialog({
             {/* The primary decision first: how will you handle this work? */}
             <FormControl>
               <FormLabel sx={{ mb: 1 }}>How will you handle this work?</FormLabel>
-              <TrackingModeChooser value={choice} onChange={setChoice} />
+              {/* "Full workspace (attendance + salary)" lives on the TRADE, not here —
+                  a contract/section/task only chooses record-payments or count-by-role. */}
+              <TrackingModeChooser value={choice} onChange={setChoice} allowDetailed={false} />
               {onCreatePackage && (
                 <Typography
                   variant="caption"

@@ -201,7 +201,17 @@ export function ChangeTrackingModeDialog({
           </Stack>
         )}
 
-        <TrackingModeChooser value={target} onChange={setTarget} />
+        {/* "Full workspace (attendance + salary)" is a trade-level property now, so it
+            isn't offered as a per-contract mode here (allowDetailed stays false). */}
+        <TrackingModeChooser value={target} onChange={setTarget} allowDetailed={false} />
+
+        {currentMode === "detailed" && (
+          <Alert severity="info" sx={{ mt: 2 }}>
+            This contract runs the full workspace (attendance + salary). That isn&apos;t
+            offered as a per-contract mode here — it belongs to the trade. You can switch it
+            to a lighter mode, but existing attendance must be cleared first.
+          </Alert>
+        )}
 
         {blockedReason && (
           <Alert severity="warning" sx={{ mt: 2 }}>
