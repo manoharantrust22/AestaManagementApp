@@ -134,6 +134,28 @@ export function collectMaterialOptions(
   ];
 }
 
+/** Canonical render order for the Hub search panel's grouped sections. */
+const FILTER_GROUP_ORDER: FilterGroup[] = ["Material", "Size / Variant", "Brand"];
+
+/**
+ * Bucket the flat option list into render-ready sections for the search panel,
+ * keeping only options whose label contains `query` (case-insensitive, trimmed).
+ * Sections come back in canonical order (Material → Size·Variant → Brand) and an
+ * empty section is dropped, so the panel can map straight over the result. An
+ * empty / whitespace query keeps every option.
+ */
+export function groupMaterialOptions(
+  options: MaterialOption[],
+  query: string
+): { group: FilterGroup; items: MaterialOption[] }[] {
+  const q = query.trim().toLowerCase();
+  const match = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+  return FILTER_GROUP_ORDER.map((group) => ({
+    group,
+    items: match.filter((o) => o.group === group),
+  })).filter((section) => section.items.length > 0);
+}
+
 /**
  * True when the thread matches the selected filter option. A null selection
  * passes everything.

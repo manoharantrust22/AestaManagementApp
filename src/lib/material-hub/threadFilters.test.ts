@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   collectMaterialOptions,
+  groupMaterialOptions,
   matchesMaterial,
   matchesDateRange,
   matchesSearch,
@@ -65,6 +66,52 @@ describe("collectMaterialOptions", () => {
 
   it("returns an empty array for no threads", () => {
     expect(collectMaterialOptions([], parentMap)).toEqual([]);
+  });
+});
+
+describe("groupMaterialOptions", () => {
+  const options = collectMaterialOptions([tmtThread, cementThread], parentMap);
+
+  it("returns all three sections in canonical order for an empty query", () => {
+    const sections = groupMaterialOptions(options, "");
+    expect(sections.map((s) => s.group)).toEqual([
+      "Material",
+      "Size / Variant",
+      "Brand",
+    ]);
+    // Material section carries both the parent and the standalone.
+    expect(sections[0].items.map((o) => o.id).sort()).toEqual([
+      "m-cement",
+      "m-tmt-parent",
+    ]);
+  });
+
+  it("treats a whitespace-only query as empty", () => {
+    expect(groupMaterialOptions(options, "   ")).toEqual(
+      groupMaterialOptions(options, "")
+    );
+  });
+
+  it("filters by label across groups (case-insensitive, partial)", () => {
+    const sections = groupMaterialOptions(options, "tmt");
+    // Matches the "TMT Rods" parent + its two sizes, but no brand labels.
+    expect(sections.map((s) => s.group)).toEqual(["Material", "Size / Variant"]);
+    expect(sections.find((s) => s.group === "Material")?.items.map((o) => o.id)).toEqual([
+      "m-tmt-parent",
+    ]);
+    expect(
+      sections.find((s) => s.group === "Size / Variant")?.items.map((o) => o.id).sort()
+    ).toEqual(["m-tmt16", "m-tmt20"]);
+  });
+
+  it("matches a brand label and drops empty sections", () => {
+    const sections = groupMaterialOptions(options, "amman");
+    expect(sections.map((s) => s.group)).toEqual(["Brand"]);
+    expect(sections[0].items.map((o) => o.id)).toEqual(["b-amman"]);
+  });
+
+  it("returns an empty array when nothing matches", () => {
+    expect(groupMaterialOptions(options, "zzz-no-match")).toEqual([]);
   });
 });
 
