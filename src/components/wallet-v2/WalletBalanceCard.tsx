@@ -18,6 +18,8 @@ interface WalletBalanceCardProps {
   isLoading: boolean;
   /** Optional CTAs rendered below the metrics — e.g. Add Funds / Return buttons. */
   actions?: React.ReactNode;
+  /** Optional action pinned to the top-right of the card header — e.g. a Statement link. */
+  headerAction?: React.ReactNode;
 }
 
 export default function WalletBalanceCard({
@@ -26,6 +28,7 @@ export default function WalletBalanceCard({
   balance,
   isLoading,
   actions,
+  headerAction,
 }: WalletBalanceCardProps) {
   const value = balance?.balance ?? 0;
   const isOwed = value < 0;
@@ -56,11 +59,29 @@ export default function WalletBalanceCard({
         }}
       />
       <CardContent sx={{ position: "relative", zIndex: 1, p: { xs: 2.5, sm: 3 } }}>
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ opacity: 0.85, mb: 0.5 }}>
-          <AccountBalanceWallet fontSize="small" />
-          <Typography variant="caption" sx={{ textTransform: "uppercase", letterSpacing: 0.5 }}>
-            {siteName ?? `${engineerName}'s Wallet`}
-          </Typography>
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+          spacing={1}
+          sx={{ mb: 0.5 }}
+        >
+          <Stack
+            direction="row"
+            alignItems="center"
+            spacing={1}
+            sx={{ opacity: 0.85, minWidth: 0 }}
+          >
+            <AccountBalanceWallet fontSize="small" sx={{ flexShrink: 0 }} />
+            <Typography
+              variant="caption"
+              noWrap
+              sx={{ textTransform: "uppercase", letterSpacing: 0.5 }}
+            >
+              {siteName ?? `${engineerName}'s Wallet`}
+            </Typography>
+          </Stack>
+          {headerAction && <Box sx={{ flexShrink: 0, ml: 1 }}>{headerAction}</Box>}
         </Stack>
 
         {siteName && (

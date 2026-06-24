@@ -33,6 +33,8 @@ import {
   TableHead,
   TableRow,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import {
   Close,
@@ -112,6 +114,8 @@ export default function WalletStatementDialog({
   const { data, isLoading, isError, error } = useWalletStatement(engineerId, siteId, open);
   const rows = useMemo(() => data ?? [], [data]);
   const [copied, setCopied] = useState(false);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const today = dayjs().format("D MMM YYYY");
 
@@ -302,7 +306,7 @@ export default function WalletStatementDialog({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md" fullScreen={isMobile}>
       <DialogTitle sx={{ pr: 6 }}>
         <Stack direction="row" alignItems="baseline" justifyContent="space-between" spacing={1}>
           <Box>

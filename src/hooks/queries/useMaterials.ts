@@ -1492,7 +1492,7 @@ export function useCreateMaterialWithVariants() {
       // Ensure fresh session before mutation
       await ensureFreshSession();
 
-      const { variants, ...parentData } = data;
+      const { variants, designs, ...parentData } = data;
 
       // Generate parent code if not provided
       let code = parentData.code?.trim() || null;
@@ -1521,12 +1521,32 @@ export function useCreateMaterialWithVariants() {
 
       if (parentError) throw parentError;
 
+      // Insert shared visual designs (e.g. tile patterns) on the parent.
+      // Designs are not priced and not tied to a variant — a gallery uploaded
+      // once and shown across all thickness variants.
+      if (designs && designs.length > 0) {
+        const designRows = designs.map((d, i) => ({
+          material_id: parent.id,
+          image_url: d.image_url,
+          name: d.name?.trim() || null,
+          display_order: d.display_order ?? i,
+        }));
+        const { error: designError } = await (supabase as any)
+          .from("material_designs")
+          .insert(designRows);
+        if (designError) throw designError;
+      }
+
       // Create variants if any
       if (variants && variants.length > 0) {
+        // Map each row back to its source VariantFormData by its (deterministic)
+        // code, so we can chain the optional first price after insert.
+        const codeToVariant = new Map<string, VariantFormData>();
         const variantsToInsert = variants.map((v, index) => {
           const variantCode =
             v.code?.trim() ||
             `${code}-V${(index + 1).toString().padStart(2, "0")}`;
+          codeToVariant.set(variantCode, v);
           return {
             name: v.name.trim(),
             code: variantCode,
@@ -1542,6 +1562,8 @@ export function useCreateMaterialWithVariants() {
             length_per_piece: v.length_per_piece,
             length_unit: parentData.length_unit || "m",
             rods_per_bundle: v.rods_per_bundle,
+            // Per-variant image (e.g. gallery picker)
+            image_url: v.image_url ?? null,
             // Dynamic specifications based on category template
             specifications: v.specifications || null,
           };
@@ -1549,7 +1571,7 @@ export function useCreateMaterialWithVariants() {
 
         const { data: createdVariants, error: variantError } = await (supabase.from("materials") as any)
           .insert(variantsToInsert)
-          .select("id");
+          .select("id, code");
 
         if (variantError) throw variantError;
 
@@ -1573,6 +1595,50 @@ export function useCreateMaterialWithVariants() {
               .from("material_brand_variant_links")
               .insert(links)
               .throwOnError();
+          }
+
+          // Optional first price per variant. Previously this path silently
+          // dropped initial_vendor_price (only useAddVariantToMaterial wrote it).
+          // Mirror that vendor_inventory insert so per-thickness tile prices
+          // land where the catalog card + inspect pane read them. GST is left
+          // at the parent's rate with price_includes_gst=true so the displayed
+          // landed price equals the entered price.
+          const inventoryRows = (createdVariants as { id: string; code: string }[])
+            .map((cv) => {
+              const src = codeToVariant.get(cv.code);
+              if (
+                src?.initial_vendor_id &&
+                src.initial_vendor_price &&
+                src.initial_vendor_price > 0
+              ) {
+                return {
+                  vendor_id: src.initial_vendor_id,
+                  material_id: cv.id,
+                  current_price: src.initial_vendor_price,
+                  unit: parentData.unit,
+                  gst_rate: parentData.gst_rate ?? 0,
+                  price_includes_gst: true,
+                  price_includes_transport: true,
+                  is_available: true,
+                  min_order_qty: 1,
+                  lead_time_days: 1,
+                  notes: src.initial_vendor_notes?.trim() || null,
+                  last_price_update: new Date().toISOString(),
+                  price_source: src.initial_vendor_bill_url ? "bill" : "manual",
+                };
+              }
+              return null;
+            })
+            .filter(Boolean);
+
+          if (inventoryRows.length > 0) {
+            const { error: invErr } = await (supabase as any)
+              .from("vendor_inventory")
+              .insert(inventoryRows);
+            // Don't fail the whole create — variants are in, the price just
+            // didn't land. Surface to console; the user can re-attach via the
+            // Vendors tab.
+            if (invErr) console.error("Failed to insert variant prices:", invErr);
           }
         }
       }

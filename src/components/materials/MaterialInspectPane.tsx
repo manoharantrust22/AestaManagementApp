@@ -6,6 +6,7 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Dialog,
   Divider,
   Drawer,
   IconButton,
@@ -35,6 +36,7 @@ import {
 } from "@mui/icons-material";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
 import { useMaterial, useMaterialVariants, useMaterialBrands, useBrandVariantLinks } from "@/hooks/queries/useMaterials";
+import { useMaterialDesigns } from "@/hooks/queries/useMaterialDesigns";
 import {
   useMaterialVendorSummary,
   useMaterialPriceHistory,
@@ -53,6 +55,7 @@ import type {
   VendorBillPolicy,
   BrandWithVariantLinks,
   Material,
+  MaterialDesign,
   PriceHistoryWithDetails,
 } from "@/types/material.types";
 
@@ -76,7 +79,7 @@ const UNIT_LABELS: Record<MaterialUnit, string> = {
   set: "Set",
 };
 
-type TabKey = "overview" | "vendors" | "brands" | "variants" | "price-history" | "activity";
+type TabKey = "overview" | "designs" | "vendors" | "brands" | "variants" | "price-history" | "activity";
 
 interface MaterialInspectPaneProps {
   materialId: string | null;
@@ -124,6 +127,10 @@ export function MaterialInspectPane({
     activeTab === "brands" ? materialId ?? undefined : undefined
   );
   const { data: materialBrands = [] } = useMaterialBrands(material?.id);
+  // Fetch designs whenever the pane is open so the tab count is available.
+  const { data: designs = [], isLoading: designsLoading } = useMaterialDesigns(
+    isOpen ? materialId ?? undefined : undefined,
+  );
 
   const [recordPriceOpen, setRecordPriceOpen] = useState(false);
 
@@ -297,6 +304,9 @@ export function MaterialInspectPane({
           }}
         >
           <Tab value="overview" label="Overview" />
+          {designs.length > 0 && (
+            <Tab value="designs" label={`Designs (${designs.length})`} />
+          )}
           <Tab value="vendors" label="Vendors" />
           <Tab value="brands" label={`Brands${brandCount ? ` (${brandCount})` : ""}`} />
           <Tab value="variants" label={`Variants${variantCount ? ` (${variantCount})` : ""}`} />
@@ -318,6 +328,8 @@ export function MaterialInspectPane({
             </Box>
           ) : activeTab === "overview" ? (
             <OverviewTab material={material} />
+          ) : activeTab === "designs" ? (
+            <DesignsTab isLoading={designsLoading} designs={designs} />
           ) : activeTab === "vendors" ? (
             <VendorsTab
               isLoading={vendorsLoading}
@@ -378,28 +390,25 @@ function OverviewTab({ material }: { material: MaterialWithDetails }) {
       value: material.local_name || "—",
     },
     {
-      label: "HSN code",
-      value: material.hsn_code || "—",
-    },
-    {
       label: "GST rate",
       value: material.gst_rate != null ? `${material.gst_rate}%` : "—",
     },
-    {
-      label: "Reorder level",
-      value:
-        material.reorder_level != null
-          ? `${material.reorder_level} ${UNIT_LABELS[material.unit] || material.unit}`
-          : "—",
-    },
-    {
-      label: "Min order qty",
-      value:
-        material.min_order_qty != null
-          ? `${material.min_order_qty} ${UNIT_LABELS[material.unit] || material.unit}`
-          : "—",
-    },
   ];
+
+  // Min order qty / Reorder level are now optional, advanced fields — only
+  // surface them when actually set so the overview stays decluttered.
+  if (material.min_order_qty != null) {
+    rows.push({
+      label: "Min order qty",
+      value: `${material.min_order_qty} ${UNIT_LABELS[material.unit] || material.unit}`,
+    });
+  }
+  if (material.reorder_level != null) {
+    rows.push({
+      label: "Reorder level",
+      value: `${material.reorder_level} ${UNIT_LABELS[material.unit] || material.unit}`,
+    });
+  }
 
   if (material.weight_per_unit != null) {
     rows.push({
@@ -506,6 +515,136 @@ function OverviewTab({ material }: { material: MaterialWithDetails }) {
             : ""}
         </Typography>
       </Box>
+    </Box>
+  );
+}
+
+// =====================================================
+// Designs tab — shared visual gallery (e.g. tile patterns)
+//
+// Designs belong to the parent material and apply across all thickness
+// variants. Read-only thumbnail grid with a click-to-enlarge lightbox.
+// =====================================================
+function DesignsTab({
+  isLoading,
+  designs,
+}: {
+  isLoading: boolean;
+  designs: MaterialDesign[];
+}) {
+  const [lightbox, setLightbox] = useState<MaterialDesign | null>(null);
+
+  if (isLoading) {
+    return (
+      <Box sx={{ p: 2, display: "flex", justifyContent: "center", mt: 4 }}>
+        <CircularProgress size={24} />
+      </Box>
+    );
+  }
+
+  if (designs.length === 0) {
+    return (
+      <Box sx={{ p: 3, textAlign: "center" }}>
+        <Typography variant="body2" color="text.secondary">
+          No designs added yet.
+        </Typography>
+      </Box>
+    );
+  }
+
+  return (
+    <Box sx={{ p: 2 }}>
+      <Typography sx={{ fontSize: 12, color: "text.secondary", mb: 1.5 }}>
+        {designs.length} design{designs.length === 1 ? "" : "s"} · the same
+        designs are available in every thickness.
+      </Typography>
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))",
+          gap: 1,
+        }}
+      >
+        {designs.map((d) => (
+          <Box
+            key={d.id}
+            onClick={() => setLightbox(d)}
+            sx={{
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 1.5,
+              overflow: "hidden",
+              cursor: "pointer",
+              bgcolor: "background.paper",
+              transition: "transform 120ms, box-shadow 120ms",
+              "&:hover": { transform: "translateY(-2px)", boxShadow: 2 },
+            }}
+          >
+            <Box sx={{ width: "100%", aspectRatio: "1 / 1", bgcolor: "action.hover" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={d.image_url}
+                alt={d.name || "Design"}
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              />
+            </Box>
+            {d.name ? (
+              <Typography
+                sx={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  textAlign: "center",
+                  px: 0.5,
+                  py: 0.5,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {d.name}
+              </Typography>
+            ) : null}
+          </Box>
+        ))}
+      </Box>
+
+      <Dialog
+        open={!!lightbox}
+        onClose={() => setLightbox(null)}
+        maxWidth="md"
+        PaperProps={{ sx: { bgcolor: "background.paper" } }}
+      >
+        {lightbox && (
+          <Box sx={{ position: "relative" }}>
+            <IconButton
+              onClick={() => setLightbox(null)}
+              sx={{
+                position: "absolute",
+                top: 8,
+                right: 8,
+                bgcolor: "rgba(0,0,0,0.5)",
+                color: "#fff",
+                "&:hover": { bgcolor: "rgba(0,0,0,0.7)" },
+              }}
+            >
+              <CloseIcon />
+            </IconButton>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={lightbox.image_url}
+              alt={lightbox.name || "Design"}
+              style={{ display: "block", maxWidth: "100%", maxHeight: "80vh" }}
+            />
+            {lightbox.name ? (
+              <Typography
+                sx={{ p: 1.5, fontSize: 14, fontWeight: 700, textAlign: "center" }}
+              >
+                {lightbox.name}
+              </Typography>
+            ) : null}
+          </Box>
+        )}
+      </Dialog>
     </Box>
   );
 }

@@ -13,7 +13,7 @@ import {
   Tabs,
   Typography,
 } from "@mui/material";
-import { KeyboardReturn, LocationOff } from "@mui/icons-material";
+import { KeyboardReturn, LocationOff, ReceiptLong } from "@mui/icons-material";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSelectedSite } from "@/contexts/SiteContext";
 import {
@@ -26,6 +26,7 @@ import WalletLedgerWithUnlinked from "@/components/wallet-v2/WalletLedgerWithUnl
 import WalletSourcePoolsCard from "@/components/wallet-v2/WalletSourcePoolsCard";
 import AddFundsDialog from "@/components/wallet-v2/AddFundsDialog";
 import SpendDetailDialog from "@/components/wallet-v2/SpendDetailDialog";
+import WalletStatementDialog from "@/components/wallet-v2/WalletStatementDialog";
 import type { WalletLedgerEntry, WalletLedgerFilters } from "@/types/engineer-wallet-v2.types";
 
 type LedgerTab = "all" | "deposit" | "spend" | "return";
@@ -35,6 +36,7 @@ export default function MyWalletPage() {
   const { selectedSite } = useSelectedSite();
   const [tab, setTab] = useState<LedgerTab>("all");
   const [returnOpen, setReturnOpen] = useState(false);
+  const [statementOpen, setStatementOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<WalletLedgerEntry | null>(null);
 
   const filters: Omit<WalletLedgerFilters, "cursor"> = {
@@ -92,6 +94,27 @@ export default function MyWalletPage() {
           siteName={selectedSite.name}
           balance={balanceQuery.data}
           isLoading={balanceQuery.isLoading}
+          headerAction={
+            <Button
+              size="small"
+              onClick={() => setStatementOpen(true)}
+              startIcon={<ReceiptLong fontSize="small" />}
+              sx={{
+                color: "common.white",
+                textTransform: "none",
+                fontWeight: 600,
+                borderRadius: 999,
+                px: 1.25,
+                py: 0.25,
+                minWidth: 0,
+                bgcolor: "rgba(255,255,255,0.14)",
+                "&:hover": { bgcolor: "rgba(255,255,255,0.24)" },
+                "& .MuiButton-startIcon": { mr: 0.5 },
+              }}
+            >
+              Statement
+            </Button>
+          }
           actions={
             <Button
               fullWidth
@@ -153,6 +176,14 @@ export default function MyWalletPage() {
         open={detailRow !== null}
         onClose={() => setDetailRow(null)}
         row={detailRow}
+      />
+      <WalletStatementDialog
+        open={statementOpen}
+        onClose={() => setStatementOpen(false)}
+        engineerId={userProfile.id}
+        engineerName={userProfile.name ?? "Engineer"}
+        siteId={selectedSite.id}
+        siteName={selectedSite.name}
       />
     </Container>
   );

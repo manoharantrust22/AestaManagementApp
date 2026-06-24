@@ -74,7 +74,6 @@ import VariantInlineTable from "./VariantInlineTable";
 import BrandVariantEditor from "./BrandVariantEditor";
 import CategoryDialog, { type CategoryFormData } from "@/components/categories/CategoryDialog";
 
-const CEMENT_CATEGORY_PATTERNS = ["cement", "ppc", "opc"];
 const TMT_CATEGORY_PATTERNS = ["tmt", "steel", "bar", "rod"];
 
 const UNITS: { value: MaterialUnit; label: string }[] = [
@@ -146,6 +145,7 @@ export default function MaterialDialog({
   const [variants, setVariants] = useState<VariantFormData[]>([]);
   const [showVariantSection, setShowVariantSection] = useState(false);
   const [showWeightSection, setShowWeightSection] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [customizeCode, setCustomizeCode] = useState(false);
   const [showLocalName, setShowLocalName] = useState(false);
   const [showDescription, setShowDescription] = useState(false);
@@ -169,9 +169,9 @@ export default function MaterialDialog({
       description: material?.description || "",
       unit: material?.unit || "piece",
       hsn_code: material?.hsn_code || "",
-      gst_rate: material?.gst_rate || 18,
-      reorder_level: material?.reorder_level || 10,
-      min_order_qty: material?.min_order_qty || 1,
+      gst_rate: material?.gst_rate ?? 0,
+      reorder_level: material?.reorder_level ?? undefined,
+      min_order_qty: material?.min_order_qty ?? undefined,
       weight_per_unit: material?.weight_per_unit ?? null,
       weight_unit: material?.weight_unit || "kg",
       length_per_piece: material?.length_per_piece ?? null,
@@ -257,15 +257,13 @@ export default function MaterialDialog({
   }, [formData.category_id, categories]);
 
   const fieldVisibility = useMemo(() => {
-    const isCement = currentCategoryName
-      ? CEMENT_CATEGORY_PATTERNS.some(p => currentCategoryName.includes(p))
-      : false;
     const isTMT = currentCategoryName
       ? TMT_CATEGORY_PATTERNS.some(p => currentCategoryName.includes(p))
       : false;
+    // HSN code and Min-order-qty hiding were removed in the global field
+    // declutter (HSN dropped from the form entirely, Min-order now optional).
+    // TMT weight/length tracking stays category-driven.
     return {
-      showHsnCode: !isCement,
-      showMinOrderQty: !isCement,
       showWeightLengthToggle: isTMT,
     };
   }, [currentCategoryName]);
@@ -790,19 +788,11 @@ export default function MaterialDialog({
                   ))}
                 </Select>
               </FormControl>
-              {fieldVisibility.showHsnCode && (
-                <TextField
-                  size="small"
-                  label="HSN code"
-                  value={formData.hsn_code}
-                  onChange={(e) => handleChange("hsn_code", e.target.value)}
-                />
-              )}
               <TextField
                 size="small"
                 label="GST rate (%)"
                 type="number"
-                value={formData.gst_rate}
+                value={formData.gst_rate ?? 0}
                 onChange={(e) => handleChange("gst_rate", parseFloat(e.target.value) || 0)}
                 InputProps={{
                   inputProps: { min: 0, max: 100, step: 0.5 },
@@ -811,30 +801,57 @@ export default function MaterialDialog({
               />
               <TextField
                 size="small"
-                label={`Reorder level`}
+                label="Min order qty"
                 type="number"
-                value={formData.reorder_level}
-                onChange={(e) => handleChange("reorder_level", parseFloat(e.target.value) || 0)}
-                helperText="Stock alert threshold"
+                value={formData.min_order_qty ?? ""}
+                onChange={(e) =>
+                  handleChange(
+                    "min_order_qty",
+                    e.target.value ? parseFloat(e.target.value) : undefined,
+                  )
+                }
+                helperText="Optional"
                 InputProps={{
                   inputProps: { min: 0, step: 1 },
                   endAdornment: <InputAdornment position="end">{formData.unit}</InputAdornment>,
                 }}
               />
-              {fieldVisibility.showMinOrderQty && (
-                <TextField
-                  size="small"
-                  label={`Min order qty`}
-                  type="number"
-                  value={formData.min_order_qty}
-                  onChange={(e) => handleChange("min_order_qty", parseFloat(e.target.value) || 1)}
-                  helperText="Minimum per order"
-                  InputProps={{
-                    inputProps: { min: 1, step: 1 },
-                    endAdornment: <InputAdornment position="end">{formData.unit}</InputAdornment>,
-                  }}
-                />
-              )}
+            </Box>
+
+            {/* Advanced — rarely-needed fields tucked away to keep the form clean.
+                Reorder level still drives the low-stock alert for restocked
+                materials (cement/steel); it's optional and simply off the main view. */}
+            <Box sx={{ mt: 1 }}>
+              <Button
+                size="small"
+                onClick={() => setShowAdvanced((v) => !v)}
+                endIcon={showAdvanced ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                sx={{ textTransform: "none", color: "text.secondary", px: 0.5 }}
+              >
+                Advanced
+              </Button>
+              <Collapse in={showAdvanced} unmountOnExit>
+                <Box sx={{ mt: 1, maxWidth: 260 }}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Reorder level"
+                    type="number"
+                    value={formData.reorder_level ?? ""}
+                    onChange={(e) =>
+                      handleChange(
+                        "reorder_level",
+                        e.target.value ? parseFloat(e.target.value) : undefined,
+                      )
+                    }
+                    helperText="Low-stock alert threshold (optional)"
+                    InputProps={{
+                      inputProps: { min: 0, step: 1 },
+                      endAdornment: <InputAdornment position="end">{formData.unit}</InputAdornment>,
+                    }}
+                  />
+                </Box>
+              </Collapse>
             </Box>
 
             {fieldVisibility.showWeightLengthToggle && (

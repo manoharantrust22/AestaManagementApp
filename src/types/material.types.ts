@@ -921,6 +921,8 @@ export interface MaterialWithDetails extends Material {
   parent_material?: { id: string; name: string; code: string | null } | null;
   variants?: MaterialWithDetails[];
   variant_count?: number;
+  /** Number of shared visual designs (e.g. tile patterns) on this material. */
+  design_count?: number;
 }
 
 /**
@@ -1382,9 +1384,33 @@ export interface VariantFormData {
   initial_vendor_bill_url?: string | null;
 }
 
+// A "design" is a purely-visual pattern/colour belonging to the PARENT
+// material (e.g. a tile design). Shared across all thickness variants —
+// uploaded once, not priced, not tied to a thickness. Stored in the
+// material_designs table.
+export interface MaterialDesign {
+  id: string;
+  material_id: string;
+  image_url: string;
+  name: string | null;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  created_by?: string | null;
+}
+
+// Form shape for adding a design to a material (gallery uploader output).
+export interface MaterialDesignFormData {
+  image_url: string;
+  name?: string | null;
+  display_order?: number;
+}
+
 // Extended form data for creating a material with variants in one operation
 export interface CreateMaterialWithVariantsData extends MaterialFormData {
   variants?: VariantFormData[];
+  // Shared visual designs attached to the parent material (e.g. tile patterns).
+  designs?: MaterialDesignFormData[];
 }
 
 // Weight calculation result

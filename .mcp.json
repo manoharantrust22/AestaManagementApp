@@ -4,11 +4,6 @@
       "type": "sse",
       "url": "https://h2d-mcp.divriots.com/88c4f197-9f33-4b8d-82e5-06ca18dd3f54/mcp"
     },
-    "playwright": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest"]
-    },
     "supabase": {
       "type": "stdio",
       "command": "npx",

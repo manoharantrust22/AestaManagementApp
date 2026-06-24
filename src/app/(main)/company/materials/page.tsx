@@ -25,6 +25,7 @@ import {
   Store as StoreIcon,
   AutoAwesome as VariantsIcon,
   PriceChange as PriceMissingIcon,
+  GridView as TileIcon,
 } from "@mui/icons-material";
 import { useSitesData } from "@/contexts/SiteContext";
 import PageHeader from "@/components/layout/PageHeader";
@@ -72,6 +73,11 @@ const CatalogImageFillDialog = dynamic(
   { ssr: false }
 );
 
+const TileMaterialDialog = dynamic(
+  () => import("@/components/materials/TileMaterialDialog"),
+  { ssr: false }
+);
+
 const SORT_OPTIONS: { value: MaterialSortOption; label: string }[] = [
   { value: "frequently_used", label: "Frequently used" },
   { value: "alphabetical", label: "Alphabetical" },
@@ -110,6 +116,7 @@ export default function MaterialsPage() {
   const [showDraftsOnly, setShowDraftsOnly] = useState(false);
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [tileDialogOpen, setTileDialogOpen] = useState(false);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
   const [fillImagesOpen, setFillImagesOpen] = useState(false);
   const { sites: userSites } = useSitesData();
@@ -374,6 +381,13 @@ export default function MaterialsPage() {
               >
                 Ingest from AI
               </Button>
+              <Button
+                variant="outlined"
+                startIcon={<TileIcon />}
+                onClick={() => setTileDialogOpen(true)}
+              >
+                New tile
+              </Button>
               <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenAdd}>
                 Add Material
               </Button>
@@ -584,6 +598,15 @@ export default function MaterialsPage() {
           <Fab
             color="secondary"
             size="medium"
+            sx={{ position: "fixed", bottom: 156, right: 16 }}
+            onClick={() => setTileDialogOpen(true)}
+            aria-label="New tile"
+          >
+            <TileIcon />
+          </Fab>
+          <Fab
+            color="secondary"
+            size="medium"
             sx={{ position: "fixed", bottom: 86, right: 16 }}
             onClick={() => setAiDialogOpen(true)}
             aria-label="Ingest from AI"
@@ -642,6 +665,14 @@ export default function MaterialsPage() {
         categories={categories}
         onEditVariant={handleOpenEdit}
       />
+
+      {tileDialogOpen && (
+        <TileMaterialDialog
+          open={tileDialogOpen}
+          onClose={() => setTileDialogOpen(false)}
+          categories={categories}
+        />
+      )}
 
       <AIIngestionDialog
         open={aiDialogOpen}

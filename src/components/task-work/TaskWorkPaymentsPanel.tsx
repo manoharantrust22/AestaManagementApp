@@ -39,6 +39,7 @@ import {
   type TaskWorkPackageWithMeta,
 } from "@/types/taskWork.types";
 import TaskWorkPaymentDialog from "./TaskWorkPaymentDialog";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
 
 interface Props {
   pkg: TaskWorkPackageWithMeta;
@@ -66,6 +67,9 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
   const [defaultType, setDefaultType] = useState<"advance" | "final_settlement">(
     "advance"
   );
+  const [pendingDelete, setPendingDelete] = useState<
+    (typeof payments)[number] | null
+  >(null);
 
   const paid = useMemo(
     () => payments.reduce((s, p) => s + (p.amount || 0), 0),
@@ -190,15 +194,7 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
                       <IconButton
                         size="small"
                         color="error"
-                        onClick={() => {
-                          if (!confirm("Delete this payment?")) return;
-                          deleteMut.mutate({
-                            paymentId: p.id,
-                            packageId: pkg.id,
-                            siteId: pkg.site_id,
-                            reason: "Removed by user",
-                          });
-                        }}
+                        onClick={() => setPendingDelete(p)}
                       >
                         <Delete fontSize="small" />
                       </IconButton>
@@ -295,6 +291,34 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
         pkg={pkg}
         balanceDue={balance}
         defaultType={defaultType}
+      />
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Delete payment?"
+        message={
+          pendingDelete
+            ? `This will remove the ${inr(
+                pendingDelete.amount
+              )} payment. This cannot be undone.`
+            : ""
+        }
+        confirmText="Delete"
+        confirmColor="error"
+        isLoading={deleteMut.isPending}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (!pendingDelete) return;
+          deleteMut.mutate(
+            {
+              paymentId: pendingDelete.id,
+              packageId: pkg.id,
+              siteId: pkg.site_id,
+              reason: "Removed by user",
+            },
+            { onSuccess: () => setPendingDelete(null) }
+          );
+        }}
       />
     </Box>
   );
