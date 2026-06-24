@@ -62,6 +62,7 @@ import type { SettlementRecord } from "@/types/settlement.types";
 import type { SettleViaWalletPayload } from "@/types/settle-via-wallet.types";
 import { useSiteSubcontracts } from "@/hooks/queries/useSubcontracts";
 import { useWeekContractSubcontracts } from "@/hooks/queries/useWeekContractSubcontracts";
+import { useSubcontractMeta } from "@/hooks/queries/useSubcontractMeta";
 import SettlementRefDetailDialog, {
   type SettlementDetails,
 } from "@/components/payments/SettlementRefDetailDialog";
@@ -231,6 +232,31 @@ export default function PaymentsContent() {
       }
       return { kind: "civil" };
     });
+
+  // ── Trade scoping (Task 5) ───────────────────────────────────────────────
+  // When a lone ?contractId= is present (in-house DETAILED contract), scope
+  // the settlement view to that trade's contract — same pattern as the
+  // attendance page (Task 3). The full triple ?categoryId=&contractId=&trade=
+  // takes the TradeSettlementView path above, so this only fires when
+  // ?contractId= is present WITHOUT the triple (per-laborer Civil flow).
+  const contractIdParam = searchParams.get("contractId");
+  const { data: contractMeta } = useSubcontractMeta(
+    // Only fetch when it's a lone contractId (not the triple that goes to
+    // TradeSettlementView — that triple is consumed above via categoryId+trade).
+    tradeChipSelection.kind === "civil" ? contractIdParam : null
+  );
+  /**
+   * When non-null, this is the trade_category_id for the in-house DETAILED
+   * contract we are scoping to. Null = plain Civil view (byte-for-byte
+   * unchanged behaviour).
+   */
+  const scopeTradeId: string | null =
+    contractIdParam &&
+    contractMeta?.labor_tracking_mode === "detailed" &&
+    contractMeta?.trade_category_id
+      ? contractMeta.trade_category_id
+      : null;
+  // ── End trade scoping setup ──────────────────────────────────────────────
   const { data: sitTradesForChip } = useSiteTrades(selectedSite?.id);
   const selectedTradeContract = useMemo(() => {
     if (tradeChipSelection.kind !== "trade" || !sitTradesForChip) return null;
@@ -340,10 +366,10 @@ export default function PaymentsContent() {
     }
   );
 
-  // Subcontract scoping picker isn't surfaced on this page yet — the page
-  // operates against all subcontracts on the site, and the RPCs treat null
-  // as "aggregate across all subcontracts".
-  const selectedSubcontractId: string | null = null;
+  // When a trade scope is active (scopeTradeId non-null), tag settlement writes
+  // to the in-house contract so they appear correctly in the contract's history.
+  // Plain Civil view (scopeTradeId=null) keeps null → aggregate across all subcontracts.
+  const selectedSubcontractId: string | null = scopeTradeId ? contractIdParam : null;
 
   // Powers the contract-wallet settle flow: lets us auto-pick the week's
   // mestri when only one is present, and provides laborer_name for the
@@ -582,13 +608,19 @@ export default function PaymentsContent() {
     let rows = hideCancelled
       ? settlementRowsAll.filter((r) => !r.isCancelled)
       : settlementRowsAll;
-    if (tradeChipSelection.kind === "civil") {
+    if (scopeTradeId && contractIdParam) {
+      // Trade-scoped view: show ONLY settlements linked to this contract.
+      // This is display-only scoping — settlement amount math is untouched.
+      rows = rows.filter((r) => r.subcontractId === contractIdParam);
+    } else if (tradeChipSelection.kind === "civil") {
+      // Plain Civil view: exclude settlements linked to non-Civil trade categories
+      // (e.g. Painting) — those belong in their TradeSettlementView.
       rows = rows.filter(
         (r) => !r.subcontractCategoryId || !tradeCategoryIdSet.has(r.subcontractCategoryId)
       );
     }
     return rows;
-  }, [settlementRowsAll, hideCancelled, tradeChipSelection, tradeCategoryIdSet]);
+  }, [settlementRowsAll, hideCancelled, scopeTradeId, contractIdParam, tradeChipSelection, tradeCategoryIdSet]);
   const tabCancelledCount = cancelledForTab(activeTab);
 
   const pendingDailyMarketCount = (dailyMarketLedgerQuery.data ?? []).filter(
