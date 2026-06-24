@@ -5,8 +5,26 @@ import { Box, Typography, Collapse, Button, IconButton, Tooltip } from "@mui/mat
 import ChevronRight from "@mui/icons-material/ChevronRight";
 import Add from "@mui/icons-material/Add";
 import LaunchRounded from "@mui/icons-material/LaunchRounded";
+import DriveFileMoveRounded from "@mui/icons-material/DriveFileMoveRounded";
+import DragIndicator from "@mui/icons-material/DragIndicator";
+import {
+  DndContext,
+  DragOverlay,
+  MouseSensor,
+  TouchSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  pointerWithin,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import { restrictToWindowEdges } from "@dnd-kit/modifiers";
 import { rollupSeverity } from "@/lib/workforce/exposure";
 import type { ContractNode, TradeNode, WorkspaceTask } from "@/lib/workforce/workspaceModel";
+import { isValidMove } from "@/lib/workforce/moveTargets";
+import { MoveNodeSheet } from "./MoveNodeSheet";
 import {
   severityMeta,
   statusMeta,
@@ -336,6 +354,14 @@ interface TreeCtx {
   pkgsByParentId: Map<string, TaskWorkPackageWithMeta[]>;
   showAddAffordances: boolean;
   addStatus: "draft" | "active";
+  /** Drag-and-drop re-parenting is available (canEdit && not searching). */
+  canMove: boolean;
+  /** Open the "Move to…" sheet for this node (the cross-device path). */
+  onRequestMove: (node: ContractNode) => void;
+  /** The node id currently being dragged (null when idle), for drop-highlighting. */
+  dragActiveId: string | null;
+  /** Whether dropping the active drag under `targetId` (null = top level) is legal. */
+  isValidTarget: (targetId: string | null) => boolean;
 }
 
 /** Packages attached to this node, filtered to the active tab. */
@@ -350,12 +376,96 @@ function isNodeVisible(node: ContractNode, ctx: TreeCtx): boolean {
 }
 
 /**
+ * Re-parent affordance: tap to open the "Move to…" sheet (works everywhere, incl. mobile);
+ * the whole row is also draggable, so dragging from here re-homes the node directly. Hidden
+ * unless re-parenting is enabled (canEdit && not searching).
+ */
+function MoveButton({ node, ctx }: { node: ContractNode; ctx: TreeCtx }) {
+  if (!ctx.canMove) return null;
+  return (
+    <Tooltip title="Drag to move — or tap to pick a new home">
+      <IconButton
+        size="small"
+        onClick={(e) => {
+          e.stopPropagation();
+          ctx.onRequestMove(node);
+        }}
+        aria-label="Move"
+        sx={{ p: 0.4, color: wsColors.muted, cursor: "grab" }}
+      >
+        <DriveFileMoveRounded sx={{ fontSize: 16 }} />
+      </IconButton>
+    </Tooltip>
+  );
+}
+
+/**
+ * Wraps a trade's header row as a drop target: dropping a node here re-homes it to a
+ * top-level Contract under that trade. Highlights only when the drop would be valid.
+ */
+function TopLevelDrop({
+  categoryId,
+  valid,
+  dragging,
+  children,
+}: {
+  categoryId: string;
+  valid: boolean;
+  dragging: boolean;
+  children: ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `top:${categoryId}` });
+  const highlight = dragging && isOver && valid;
+  return (
+    <Box
+      ref={setNodeRef}
+      sx={{
+        borderRadius: `${wsRadius.row}px`,
+        boxShadow: highlight ? `0 0 0 2px ${wsColors.primary} inset` : "none",
+        bgcolor: highlight ? wsColors.primaryTint : "transparent",
+        transition: "background-color .12s",
+      }}
+    >
+      {children}
+    </Box>
+  );
+}
+
+/** Floating chip shown under the cursor while a row is being dragged. */
+function DragChip({ title, tier }: { title: string; tier: ContractNode["tier"] }) {
+  return (
+    <Box
+      sx={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 0.6,
+        px: 1.25,
+        py: 0.75,
+        borderRadius: `${wsRadius.row}px`,
+        bgcolor: wsColors.surface,
+        border: `1px solid ${wsColors.primary}`,
+        boxShadow: "0 8px 24px rgba(20,40,80,.18)",
+        cursor: "grabbing",
+        maxWidth: 280,
+      }}
+    >
+      <DragIndicator sx={{ fontSize: 16, color: wsColors.muted }} />
+      <TierTag tier={tier} />
+      <Typography noWrap sx={{ fontSize: 13, fontWeight: 700, color: wsColors.ink, minWidth: 0 }}>
+        {title}
+      </Typography>
+    </Box>
+  );
+}
+
+/**
  * One row in the Contract ▸ Section ▸ Task ladder, recursing over its children.
  *
  * Interaction (fixes the mobile "tap jumps to full screen" problem):
  *  • A container (Contract/Section) → tapping the ROW expands/collapses its children
  *    (big hit area); a trailing "Open" button opens its detail pane.
  *  • A leaf (Task) → tapping the row opens its detail.
+ *  • Any row is draggable to re-parent it; a "Move" action opens a destination picker.
  */
 function ContractRow({
   node,
@@ -368,9 +478,15 @@ function ContractRow({
   isLast: boolean;
   ctx: TreeCtx;
 }) {
+  const t = node.task;
+  // Hooks must run unconditionally — call the drag/drop hooks BEFORE any early return
+  // (rules of hooks). The whole row is draggable + a drop target; setNodeRef is wired in
+  // the JSX below, so an invisible (early-returned) row simply never attaches a ref.
+  const drag = useDraggable({ id: t.id, disabled: !ctx.canMove });
+  const drop = useDroppable({ id: t.id });
+
   if (!isNodeVisible(node, ctx)) return null;
 
-  const t = node.task;
   const selected = ctx.selectedTaskId === t.id;
   const expandable = node.tier !== "task"; // Contracts & Sections can hold children
   const childNodes = node.children;
@@ -408,15 +524,42 @@ function ContractRow({
   const barPaid = hasParts ? (r.quotedTracked > 0 ? r.paidTracked / r.quotedTracked : 0) : t.paidPctOfQuoted;
   const barWork = hasParts ? (r.quotedTracked > 0 ? r.workValue / r.quotedTracked : 0) : t.work;
 
+  // ── Drag-and-drop re-parenting (drag/drop hooks are hoisted above the early return) ──
+  // The whole row is draggable (a quick click still expands/selects — the sensors only
+  // start a drag after a small move / hold) and is also a drop target: dropping another
+  // node ON this row nests it under this node. Tier re-derives from the new depth.
+  const setRowRef = (el: HTMLElement | null) => {
+    drag.setNodeRef(el);
+    drop.setNodeRef(el);
+  };
+  const draggingThis = drag.isDragging;
+  const hovered = ctx.dragActiveId != null && drop.isOver && ctx.dragActiveId !== t.id;
+  const validDrop = hovered && ctx.isValidTarget(t.id);
+  const invalidDrop = hovered && !validDrop;
+  // Hover/touch reveal is needed wherever the row has trailing actions: containers always
+  // (Add / Open), leaves only when re-parenting is on (the Move action).
+  const wantReveal = expandable || ctx.canMove;
+
   const selectSx = {
-    border: `1px solid ${selected ? "#d3e0fb" : "transparent"}`,
-    bgcolor: selected ? wsColors.primaryTint : "transparent",
-    "&:hover": { bgcolor: selected ? wsColors.primaryTint : wsColors.canvas },
+    border: `1px solid ${
+      validDrop ? wsColors.primary : selected ? "#d3e0fb" : "transparent"
+    }`,
+    bgcolor: validDrop
+      ? wsColors.primaryTint
+      : selected
+        ? wsColors.primaryTint
+        : "transparent",
+    boxShadow: validDrop ? `0 0 0 2px ${wsColors.primary} inset` : "none",
+    opacity: draggingThis ? 0.4 : invalidDrop ? 0.55 : 1,
+    "&:hover": { bgcolor: selected || validDrop ? wsColors.primaryTint : wsColors.canvas },
   };
 
   return (
     <Box sx={{ mt: depth === 0 ? 0.5 : 0 }}>
       <Box
+        ref={setRowRef}
+        {...(ctx.canMove ? drag.listeners : {})}
+        {...(ctx.canMove ? drag.attributes : {})}
         onClick={() => (expandable ? ctx.setGroupOpen(t.id, !open) : ctx.onSelectTask(t.id))}
         sx={{
           display: "flex",
@@ -426,10 +569,10 @@ function ContractRow({
           py: 0.6,
           borderRadius: `${wsRadius.row}px`,
           cursor: "pointer",
+          outline: "none",
           ...selectSx,
-          // Containers reveal their "＋ add child / open" actions on hover (desktop) or
-          // always (touch); leaf tasks just open on row-tap, so no reveal needed.
-          ...(expandable ? revealSx : {}),
+          // Reveal the trailing actions (Move / Add / Open) on hover (desktop) or always (touch).
+          ...(wantReveal ? revealSx : {}),
         }}
       >
         {expandable ? (
@@ -484,6 +627,7 @@ function ContractRow({
               className="ws-actions"
               sx={{ display: "flex", alignItems: "center", gap: 0.25 }}
             >
+              <MoveButton node={node} ctx={ctx} />
               {ctx.showAddAffordances && (
                 <Tooltip title={`Add ${tm.childLabel}`}>
                   <IconButton
@@ -516,6 +660,19 @@ function ContractRow({
                   <LaunchRounded sx={{ fontSize: 16 }} />
                 </IconButton>
               </Tooltip>
+            </Box>
+          </Box>
+        ) : ctx.canMove ? (
+          // Leaf task with re-parenting on: quiet status crossfades to the Move action.
+          <Box className="ws-trailing" sx={overlapSlotSx}>
+            <Box className="ws-status" sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+              {showBar && (
+                <MiniDualProgressBar paidPct={barPaid} workPct={barWork} width={40} height={7} />
+              )}
+              {atRisk && <AtRiskChip severity={sev} />}
+            </Box>
+            <Box className="ws-actions" sx={{ display: "flex", alignItems: "center" }}>
+              <MoveButton node={node} ctx={ctx} />
             </Box>
           </Box>
         ) : (
@@ -598,6 +755,7 @@ export function ContractTree({
   packagesByTrade,
   onOpenPackage,
   onAddTaskWork,
+  onMoveNode,
 }: {
   siteId: string;
   canEdit: boolean;
@@ -612,6 +770,8 @@ export function ContractTree({
   packagesByTrade: Map<string, TaskWorkPackageWithMeta[]>;
   onOpenPackage: (pkg: TaskWorkPackageWithMeta) => void;
   onAddTaskWork: AddTaskWork;
+  /** Re-parent a node (newParentId = null → top-level). Undefined disables re-parenting. */
+  onMoveNode?: (nodeId: string, newParentId: string | null) => void;
 }) {
   const q = query.trim().toLowerCase();
   const taskVisible = (t: WorkspaceTask) =>
@@ -627,6 +787,68 @@ export function ContractTree({
     setOpenGroups((p) => ({ ...p, [k]: next }));
   // Trades with nothing in this tab collapse into one footer so active work scans easily.
   const [emptyOpenRaw, setEmptyOpen] = useState<boolean | null>(null);
+
+  // ── Drag-and-drop re-parenting ─────────────────────────────────────────────
+  // Off while searching (the tree is flattened by the query) or without edit rights.
+  const canMove = !!onMoveNode && canEdit && !q;
+  const sensors = useSensors(
+    // Mouse: a small move starts a drag (a click still selects/expands).
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    // Touch: press-and-hold starts a drag, so a quick swipe still scrolls the list.
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
+  );
+  const [dragActiveId, setDragActiveId] = useState<string | null>(null);
+  // The node targeted by the "Move to…" sheet (explicit / mobile path).
+  const [moveCtx, setMoveCtx] = useState<{ trade: TradeNode; node: ContractNode } | null>(null);
+
+  // nodeId → its TradeNode, so a move validates/resolves against the right trade.
+  const tradeByNodeId = useMemo(() => {
+    const m = new Map<string, TradeNode>();
+    const walk = (n: ContractNode, trade: TradeNode) => {
+      m.set(n.task.id, trade);
+      n.children.forEach((c) => walk(c, trade));
+    };
+    for (const trade of trades) for (const c of trade.contracts) walk(c, trade);
+    return m;
+  }, [trades]);
+
+  const activeTrade = dragActiveId ? tradeByNodeId.get(dragActiveId) ?? null : null;
+  const dragNode = useMemo(() => {
+    if (!dragActiveId || !activeTrade) return null;
+    let found: ContractNode | null = null;
+    const walk = (n: ContractNode) => {
+      if (n.task.id === dragActiveId) found = n;
+      else n.children.forEach(walk);
+    };
+    activeTrade.contracts.forEach(walk);
+    return found as ContractNode | null;
+  }, [dragActiveId, activeTrade]);
+
+  // Validity of dropping the active node under `targetId` (a node id), for live highlight.
+  const isValidTarget = (targetId: string | null): boolean => {
+    if (!dragActiveId || !activeTrade || targetId === null) return false;
+    if (tradeByNodeId.get(targetId) !== activeTrade) return false;
+    return isValidMove(activeTrade, dragActiveId, targetId);
+  };
+
+  const handleDragStart = (e: DragStartEvent) => setDragActiveId(String(e.active.id));
+  const handleDragEnd = (e: DragEndEvent) => {
+    const activeId = String(e.active.id);
+    setDragActiveId(null);
+    if (!onMoveNode || !e.over) return;
+    const overId = String(e.over.id);
+    const trade = tradeByNodeId.get(activeId);
+    if (!trade) return;
+    if (overId.startsWith("top:")) {
+      const cat = overId.slice(4);
+      if (trade.category.id === cat && isValidMove(trade, activeId, null)) {
+        onMoveNode(activeId, null);
+      }
+      return;
+    }
+    if (tradeByNodeId.get(overId) !== trade) return; // never across trades
+    if (isValidMove(trade, activeId, overId)) onMoveNode(activeId, overId);
+  };
 
   const visibleTrades = useMemo(() => {
     if (!q) return trades;
@@ -699,13 +921,24 @@ export function ContractTree({
       pkgsByParentId,
       showAddAffordances,
       addStatus,
+      canMove,
+      onRequestMove: (n) => setMoveCtx({ trade: node, node: n }),
+      dragActiveId,
+      isValidTarget,
     };
+
+    // Top-level drop validity: the active node is in this trade and isn't already top-level.
+    const topLevelValid =
+      !!dragActiveId &&
+      activeTrade?.category.id === node.category.id &&
+      isValidMove(node, dragActiveId, null);
 
     const visibleContracts = node.contracts.filter((c) => isNodeVisible(c, ctx));
 
     return (
       <Box key={node.category.id} sx={{ mb: 0.5 }}>
-        {/* Trade group header */}
+        {/* Trade group header — also a "drop here for top-level" target while dragging. */}
+        <TopLevelDrop categoryId={node.category.id} valid={topLevelValid} dragging={!!dragActiveId}>
         <Box
           onClick={() => onToggleTrade(node.category.id)}
           sx={{
@@ -788,6 +1021,7 @@ export function ContractTree({
             headerBar
           )}
         </Box>
+        </TopLevelDrop>
 
         <Collapse in={open} unmountOnExit>
           <Box sx={{ pl: 2, pr: 0.5, pb: 0.5 }}>
@@ -843,7 +1077,7 @@ export function ContractTree({
         ? "nothing completed"
         : "no work yet";
 
-  return (
+  const tree = (
     <Box>
       {activeTrades.map(renderNode)}
 
@@ -900,5 +1134,38 @@ export function ContractTree({
         </Box>
       )}
     </Box>
+  );
+
+  // Without re-parenting (read-only / searching) render the plain tree — no DnD overhead.
+  if (!canMove) return tree;
+
+  return (
+    <>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={pointerWithin}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setDragActiveId(null)}
+        modifiers={[restrictToWindowEdges]}
+      >
+        {tree}
+        <DragOverlay dropAnimation={null}>
+          {dragNode ? <DragChip title={dragNode.task.title} tier={dragNode.tier} /> : null}
+        </DragOverlay>
+      </DndContext>
+
+      <MoveNodeSheet
+        open={!!moveCtx}
+        onClose={() => setMoveCtx(null)}
+        trade={moveCtx?.trade ?? null}
+        nodeId={moveCtx?.node.task.id ?? null}
+        nodeTitle={moveCtx?.node.task.title ?? ""}
+        currentParentId={moveCtx?.node.task.parentSubcontractId ?? null}
+        onMove={(newParentId) => {
+          if (moveCtx && onMoveNode) onMoveNode(moveCtx.node.task.id, newParentId);
+        }}
+      />
+    </>
   );
 }

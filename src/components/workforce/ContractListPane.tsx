@@ -35,6 +35,7 @@ export function ContractListPane({
   packagesByTrade,
   onOpenPackage,
   onAddTaskWork,
+  onMoveNode,
   onAddClick,
   canEdit,
 }: {
@@ -52,6 +53,8 @@ export function ContractListPane({
   packagesByTrade: Map<string, TaskWorkPackageWithMeta[]>;
   onOpenPackage: (pkg: TaskWorkPackageWithMeta) => void;
   onAddTaskWork: AddTaskWork;
+  /** Re-parent a node (newParentId = null → top-level). */
+  onMoveNode?: (nodeId: string, newParentId: string | null) => void;
   /** Opens the trade-picker Add menu (owned by the layout, shared with the mobile FAB). */
   onAddClick: (anchorEl: HTMLElement) => void;
   canEdit: boolean;
@@ -215,6 +218,7 @@ export function ContractListPane({
           packagesByTrade={packagesByTrade}
           onOpenPackage={onOpenPackage}
           onAddTaskWork={onAddTaskWork}
+          onMoveNode={onMoveNode}
         />
       </Box>
     </Box>

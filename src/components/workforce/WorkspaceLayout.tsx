@@ -51,6 +51,7 @@ import { GroupDetailPane } from "./GroupDetailPane";
 import { PackageDetailPane } from "./PackageDetailPane";
 import { RecordDrawer } from "./RecordDrawer";
 import { buildContractScopeHref } from "@/lib/workforce/contractScope";
+import { useMoveSubcontractNode, useUndoMove } from "@/hooks/queries/useMoveSubcontractNode";
 import { ChangeTrackingModeDialog } from "@/components/trades/ChangeTrackingModeDialog";
 import EditContractDialog from "./EditContractDialog";
 import DeleteContractDialog from "./DeleteContractDialog";
@@ -161,6 +162,36 @@ export function WorkspaceLayout({
   const notify = (msg: string, severity: "success" | "error" = "success") =>
     setSnack({ open: true, msg, severity });
 
+  // ── Drag-and-drop re-parenting ─────────────────────────────────────────────
+  const moveNode = useMoveSubcontractNode(siteId);
+  const undoMove = useUndoMove(siteId);
+  // The batch id of the last move, so it can be undone in one tap (server-journalled).
+  const [moveUndoBatch, setMoveUndoBatch] = useState<string | null>(null);
+
+  const handleMoveNode = async (nodeId: string, newParentId: string | null) => {
+    try {
+      const batchId = await moveNode.mutateAsync({ nodeId, newParentId });
+      if (batchId) {
+        setMoveUndoBatch(batchId);
+        notify("Moved");
+      }
+    } catch (e) {
+      notify((e as Error).message || "Couldn't move that item", "error");
+    }
+  };
+
+  const handleUndoMove = async () => {
+    const batchId = moveUndoBatch;
+    if (!batchId) return;
+    setMoveUndoBatch(null);
+    try {
+      await undoMove.mutateAsync(batchId);
+      notify("Move undone");
+    } catch (e) {
+      notify((e as Error).message || "Couldn't undo the move", "error");
+    }
+  };
+
   const toggleTrade = (categoryId: string) =>
     setOpenTrades((m) => ({ ...m, [categoryId]: !(m[categoryId] ?? false) }));
 
@@ -191,6 +222,7 @@ export function WorkspaceLayout({
       packagesByTrade={packagesByTrade}
       onOpenPackage={handleOpenPackage}
       onAddTaskWork={onAddTaskWork}
+      onMoveNode={canEdit ? handleMoveNode : undefined}
       onAddClick={(el) => setAddAnchor(el)}
       canEdit={canEdit}
     />
@@ -374,21 +406,42 @@ export function WorkspaceLayout({
   ) : null;
 
   const snackbar = (
-    <Snackbar
-      open={snack.open}
-      autoHideDuration={2800}
-      onClose={() => setSnack((s) => ({ ...s, open: false }))}
-      anchorOrigin={{ vertical: "bottom", horizontal: mobile ? "center" : "right" }}
-    >
-      <Alert
-        variant="filled"
-        severity={snack.severity}
+    <>
+      <Snackbar
+        open={snack.open}
+        autoHideDuration={2800}
         onClose={() => setSnack((s) => ({ ...s, open: false }))}
-        sx={{ borderRadius: `${wsRadius.input}px` }}
+        anchorOrigin={{ vertical: "bottom", horizontal: mobile ? "center" : "right" }}
       >
-        {snack.msg}
-      </Alert>
-    </Snackbar>
+        <Alert
+          variant="filled"
+          severity={snack.severity}
+          onClose={() => setSnack((s) => ({ ...s, open: false }))}
+          sx={{ borderRadius: `${wsRadius.input}px` }}
+        >
+          {snack.msg}
+        </Alert>
+      </Snackbar>
+
+      {/* One-tap undo after a re-parent (the move is journalled, so undo is exact). */}
+      <Snackbar
+        open={!!moveUndoBatch}
+        autoHideDuration={6000}
+        onClose={() => setMoveUndoBatch(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: mobile ? "center" : "left" }}
+        message="Moved"
+        action={
+          <Button
+            size="small"
+            onClick={handleUndoMove}
+            disabled={undoMove.isPending}
+            sx={{ color: "#9ec5ff", textTransform: "none", fontWeight: 800 }}
+          >
+            Undo
+          </Button>
+        }
+      />
+    </>
   );
 
   // ---- Mobile: single column with screen push ----
