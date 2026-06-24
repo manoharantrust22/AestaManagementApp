@@ -32,7 +32,10 @@ import {
   CheckCircle as CheckIcon,
   Cancel as CancelIcon,
   Storefront as StorefrontIcon,
+  OpenInNew as OpenInNewIcon,
+  TravelExplore as TravelExploreIcon,
 } from "@mui/icons-material";
+import { googleBusinessHref, googleMapsSearchHref } from "@/lib/utils/contact";
 import PageHeader from "@/components/layout/PageHeader";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useAuth } from "@/contexts/AuthContext";
@@ -320,6 +323,52 @@ export default function VendorDetailsPage() {
                   </Typography>
                 </Box>
               )}
+
+              {/* Google Business / Maps listing — open the saved link, or fall back to a search. */}
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <TravelExploreIcon fontSize="small" color="action" />
+                {googleBusinessHref(vendor.google_business_url) ? (
+                  <Typography
+                    variant="body2"
+                    component="a"
+                    href={googleBusinessHref(vendor.google_business_url)!}
+                    target="_blank"
+                    rel="noopener"
+                    sx={{
+                      textDecoration: "none",
+                      color: "primary.main",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 0.5,
+                    }}
+                  >
+                    View on Google
+                    <OpenInNewIcon sx={{ fontSize: 13 }} />
+                  </Typography>
+                ) : (
+                  <Typography
+                    variant="body2"
+                    component="a"
+                    href={googleMapsSearchHref([
+                      vendor.name,
+                      vendor.shop_name,
+                      vendor.city,
+                      vendor.state,
+                    ])}
+                    target="_blank"
+                    rel="noopener"
+                    sx={{
+                      textDecoration: "none",
+                      color: "text.secondary",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 0.5,
+                    }}
+                  >
+                    Find on Google
+                  </Typography>
+                )}
+              </Box>
 
               {(vendor.city || vendor.address) && (
                 <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>

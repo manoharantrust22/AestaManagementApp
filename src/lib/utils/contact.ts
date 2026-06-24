@@ -43,3 +43,28 @@ export function mailtoHref(email?: string | null): string | null {
   const e = email?.trim();
   return e ? `mailto:${e}` : null;
 }
+
+/**
+ * Build a Google Maps SEARCH url prefilled with the vendor's identity — for
+ * FINDING a listing to copy its share link. Blank/whitespace parts are dropped.
+ */
+export function googleMapsSearchHref(
+  parts: Array<string | null | undefined>
+): string {
+  const q = parts
+    .map((p) => p?.trim())
+    .filter(Boolean)
+    .join(" ");
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+}
+
+/**
+ * Normalize a pasted Google Business / Maps link for opening. Stored as-is in
+ * the DB; here we only trim and add an https:// scheme when the user pasted a
+ * bare host. Returns null when blank.
+ */
+export function googleBusinessHref(url?: string | null): string | null {
+  const u = url?.trim();
+  if (!u) return null;
+  return /^https?:\/\//i.test(u) ? u : `https://${u}`;
+}

@@ -36,6 +36,8 @@ import {
   Edit as EditIcon,
   CloudUpload as UploadIcon,
   Delete as DeleteIcon,
+  TravelExplore as TravelExploreIcon,
+  OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import CategoryAutocomplete from "@/components/common/CategoryAutocomplete";
 import { compressImage } from "@/components/attendance/work-updates/imageUtils";
@@ -55,6 +57,7 @@ import type {
   MaterialCategory,
 } from "@/types/material.types";
 import { VENDOR_TYPE_LABELS } from "@/types/material.types";
+import { googleMapsSearchHref, googleBusinessHref } from "@/lib/utils/contact";
 
 interface VendorDialogProps {
   open: boolean;
@@ -134,6 +137,7 @@ export default function VendorDialog({
       upi_id: vendor?.upi_id || "",
       qr_code_url: vendor?.qr_code_url || "",
       shop_photo_url: vendor?.shop_photo_url || "",
+      google_business_url: vendor?.google_business_url || "",
       // When creating, seed any fields handed over (e.g. name typed in quick-add).
       ...(vendor ? {} : prefill),
     }),
@@ -537,6 +541,60 @@ export default function VendorDialog({
               type="email"
               value={formData.email}
               onChange={(e) => handleChange("email", e.target.value)}
+            />
+          </Grid>
+
+          <Grid size={12}>
+            <TextField
+              fullWidth
+              label="Google Business / Maps link"
+              placeholder="https://maps.app.goo.gl/..."
+              value={formData.google_business_url}
+              onChange={(e) =>
+                handleChange("google_business_url", e.target.value)
+              }
+              helperText="Tap Find → open the listing on Google → Share → copy the link → paste it here."
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    {googleBusinessHref(formData.google_business_url) ? (
+                      <IconButton
+                        size="small"
+                        edge="end"
+                        aria-label="Open saved link"
+                        onClick={() => {
+                          const href = googleBusinessHref(
+                            formData.google_business_url
+                          );
+                          if (href) window.open(href, "_blank", "noopener");
+                        }}
+                      >
+                        <OpenInNewIcon fontSize="small" />
+                      </IconButton>
+                    ) : null}
+                    <Button
+                      size="small"
+                      startIcon={<TravelExploreIcon fontSize="small" />}
+                      onClick={() =>
+                        window.open(
+                          googleMapsSearchHref([
+                            formData.name,
+                            formData.shop_name,
+                            formData.city,
+                            formData.state,
+                            "India",
+                          ]),
+                          "_blank",
+                          "noopener"
+                        )
+                      }
+                      sx={{ whiteSpace: "nowrap", flexShrink: 0 }}
+                    >
+                      Find
+                    </Button>
+                  </InputAdornment>
+                ),
+              }}
             />
           </Grid>
 

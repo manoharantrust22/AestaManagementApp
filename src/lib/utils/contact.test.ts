@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { cleanPhoneDigits, telHref, whatsappHref, mailtoHref } from "./contact";
+import {
+  cleanPhoneDigits,
+  telHref,
+  whatsappHref,
+  mailtoHref,
+  googleMapsSearchHref,
+  googleBusinessHref,
+} from "./contact";
 
 describe("contact helpers", () => {
   describe("cleanPhoneDigits", () => {
@@ -62,6 +69,47 @@ describe("contact helpers", () => {
     it("returns null when empty", () => {
       expect(mailtoHref(null)).toBeNull();
       expect(mailtoHref("")).toBeNull();
+    });
+  });
+
+  describe("googleMapsSearchHref", () => {
+    it("joins identity parts and url-encodes the query", () => {
+      expect(
+        googleMapsSearchHref(["Shree Sai Ceramics", "Chennai", "India"])
+      ).toBe(
+        "https://www.google.com/maps/search/?api=1&query=Shree%20Sai%20Ceramics%20Chennai%20India"
+      );
+    });
+    it("drops blank, whitespace-only, null and undefined parts", () => {
+      expect(googleMapsSearchHref(["Acme", "", "  ", null, undefined])).toBe(
+        "https://www.google.com/maps/search/?api=1&query=Acme"
+      );
+    });
+    it("produces an empty query when nothing usable is given", () => {
+      expect(googleMapsSearchHref([null, "  ", undefined])).toBe(
+        "https://www.google.com/maps/search/?api=1&query="
+      );
+    });
+  });
+
+  describe("googleBusinessHref", () => {
+    it("keeps an http(s) url as-is (trimmed)", () => {
+      expect(googleBusinessHref("  https://maps.app.goo.gl/abc ")).toBe(
+        "https://maps.app.goo.gl/abc"
+      );
+      expect(googleBusinessHref("http://g.co/kgs/xyz")).toBe(
+        "http://g.co/kgs/xyz"
+      );
+    });
+    it("prefixes https:// for a bare host", () => {
+      expect(googleBusinessHref("maps.app.goo.gl/abc")).toBe(
+        "https://maps.app.goo.gl/abc"
+      );
+    });
+    it("returns null when blank", () => {
+      expect(googleBusinessHref(null)).toBeNull();
+      expect(googleBusinessHref(undefined)).toBeNull();
+      expect(googleBusinessHref("   ")).toBeNull();
     });
   });
 });

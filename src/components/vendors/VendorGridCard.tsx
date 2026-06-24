@@ -6,8 +6,11 @@ import {
   Storefront as StorefrontIcon,
   Inventory2 as InventoryIcon,
   Star as StarIcon,
+  Place as PlaceIcon,
 } from "@mui/icons-material";
+import { Tooltip } from "@mui/material";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
+import { googleBusinessHref } from "@/lib/utils/contact";
 import type { VendorWithCategories } from "@/types/material.types";
 
 interface VendorGridCardProps {
@@ -230,6 +233,24 @@ export function VendorGridCard({
               >
                 UPI
               </Box>
+            ) : null}
+            {googleBusinessHref(vendor.google_business_url) ? (
+              <Tooltip title="View on Google" placement="top">
+                <Box
+                  component="a"
+                  href={googleBusinessHref(vendor.google_business_url)!}
+                  target="_blank"
+                  rel="noopener"
+                  onClick={(e) => e.stopPropagation()}
+                  sx={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    color: "primary.main",
+                  }}
+                >
+                  <PlaceIcon sx={{ fontSize: 15 }} />
+                </Box>
+              </Tooltip>
             ) : null}
           </Box>
           <Chip

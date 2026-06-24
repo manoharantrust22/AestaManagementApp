@@ -130,6 +130,7 @@ export interface Vendor {
   upi_id: string | null;
   qr_code_url: string | null;
   shop_photo_url: string | null;
+  google_business_url: string | null;
   serving_locations: string[] | null;
   bill_policy: VendorBillPolicy;
   is_draft?: boolean;
@@ -1321,6 +1322,7 @@ export interface VendorFormData {
   upi_id?: string;
   qr_code_url?: string;
   shop_photo_url?: string;
+  google_business_url?: string;
   // Spot-purchase flow: site engineers can quick-add draft vendors.
   // Office un-drafts via /company/vendors drafts filter (Task M-3).
   is_draft?: boolean;

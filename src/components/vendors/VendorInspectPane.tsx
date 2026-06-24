@@ -45,6 +45,7 @@ import type {
   VendorWithCategories,
   VendorInventoryWithDetails,
 } from "@/types/material.types";
+import { googleBusinessHref, googleMapsSearchHref } from "@/lib/utils/contact";
 
 type TabKey = "overview" | "materials" | "price-history" | "activity" | "notes";
 
@@ -394,6 +395,50 @@ function OverviewTab({ vendor }: { vendor: VendorWithCategories }) {
       ),
     });
   }
+  // Google Business / Maps listing — open the saved link, or fall back to a search.
+  contactRows.push({
+    label: "Google",
+    value: googleBusinessHref(vendor.google_business_url) ? (
+      <Box
+        component="a"
+        href={googleBusinessHref(vendor.google_business_url)!}
+        target="_blank"
+        rel="noopener"
+        sx={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 0.5,
+          color: "primary.main",
+          textDecoration: "none",
+        }}
+      >
+        View listing
+        <OpenInNewIcon sx={{ fontSize: 12 }} />
+      </Box>
+    ) : (
+      <Box
+        component="a"
+        href={googleMapsSearchHref([
+          vendor.name,
+          vendor.shop_name,
+          vendor.city,
+          vendor.state,
+        ])}
+        target="_blank"
+        rel="noopener"
+        sx={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 0.5,
+          color: "text.secondary",
+          textDecoration: "none",
+        }}
+      >
+        Find on Google
+        <OpenInNewIcon sx={{ fontSize: 12 }} />
+      </Box>
+    ),
+  });
 
   const taxRows: { label: string; value: React.ReactNode }[] = [];
   if (vendor.gst_number) taxRows.push({ label: "GST number", value: vendor.gst_number });

@@ -29,9 +29,11 @@ import {
   AccountBalance as UpiIcon,
   LocalShipping as TransportIcon,
   Star as StarIcon,
+  Place as PlaceIcon,
 } from "@mui/icons-material";
 import { ListRow } from "@/components/common/ListRow";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
+import { googleBusinessHref } from "@/lib/utils/contact";
 import type { VendorWithCategories } from "@/types/material.types";
 
 interface VendorListRowProps {
@@ -161,6 +163,25 @@ export function VendorListRow({
       {vendor.whatsapp_number ? (
         <Tooltip title="Has WhatsApp" placement="top">
           <WhatsAppIcon sx={{ fontSize: 12, color: "success.main", ml: 0.25 }} />
+        </Tooltip>
+      ) : null}
+      {googleBusinessHref(vendor.google_business_url) ? (
+        <Tooltip title="View on Google" placement="top">
+          <Box
+            component="a"
+            href={googleBusinessHref(vendor.google_business_url)!}
+            target="_blank"
+            rel="noopener"
+            onClick={(e) => e.stopPropagation()}
+            sx={{
+              display: "inline-flex",
+              alignItems: "center",
+              color: "primary.main",
+              ml: 0.25,
+            }}
+          >
+            <PlaceIcon sx={{ fontSize: 13 }} />
+          </Box>
         </Tooltip>
       ) : null}
     </Typography>
