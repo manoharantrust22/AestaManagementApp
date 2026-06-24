@@ -468,6 +468,24 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         : attendanceRecords,
     [attendanceRecords, tradeScope]
   );
+
+  /** The date-wise summaries with each day's named-labourer sub-rows (`records`)
+   *  filtered to the trade. EVERY aggregate total (totalSalary, counts, amounts,
+   *  marketLaborers, etc.) is spread through UNCHANGED — they legitimately blend
+   *  named + market labour, so we never recompute them here. When tradeScope is
+   *  null this returns the SAME reference as dateSummaries (plain Civil unchanged). */
+  const scopedDateSummaries = useMemo<DateSummary[]>(
+    () =>
+      tradeScope
+        ? dateSummaries.map((s) => ({
+            ...s,
+            records: s.records.filter((r) =>
+              tradeScope.laborerIds.has(r.laborer_id)
+            ),
+          }))
+        : dateSummaries,
+    [dateSummaries, tradeScope]
+  );
   // ── End trade scoping ────────────────────────────────────────────────────
 
   // Fetch version counter to handle race conditions
@@ -1415,6 +1433,13 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     // Get set of dates that have attendance data
     const attendanceDates = new Set(dateSummaries.map((s) => s.date));
 
+    // Weekly-summary totals must blend ALL named + market labour regardless of
+    // trade scoping, so the weekly calc below reads each date's UNSCOPED named
+    // records from here (the rendered sub-rows use the scoped summaries instead).
+    const unscopedRecordsByDate = new Map<string, AttendanceRecord[]>(
+      dateSummaries.map((s) => [s.date, s.records])
+    );
+
     // Filter holidays that don't have attendance
     // When "All Time" is selected (dateFrom/dateTo are null), show all holidays
     // Otherwise, filter to the selected date range
@@ -1468,7 +1493,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
 
     // Map dateSummaries and check if each date is also a holiday
     // Only show holiday indicator if showHolidays is true
-    const attendanceEntries = dateSummaries.map((s) => {
+    // Use the trade-scoped summaries for rendering (named-labourer sub-rows are
+    // filtered to the trade). Totals on each summary are unchanged; the weekly
+    // calc below reads unscopedRecordsByDate so weekly totals also stay intact.
+    const attendanceEntries = scopedDateSummaries.map((s) => {
       const holiday = showHolidays
         ? recentHolidays.find((h) => h.date === s.date) || null
         : null;
@@ -1537,7 +1565,9 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           // Contract pending is suppressed for the entire current week
           // since contract crews are settled weekly after the week ends.
           const skipToday = e.date === todayStr;
-          e.summary.records.forEach((r) => {
+          // Weekly totals blend named + market regardless of trade scoping → read
+          // the UNSCOPED named records for this date (e.summary may be scoped).
+          (unscopedRecordsByDate.get(e.date) ?? e.summary.records).forEach((r) => {
             if (!r.is_paid) {
               if (r.laborer_type === "contract") {
                 if (!isCurrentWeek) {
@@ -1604,7 +1634,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     });
 
     return withWeeklySeparators;
-  }, [dateSummaries, recentHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date]);
+  }, [dateSummaries, scopedDateSummaries, recentHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date]);
 
   // Process initialData from server on first render
   useEffect(() => {
@@ -4537,7 +4567,15 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                   {canEdit && entry.summary.pendingCount > 0 && (
                                     <SettleDayButton
                                       pendingAmount={entry.summary.pendingAmount}
-                                      onClick={() => openDailySettlementDialog(entry.summary)}
+                                      onClick={() => {
+                                        // Settle the FULL day (named + market), not just the
+                                        // scoped trade — match the InspectPane settle path and
+                                        // keep settlement behaviour unchanged under trade scoping.
+                                        const fullSummary =
+                                          dateSummaries.find((d) => d.date === entry.summary.date) ??
+                                          entry.summary;
+                                        openDailySettlementDialog(fullSummary);
+                                      }}
                                     />
                                   )}
 
