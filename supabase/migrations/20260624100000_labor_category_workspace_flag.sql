@@ -27,9 +27,11 @@ UPDATE public.labor_categories SET has_workspace = true WHERE has_workspace IS N
 -- ── 2. Per-trade workspace-data usage (drives the guarded toggle) ─────────────
 -- One row per trade with counts of workspace data linked to that trade's subcontracts.
 -- The settings page reads this once to decide whether a trade's workspace can be turned
--- off (any data > 0 → locked ON). SECURITY INVOKER (the default for views) so the
--- existing company-scoped RLS on the base tables applies to the caller.
-CREATE OR REPLACE VIEW public.v_trade_workspace_usage AS
+-- off (any data > 0 → locked ON). `security_invoker = true` so the existing company-scoped
+-- RLS on the base tables applies to the CALLER (Postgres 15 views default to the view
+-- owner's privileges, which would bypass RLS and count rows across every company).
+CREATE OR REPLACE VIEW public.v_trade_workspace_usage
+WITH (security_invoker = true) AS
 SELECT
   lc.id AS trade_category_id,
   COALESCE(da.n, 0)  AS attendance_count,
