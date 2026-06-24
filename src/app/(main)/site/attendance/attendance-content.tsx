@@ -183,6 +183,8 @@ import {
   type UnfilledGroup,
 } from "@/lib/utils/unfilledDatesUtils";
 import { allocateAmounts } from "@/hooks/queries/useGroupTeaShop";
+import { useSubcontractMeta } from "@/hooks/queries/useSubcontractMeta";
+import { scopedLaborerIds } from "@/lib/workforce/laborerScope";
 
 interface AttendanceContentProps {
   initialData: AttendancePageData | null;
@@ -192,6 +194,10 @@ interface AttendanceRecord {
   id: string;
   date: string;
   laborer_id: string;
+  /** The subcontract this day was tagged to (used for trade-scoping). */
+  subcontract_id?: string | null;
+  /** The laborer's trade category id (used for trade-scoping). */
+  laborers_category_id?: string | null;
   laborer_name: string;
   laborer_type: LaborerType;
   category_name: string;
@@ -341,6 +347,9 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   const supabase = createClient();
   const isMobile = useIsMobile();
   const searchParams = useSearchParams();
+  // A lone ?contractId= (without the full trade triple) routes an in-house DETAILED
+  // contract's attendance page here. We scope the named-labourer list to that trade.
+  const contractIdParam = searchParams.get("contractId") ?? null;
 
   // Slice E — chip filter state lives here so we can early-return to the
   // TradeAttendanceView when a non-civil chip is selected. Default = civil
@@ -404,6 +413,62 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   const [drawerMode, setDrawerMode] = useState<"morning" | "evening" | "full">(
     "full"
   );
+
+  // ── Trade scoping (Task 3) ───────────────────────────────────────────────
+  // When a lone ?contractId= is present (in-house DETAILED contract), scope the
+  // named-labourer list to that trade. Market/tea/holidays are NOT scoped.
+  const { data: contractMeta } = useSubcontractMeta(contractIdParam);
+
+  /** Identifies which labourers belong to the active trade contract, or null when
+   *  no ?contractId= is present (plain Civil view — behaviour is byte-for-byte unchanged). */
+  const tradeScope = useMemo<{
+    contractId: string;
+    tradeCategoryId: string;
+    laborerIds: Set<string>;
+  } | null>(() => {
+    if (
+      !contractIdParam ||
+      contractMeta?.labor_tracking_mode !== "detailed" ||
+      !contractMeta?.trade_category_id
+    ) {
+      return null;
+    }
+    const tradeCategoryId = contractMeta.trade_category_id;
+    const historicallyAttendedIds = Array.from(
+      new Set(
+        attendanceRecords
+          .filter((r) => r.subcontract_id === contractIdParam)
+          .map((r) => r.laborer_id)
+      )
+    );
+    const laborers = Array.from(
+      new Map(
+        attendanceRecords.map((r) => [
+          r.laborer_id,
+          { id: r.laborer_id, category_id: r.laborers_category_id ?? null },
+        ])
+      ).values()
+    );
+    const laborerIds = scopedLaborerIds({
+      laborers,
+      tradeCategoryId,
+      historicallyAttendedIds,
+    });
+    return { contractId: contractIdParam, tradeCategoryId, laborerIds };
+  }, [contractIdParam, contractMeta, attendanceRecords]);
+
+  /** The scoped named-labourer list for display. When tradeScope is null (plain Civil view),
+   *  this is the SAME reference as attendanceRecords — no change in behaviour. */
+  const scopedAttendance = useMemo(
+    () =>
+      tradeScope
+        ? attendanceRecords.filter((r) =>
+            tradeScope.laborerIds.has(r.laborer_id)
+          )
+        : attendanceRecords,
+    [attendanceRecords, tradeScope]
+  );
+  // ── End trade scoping ────────────────────────────────────────────────────
 
   // Fetch version counter to handle race conditions
   const fetchVersionRef = useRef(0);
@@ -1049,6 +1114,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       id: record.id,
       date: record.date,
       laborer_id: record.laborer_id,
+      subcontract_id: record.subcontract_id || null,
+      laborers_category_id: record.laborers?.category_id || null,
       laborer_name: record.laborers.name,
       laborer_type: record.laborers.laborer_type || "daily_wage",
       category_name: record.laborers.labor_categories?.name || "Unknown",
@@ -1666,6 +1733,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     // Map attendance records
     const records: AttendanceRecord[] = (rawAttendance || []).map((record: any) => ({
       id: record.id, date: record.date, laborer_id: record.laborer_id,
+      subcontract_id: record.subcontract_id || null,
+      laborers_category_id: record.laborers?.category_id || null,
       laborer_name: record.laborers?.name || "Unknown",
       laborer_type: record.laborers?.laborer_type || "daily_wage",
       category_name: record.laborers?.labor_categories?.name || "Unknown",
@@ -5519,7 +5588,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
           <DataTable
             columns={detailedColumns}
-            data={attendanceRecords}
+            data={scopedAttendance}
             isLoading={loading}
             showRecordCount
           />
