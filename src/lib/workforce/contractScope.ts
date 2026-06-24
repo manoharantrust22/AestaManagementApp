@@ -46,7 +46,14 @@ export function buildContractScopeHref(
     if (base === "/site/attendance") {
       return `${base}?contractId=${encodeURIComponent(task.id)}`;
     }
-    return base;
+    // A non-Civil trade on the FULL workspace (detailed mode) scopes its settlement
+    // by the (in-house) contract too. Civil / in-house / trade-less stay on the
+    // unscoped aggregate settlement flow (unchanged).
+    const scopeByContract =
+      task.mode === "detailed" &&
+      task.tradeName !== "Civil" &&
+      !!task.tradeCategoryId;
+    return scopeByContract ? `${base}?contractId=${encodeURIComponent(task.id)}` : base;
   }
   const params = new URLSearchParams({
     // Non-null here: a null tradeCategoryId is already handled by usePerLaborerFlow above.

@@ -429,7 +429,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     if (
       !contractIdParam ||
       contractMeta?.labor_tracking_mode !== "detailed" ||
-      !contractMeta?.trade_category_id
+      !contractMeta?.trade_category_id ||
+      contractMeta.trade_name === "Civil"
     ) {
       return null;
     }

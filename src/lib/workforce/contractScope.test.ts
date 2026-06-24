@@ -78,10 +78,10 @@ describe("buildContractScopeHref", () => {
     expect(url.searchParams.get("trade")).toBeNull();
   });
 
-  it("a non-Civil DETAILED contract resolves payments to the default settlement flow", () => {
+  it("a non-Civil DETAILED contract resolves payments to a contract-scoped settlement flow", () => {
     expect(
-      buildContractScopeHref("/site/payments", make({ tradeName: "Painting", mode: "detailed" }))
-    ).toBe("/site/payments");
+      buildContractScopeHref("/site/payments", make({ id: "c1", tradeName: "Painting", tradeCategoryId: "cat-paint", mode: "detailed" }))
+    ).toBe("/site/payments?contractId=c1");
   });
 
   it("a non-Civil HEADCOUNT trade still gets the trade-scoped triple", () => {

@@ -253,7 +253,8 @@ export default function PaymentsContent() {
   const scopeTradeId: string | null =
     contractIdParam &&
     contractMeta?.labor_tracking_mode === "detailed" &&
-    contractMeta?.trade_category_id
+    contractMeta?.trade_category_id &&
+    contractMeta?.trade_name !== "Civil"
       ? contractMeta.trade_category_id
       : null;
   // ── End trade scoping setup ──────────────────────────────────────────────

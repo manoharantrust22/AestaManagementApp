@@ -6,6 +6,7 @@ export interface SubcontractMeta {
   trade_category_id: string | null;
   labor_tracking_mode: string | null;
   is_in_house: boolean;
+  trade_name: string | null;
 }
 
 /** Minimal meta for a subcontract — used to decide trade-scoping of the attendance/payments pages. */
@@ -18,11 +19,15 @@ export function useSubcontractMeta(contractId: string | null | undefined) {
     queryFn: async (): Promise<SubcontractMeta | null> => {
       const { data, error } = await supabase
         .from("subcontracts")
-        .select("id, trade_category_id, labor_tracking_mode, is_in_house")
+        .select("id, trade_category_id, labor_tracking_mode, is_in_house, labor_categories(name)")
         .eq("id", contractId)
         .maybeSingle();
       if (error) throw error;
-      return (data as SubcontractMeta | null) ?? null;
+      if (!data) return null;
+      return {
+        ...(data as Omit<SubcontractMeta, "trade_name">),
+        trade_name: (data as any)?.labor_categories?.name ?? null,
+      } as SubcontractMeta;
     },
   });
 }
