@@ -257,6 +257,25 @@ export default function PaymentsContent() {
     contractMeta?.trade_name !== "Civil"
       ? contractMeta.trade_category_id
       : null;
+  /** Display-only chip selection for TradeChipFilter. When scopeTradeId is
+   *  active (lone ?contractId= pointing at a non-Civil detailed contract) we
+   *  present that trade's chip as selected so the chip highlight and helper
+   *  text reflect the active trade, NOT "Civil". The render-branch guard
+   *  (?kind==="trade"? → TradeSettlementView) keeps reading the RAW
+   *  tradeChipSelection (which is kind:"civil" in this path), so the page
+   *  stays on the per-laborer settlement tabs — only the displayed chip changes.
+   *  When scopeTradeId is null the civil chip passes through unchanged. */
+  const tradeChipSelectionForDisplay: TradeChipSelection = useMemo(() => {
+    if (scopeTradeId && contractMeta?.trade_name && contractMeta.trade_category_id) {
+      return {
+        kind: "trade",
+        categoryId: contractMeta.trade_category_id,
+        tradeName: contractMeta.trade_name,
+        contractId: contractIdParam!,
+      };
+    }
+    return tradeChipSelection;
+  }, [scopeTradeId, contractMeta, contractIdParam, tradeChipSelection]);
   // ── End trade scoping setup ──────────────────────────────────────────────
   const { data: sitTradesForChip } = useSiteTrades(selectedSite?.id);
   const selectedTradeContract = useMemo(() => {
@@ -787,9 +806,14 @@ export default function PaymentsContent() {
             Compact mode hides the "Recording attendance for" caption + helper text
             to reclaim ~50px of vertical space for the table below. */}
         <Box sx={{ px: { xs: 1, sm: 1.5 }, pt: 0.75, pb: 0.5, bgcolor: "background.paper" }}>
+          {/* When scopeTradeId is active (lone ?contractId= for a non-Civil
+              detailed contract) we display that trade's chip as selected,
+              without switching the render branch. The render guard below reads
+              the RAW tradeChipSelection so the page stays on the per-laborer
+              settlement tabs. */}
           <TradeChipFilter
             siteId={selectedSite?.id}
-            selected={tradeChipSelection}
+            selected={tradeChipSelectionForDisplay}
             onChange={setTradeChipSelection}
             compact
           />
