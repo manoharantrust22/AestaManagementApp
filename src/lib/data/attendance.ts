@@ -73,7 +73,7 @@ export async function getAttendancePageData(
     supabase
       .from("market_laborer_attendance")
       .select(
-        "id, role_id, date, count, work_days, rate_per_person, total_cost, day_units, snacks_per_person, total_snacks, in_time, out_time, is_paid, payment_notes, labor_roles(name)"
+        "id, role_id, date, count, work_days, rate_per_person, total_cost, day_units, snacks_per_person, total_snacks, in_time, out_time, is_paid, payment_notes, labor_roles(name, category_id)"
       )
       .eq("site_id", siteId)
       .gte("date", defaultDateFrom)

@@ -259,6 +259,8 @@ interface MarketLaborerRecord {
   id: string;
   originalDbId: string; // The actual DB record ID from market_laborer_attendance
   roleId: string; // The role_id from the DB
+  /** The labor_category id of the role — used for trade-scoping market labour */
+  roleCategoryId: string | null;
   date: string;
   tempName: string; // e.g., "Mason 1", "Mason 2"
   categoryName: string;
@@ -470,23 +472,88 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     [attendanceRecords, tradeScope]
   );
 
+  /** Per-date market-labour totals scoped to the active trade category.
+   *  Built only when tradeScope is active; null when Civil (unscoped path). */
+  const scopedMarketByDate = useMemo<Map<
+    string,
+    { salary: number; snacks: number; count: number }
+  > | null>(() => {
+    if (!tradeScope) return null;
+    const map = new Map<string, { salary: number; snacks: number; count: number }>();
+    for (const s of dateSummaries) {
+      const scoped = s.marketLaborers.filter(
+        (ml) => ml.roleCategoryId === tradeScope.tradeCategoryId
+      );
+      if (scoped.length === 0) continue;
+      const salary = scoped.reduce((a, ml) => a + ml.dailyEarnings, 0);
+      const snacks = scoped.reduce((a, ml) => a + ml.snacksAmount, 0);
+      map.set(s.date, { salary, snacks, count: scoped.length });
+    }
+    return map;
+  }, [dateSummaries, tradeScope]);
+
   /** The date-wise summaries with each day's named-labourer sub-rows (`records`)
-   *  filtered to the trade. EVERY aggregate total (totalSalary, counts, amounts,
-   *  marketLaborers, etc.) is spread through UNCHANGED — they legitimately blend
-   *  named + market labour, so we never recompute them here. When tradeScope is
-   *  null this returns the SAME reference as dateSummaries (plain Civil unchanged). */
-  const scopedDateSummaries = useMemo<DateSummary[]>(
-    () =>
-      tradeScope
-        ? dateSummaries.map((s) => ({
-            ...s,
-            records: s.records.filter((r) =>
-              tradeScope.laborerIds.has(r.laborer_id)
-            ),
-          }))
-        : dateSummaries,
-    [dateSummaries, tradeScope]
-  );
+   *  filtered to the trade AND all aggregates recomputed from those filtered rows.
+   *  When tradeScope is null this returns the SAME reference as dateSummaries
+   *  (plain Civil unchanged — byte-for-byte identical). */
+  const scopedDateSummaries = useMemo<DateSummary[]>(() => {
+    if (!tradeScope || !scopedMarketByDate) return dateSummaries;
+    return dateSummaries.map((s) => {
+      const named = s.records.filter((r) =>
+        tradeScope.laborerIds.has(r.laborer_id)
+      );
+      const m = scopedMarketByDate.get(s.date) ?? { salary: 0, snacks: 0, count: 0 };
+      const scopedMarketLaborers = s.marketLaborers.filter(
+        (ml) => ml.roleCategoryId === tradeScope.tradeCategoryId
+      );
+      const namedSalary = named.reduce((a, r) => a + r.daily_earnings, 0);
+      const namedSnacks = named.reduce((a, r) => a + (r.snacks_amount || 0), 0);
+      const daily = named.filter((r) => r.laborer_type !== "contract");
+      const contract = named.filter((r) => r.laborer_type === "contract");
+      return {
+        ...s,
+        records: named,
+        marketLaborers: scopedMarketLaborers,
+        totalSalary: namedSalary + m.salary,
+        totalSnacks: namedSnacks + m.snacks,
+        totalExpense: namedSalary + namedSnacks + m.salary + m.snacks,
+        totalLaborerCount: named.length + m.count,
+        dailyLaborerCount: daily.length,
+        dailyLaborerAmount: daily.reduce((a, r) => a + r.daily_earnings, 0),
+        contractLaborerCount: contract.length,
+        contractLaborerAmount: contract.reduce((a, r) => a + r.daily_earnings, 0),
+        marketLaborerCount: m.count,
+        marketLaborerAmount: m.salary,
+        paidCount: daily.filter((r) => r.is_paid).length,
+        paidAmount: daily.filter((r) => r.is_paid).reduce((a, r) => a + r.daily_earnings, 0),
+        pendingCount: daily.filter((r) => !r.is_paid).length,
+        pendingAmount: daily.filter((r) => !r.is_paid).reduce((a, r) => a + r.daily_earnings, 0),
+        // Tea is NOT trade-scoped in this slice — exclude from the scoped totals.
+        teaShop: null,
+      };
+    });
+  }, [dateSummaries, tradeScope, scopedMarketByDate]);
+  /** Display-only chip selection for TradeChipFilter. When tradeScope is active
+   *  (lone ?contractId= pointing at a non-Civil detailed contract) we present
+   *  that trade's chip as selected so the helper text and chip highlight reflect
+   *  the active trade, NOT "Civil". The page STAYS on the per-laborer path —
+   *  this is purely a display label; no render-branch switch occurs.
+   *  When tradeScope is null the civil chip selection passes through unchanged. */
+  const tradeChipSelectionForDisplay: TradeChipSelection = useMemo(() => {
+    if (
+      tradeScope &&
+      contractMeta?.trade_name &&
+      contractMeta.trade_category_id
+    ) {
+      return {
+        kind: "trade",
+        categoryId: contractMeta.trade_category_id,
+        tradeName: contractMeta.trade_name,
+        contractId: tradeScope.contractId,
+      };
+    }
+    return tradeChipSelection;
+  }, [tradeScope, contractMeta, tradeChipSelection]);
   // ── End trade scoping ────────────────────────────────────────────────────
 
   // Fetch version counter to handle race conditions
@@ -1087,11 +1154,13 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       const perPersonSnacks = (m.snacks_per_person || 0) * dayUnits;
 
       // Expand into individual records
+      const roleCategoryId: string | null = m.labor_roles?.category_id ?? null;
       for (let i = 0; i < m.count; i++) {
         existing.expandedRecords.push({
           id: `${m.id || m.date}-${roleName}-${i}`,
           originalDbId: m.id,
           roleId: m.role_id,
+          roleCategoryId,
           date: m.date,
           tempName: `${roleName} ${
             existing.expandedRecords.filter((r) => r.roleName === roleName).length + 1
@@ -1370,13 +1439,19 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     }
   }, [selectedSite?.id]); // Only run when site changes
 
-  // Period totals for the summary cards. Prefer the scope-wide RPC result
-  // (accurate at any scope, including All Time, regardless of which weeks
-  // the table has loaded). Fall back to summing the loaded dateSummaries
-  // when the RPC hasn't returned yet — mostly the very first paint and
-  // the brief window before the migration is applied locally.
+  // Period totals for the summary cards.
+  // When tradeScope is active: always compute from scopedDateSummaries (the RPC
+  // is site-wide and has no trade param, so we must use the client-side totals).
+  // When not scoped (Civil / no contractId): prefer the scope-wide RPC result
+  // (accurate at any scope, including All Time, regardless of which weeks the
+  // table has loaded). Fall back to summing dateSummaries on first paint /
+  // before the migration is applied locally.
   const periodTotals = useMemo<AttendancePeriodTotals>(() => {
-    if (summaryQuery.data) return summaryQuery.data;
+    // When NOT scoped: use RPC if available (unchanged Civil path).
+    if (!tradeScope && summaryQuery.data) return summaryQuery.data;
+
+    // Source: scoped summaries when trade is active; full summaries for Civil fallback.
+    const source = tradeScope ? scopedDateSummaries : dateSummaries;
 
     let totalSalary = 0;
     let totalTeaShop = 0;
@@ -1392,9 +1467,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     // Today is "in progress" — its unpaid rows don't count as pending.
     const todayDateStr = dayjs().format("YYYY-MM-DD");
 
-    dateSummaries.forEach((s) => {
+    source.forEach((s) => {
       const isToday = s.date === todayDateStr;
       totalSalary += s.totalSalary;
+      // Tea is NOT scoped when tradeScope is active (teaShop is set to null in scopedDateSummaries).
       totalTeaShop += s.teaShop?.total || 0;
       totalLaborers += s.totalLaborerCount;
       totalPaidCount += s.paidCount;
@@ -1415,8 +1491,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       totalTeaShop,
       totalExpense,
       totalLaborers,
-      avgPerDay:
-        dateSummaries.length > 0 ? totalExpense / dateSummaries.length : 0,
+      avgPerDay: source.length > 0 ? totalExpense / source.length : 0,
       totalPaidCount,
       totalPendingCount,
       totalPaidAmount,
@@ -1424,9 +1499,9 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       totalDailyAmount,
       totalContractAmount,
       totalMarketAmount,
-      activeDays: dateSummaries.length,
+      activeDays: source.length,
     };
-  }, [summaryQuery.data, dateSummaries]);
+  }, [summaryQuery.data, dateSummaries, scopedDateSummaries, tradeScope]);
 
   // Combined view: dateSummaries + holiday-only dates + weekly separators
   // This creates a merged list sorted by date descending with weekly summary strips
@@ -1736,10 +1811,11 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       const perPersonEarnings = ratePerPerson * dayUnits;
       const perPersonSnacks = (m.snacks_per_person || 0) * dayUnits;
 
+      const roleCategoryId2: string | null = m.labor_roles?.category_id ?? null;
       for (let i = 0; i < m.count; i++) {
         existing.expandedRecords.push({
           id: `${m.id || m.date}-${roleName}-${i}`,
-          originalDbId: m.id, roleId: m.role_id, date: m.date,
+          originalDbId: m.id, roleId: m.role_id, roleCategoryId: roleCategoryId2, date: m.date,
           tempName: `${roleName} ${existing.expandedRecords.filter((r) => r.roleName === roleName).length + 1}`,
           categoryName: "Market", roleName, index: i + 1,
           workDays: m.work_days || 1, dayUnits, ratePerPerson,
@@ -3026,7 +3102,13 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       <Box sx={{ flexShrink: 0 }}>
         <PageHeader
           title="Attendance"
-          subtitle={isMobile ? undefined : selectedSite?.name}
+          subtitle={
+            isMobile
+              ? undefined
+              : tradeScope && contractMeta?.trade_name
+              ? `${contractMeta.trade_name} — In-house`
+              : selectedSite?.name
+          }
           titleChip={<ScopeChip />}
           actions={
             <Tooltip
@@ -3055,10 +3137,12 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         {/* Slice E — trade chip filter (controlled). Civil chip = this page
             unchanged. Non-civil chip = parent early-returns to
             TradeAttendanceView. The bar self-hides when no non-civil
-            contracts exist, so civil-only sites stay clutter-free. */}
+            contracts exist, so civil-only sites stay clutter-free.
+            When tradeScope is active (lone ?contractId=) we display the
+            trade chip as selected without switching the render branch. */}
         <TradeChipFilter
           siteId={selectedSite?.id}
-          selected={tradeChipSelection}
+          selected={tradeChipSelectionForDisplay}
           onChange={setTradeChipSelection}
         />
       </Box>
