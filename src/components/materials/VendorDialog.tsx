@@ -38,6 +38,7 @@ import {
   Delete as DeleteIcon,
   TravelExplore as TravelExploreIcon,
   OpenInNew as OpenInNewIcon,
+  ContentPaste as PasteIcon,
 } from "@mui/icons-material";
 import CategoryAutocomplete from "@/components/common/CategoryAutocomplete";
 import { compressImage } from "@/components/attendance/work-updates/imageUtils";
@@ -261,12 +262,11 @@ export default function VendorDialog({
   };
 
   // Shop Photo upload handler
-  const handleShopPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  // Shared pipeline for a shop-photo image, whatever the source (file picker,
+  // "Paste" button, or Ctrl/Cmd+V over the photo area): compress → upload.
+  const processShopPhotoFile = async (file: File) => {
     if (!file.type.startsWith("image/")) {
-      setError("Please upload an image file");
+      setError("Please choose an image file");
       return;
     }
 
@@ -297,8 +297,54 @@ export default function VendorDialog({
       );
     } finally {
       setUploadingShopPhoto(false);
-      if (shopPhotoInputRef.current) {
-        shopPhotoInputRef.current.value = "";
+    }
+  };
+
+  const handleShopPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) await processShopPhotoFile(file);
+    if (shopPhotoInputRef.current) {
+      shopPhotoInputRef.current.value = "";
+    }
+  };
+
+  // "Paste" button → pull an image off the clipboard via the async Clipboard API.
+  const handlePasteShopPhoto = async () => {
+    setError("");
+    try {
+      if (!navigator.clipboard?.read) {
+        setError("Clipboard paste isn't supported here — use Upload instead.");
+        return;
+      }
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const imageType = item.types.find((t) => t.startsWith("image/"));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const ext = blob.type.split("/")[1] || "png";
+          await processShopPhotoFile(
+            new File([blob], `pasted_${Date.now()}.${ext}`, { type: blob.type })
+          );
+          return;
+        }
+      }
+      setError("No image in the clipboard. Copy an image first, then tap Paste.");
+    } catch (err: unknown) {
+      console.error("Clipboard paste failed:", err);
+      setError("Couldn't read the clipboard. Allow clipboard access, or use Upload.");
+    }
+  };
+
+  // Ctrl/Cmd+V while the photo area is focused pastes an image directly.
+  const handleShopPhotoPasteEvent = (e: React.ClipboardEvent) => {
+    const imageItem = Array.from(e.clipboardData?.items ?? []).find((i) =>
+      i.type.startsWith("image/")
+    );
+    if (imageItem) {
+      const file = imageItem.getAsFile();
+      if (file) {
+        e.preventDefault();
+        void processShopPhotoFile(file);
       }
     }
   };
@@ -730,7 +776,11 @@ export default function VendorDialog({
 
               {/* Shop Photo Upload */}
               <Grid size={12}>
-                <Box>
+                <Box
+                  onPaste={handleShopPhotoPasteEvent}
+                  tabIndex={0}
+                  sx={{ outline: "none" }}
+                >
                   <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
                     Shop/Store Photo
                   </Typography>
@@ -770,6 +820,15 @@ export default function VendorDialog({
                         <Button
                           size="small"
                           variant="outlined"
+                          onClick={handlePasteShopPhoto}
+                          disabled={uploadingShopPhoto}
+                          startIcon={<PasteIcon />}
+                        >
+                          Paste
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
                           color="error"
                           onClick={handleRemoveShopPhoto}
                           startIcon={<DeleteIcon />}
@@ -779,18 +838,29 @@ export default function VendorDialog({
                       </Box>
                     </Box>
                   ) : (
-                    <Button
-                      variant="outlined"
-                      onClick={() => shopPhotoInputRef.current?.click()}
-                      disabled={uploadingShopPhoto}
-                      startIcon={uploadingShopPhoto ? <CircularProgress size={16} /> : <UploadIcon />}
-                      sx={{ height: 56 }}
-                    >
-                      {uploadingShopPhoto ? "Uploading..." : "Upload Shop Photo"}
-                    </Button>
+                    <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                      <Button
+                        variant="outlined"
+                        onClick={() => shopPhotoInputRef.current?.click()}
+                        disabled={uploadingShopPhoto}
+                        startIcon={uploadingShopPhoto ? <CircularProgress size={16} /> : <UploadIcon />}
+                        sx={{ height: 56 }}
+                      >
+                        {uploadingShopPhoto ? "Uploading..." : "Upload Shop Photo"}
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        onClick={handlePasteShopPhoto}
+                        disabled={uploadingShopPhoto}
+                        startIcon={<PasteIcon />}
+                        sx={{ height: 56 }}
+                      >
+                        Paste
+                      </Button>
+                    </Box>
                   )}
                   <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-                    Add a photo of the vendor&apos;s shop or store front
+                    Add a photo of the vendor&apos;s shop — upload, or paste a copied image (Ctrl/Cmd+V)
                   </Typography>
                 </Box>
               </Grid>
