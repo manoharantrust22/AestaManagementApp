@@ -81,6 +81,7 @@ import { useSalaryWaterfall } from "@/hooks/queries/useSalaryWaterfall";
 import { useAdvances } from "@/hooks/queries/useAdvances";
 import { useDayPendingRecords } from "@/hooks/queries/useDayPendingRecords";
 import { useCurrentUserWalletEnabled } from "@/hooks/queries/useEngineerWalletV2";
+import { useTradeTeaContractShares } from "@/hooks/queries/useTradeTeaContractShares";
 import {
   useSettlementsList,
   type SettlementListRow,
@@ -390,6 +391,13 @@ export default function PaymentsContent() {
   // to the in-house contract so they appear correctly in the contract's history.
   // Plain Civil view (scopeTradeId=null) keeps null → aggregate across all subcontracts.
   const selectedSubcontractId: string | null = scopeTradeId ? contractIdParam : null;
+
+  // Tea attributed to this trade across all dates (disabled when scopeTradeId is null → Civil/site-wide).
+  const teaAttributed =
+    useTradeTeaContractShares({
+      siteId: selectedSite?.id,
+      tradeCategoryId: scopeTradeId,
+    }).data ?? 0;
 
   // Powers the contract-wallet settle flow: lets us auto-pick the week's
   // mestri when only one is present, and provides laborer_name for the
@@ -1034,6 +1042,27 @@ export default function PaymentsContent() {
                   summary={salarySummaryQuery.data}
                   isLoading={salarySummaryQuery.isLoading}
                 />
+              </Box>
+            )}
+            {scopeTradeId && teaAttributed > 0 && (
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  px: { xs: 1, sm: 1.5 },
+                  py: 0.625,
+                  borderBottom: 1,
+                  borderColor: "divider",
+                  flexShrink: 0,
+                }}
+              >
+                <Typography component="span" variant="body2" color="text.secondary">
+                  Tea (attributed)
+                </Typography>
+                <Typography component="span" variant="body2">
+                  ₹{teaAttributed.toLocaleString("en-IN")}
+                </Typography>
               </Box>
             )}
             <UnsettledBanner
