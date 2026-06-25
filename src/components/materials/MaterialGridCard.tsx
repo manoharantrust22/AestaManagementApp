@@ -1,13 +1,15 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Box, Chip, Tooltip, Typography, alpha, useTheme } from "@mui/material";
+import { Box, Chip, IconButton, Tooltip, Typography, alpha, useTheme } from "@mui/material";
 import {
   Whatshot as FireIcon,
   Inventory2 as InventoryIcon,
   Store as StoreIcon,
+  ZoomIn as ZoomInIcon,
 } from "@mui/icons-material";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
+import { useImageViewer } from "@/components/common/ImageViewerProvider";
 import { formatCurrency } from "@/lib/formatters";
 import type { MaterialWithDetails, MaterialUnit } from "@/types/material.types";
 
@@ -57,6 +59,7 @@ export function MaterialGridCard({
   onClick,
 }: MaterialGridCardProps) {
   const theme = useTheme();
+  const { openImage } = useImageViewer();
   const unitLabel = UNIT_LABELS[material.unit] || material.unit;
   const [imgFailed, setImgFailed] = useState(false);
   useEffect(() => {
@@ -93,6 +96,7 @@ export function MaterialGridCard({
           boxShadow: 2,
           borderColor: alpha(theme.palette.primary.main, 0.4),
         },
+        "&:hover .material-card-zoom": { opacity: 1 },
       }}
     >
       {/* Image area: fixed 4:3 aspect via padding-top trick (works regardless
@@ -163,6 +167,32 @@ export function MaterialGridCard({
               <FireIcon sx={{ fontSize: 14 }} />
             </Box>
           </Tooltip>
+        ) : null}
+
+        {material.image_url && !imgFailed ? (
+          <IconButton
+            className="material-card-zoom"
+            aria-label="Zoom image"
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              openImage({ src: material.image_url!, title: material.name });
+            }}
+            sx={{
+              position: "absolute",
+              bottom: 6,
+              right: 6,
+              width: 26,
+              height: 26,
+              bgcolor: alpha(theme.palette.common.black, 0.45),
+              color: "#fff",
+              opacity: { xs: 0.85, md: 0 },
+              transition: "opacity 120ms, background-color 120ms",
+              "&:hover": { bgcolor: alpha(theme.palette.common.black, 0.65) },
+            }}
+          >
+            <ZoomInIcon sx={{ fontSize: 16 }} />
+          </IconButton>
         ) : null}
 
         {variantCount > 0 ? (
