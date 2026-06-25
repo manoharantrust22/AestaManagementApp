@@ -43,6 +43,8 @@ import {
   useUpdateVendorBillPolicy,
 } from "@/hooks/queries/useVendorInventory";
 import { formatCurrency, formatDate } from "@/lib/formatters";
+import { activePacks } from "@/lib/materials/packs";
+import { MaterialPacksTab } from "./MaterialPacksTab";
 import { PriceHistorySparkline } from "@/components/shared/PriceHistorySparkline";
 import { ArrowForward as ArrowForwardIcon } from "@mui/icons-material";
 import { VendorBillChips } from "@/components/materials/inspect/VendorBillChips";
@@ -79,7 +81,7 @@ const UNIT_LABELS: Record<MaterialUnit, string> = {
   set: "Set",
 };
 
-type TabKey = "overview" | "designs" | "vendors" | "brands" | "variants" | "price-history" | "activity";
+type TabKey = "overview" | "designs" | "vendors" | "brands" | "variants" | "packs" | "price-history" | "activity";
 
 interface MaterialInspectPaneProps {
   materialId: string | null;
@@ -324,6 +326,16 @@ export function MaterialInspectPane({
           <Tab value="vendors" label="Vendors" />
           <Tab value="brands" label={`Brands${brandCount ? ` (${brandCount})` : ""}`} />
           <Tab value="variants" label={`Variants${variantCount ? ` (${variantCount})` : ""}`} />
+          {material?.sold_in_packs && (
+            <Tab
+              value="packs"
+              label={`Packs${
+                activePacks(material.packs).length
+                  ? ` (${activePacks(material.packs).length})`
+                  : ""
+              }`}
+            />
+          )}
           <Tab value="price-history" label="Price history" />
           <Tab value="activity" label="Activity" />
         </Tabs>
@@ -362,6 +374,12 @@ export function MaterialInspectPane({
               variants={variants}
               canEdit={canEdit}
               parentMaterial={material}
+            />
+          ) : activeTab === "packs" ? (
+            <MaterialPacksTab
+              materialId={material.id}
+              unitLabel={UNIT_LABELS[material.unit] || material.unit}
+              canEdit={canEdit}
             />
           ) : activeTab === "price-history" ? (
             <>
@@ -440,6 +458,16 @@ function OverviewTab({ material }: { material: MaterialWithDetails }) {
     rows.push({
       label: "Rods per bundle",
       value: material.rods_per_bundle,
+    });
+  }
+
+  if (material.sold_in_packs) {
+    const ps = activePacks(material.packs);
+    rows.push({
+      label: "Sold in",
+      value: ps.length
+        ? ps.map((p) => p.label).join(", ")
+        : "Packs (add in the Packs tab)",
     });
   }
 

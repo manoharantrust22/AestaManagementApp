@@ -56,6 +56,7 @@ import type {
   MaterialSearchOption,
 } from "@/types/material.types";
 import { formatCurrency } from "@/lib/formatters";
+import { activePacks, representativePack, packUnitPrice } from "@/lib/materials/packs";
 import { calculatePieceWeight } from "@/lib/weightCalculation";
 import WeightCalculationDisplay from "./WeightCalculationDisplay";
 import { useToast } from "@/contexts/ToastContext";
@@ -148,6 +149,11 @@ export default function PurchaseOrderDialog({
   const [newItemPrice, setNewItemPrice] = useState("");
   const [newItemTaxRate, setNewItemTaxRate] = useState("");
   const [newItemPricingMode, setNewItemPricingMode] = useState<'per_piece' | 'per_kg'>('per_piece');
+  // Pack-only materials: order in whole cans. newItemPrice holds the PER-CAN
+  // price here; on add we store quantity = contents × packCount and a per-base-unit
+  // unit_price so all existing PO money math stays unchanged.
+  const [selectedPackId, setSelectedPackId] = useState<string>("");
+  const [packCount, setPackCount] = useState(1);
 
   // Track if we've auto-filled the price to prevent infinite loops
   const hasAutofilledPrice = useRef(false);
@@ -163,6 +169,14 @@ export default function PurchaseOrderDialog({
   // The effective material for price lookup and brand selection (variant if selected, otherwise parent)
   const effectiveMaterial = selectedVariant || selectedMaterial;
   const effectiveMaterialId = effectiveMaterial?.id;
+
+  // Pack-only entry (packs live on the parent material).
+  const packOptions = useMemo(
+    () => activePacks(selectedMaterial?.packs),
+    [selectedMaterial],
+  );
+  const isPack = !!selectedMaterial?.sold_in_packs && packOptions.length > 0;
+  const selectedPack = packOptions.find((p) => p.id === selectedPackId) ?? null;
 
   // Fetch vendor-specific brands for the selected material
   const { data: vendorBrands = [], isLoading: isLoadingVendorBrands } = useVendorMaterialBrands(
@@ -411,9 +425,32 @@ export default function PurchaseOrderDialog({
     setSelectedBrandVariant(null);
   }, [selectedBrandName]);
 
+  // Pack-only: default the can size when a pack material is picked.
+  useEffect(() => {
+    if (isPack) {
+      setSelectedPackId((prev) =>
+        packOptions.some((p) => p.id === prev)
+          ? prev
+          : representativePack(packOptions)?.id ?? packOptions[0]?.id ?? "",
+      );
+      setPackCount(1);
+    } else {
+      setSelectedPackId("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMaterial?.id]);
+
+  // Pack-only: the price field shows the per-CAN price, defaulting to the pack price.
+  useEffect(() => {
+    if (isPack && selectedPack) {
+      setNewItemPrice(selectedPack.price != null ? String(selectedPack.price) : "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPack, selectedPackId]);
+
   // Auto-fill price when latest price is found (only once per vendor/material/variant/brand selection)
   useEffect(() => {
-    if (latestPrice && !hasAutofilledPrice.current && !newItemPrice) {
+    if (!isPack && latestPrice && !hasAutofilledPrice.current && !newItemPrice) {
       hasAutofilledPrice.current = true;
       setNewItemPrice(latestPrice.price.toString());
       // Auto-select pricing mode from vendor inventory (only if pricing_mode exists)
@@ -481,6 +518,52 @@ export default function PurchaseOrderDialog({
       setError("Please select a variant");
       return;
     }
+    // Pack-only materials: order whole cans. quantity is the base-unit total
+    // (contents × cans); unit_price is per base unit (per-can price ÷ contents)
+    // so the existing quantity × unit_price math yields cans × per-can price.
+    if (isPack) {
+      if (!selectedPack) {
+        setError("Please pick a can size");
+        return;
+      }
+      if (packCount < 1) {
+        setError("Enter how many cans");
+        return;
+      }
+      const perCanPrice = parseFloat(newItemPrice);
+      if (!perCanPrice || perCanPrice <= 0) {
+        setError("Please enter a valid price per can");
+        return;
+      }
+      const baseQty = parseFloat((selectedPack.contents_qty * packCount).toFixed(3));
+      const perBaseUnit = perCanPrice / selectedPack.contents_qty;
+      const newItem: POItemRow = {
+        material_id: selectedMaterial.id,
+        quantity: baseQty,
+        unit_price: parseFloat(perBaseUnit.toFixed(2)),
+        tax_rate: newItemTaxRate ? parseFloat(newItemTaxRate) : undefined,
+        materialName: selectedMaterial.name,
+        unit: selectedMaterial.unit,
+        pricing_mode: "per_piece",
+        pack_id: selectedPack.id,
+        pack_count: packCount,
+      };
+      setItems([...items, newItem]);
+      setSelectedSearchOption(null);
+      setSelectedMaterial(null);
+      setSelectedVariant(null);
+      setSelectedBrandName(null);
+      setSelectedBrandVariant(null);
+      setSelectedPackId("");
+      setPackCount(1);
+      setNewItemQty("");
+      setNewItemPrice("");
+      setNewItemTaxRate("");
+      setNewItemPricingMode("per_piece");
+      setError("");
+      return;
+    }
+
     if (!newItemQty || parseFloat(newItemQty) <= 0) {
       setError("Please enter a valid quantity");
       return;
@@ -1171,39 +1254,82 @@ export default function PurchaseOrderDialog({
             </Grid>
           )}
 
-          <Grid size={{ xs: 4, md: 1.5 }}>
-            <TextField
-              fullWidth
-              size="small"
-              type="number"
-              label="Quantity"
-              value={newItemQty}
-              onChange={(e) => setNewItemQty(e.target.value)}
-              slotProps={{ input: { inputProps: { min: 0, step: 0.01 } } }}
-              helperText={
-                convertedPrice && standardPieceWeight ? (
-                  <Typography
-                    component="span"
-                    variant="caption"
-                    sx={{ color: "info.main", fontWeight: 500 }}
-                  >
-                    {convertedPrice.label}
-                  </Typography>
-                ) : standardPieceWeight ? (
-                  <Typography component="span" variant="caption" color="text.secondary">
-                    ~{standardPieceWeight.toFixed(2)} kg/pc
-                  </Typography>
-                ) : undefined
-              }
-            />
-          </Grid>
+          {isPack ? (
+            <>
+              <Grid size={{ xs: 7, md: 2.5 }}>
+                <TextField
+                  select
+                  fullWidth
+                  size="small"
+                  label="Can size"
+                  value={selectedPackId}
+                  onChange={(e) => setSelectedPackId(e.target.value)}
+                >
+                  {packOptions.map((p) => (
+                    <MenuItem key={p.id} value={p.id}>
+                      {p.label}
+                      {p.price != null ? ` — ${formatCurrency(p.price)}` : ""}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid size={{ xs: 5, md: 1.5 }}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  type="number"
+                  label="No. of cans"
+                  value={packCount}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    setPackCount(Number.isFinite(v) && v >= 1 ? v : 1);
+                  }}
+                  slotProps={{ input: { inputProps: { min: 1, step: 1 } } }}
+                  helperText={
+                    selectedPack ? (
+                      <Typography component="span" variant="caption" color="text.secondary">
+                        = {(selectedPack.contents_qty * packCount)} {selectedMaterial?.unit}
+                      </Typography>
+                    ) : undefined
+                  }
+                />
+              </Grid>
+            </>
+          ) : (
+            <Grid size={{ xs: 4, md: 1.5 }}>
+              <TextField
+                fullWidth
+                size="small"
+                type="number"
+                label="Quantity"
+                value={newItemQty}
+                onChange={(e) => setNewItemQty(e.target.value)}
+                slotProps={{ input: { inputProps: { min: 0, step: 0.01 } } }}
+                helperText={
+                  convertedPrice && standardPieceWeight ? (
+                    <Typography
+                      component="span"
+                      variant="caption"
+                      sx={{ color: "info.main", fontWeight: 500 }}
+                    >
+                      {convertedPrice.label}
+                    </Typography>
+                  ) : standardPieceWeight ? (
+                    <Typography component="span" variant="caption" color="text.secondary">
+                      ~{standardPieceWeight.toFixed(2)} kg/pc
+                    </Typography>
+                  ) : undefined
+                }
+              />
+            </Grid>
+          )}
 
           <Grid size={{ xs: 4, md: 2 }}>
             <TextField
               fullWidth
               size="small"
               type="number"
-              label={`Unit Price (₹/${newItemPricingMode === 'per_kg' ? 'kg' : 'pc'})`}
+              label={isPack ? "Price / can (₹)" : `Unit Price (₹/${newItemPricingMode === 'per_kg' ? 'kg' : 'pc'})`}
               value={newItemPrice}
               onChange={(e) => setNewItemPrice(e.target.value)}
               slotProps={{ input: { inputProps: { min: 0, step: 0.01 } } }}
@@ -1264,7 +1390,7 @@ export default function PurchaseOrderDialog({
           </Grid>
 
           {/* Pricing Mode Toggle - only show for weight-based materials */}
-          {effectiveMaterial?.weight_per_unit && (
+          {effectiveMaterial?.weight_per_unit && !isPack && (
             <Grid size={{ xs: 4, md: 1.5 }}>
               <TextField
                 fullWidth
@@ -1346,14 +1472,18 @@ export default function PurchaseOrderDialog({
                               </Typography>
                             )}
                             <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                              {item.unit}
+                              {item.pack_count
+                                ? `${item.pack_count} can${item.pack_count > 1 ? "s" : ""} · ${item.quantity} ${item.unit}`
+                                : item.unit}
                               {item.pricing_mode === 'per_kg' && ' (priced per kg)'}
                             </Typography>
                           </TableCell>
                           <TableCell align="right">
                             <Box>
                               <Typography variant="body2" fontWeight={500}>
-                                {item.quantity} pcs
+                                {item.pack_count
+                                  ? `${item.pack_count} can${item.pack_count > 1 ? "s" : ""}`
+                                  : `${item.quantity} pcs`}
                                 {item.pricing_mode === 'per_kg' && item.calculated_weight && (
                                   <Typography component="span" variant="caption" color="text.secondary">
                                     {` (~${(item.actual_weight ?? item.calculated_weight).toFixed(1)} kg)`}

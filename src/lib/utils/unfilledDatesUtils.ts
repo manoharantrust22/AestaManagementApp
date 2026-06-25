@@ -19,13 +19,16 @@ export interface UnfilledGroup {
  * @param projectEnd - End date (YYYY-MM-DD)
  * @param attendanceDates - Set of dates with attendance records
  * @param holidayDates - Set of dates marked as holidays
+ * @param contractDates - Set of dates with documented contract/task-work crew
+ *   (these are surfaced as calm "Contract work" rows, not red "unfilled" nags)
  * @returns Array of unfilled date strings (YYYY-MM-DD), sorted ascending
  */
 export function getUnfilledDates(
   projectStart: string,
   projectEnd: string,
   attendanceDates: Set<string>,
-  holidayDates: Set<string>
+  holidayDates: Set<string>,
+  contractDates?: Set<string>
 ): string[] {
   const unfilled: string[] = [];
 
@@ -52,8 +55,12 @@ export function getUnfilledDates(
   while (current.isBefore(effectiveEnd) || current.isSame(effectiveEnd, "day")) {
     const dateStr = current.format("YYYY-MM-DD");
 
-    // Check if this date is unfilled (no attendance and no holiday)
-    if (!attendanceDates.has(dateStr) && !holidayDates.has(dateStr)) {
+    // Check if this date is unfilled (no attendance, no holiday, no contract work)
+    if (
+      !attendanceDates.has(dateStr) &&
+      !holidayDates.has(dateStr) &&
+      !contractDates?.has(dateStr)
+    ) {
       unfilled.push(dateStr);
     }
 

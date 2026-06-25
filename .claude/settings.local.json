@@ -631,7 +631,10 @@
       "PowerShell(\"=========== DIFFSTAT ===========\")",
       "PowerShell(\"=========== STAGED ===========\")",
       "PowerShell(\"===== .claude/settings.local.json =====\")",
-      "PowerShell(\"===== .mcp.json =====\")"
+      "PowerShell(\"===== .mcp.json =====\")",
+      "PowerShell(npx vercel ls --yes 2>&1)",
+      "PowerShell($ErrorActionPreference='SilentlyContinue'; $v = \\(npx --no-install supabase --version\\) 2>$null; Write-Output \"supabase-cli: $v\"; $s = \\(npx --no-install supabase status\\) 2>&1 | Select-Object -First 12; Write-Output $s)",
+      "PowerShell(Get-Process node -ErrorAction SilentlyContinue | Select-Object Id, StartTime, @{N='Mem\\(MB\\)';E={[int]\\($_.WorkingSet64/1MB\\)}} | Format-Table -AutoSize; Write-Output \"---\"; Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in 3000,3001,3002 } | Select-Object LocalPort, OwningProcess)"
     ],
     "deny": [],
     "ask": [],

@@ -1,0 +1,1087 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - heading "Company" [level=6] [ref=e202]
+        - generic [ref=e11]:
+          - generic [ref=e13]:
+            - button [ref=e14] [cursor=pointer]:
+              - img [ref=e15]
+            - 'button "Change date range (current: All Time)" [ref=e18] [cursor=pointer]':
+              - paragraph [ref=e19]: All Time
+              - img [ref=e21]
+            - button [disabled]:
+              - img
+          - button "Today" [ref=e23] [cursor=pointer]:
+            - generic [ref=e24]: Today
+          - button "Week" [ref=e25] [cursor=pointer]:
+            - generic [ref=e26]: Week
+          - button "Month" [ref=e27] [cursor=pointer]:
+            - generic [ref=e28]: Month
+        - generic "Last synced 2 hours ago Click to refresh (Ctrl/Cmd + R)" [ref=e203]:
+          - button [ref=e30] [cursor=pointer]:
+            - img [ref=e31]
+        - button "50" [ref=e204] [cursor=pointer]:
+          - generic [ref=e35]:
+            - img [ref=e205]
+            - generic [ref=e207]: "50"
+    - navigation [ref=e38]:
+      - button [ref=e39] [cursor=pointer]:
+        - img [ref=e40]
+      - generic [ref=e43]:
+        - generic [ref=e44]:
+          - img [ref=e45]
+          - heading "Aesta" [level=6] [ref=e47]
+        - separator [ref=e48]
+        - tablist [ref=e52]:
+          - tab "Site" [ref=e53] [cursor=pointer]:
+            - img [ref=e54]
+            - text: Site
+          - tab "Company" [selected] [ref=e57] [cursor=pointer]:
+            - img [ref=e58]
+            - text: Company
+        - separator [ref=e60]
+        - list [ref=e61]:
+          - listitem [ref=e62]:
+            - button "Dashboard" [ref=e63] [cursor=pointer]:
+              - img [ref=e65]
+              - generic [ref=e68]: Dashboard
+          - listitem [ref=e69]:
+            - button "AI Assistant" [ref=e70] [cursor=pointer]:
+              - img [ref=e72]
+              - generic [ref=e75]: AI Assistant
+          - button "👷 Workforce" [ref=e77] [cursor=pointer]:
+            - generic [ref=e78]:
+              - generic [ref=e79]: 👷
+              - generic [ref=e80]: Workforce
+            - img [ref=e81]
+          - button "🔧 Equipment & Assets" [ref=e210] [cursor=pointer]:
+            - generic [ref=e211]:
+              - generic [ref=e212]: 🔧
+              - generic [ref=e213]: Equipment & Assets
+            - img [ref=e214]
+          - button "🤝 Contracts & Payments" [ref=e217] [cursor=pointer]:
+            - generic [ref=e218]:
+              - generic [ref=e219]: 🤝
+              - generic [ref=e220]: Contracts & Payments
+            - img [ref=e221]
+          - button "🧱 Materials & Vendors" [ref=e224] [cursor=pointer]:
+            - generic [ref=e225]:
+              - generic [ref=e226]: 🧱
+              - generic [ref=e227]: Materials & Vendors
+            - img [ref=e228]
+          - button "🏗️ Project Setup" [ref=e231] [cursor=pointer]:
+            - generic [ref=e232]:
+              - generic [ref=e233]: 🏗️
+              - generic [ref=e234]: Project Setup
+            - img [ref=e235]
+          - button "📤 Data Management" [ref=e238] [cursor=pointer]:
+            - generic [ref=e239]:
+              - generic [ref=e240]: 📤
+              - generic [ref=e241]: Data Management
+            - img [ref=e242]
+          - button "📈 Reports" [ref=e245] [cursor=pointer]:
+            - generic [ref=e246]:
+              - generic [ref=e247]: 📈
+              - generic [ref=e248]: Reports
+            - img [ref=e249]
+        - separator [ref=e118]
+        - generic [ref=e120]:
+          - button "Account settings" [ref=e121] [cursor=pointer]:
+            - img [ref=e251]
+          - generic [ref=e123]:
+            - paragraph [ref=e124]: Hari Admin
+            - text: Admin
+          - button "Switch to Dark Mode" [ref=e125] [cursor=pointer]:
+            - img [ref=e126]
+    - main [ref=e128]:
+      - generic [ref=e130]:
+        - generic [ref=e131]:
+          - generic [ref=e132]:
+            - button "Go back" [ref=e133] [cursor=pointer]:
+              - img [ref=e134]
+            - heading "Material Catalog" [level=6] [ref=e138]
+          - generic [ref=e253]:
+            - button "Fill images" [ref=e254] [cursor=pointer]:
+              - img [ref=e256]
+              - text: Fill images
+            - button "Ingest from AI" [ref=e258] [cursor=pointer]:
+              - img [ref=e260]
+              - text: Ingest from AI
+            - button "New tile" [ref=e262] [cursor=pointer]:
+              - img [ref=e264]
+              - text: New tile
+            - button "Add Material" [ref=e266] [cursor=pointer]:
+              - img [ref=e268]
+              - text: Add Material
+        - tablist [ref=e142]:
+          - tab "All" [selected] [ref=e143] [cursor=pointer]
+          - tab "Civil" [ref=e145] [cursor=pointer]
+          - tab "Electrical" [ref=e146] [cursor=pointer]
+          - tab "Plumbing" [ref=e147] [cursor=pointer]
+          - tab "Painting" [ref=e148] [cursor=pointer]
+          - tab "Doors & Windows" [ref=e149] [cursor=pointer]
+          - tab "Hardware" [ref=e150] [cursor=pointer]
+          - tab "Tiles" [ref=e151] [cursor=pointer]
+          - tab "Pumps & Motors" [ref=e152] [cursor=pointer]
+        - generic [ref=e153]:
+          - generic [ref=e155]:
+            - img [ref=e157]
+            - textbox "Search materials (min 2 chars)…" [ref=e159]
+            - group
+          - generic [ref=e160]:
+            - button "Frequently ordered" [ref=e161] [cursor=pointer]:
+              - img [ref=e162]
+              - generic [ref=e164]: Frequently ordered
+            - button "Has image" [ref=e165] [cursor=pointer]:
+              - img [ref=e166]
+              - generic [ref=e168]: Has image
+            - button "Has vendors" [ref=e169] [cursor=pointer]:
+              - img [ref=e170]
+              - generic [ref=e172]: Has vendors
+            - button "Has variants" [ref=e173] [cursor=pointer]:
+              - img [ref=e174]
+              - generic [ref=e176]: Has variants
+            - button "Missing price" [ref=e177] [cursor=pointer]:
+              - img [ref=e178]
+              - generic [ref=e180]: Missing price
+          - generic [ref=e181]:
+            - generic [ref=e182]:
+              - generic [ref=e183]: Sort by
+              - generic [ref=e184]:
+                - combobox "Sort by Alphabetical" [ref=e185] [cursor=pointer]: Alphabetical
+                - textbox: alphabetical
+                - img
+                - group:
+                  - generic: Sort by
+            - group [ref=e186]:
+              - button "List view" [pressed] [ref=e187] [cursor=pointer]:
+                - generic "List view" [ref=e188]:
+                  - img [ref=e189]
+              - button "Grid view" [ref=e191] [cursor=pointer]:
+                - generic "Grid view" [ref=e192]:
+                  - img [ref=e193]
+        - generic [ref=e195]:
+          - paragraph [ref=e196]: 45 materials
+          - button "Drafts (0)" [ref=e197] [cursor=pointer]:
+            - generic [ref=e198]: Drafts (0)
+        - generic [ref=e271]:
+          - button "Material 8 Way DP Box" [ref=e272] [cursor=pointer]:
+            - generic [ref=e273]:
+              - img "8 Way DP Box" [ref=e275]
+              - generic [ref=e276]:
+                - paragraph [ref=e279]: 8 Way DP Box
+                - generic [ref=e281]:
+                  - paragraph [ref=e282]: Nos · Distribution Boxes
+                  - generic [ref=e283]:
+                    - paragraph [ref=e284]: "Last: ₹1,450 · Anandam Electricals & Pipe Fittings · 29 Apr 2026"
+                    - link "View bill" [ref=e285]:
+                      - /url: https://aesta-supabase-proxy.aestabuilders.workers.dev/storage/v1/object/public/purchase-documents/bills/purchase_1778438380339.jpeg
+                      - img [ref=e286]
+                - generic [ref=e290]: GST 18%
+              - generic [ref=e291]:
+                - 'generic "Best price: Anandam Electricals & Pipe Fittings" [ref=e292]':
+                  - paragraph [ref=e293]: ₹1,450
+                  - paragraph [ref=e294]: per Nos
+                - button "1 vendor" [ref=e295]:
+                  - img [ref=e296]
+                  - generic [ref=e298]: 1 vendor
+              - button "More actions" [ref=e300]:
+                - img [ref=e301]
+          - button "Material Binding Wire" [ref=e303] [cursor=pointer]:
+            - generic [ref=e304]:
+              - img "Binding Wire" [ref=e306]
+              - generic [ref=e307]:
+                - paragraph [ref=e310]: Binding Wire
+                - generic [ref=e312]:
+                  - paragraph [ref=e313]: MAT-STL-007 · Kg · Steel & Metals
+                  - paragraph [ref=e315]: "Last: ₹80 · Karuppaiah Steel · 31 Dec 2025"
+                - generic [ref=e318]: GST 18%
+              - generic [ref=e319]:
+                - 'generic "Best price: ARM Cement & Steel" [ref=e320]':
+                  - paragraph [ref=e321]: ₹80
+                  - paragraph [ref=e322]: per Kg
+                - button "3 vendors" [ref=e323]:
+                  - img [ref=e324]
+                  - generic [ref=e326]: 3 vendors
+              - button "More actions" [ref=e328]:
+                - img [ref=e329]
+          - button "Material Blade" [ref=e331] [cursor=pointer]:
+            - generic [ref=e332]:
+              - generic "Blade" [ref=e334]:
+                - img [ref=e336]
+                - paragraph [ref=e338]: B
+              - generic [ref=e339]:
+                - paragraph [ref=e342]: Blade
+                - generic [ref=e344]:
+                  - paragraph [ref=e345]: Nos · Tools
+                  - generic [ref=e346]:
+                    - paragraph [ref=e347]: "Last: ₹15 · Anandam Electricals & Pipe Fittings · 06 May 2026"
+                    - link "View bill" [ref=e348]:
+                      - /url: https://aesta-supabase-proxy.aestabuilders.workers.dev/storage/v1/object/public/purchase-documents/bills/purchase_1778432965272.jpeg
+                      - img [ref=e349]
+                - generic [ref=e351]:
+                  - generic [ref=e353]: ANA
+                  - generic [ref=e355]: GST 18%
+              - generic [ref=e356]:
+                - 'generic "Best price: Anandam Electricals & Pipe Fittings" [ref=e357]':
+                  - paragraph [ref=e358]: ₹10
+                  - paragraph [ref=e359]: per Nos
+                - button "1 vendor" [ref=e360]:
+                  - img [ref=e361]
+                  - generic [ref=e363]: 1 vendor
+              - button "More actions" [ref=e365]:
+                - img [ref=e366]
+          - button "Material Broken brick" [ref=e368] [cursor=pointer]:
+            - generic [ref=e369]:
+              - img "Broken brick" [ref=e371]
+              - generic [ref=e372]:
+                - paragraph [ref=e375]: Broken brick
+                - paragraph [ref=e378]: BRO-0001 · Cft · Bricks & Blocks
+              - generic [ref=e379]:
+                - 'generic "Best price: Pandi ITI brick" [ref=e380]':
+                  - paragraph [ref=e381]: ₹2,000
+                  - paragraph [ref=e382]: per Cft
+                - button "1 vendor" [ref=e383]:
+                  - img [ref=e384]
+                  - generic [ref=e386]: 1 vendor
+              - button "More actions" [ref=e388]:
+                - img [ref=e389]
+          - button "Material Concrete Nail 2\"" [ref=e391] [cursor=pointer]:
+            - generic [ref=e392]:
+              - img "Concrete Nail 2\"" [ref=e394]
+              - generic [ref=e395]:
+                - paragraph [ref=e398]: Concrete Nail 2"
+                - paragraph [ref=e401]: NAIL-CON-2IN · Nos · Fasteners
+                - generic [ref=e404]: GST 18%
+              - generic [ref=e405]:
+                - 'generic "Best price: Rahmaniya Shop" [ref=e406]':
+                  - paragraph [ref=e407]: ₹2
+                  - paragraph [ref=e408]: per Nos
+                - button "1 vendor" [ref=e409]:
+                  - img [ref=e410]
+                  - generic [ref=e412]: 1 vendor
+              - button "More actions" [ref=e414]:
+                - img [ref=e415]
+          - button "Material Cover Block Box" [ref=e417] [cursor=pointer]:
+            - generic [ref=e418]:
+              - img "Cover Block Box" [ref=e420]
+              - generic [ref=e421]:
+                - paragraph [ref=e424]: Cover Block Box
+                - generic [ref=e426]:
+                  - paragraph [ref=e427]: COV-0001 · Box · Steel & Metals
+                  - paragraph [ref=e429]: "Last: ₹100 · Karuppaiah Steel · 31 Dec 2025"
+              - generic [ref=e430]:
+                - 'generic "Best price: ARM Cement & Steel" [ref=e431]':
+                  - paragraph [ref=e432]: ₹1
+                  - paragraph [ref=e433]: per Box
+                - button "2 vendors" [ref=e434]:
+                  - img [ref=e435]
+                  - generic [ref=e437]: 2 vendors
+              - button "More actions" [ref=e439]:
+                - img [ref=e440]
+          - button "Material CRI 4R-2N Submersible Pump" [ref=e442] [cursor=pointer]:
+            - generic [ref=e443]:
+              - img "CRI 4R-2N Submersible Pump" [ref=e445]
+              - generic [ref=e446]:
+                - paragraph [ref=e449]: CRI 4R-2N Submersible Pump
+                - paragraph [ref=e452]: PMP-SUB-CRI-4R2N · Pcs · Submersible Pumps
+                - generic [ref=e453]:
+                  - generic [ref=e455]: 2 variants
+                  - generic [ref=e457]: CRI
+                  - generic [ref=e459]: GST 18%
+              - generic [ref=e460]:
+                - 'generic "Best price: Veni Agencies · incl. transport & GST" [ref=e461]':
+                  - paragraph [ref=e462]: ₹22,502
+                  - paragraph [ref=e463]: per Pcs
+                - button "3 vendors" [ref=e464]:
+                  - img [ref=e465]
+                  - generic [ref=e467]: 3 vendors
+              - button "More actions" [ref=e469]:
+                - img [ref=e470]
+          - button "Material Cutting Wheel 5\" (Speed) — Heavy Duty" [ref=e472] [cursor=pointer]:
+            - generic [ref=e473]:
+              - img "Cutting Wheel 5\" (Speed) — Heavy Duty" [ref=e475]
+              - generic [ref=e476]:
+                - paragraph [ref=e479]: Cutting Wheel 5" (Speed) — Heavy Duty
+                - paragraph [ref=e482]: CUT-WHEEL-5IN-HD · Nos · Tools
+                - generic [ref=e483]:
+                  - generic [ref=e485]: Speed
+                  - generic [ref=e487]: GST 18%
+              - generic [ref=e488]:
+                - 'generic "Best price: Rahmaniya Shop" [ref=e489]':
+                  - paragraph [ref=e490]: ₹180
+                  - paragraph [ref=e491]: per Nos
+                - button "1 vendor" [ref=e492]:
+                  - img [ref=e493]
+                  - generic [ref=e495]: 1 vendor
+              - button "More actions" [ref=e497]:
+                - img [ref=e498]
+          - button "Material Cutting Wheel 5\" (Speed) — Standard" [ref=e500] [cursor=pointer]:
+            - generic [ref=e501]:
+              - img "Cutting Wheel 5\" (Speed) — Standard" [ref=e503]
+              - generic [ref=e504]:
+                - paragraph [ref=e507]: Cutting Wheel 5" (Speed) — Standard
+                - paragraph [ref=e510]: CUT-WHEEL-5IN-STD · Nos · Tools
+                - generic [ref=e511]:
+                  - generic [ref=e513]: Speed
+                  - generic [ref=e515]: GST 18%
+              - generic [ref=e516]:
+                - 'generic "Best price: Rahmaniya Shop" [ref=e517]':
+                  - paragraph [ref=e518]: ₹140
+                  - paragraph [ref=e519]: per Nos
+                - button "1 vendor" [ref=e520]:
+                  - img [ref=e521]
+                  - generic [ref=e523]: 1 vendor
+              - button "More actions" [ref=e525]:
+                - img [ref=e526]
+          - button "Material Digital Submersible Pump Control Panel" [ref=e528] [cursor=pointer]:
+            - generic [ref=e529]:
+              - img "Digital Submersible Pump Control Panel" [ref=e531]
+              - generic [ref=e532]:
+                - paragraph [ref=e535]: Digital Submersible Pump Control Panel
+                - paragraph [ref=e538]: PMP-PNL-SUB-DIGITAL · Pcs · Pump Panels & Accessories
+                - generic [ref=e539]:
+                  - generic [ref=e541]: CRI
+                  - generic [ref=e543]: GST 18%
+              - generic [ref=e544]:
+                - 'generic "Best price: Veni Agencies · incl. GST" [ref=e545]':
+                  - paragraph [ref=e546]: ₹3,540
+                  - paragraph [ref=e547]: per Pcs
+                - button "1 vendor" [ref=e548]:
+                  - img [ref=e549]
+                  - generic [ref=e551]: 1 vendor
+              - button "More actions" [ref=e553]:
+                - img [ref=e554]
+          - button "Material Dr. Fixit 301 Pidicrete URP" [active] [ref=e556] [cursor=pointer]:
+            - generic [ref=e557]:
+              - img "Dr. Fixit 301 Pidicrete URP" [ref=e559]
+              - generic [ref=e560]:
+                - paragraph [ref=e563]: Dr. Fixit 301 Pidicrete URP
+                - paragraph [ref=e566]: DRF-0001 · Ltr · Waterproofing
+              - generic [ref=e567]:
+                - 'generic "Best price: Anandam Electricals" [ref=e568]':
+                  - paragraph [ref=e569]: ₹1,620
+                  - paragraph [ref=e570]: per Ltr
+                - button "1 vendor" [ref=e571]:
+                  - img [ref=e572]
+                  - generic [ref=e574]: 1 vendor
+              - button "More actions" [ref=e576]:
+                - img [ref=e577]
+          - button "Material Electrical Wire" [ref=e579] [cursor=pointer]:
+            - generic [ref=e580]:
+              - generic "Electrical Wire" [ref=e582]:
+                - img [ref=e584]
+                - paragraph [ref=e586]: EW
+              - generic [ref=e587]:
+                - paragraph [ref=e590]: Electrical Wire
+                - paragraph [ref=e593]: Rmt · Electrical
+                - generic [ref=e594]:
+                  - generic [ref=e596]: 9 variants
+                  - generic [ref=e598]: GST 18%
+              - generic [ref=e599]:
+                - 'generic "Best price: Anandam Electricals" [ref=e600]':
+                  - paragraph [ref=e601]: ₹12.5
+                  - paragraph [ref=e602]: per Rmt
+                - button "3 vendors" [ref=e603]:
+                  - img [ref=e604]
+                  - generic [ref=e606]: 3 vendors
+              - button "More actions" [ref=e608]:
+                - img [ref=e609]
+          - button "Material Fly Ash Bricks" [ref=e611] [cursor=pointer]:
+            - generic [ref=e612]:
+              - img "Fly Ash Bricks" [ref=e614]
+              - generic [ref=e615]:
+                - generic [ref=e617]:
+                  - img [ref=e618]
+                  - paragraph [ref=e620]: Fly Ash Bricks
+                - generic [ref=e622]:
+                  - paragraph [ref=e623]: MAT-BRK-002 · Nos · Bricks & Blocks
+                  - paragraph [ref=e625]: "Last: ₹6.9 · Vairam Fly ASh Brick · 22 Jun 2026"
+              - generic [ref=e626]:
+                - 'generic "Best price: PK Bricks" [ref=e627]':
+                  - paragraph [ref=e628]: ₹6.5
+                  - paragraph [ref=e629]: per Nos
+                - button "4 vendors" [ref=e630]:
+                  - img [ref=e631]
+                  - generic [ref=e633]: 4 vendors
+              - button "More actions" [ref=e635]:
+                - img [ref=e636]
+          - button "Material H07 Flexible Cable" [ref=e638] [cursor=pointer]:
+            - generic [ref=e639]:
+              - generic "H07 Flexible Cable" [ref=e641]:
+                - img [ref=e643]
+                - paragraph [ref=e645]: HC
+              - generic [ref=e646]:
+                - paragraph [ref=e649]: H07 Flexible Cable
+                - paragraph [ref=e652]: Rmt · Electrical
+                - generic [ref=e653]:
+                  - generic [ref=e655]: 1 variant
+                  - generic [ref=e657]: GST 18%
+              - generic [ref=e658]:
+                - 'generic "Best price: Thirumala Electrical Company" [ref=e659]':
+                  - paragraph [ref=e660]: ₹12,840
+                  - paragraph [ref=e661]: per Rmt
+                - button "1 vendor" [ref=e662]:
+                  - img [ref=e663]
+                  - generic [ref=e665]: 1 vendor
+              - button "More actions" [ref=e667]:
+                - img [ref=e668]
+          - button "Material Jaalli Teracotta" [ref=e670] [cursor=pointer]:
+            - generic [ref=e671]:
+              - img "Jaalli Teracotta" [ref=e673]
+              - generic [ref=e674]:
+                - paragraph [ref=e677]: Jaalli Teracotta
+                - generic [ref=e679]:
+                  - paragraph [ref=e680]: JAA-0001 · Pcs · Bricks & Blocks
+                  - paragraph [ref=e682]: "Last: ₹72 · Chennai Building Materials · 17 Jun 2026"
+              - generic [ref=e683]:
+                - 'generic "Best price: Chennai Building Materials" [ref=e684]':
+                  - paragraph [ref=e685]: ₹72
+                  - paragraph [ref=e686]: per Pcs
+                - button "1 vendor" [ref=e687]:
+                  - img [ref=e688]
+                  - generic [ref=e690]: 1 vendor
+              - button "More actions" [ref=e692]:
+                - img [ref=e693]
+          - button "Material Jalli Gravel Aggreggate" [ref=e695] [cursor=pointer]:
+            - generic [ref=e696]:
+              - img "Jalli Gravel Aggreggate" [ref=e698]
+              - generic [ref=e699]:
+                - paragraph [ref=e702]: Jalli Gravel Aggreggate
+                - generic [ref=e704]:
+                  - paragraph [ref=e705]: JAL-0001 · Cft · Sand & Aggregates
+                  - paragraph [ref=e707]: "Last: ₹3,800 · Sathish - Sand · 30 Oct 2025"
+                - generic [ref=e708]:
+                  - generic [ref=e710]: 3 variants
+                  - generic [ref=e712]: GST 18%
+              - generic [ref=e713]:
+                - 'generic "Best price: Pinveedu Manivel" [ref=e714]':
+                  - paragraph [ref=e715]: ₹3,500
+                  - paragraph [ref=e716]: per Cft
+                - button "2 vendors" [ref=e717]:
+                  - img [ref=e718]
+                  - generic [ref=e720]: 2 vendors
+              - button "More actions" [ref=e722]:
+                - img [ref=e723]
+          - button "Material L Box" [ref=e725] [cursor=pointer]:
+            - generic [ref=e726]:
+              - generic "L Box" [ref=e728]:
+                - img [ref=e730]
+                - paragraph [ref=e732]: LB
+              - generic [ref=e733]:
+                - paragraph [ref=e736]: L Box
+                - paragraph [ref=e739]: Nos · Electrical
+                - generic [ref=e740]:
+                  - generic [ref=e742]: 1 variant
+                  - generic [ref=e744]: GST 18%
+              - generic [ref=e745]:
+                - 'generic "Best price: Anandam Electricals & Pipe Fittings" [ref=e746]':
+                  - paragraph [ref=e747]: ₹90
+                  - paragraph [ref=e748]: per Nos
+                - button "1 vendor" [ref=e749]:
+                  - img [ref=e750]
+                  - generic [ref=e752]: 1 vendor
+              - button "More actions" [ref=e754]:
+                - img [ref=e755]
+          - button "Material M Sand (Manufactured Sand)" [ref=e757] [cursor=pointer]:
+            - generic [ref=e758]:
+              - img "M Sand (Manufactured Sand)" [ref=e760]
+              - generic [ref=e761]:
+                - generic [ref=e763]:
+                  - img [ref=e764]
+                  - paragraph [ref=e766]: M Sand (Manufactured Sand)
+                - generic [ref=e768]:
+                  - paragraph [ref=e769]: MAT-AGG-001 · Cft · Sand & Aggregates
+                  - paragraph [ref=e771]: "Last: ₹4,500 · Pinveedu Manivel · 15 Jun 2026"
+                - generic [ref=e774]: GST 5%
+              - generic [ref=e775]:
+                - 'generic "Best price: Chennai Building Centre · incl. transport & GST" [ref=e776]':
+                  - paragraph [ref=e777]: ₹400.4
+                  - paragraph [ref=e778]: per Cft
+                - button "5 vendors" [ref=e779]:
+                  - img [ref=e780]
+                  - generic [ref=e782]: 5 vendors
+              - button "More actions" [ref=e784]:
+                - img [ref=e785]
+          - button "Material MCB 32A Single Pole" [ref=e787] [cursor=pointer]:
+            - generic [ref=e788]:
+              - img "MCB 32A Single Pole" [ref=e790]
+              - generic [ref=e791]:
+                - paragraph [ref=e794]: MCB 32A Single Pole
+                - paragraph [ref=e797]: Pcs · Switchgear
+                - generic [ref=e798]:
+                  - generic [ref=e800]: Legrand
+                  - generic [ref=e802]: GST 18%
+              - generic [ref=e803]:
+                - 'generic "Best price: Anandam Electricals" [ref=e804]':
+                  - paragraph [ref=e805]: ₹285
+                  - paragraph [ref=e806]: per Pcs
+                - button "1 vendor" [ref=e807]:
+                  - img [ref=e808]
+                  - generic [ref=e810]: 1 vendor
+              - button "More actions" [ref=e812]:
+                - img [ref=e813]
+          - button "Material Metal Box (Concealed)" [ref=e815] [cursor=pointer]:
+            - generic [ref=e816]:
+              - img "Metal Box (Concealed)" [ref=e818]
+              - generic [ref=e819]:
+                - paragraph [ref=e822]: Metal Box (Concealed)
+                - paragraph [ref=e825]: Nos · Electrical
+                - generic [ref=e828]: 4 variants
+              - generic [ref=e829]:
+                - 'generic "Best price: Anandam Electricals & Pipe Fittings" [ref=e830]':
+                  - paragraph [ref=e831]: ₹65
+                  - paragraph [ref=e832]: per Nos
+                - button "1 vendor" [ref=e833]:
+                  - img [ref=e834]
+                  - generic [ref=e836]: 1 vendor
+              - button "More actions" [ref=e838]:
+                - img [ref=e839]
+          - button "Material Nails" [ref=e841] [cursor=pointer]:
+            - generic [ref=e842]:
+              - img "Nails" [ref=e844]
+              - generic [ref=e845]:
+                - paragraph [ref=e848]: Nails
+                - paragraph [ref=e851]: NAI-0001 · Kg · Miscellaneous
+                - generic [ref=e852]:
+                  - generic [ref=e854]: 1 variant
+                  - generic [ref=e856]: GST 18%
+              - generic [ref=e857]:
+                - 'generic "Best price: Anandam Electricals & Pipe Fittings" [ref=e858]':
+                  - paragraph [ref=e859]: ₹180
+                  - paragraph [ref=e860]: per Kg
+                - button "1 vendor" [ref=e861]:
+                  - img [ref=e862]
+                  - generic [ref=e864]: 1 vendor
+              - button "More actions" [ref=e866]:
+                - img [ref=e867]
+          - button "Material OPC 43 Grade Cement (50kg bag)" [ref=e869] [cursor=pointer]:
+            - generic [ref=e870]:
+              - generic "OPC 43 Grade Cement (50kg bag)" [ref=e872]:
+                - img [ref=e874]
+                - paragraph [ref=e876]: OB
+              - generic [ref=e877]:
+                - paragraph [ref=e880]: OPC 43 Grade Cement (50kg bag)
+                - paragraph [ref=e883]: MAT-CEM-003 · Bag · Cement & Binding
+                - generic [ref=e886]: GST 28%
+              - generic [ref=e887]:
+                - paragraph [ref=e888]: No price yet
+                - button "Add vendor" [ref=e889]:
+                  - img [ref=e890]
+                  - generic [ref=e892]: Add vendor
+              - button "More actions" [ref=e894]:
+                - img [ref=e895]
+          - button "Material OPC 53 Grade Cement (50kg bag)" [ref=e897] [cursor=pointer]:
+            - generic [ref=e898]:
+              - generic "OPC 53 Grade Cement (50kg bag)" [ref=e900]:
+                - img [ref=e902]
+                - paragraph [ref=e904]: OB
+              - generic [ref=e905]:
+                - paragraph [ref=e908]: OPC 53 Grade Cement (50kg bag)
+                - paragraph [ref=e911]: MAT-CEM-002 · Bag · Cement & Binding
+                - generic [ref=e912]:
+                  - generic [ref=e914]: Ultratech
+                  - generic [ref=e916]: "+1"
+                  - generic [ref=e918]: GST 28%
+              - generic [ref=e919]:
+                - 'generic "Best price: Arun Cement Agencies" [ref=e920]':
+                  - paragraph [ref=e921]: ₹420
+                  - paragraph [ref=e922]: per Bag
+                - button "1 vendor" [ref=e923]:
+                  - img [ref=e924]
+                  - generic [ref=e926]: 1 vendor
+              - button "More actions" [ref=e928]:
+                - img [ref=e929]
+          - button "Material P Sand (Plastering Sand)" [ref=e931] [cursor=pointer]:
+            - generic [ref=e932]:
+              - img "P Sand (Plastering Sand)" [ref=e934]
+              - generic [ref=e935]:
+                - generic [ref=e937]:
+                  - img [ref=e938]
+                  - paragraph [ref=e940]: P Sand (Plastering Sand)
+                - generic [ref=e942]:
+                  - paragraph [ref=e943]: MAT-AGG-002 · Cft · Sand & Aggregates
+                  - paragraph [ref=e945]: "Last: ₹5,500 · Pinveedu Manivel · 24 Jun 2026"
+                - generic [ref=e948]: GST 5%
+              - generic [ref=e949]:
+                - 'generic "Best price: Sathish - Sand" [ref=e950]':
+                  - paragraph [ref=e951]: ₹5,500
+                  - paragraph [ref=e952]: per Cft
+                - button "3 vendors" [ref=e953]:
+                  - img [ref=e954]
+                  - generic [ref=e956]: 3 vendors
+              - button "More actions" [ref=e958]:
+                - img [ref=e959]
+          - button "Material PPC Cement (50kg bag)" [ref=e961] [cursor=pointer]:
+            - generic [ref=e962]:
+              - img "PPC Cement (50kg bag)" [ref=e964]
+              - generic [ref=e965]:
+                - generic [ref=e967]:
+                  - img [ref=e968]
+                  - paragraph [ref=e970]: PPC Cement (50kg bag)
+                - generic [ref=e972]:
+                  - paragraph [ref=e973]: MAT-CEM-001 · Bag · Cement & Binding
+                  - paragraph [ref=e975]: "Last: ₹290 · Sathish - Chettinad Cement · 22 Mar 2026"
+                - generic [ref=e976]:
+                  - generic [ref=e978]: 3 variants
+                  - generic [ref=e980]: Ultratech
+                  - generic [ref=e982]: "+5"
+                  - generic [ref=e984]: GST 18%
+              - generic [ref=e985]:
+                - 'generic "Best price: Sathish - Chettinad Cement" [ref=e986]':
+                  - paragraph [ref=e987]: ₹280
+                  - paragraph [ref=e988]: per Bag
+                - button "6 vendors" [ref=e989]:
+                  - img [ref=e990]
+                  - generic [ref=e992]: 6 vendors
+              - button "More actions" [ref=e994]:
+                - img [ref=e995]
+          - button "Material PVC Bend" [ref=e997] [cursor=pointer]:
+            - generic [ref=e998]:
+              - img "PVC Bend" [ref=e1000]
+              - generic [ref=e1001]:
+                - paragraph [ref=e1004]: PVC Bend
+                - paragraph [ref=e1007]: Nos · Plumbing
+                - generic [ref=e1008]:
+                  - generic [ref=e1010]: 5 variants
+                  - generic [ref=e1012]: GST 18%
+              - generic [ref=e1013]:
+                - 'generic "Best price: Anandam Electricals & Pipe Fittings" [ref=e1014]':
+                  - paragraph [ref=e1015]: ₹15
+                  - paragraph [ref=e1016]: per Nos
+                - button "1 vendor" [ref=e1017]:
+                  - img [ref=e1018]
+                  - generic [ref=e1020]: 1 vendor
+              - button "More actions" [ref=e1022]:
+                - img [ref=e1023]
+          - button "Material PVC Clamp" [ref=e1025] [cursor=pointer]:
+            - generic [ref=e1026]:
+              - generic "PVC Clamp" [ref=e1028]:
+                - img [ref=e1030]
+                - paragraph [ref=e1032]: PC
+              - generic [ref=e1033]:
+                - paragraph [ref=e1036]: PVC Clamp
+                - paragraph [ref=e1039]: Nos · Plumbing
+                - generic [ref=e1040]:
+                  - generic [ref=e1042]: 3 variants
+                  - generic [ref=e1044]: GST 18%
+              - generic [ref=e1045]:
+                - 'generic "Best price: Anandam Electricals & Pipe Fittings" [ref=e1046]':
+                  - paragraph [ref=e1047]: ₹102
+                  - paragraph [ref=e1048]: per Nos
+                - button "1 vendor" [ref=e1049]:
+                  - img [ref=e1050]
+                  - generic [ref=e1052]: 1 vendor
+              - button "More actions" [ref=e1054]:
+                - img [ref=e1055]
+          - button "Material PVC Concealed Spring Box" [ref=e1057] [cursor=pointer]:
+            - generic [ref=e1058]:
+              - generic "PVC Concealed Spring Box" [ref=e1060]:
+                - img [ref=e1062]
+                - paragraph [ref=e1064]: PB
+              - generic [ref=e1065]:
+                - paragraph [ref=e1068]: PVC Concealed Spring Box
+                - generic [ref=e1070]:
+                  - paragraph [ref=e1071]: Nos · Electrical
+                  - paragraph [ref=e1073]: "Last: ₹175 · Thirumala Electrical Company · 11 May 2026"
+                - generic [ref=e1076]: GST 18%
+              - generic [ref=e1077]:
+                - 'generic "Best price: Thirumala Electrical Company" [ref=e1078]':
+                  - paragraph [ref=e1079]: ₹175
+                  - paragraph [ref=e1080]: per Nos
+                - button "1 vendor" [ref=e1081]:
+                  - img [ref=e1082]
+                  - generic [ref=e1084]: 1 vendor
+              - button "More actions" [ref=e1086]:
+                - img [ref=e1087]
+          - button "Material PVC Conduit" [ref=e1089] [cursor=pointer]:
+            - generic [ref=e1090]:
+              - generic "PVC Conduit" [ref=e1092]:
+                - img [ref=e1094]
+                - paragraph [ref=e1096]: PC
+              - generic [ref=e1097]:
+                - paragraph [ref=e1100]: PVC Conduit
+                - paragraph [ref=e1103]: Rmt · Electrical
+                - generic [ref=e1104]:
+                  - generic [ref=e1106]: 1 variant
+                  - generic [ref=e1108]: GST 18%
+              - generic [ref=e1109]:
+                - 'generic "Best price: Anandam Electricals" [ref=e1110]':
+                  - paragraph [ref=e1111]: ₹18
+                  - paragraph [ref=e1112]: per Rmt
+                - button "1 vendor" [ref=e1113]:
+                  - img [ref=e1114]
+                  - generic [ref=e1116]: 1 vendor
+              - button "More actions" [ref=e1118]:
+                - img [ref=e1119]
+          - button "Material PVC Coupler" [ref=e1121] [cursor=pointer]:
+            - generic [ref=e1122]:
+              - generic "PVC Coupler" [ref=e1124]:
+                - img [ref=e1126]
+                - paragraph [ref=e1128]: PC
+              - generic [ref=e1129]:
+                - paragraph [ref=e1132]: PVC Coupler
+                - paragraph [ref=e1135]: Nos · Plumbing
+                - generic [ref=e1136]:
+                  - generic [ref=e1138]: 3 variants
+                  - generic [ref=e1140]: GST 18%
+              - generic [ref=e1141]:
+                - 'generic "Best price: Anandam Electricals & Pipe Fittings" [ref=e1142]':
+                  - paragraph [ref=e1143]: ₹60
+                  - paragraph [ref=e1144]: per Nos
+                - button "1 vendor" [ref=e1145]:
+                  - img [ref=e1146]
+                  - generic [ref=e1148]: 1 vendor
+              - button "More actions" [ref=e1150]:
+                - img [ref=e1151]
+          - button "Material PVC Insulation Tape" [ref=e1153] [cursor=pointer]:
+            - generic [ref=e1154]:
+              - generic "PVC Insulation Tape" [ref=e1156]:
+                - img [ref=e1158]
+                - paragraph [ref=e1160]: PT
+              - generic [ref=e1161]:
+                - paragraph [ref=e1164]: PVC Insulation Tape
+                - generic [ref=e1166]:
+                  - paragraph [ref=e1167]: Nos · Electrical
+                  - paragraph [ref=e1169]: "Last: ₹9 · Thirumala Electrical Company · 11 May 2026"
+                - generic [ref=e1170]:
+                  - generic [ref=e1172]: Steelgrip
+                  - generic [ref=e1174]: GST 18%
+              - generic [ref=e1175]:
+                - 'generic "Best price: Thirumala Electrical Company" [ref=e1176]':
+                  - paragraph [ref=e1177]: ₹9
+                  - paragraph [ref=e1178]: per Nos
+                - button "1 vendor" [ref=e1179]:
+                  - img [ref=e1180]
+                  - generic [ref=e1182]: 1 vendor
+              - button "More actions" [ref=e1184]:
+                - img [ref=e1185]
+          - button "Material PVC Shoe" [ref=e1187] [cursor=pointer]:
+            - generic [ref=e1188]:
+              - generic "PVC Shoe" [ref=e1190]:
+                - img [ref=e1192]
+                - paragraph [ref=e1194]: PS
+              - generic [ref=e1195]:
+                - paragraph [ref=e1198]: PVC Shoe
+                - paragraph [ref=e1201]: Nos · Plumbing
+                - generic [ref=e1202]:
+                  - generic [ref=e1204]: 3 variants
+                  - generic [ref=e1206]: GST 18%
+              - generic [ref=e1207]:
+                - 'generic "Best price: Anandam Electricals & Pipe Fittings" [ref=e1208]':
+                  - paragraph [ref=e1209]: ₹25
+                  - paragraph [ref=e1210]: per Nos
+                - button "1 vendor" [ref=e1211]:
+                  - img [ref=e1212]
+                  - generic [ref=e1214]: 1 vendor
+              - button "More actions" [ref=e1216]:
+                - img [ref=e1217]
+          - button "Material Red Bricks (Standard)" [ref=e1219] [cursor=pointer]:
+            - generic [ref=e1220]:
+              - img "Red Bricks (Standard)" [ref=e1222]
+              - generic [ref=e1223]:
+                - paragraph [ref=e1226]: Red Bricks (Standard)
+                - paragraph [ref=e1229]: MAT-BRK-001 · Nos · Bricks & Blocks
+                - generic [ref=e1230]:
+                  - generic [ref=e1232]: 2 variants
+                  - generic [ref=e1234]: GST 5%
+              - generic [ref=e1235]:
+                - 'generic "Best price: Near eyarkai angadi" [ref=e1236]':
+                  - paragraph [ref=e1237]: ₹8.3
+                  - paragraph [ref=e1238]: per Nos
+                - button "7 vendors" [ref=e1239]:
+                  - img [ref=e1240]
+                  - generic [ref=e1242]: 7 vendors
+              - button "More actions" [ref=e1244]:
+                - img [ref=e1245]
+          - button "Material Red oxide powder" [ref=e1247] [cursor=pointer]:
+            - generic [ref=e1248]:
+              - img "Red oxide powder" [ref=e1250]
+              - generic [ref=e1251]:
+                - paragraph [ref=e1254]: Red oxide powder
+                - generic [ref=e1256]:
+                  - paragraph [ref=e1257]: RED-0001 · Kg · Paint & Finishes
+                  - paragraph [ref=e1259]: "Last: ₹150 · Chennai Building Materials · 18 Jun 2026"
+              - generic [ref=e1260]:
+                - 'generic "Best price: Chennai Building Materials" [ref=e1261]':
+                  - paragraph [ref=e1262]: ₹150
+                  - paragraph [ref=e1263]: per Kg
+                - button "1 vendor" [ref=e1264]:
+                  - img [ref=e1265]
+                  - generic [ref=e1267]: 1 vendor
+              - button "More actions" [ref=e1269]:
+                - img [ref=e1270]
+          - button "Material Smart Care Tile Adhesive - Asian Paints" [ref=e1272] [cursor=pointer]:
+            - generic [ref=e1273]:
+              - img "Smart Care Tile Adhesive - Asian Paints" [ref=e1275]
+              - generic [ref=e1276]:
+                - paragraph [ref=e1279]: Smart Care Tile Adhesive - Asian Paints
+                - generic [ref=e1281]:
+                  - paragraph [ref=e1282]: SMA-0001 · Kg · Tiles & Flooring
+                  - paragraph [ref=e1284]: "Last: ₹16 · Chennai Building Materials · 18 Jun 2026"
+              - generic [ref=e1285]:
+                - 'generic "Best price: Chennai Building Materials" [ref=e1286]':
+                  - paragraph [ref=e1287]: ₹16
+                  - paragraph [ref=e1288]: per Kg
+                - button "1 vendor" [ref=e1289]:
+                  - img [ref=e1290]
+                  - generic [ref=e1292]: 1 vendor
+              - button "More actions" [ref=e1294]:
+                - img [ref=e1295]
+          - button "Material Solvent PVC" [ref=e1297] [cursor=pointer]:
+            - generic [ref=e1298]:
+              - generic "Solvent PVC" [ref=e1300]:
+                - img [ref=e1302]
+                - paragraph [ref=e1304]: SP
+              - generic [ref=e1305]:
+                - paragraph [ref=e1308]: Solvent PVC
+                - generic [ref=e1310]:
+                  - paragraph [ref=e1311]: Nos · Plumbing
+                  - generic [ref=e1312]:
+                    - paragraph [ref=e1313]: "Last: ₹75 · Anandam Electricals & Pipe Fittings · 06 May 2026"
+                    - link "View bill" [ref=e1314]:
+                      - /url: https://aesta-supabase-proxy.aestabuilders.workers.dev/storage/v1/object/public/purchase-documents/bills/purchase_1778432965272.jpeg
+                      - img [ref=e1315]
+                - generic [ref=e1319]: GST 18%
+              - generic [ref=e1320]:
+                - 'generic "Best price: Anandam Electricals & Pipe Fittings" [ref=e1321]':
+                  - paragraph [ref=e1322]: ₹75
+                  - paragraph [ref=e1323]: per Nos
+                - button "1 vendor" [ref=e1324]:
+                  - img [ref=e1325]
+                  - generic [ref=e1327]: 1 vendor
+              - button "More actions" [ref=e1329]:
+                - img [ref=e1330]
+          - button "Material Sunnambu" [ref=e1332] [cursor=pointer]:
+            - generic [ref=e1333]:
+              - img "Sunnambu" [ref=e1335]
+              - generic [ref=e1336]:
+                - paragraph [ref=e1339]: Sunnambu
+                - paragraph [ref=e1342]: SUN-0001 · Bag · Waterproofing
+              - generic [ref=e1343]:
+                - 'generic "Best price: Vellaisamy" [ref=e1344]':
+                  - paragraph [ref=e1345]: ₹100
+                  - paragraph [ref=e1346]: per Bag
+                - button "1 vendor" [ref=e1347]:
+                  - img [ref=e1348]
+                  - generic [ref=e1350]: 1 vendor
+              - button "More actions" [ref=e1352]:
+                - img [ref=e1353]
+          - button "Material Tape Roll" [ref=e1355] [cursor=pointer]:
+            - generic [ref=e1356]:
+              - generic "Tape Roll" [ref=e1358]:
+                - img [ref=e1360]
+                - paragraph [ref=e1362]: TR
+              - generic [ref=e1363]:
+                - paragraph [ref=e1366]: Tape Roll
+                - generic [ref=e1368]:
+                  - paragraph [ref=e1369]: Nos · Insulation Tapes
+                  - generic [ref=e1370]:
+                    - paragraph [ref=e1371]: "Last: ₹12 · Anandam Electricals & Pipe Fittings · 29 Apr 2026"
+                    - link "View bill" [ref=e1372]:
+                      - /url: https://aesta-supabase-proxy.aestabuilders.workers.dev/storage/v1/object/public/purchase-documents/bills/purchase_1778438380339.jpeg
+                      - img [ref=e1373]
+                - generic [ref=e1377]: GST 18%
+              - generic [ref=e1378]:
+                - 'generic "Best price: Anandam Electricals & Pipe Fittings" [ref=e1379]':
+                  - paragraph [ref=e1380]: ₹12
+                  - paragraph [ref=e1381]: per Nos
+                - button "1 vendor" [ref=e1382]:
+                  - img [ref=e1383]
+                  - generic [ref=e1385]: 1 vendor
+              - button "More actions" [ref=e1387]:
+                - img [ref=e1388]
+          - button "Material Teak wood" [ref=e1390] [cursor=pointer]:
+            - generic [ref=e1391]:
+              - img "Teak wood" [ref=e1393]
+              - generic [ref=e1394]:
+                - generic [ref=e1396]:
+                  - img [ref=e1397]
+                  - paragraph [ref=e1399]: Teak wood
+                - generic [ref=e1401]:
+                  - paragraph [ref=e1402]: TEA-0001 · Pcs · Wood & Timber
+                  - generic [ref=e1403]:
+                    - paragraph [ref=e1404]: "Last: ₹2,300 · Rahman Timbers · 12 May 2026"
+                    - link "View bill" [ref=e1405]:
+                      - /url: https://aesta-supabase-proxy.aestabuilders.workers.dev/storage/v1/object/public/documents/settlements/79bfcfb3-4b0d-4240-8fce-d1ab584ef972/bill_1779244178186.png
+                      - img [ref=e1406]
+                - generic [ref=e1408]:
+                  - generic [ref=e1410]: Log · 1st Quality
+                  - generic [ref=e1412]: "+15"
+                  - generic [ref=e1414]: GST 18%
+              - generic [ref=e1415]:
+                - 'generic "Best price: Rahman Timbers" [ref=e1416]':
+                  - paragraph [ref=e1417]: ₹175
+                  - paragraph [ref=e1418]: per Pcs
+                - button "3 vendors" [ref=e1419]:
+                  - img [ref=e1420]
+                  - generic [ref=e1422]: 3 vendors
+              - button "More actions" [ref=e1424]:
+                - img [ref=e1425]
+          - button "Material Texmo TRF 530 Copper 2HP Submersible Pump" [ref=e1427] [cursor=pointer]:
+            - generic [ref=e1428]:
+              - generic "Texmo TRF 530 Copper 2HP Submersible Pump" [ref=e1430]:
+                - img [ref=e1432]
+                - paragraph [ref=e1434]: TP
+              - generic [ref=e1435]:
+                - paragraph [ref=e1438]: Texmo TRF 530 Copper 2HP Submersible Pump
+                - paragraph [ref=e1441]: PMP-SUB-TXM-TRF530 · Pcs · Submersible Pumps
+                - generic [ref=e1442]:
+                  - generic [ref=e1444]: 1 variant
+                  - generic [ref=e1446]: Texmo
+                  - generic [ref=e1448]: GST 18%
+              - generic [ref=e1449]:
+                - 'generic "Best price: Ramesh Electricals · incl. GST" [ref=e1450]':
+                  - paragraph [ref=e1451]: ₹33,630
+                  - paragraph [ref=e1452]: per Pcs
+                - button "1 vendor" [ref=e1453]:
+                  - img [ref=e1454]
+                  - generic [ref=e1456]: 1 vendor
+              - button "More actions" [ref=e1458]:
+                - img [ref=e1459]
+          - button "Material TMT Rods" [ref=e1461] [cursor=pointer]:
+            - generic [ref=e1462]:
+              - img "TMT Rods" [ref=e1464]
+              - generic [ref=e1465]:
+                - paragraph [ref=e1468]: TMT Rods
+                - paragraph [ref=e1471]: TMT-0001 · Pcs · TMT Bars
+                - generic [ref=e1472]:
+                  - generic [ref=e1474]: 5 variants
+                  - generic [ref=e1476]: Amman
+                  - generic [ref=e1478]: GST 18%
+              - generic [ref=e1479]:
+                - 'generic "Best price: Karuppaiah Steel" [ref=e1480]':
+                  - paragraph [ref=e1481]: ₹62.9
+                  - paragraph [ref=e1482]: per Pcs
+                - button "2 vendors" [ref=e1483]:
+                  - img [ref=e1484]
+                  - generic [ref=e1486]: 2 vendors
+              - button "More actions" [ref=e1488]:
+                - img [ref=e1489]
+          - button "Material TV / Data Cable" [ref=e1491] [cursor=pointer]:
+            - generic [ref=e1492]:
+              - generic "TV / Data Cable" [ref=e1494]:
+                - img [ref=e1496]
+                - paragraph [ref=e1498]: TC
+              - generic [ref=e1499]:
+                - paragraph [ref=e1502]: TV / Data Cable
+                - paragraph [ref=e1505]: Rmt · Electrical
+                - generic [ref=e1506]:
+                  - generic [ref=e1508]: 1 variant
+                  - generic [ref=e1510]: GST 18%
+              - generic [ref=e1511]:
+                - 'generic "Best price: Thirumala Electrical Company" [ref=e1512]':
+                  - paragraph [ref=e1513]: ₹5,198
+                  - paragraph [ref=e1514]: per Rmt
+                - button "1 vendor" [ref=e1515]:
+                  - img [ref=e1516]
+                  - generic [ref=e1518]: 1 vendor
+              - button "More actions" [ref=e1520]:
+                - img [ref=e1521]
+          - button "Material UPVC Bend" [ref=e1523] [cursor=pointer]:
+            - generic [ref=e1524]:
+              - generic "UPVC Bend" [ref=e1526]:
+                - img [ref=e1528]
+                - paragraph [ref=e1530]: UB
+              - generic [ref=e1531]:
+                - paragraph [ref=e1534]: UPVC Bend
+                - paragraph [ref=e1537]: Nos · Plumbing
+                - generic [ref=e1538]:
+                  - generic [ref=e1540]: 5 variants
+                  - generic [ref=e1542]: GST 18%
+              - generic [ref=e1543]:
+                - 'generic "Best price: Anandam Electricals & Pipe Fittings" [ref=e1544]':
+                  - paragraph [ref=e1545]: ₹15
+                  - paragraph [ref=e1546]: per Nos
+                - button "1 vendor" [ref=e1547]:
+                  - img [ref=e1548]
+                  - generic [ref=e1550]: 1 vendor
+              - button "More actions" [ref=e1552]:
+                - img [ref=e1553]
+          - button "Material UPVC Shoe" [ref=e1555] [cursor=pointer]:
+            - generic [ref=e1556]:
+              - generic "UPVC Shoe" [ref=e1558]:
+                - img [ref=e1560]
+                - paragraph [ref=e1562]: US
+              - generic [ref=e1563]:
+                - paragraph [ref=e1566]: UPVC Shoe
+                - paragraph [ref=e1569]: Nos · Plumbing
+                - generic [ref=e1570]:
+                  - generic [ref=e1572]: 3 variants
+                  - generic [ref=e1574]: GST 18%
+              - generic [ref=e1575]:
+                - 'generic "Best price: Anandam Electricals & Pipe Fittings" [ref=e1576]':
+                  - paragraph [ref=e1577]: ₹25
+                  - paragraph [ref=e1578]: per Nos
+                - button "1 vendor" [ref=e1579]:
+                  - img [ref=e1580]
+                  - generic [ref=e1582]: 1 vendor
+              - button "More actions" [ref=e1584]:
+                - img [ref=e1585]
+          - button "Material White Cement Putty (40kg bag)" [ref=e1587] [cursor=pointer]:
+            - generic [ref=e1588]:
+              - generic "White Cement Putty (40kg bag)" [ref=e1590]:
+                - img [ref=e1592]
+                - paragraph [ref=e1594]: WB
+              - generic [ref=e1595]:
+                - paragraph [ref=e1598]: White Cement Putty (40kg bag)
+                - paragraph [ref=e1601]: MAT-PNT-001 · Bag · Paint & Finishes
+                - generic [ref=e1604]: GST 18%
+              - generic [ref=e1605]:
+                - paragraph [ref=e1606]: No price yet
+                - button "Add vendor" [ref=e1607]:
+                  - img [ref=e1608]
+                  - generic [ref=e1610]: Add vendor
+              - button "More actions" [ref=e1612]:
+                - img [ref=e1613]
+        - generic [ref=e1626]:
+          - generic [ref=e1627]:
+            - generic [ref=e1628]:
+              - paragraph [ref=e1629]: Material
+              - generic [ref=e1630]:
+                - button "Open detail page" [ref=e1631] [cursor=pointer]:
+                  - img [ref=e1632]
+                - button "Edit material" [ref=e1634] [cursor=pointer]:
+                  - img [ref=e1635]
+                - button "Close" [ref=e1637] [cursor=pointer]:
+                  - img [ref=e1638]
+            - generic [ref=e1640]:
+              - img "Dr. Fixit 301 Pidicrete URP" [ref=e1641]
+              - generic [ref=e1642]:
+                - paragraph [ref=e1643]: Dr. Fixit 301 Pidicrete URP
+                - paragraph [ref=e1644]: DRF-0001 · Ltr · Waterproofing
+          - tablist [ref=e1648]:
+            - tab "Overview" [selected] [ref=e1649] [cursor=pointer]
+            - tab "Vendors" [ref=e1650] [cursor=pointer]
+            - tab "Brands" [ref=e1651] [cursor=pointer]
+            - tab "Variants" [ref=e1652] [cursor=pointer]
+            - tab "Price history" [ref=e1653] [cursor=pointer]
+            - tab "Activity" [ref=e1654] [cursor=pointer]
+          - generic [ref=e1657]:
+            - generic [ref=e1658]:
+              - generic [ref=e1659]:
+                - paragraph [ref=e1660]: Code
+                - paragraph [ref=e1661]: DRF-0001
+              - generic [ref=e1662]:
+                - paragraph [ref=e1663]: Category
+                - paragraph [ref=e1664]: Waterproofing
+              - generic [ref=e1665]:
+                - paragraph [ref=e1666]: Unit
+                - paragraph [ref=e1667]: Ltr
+              - generic [ref=e1668]:
+                - paragraph [ref=e1669]: Local name
+                - paragraph [ref=e1670]: —
+              - generic [ref=e1671]:
+                - paragraph [ref=e1672]: GST rate
+                - paragraph [ref=e1673]: 0%
+              - generic [ref=e1674]:
+                - paragraph [ref=e1675]: Min order qty
+                - paragraph [ref=e1676]: 1 Ltr
+              - generic [ref=e1677]:
+                - paragraph [ref=e1678]: Reorder level
+                - paragraph [ref=e1679]: 5 Ltr
+            - paragraph [ref=e1681]: Created 23 Jun 2026
+  - button "Open Next.js Dev Tools" [ref=e1620] [cursor=pointer]:
+    - img [ref=e1621]
+  - alert [ref=e1624]

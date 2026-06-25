@@ -73,6 +73,45 @@ describe('Unfilled Dates Utils', () => {
       expect(result).toEqual(['2024-01-01', '2024-01-03', '2024-01-05']);
     });
 
+    it('excludes dates with contract/task-work presence', () => {
+      const contractDates = new Set(['2024-01-02', '2024-01-04']);
+      const result = getUnfilledDates(
+        '2024-01-01',
+        '2024-01-05',
+        new Set(),
+        new Set(),
+        contractDates
+      );
+
+      // Contract-work days are surfaced as their own rows, not "unfilled".
+      expect(result).toEqual(['2024-01-01', '2024-01-03', '2024-01-05']);
+    });
+
+    it('treats attendance, holidays and contract days all as filled', () => {
+      const attendanceDates = new Set(['2024-01-01']);
+      const holidayDates = new Set(['2024-01-03']);
+      const contractDates = new Set(['2024-01-05']);
+      const result = getUnfilledDates(
+        '2024-01-01',
+        '2024-01-05',
+        attendanceDates,
+        holidayDates,
+        contractDates
+      );
+
+      expect(result).toEqual(['2024-01-02', '2024-01-04']);
+    });
+
+    it('is backwards compatible when contractDates is omitted', () => {
+      const result = getUnfilledDates(
+        '2024-01-01',
+        '2024-01-03',
+        new Set(['2024-01-02']),
+        new Set()
+      );
+      expect(result).toEqual(['2024-01-01', '2024-01-03']);
+    });
+
     it('limits range to 365 days max', () => {
       const result = getUnfilledDates(
         '2024-01-01',

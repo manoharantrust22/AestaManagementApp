@@ -524,6 +524,12 @@ export interface Material {
   min_order_qty: number | null;
   reorder_level: number | null;
   image_url: string | null;
+  /**
+   * When true, this material is sold ONLY in fixed standard cans/containers
+   * (see MaterialPack). Requests and POs are constrained to whole cans, while
+   * stock and usage remain free-form in the base `unit`.
+   */
+  sold_in_packs: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -551,6 +557,26 @@ export interface MaterialBrandVariantLink {
   is_active: boolean;
   image_url: string | null;
   created_at: string;
+}
+
+/**
+ * A standard can/container size for a material that is `sold_in_packs`.
+ * E.g. a "5 L can" of Dr. Fixit 301: contents_qty = 5 (in the material's base
+ * unit), price = 1620 (per can). Requests/POs pick a pack + integer count;
+ * the base-unit quantity stored downstream is always contents_qty × count.
+ */
+export interface MaterialPack {
+  id: string;
+  material_id: string;
+  label: string; // e.g. "5 L can"
+  contents_qty: number; // amount inside, in the material's base unit (e.g. 5 litres)
+  price: number | null; // per-can price (e.g. 1620)
+  price_includes_gst: boolean | null;
+  gst_rate: number | null;
+  is_active: boolean;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface BrandWithVariantLinks extends MaterialBrand {
@@ -752,6 +778,13 @@ export interface PurchaseOrderItem {
   calculated_weight: number | null;
   actual_weight: number | null;
   actual_weight_per_piece: number | null; // Derived: actual_weight / quantity for brand weight learning
+  /**
+   * Pack-only materials: the can size + count ordered. quantity stays the
+   * base-unit total (contents × pack_count) and unit_price stays per base unit,
+   * so all existing money/stock math is unchanged. Null for ordinary materials.
+   */
+  pack_id: string | null;
+  pack_count: number | null;
 }
 
 export interface Delivery {
@@ -901,6 +934,13 @@ export interface MaterialRequestItem {
   created_at: string;
   suggested_vendor_id: string | null;
   suggested_unit_price: number | null;
+  /**
+   * Pack-only materials: the chosen can size and how many cans. requested_qty
+   * is always the base-unit total (pack.contents_qty × pack_count). Null for
+   * ordinary materials.
+   */
+  pack_id: string | null;
+  pack_count: number | null;
 }
 
 // ============================================
@@ -923,6 +963,8 @@ export interface MaterialWithDetails extends Material {
   variant_count?: number;
   /** Number of shared visual designs (e.g. tile patterns) on this material. */
   design_count?: number;
+  /** Standard can/container sizes when this material is `sold_in_packs`. */
+  packs?: MaterialPack[];
 }
 
 /**
@@ -1118,6 +1160,9 @@ export interface RequestItemForConversion {
   suggested_vendor_id?: string | null;
   suggested_vendor_name?: string | null;
   suggested_unit_price?: number | null;
+  // Pack-only materials: carried from the request so the PO line stays in whole cans.
+  pack_id?: string | null;
+  pack_count?: number | null;
 }
 
 /**
@@ -1136,6 +1181,9 @@ export interface ConvertRequestToPOFormData {
     pricing_mode?: "per_piece" | "per_kg";
     calculated_weight?: number | null;
     actual_weight?: number | null;
+    /** Pack-only materials: carried to the PO line. quantity = contents × pack_count. */
+    pack_id?: string | null;
+    pack_count?: number | null;
   }>;
   expected_delivery_date?: string;
   delivery_address?: string;
@@ -1351,6 +1399,8 @@ export interface MaterialFormData {
   min_order_qty?: number;
   reorder_level?: number;
   image_url?: string;
+  /** Sold only in fixed standard cans/containers (see MaterialPack). */
+  sold_in_packs?: boolean;
   // Spot-purchase flow: site engineers can quick-add draft materials.
   // Office un-drafts via /company/materials drafts filter (Task M-2).
   is_draft?: boolean;
@@ -1479,6 +1529,9 @@ export interface MaterialRequestItemFormData {
   suggested_vendor_id?: string | null;
   /** Unit price (excl. GST) captured at request time. Pre-fills the PO approval dialog when vendor matches. */
   suggested_unit_price?: number | null;
+  /** Pack-only materials: chosen can size + count. requested_qty = contents × count. */
+  pack_id?: string | null;
+  pack_count?: number | null;
 }
 
 export interface PurchaseOrderFormData {
@@ -1518,6 +1571,9 @@ export interface PurchaseOrderItemFormData {
   actual_weight_per_piece?: number | null; // Derived: actual_weight / quantity
   // Link to material request item (for POs created from requests)
   request_item_id?: string;
+  // Pack-only materials: can size + count. quantity = contents × pack_count.
+  pack_id?: string | null;
+  pack_count?: number | null;
 }
 
 export interface DeliveryFormData {

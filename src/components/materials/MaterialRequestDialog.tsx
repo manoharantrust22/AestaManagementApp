@@ -55,6 +55,8 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
+import { activePacks, representativePack } from "@/lib/materials/packs";
+import { formatCurrency } from "@/lib/formatters";
 import type {
   MaterialRequestWithDetails,
   MaterialRequestItemFormData,
@@ -255,8 +257,43 @@ export default function MaterialRequestDialog({
     setTeakPieces("");
   };
 
+  // Pack-only entry — material sold only in fixed cans/containers. Requests are
+  // made in whole cans; the stored requested_qty is the base-unit total
+  // (pack.contents_qty × packCount) so stock/fulfilment math is unchanged.
+  const packOptions = useMemo(
+    () => activePacks(selectedMaterial?.packs),
+    [selectedMaterial],
+  );
+  const isPack = !!selectedMaterial?.sold_in_packs && packOptions.length > 0;
+  const [selectedPackId, setSelectedPackId] = useState<string>("");
+  const [packCount, setPackCount] = useState(1);
+  const selectedPack = packOptions.find((p) => p.id === selectedPackId) ?? null;
+  const packBaseTotal = selectedPack ? selectedPack.contents_qty * packCount : 0;
+
+  // Default the can size whenever a pack-only material is picked.
+  useEffect(() => {
+    if (isPack) {
+      setSelectedPackId((prev) =>
+        packOptions.some((p) => p.id === prev)
+          ? prev
+          : representativePack(packOptions)?.id ?? packOptions[0]?.id ?? "",
+      );
+      setPackCount(1);
+    } else {
+      setSelectedPackId("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMaterial?.id]);
+
   // Ref to prevent double submissions (more reliable than state)
   const isSubmittingRef = useRef(false);
+
+  // Snapshot of existing items' editable fields at open time, keyed by item id.
+  // Used in edit mode to detect inline qty/notes changes so only the changed rows
+  // are sent to the edit_material_request_items RPC.
+  const originalItemsRef = useRef<
+    Record<string, { requested_qty: number; notes: string | null }>
+  >({});
 
   // Get available stock for a material
   const getAvailableStock = (materialId: string) => {
@@ -291,7 +328,17 @@ export default function MaterialRequestDialog({
           availableStock: getAvailableStock(item.material_id),
         })) || [];
       setItems(existingItems);
+      // Record originals so inline qty/notes edits can be diffed on save.
+      originalItemsRef.current = Object.fromEntries(
+        existingItems
+          .filter((it) => it.id)
+          .map((it) => [
+            it.id as string,
+            { requested_qty: it.requested_qty, notes: it.notes ?? null },
+          ]),
+      );
     } else {
+      originalItemsRef.current = {};
       setSectionId("");
       setRequestDate(today);
       setRequiredByDate("");
@@ -414,6 +461,34 @@ export default function MaterialRequestDialog({
       return;
     }
 
+    if (isPack) {
+      if (!selectedPack || packCount < 1) {
+        setError("Pick a can size and how many cans.");
+        return;
+      }
+      if (items.some((item) => item.material_id === selectedMaterial.id)) {
+        setError("This material is already in the request");
+        return;
+      }
+      const newItem: RequestItemRow = {
+        material_id: selectedMaterial.id,
+        requested_qty: parseFloat((selectedPack.contents_qty * packCount).toFixed(3)),
+        pack_id: selectedPack.id,
+        pack_count: packCount,
+        notes: newItemNotes || undefined,
+        materialName: selectedMaterial.name,
+        unit: selectedMaterial.unit,
+        availableStock: getAvailableStock(selectedMaterial.id),
+      };
+      setItems([...items, newItem]);
+      setSelectedMaterial(null);
+      setSelectedPackId("");
+      setPackCount(1);
+      setNewItemNotes("");
+      setError("");
+      return;
+    }
+
     if (!newItemQty || parseFloat(newItemQty) <= 0) {
       setError("Please enter a valid quantity");
       return;
@@ -458,6 +533,27 @@ export default function MaterialRequestDialog({
     setItems(items.filter((_, i) => i !== index));
   };
 
+  // Inline edit of an existing/new row's quantity (keeps decimals like 1.5).
+  const handleQtyChange = (index: number, value: string) => {
+    const parsed = parseFloat(value);
+    setItems((prev) =>
+      prev.map((it, i) =>
+        i === index
+          ? { ...it, requested_qty: Number.isNaN(parsed) ? 0 : parsed }
+          : it,
+      ),
+    );
+  };
+
+  // Inline edit of an existing/new row's notes.
+  const handleNoteChange = (index: number, value: string) => {
+    setItems((prev) =>
+      prev.map((it, i) =>
+        i === index ? { ...it, notes: value || undefined } : it,
+      ),
+    );
+  };
+
   const handleSave = async (targetStatus: 'pending' | 'draft') => {
     if (isSubmittingRef.current) return;
     isSubmittingRef.current = true;
@@ -469,6 +565,11 @@ export default function MaterialRequestDialog({
     }
     if (items.length === 0) {
       setError("Please add at least one item");
+      isSubmittingRef.current = false;
+      return;
+    }
+    if (items.some((item) => !(item.requested_qty > 0))) {
+      setError("Each item must have a quantity greater than zero");
       isSubmittingRef.current = false;
       return;
     }
@@ -489,7 +590,28 @@ export default function MaterialRequestDialog({
         });
 
         const newItems = items.filter((item) => !item.id);
-        if (removedItemIds.length > 0 || newItems.length > 0) {
+        // Existing rows whose qty or notes were edited inline.
+        const changedItems = items
+          .filter((item) => item.id)
+          .filter((item) => {
+            const orig = originalItemsRef.current[item.id!];
+            if (!orig) return false;
+            return (
+              item.requested_qty !== orig.requested_qty ||
+              (item.notes ?? null) !== orig.notes
+            );
+          })
+          .map((item) => ({
+            id: item.id!,
+            requested_qty: item.requested_qty,
+            notes: item.notes ?? null,
+          }));
+
+        if (
+          removedItemIds.length > 0 ||
+          newItems.length > 0 ||
+          changedItems.length > 0
+        ) {
           await editItems.mutateAsync({
             requestId: request.id,
             siteId,
@@ -500,6 +622,7 @@ export default function MaterialRequestDialog({
               requested_qty: item.requested_qty,
               notes: item.notes,
             })),
+            itemsToUpdate: changedItems,
           });
         } else if (linkedPOsCount > 0 && !isDraftBeingSubmitted) {
           try {
@@ -534,6 +657,8 @@ export default function MaterialRequestDialog({
               notes: batchNote || undefined,
               suggested_vendor_id: item.suggested_vendor_id ?? null,
               suggested_unit_price: item.suggested_unit_price ?? null,
+              pack_id: item.pack_id ?? null,
+              pack_count: item.pack_count ?? null,
             };
           }),
         });
@@ -541,10 +666,31 @@ export default function MaterialRequestDialog({
       onClose();
     } catch (err: unknown) {
       console.error("[MaterialRequestDialog] Submit error:", err);
-      let message = "Failed to save request";
-      if (err instanceof Error) message = err.message;
-      const errObj = err as Record<string, unknown>;
-      if (errObj?.code === "23505" || errObj?.status === 409 || message.includes("409")) {
+      // Supabase PostgrestErrors are plain objects (not Error instances), so the
+      // generic fallback used to swallow their real message/code. Pull the message
+      // from whatever shape the error is, and map a few known cases to clear text.
+      const errObj = (err ?? {}) as Record<string, unknown>;
+      const rawMessage =
+        err instanceof Error
+          ? err.message
+          : (typeof errObj.message === "string" && errObj.message) ||
+            (typeof errObj.details === "string" && errObj.details) ||
+            (typeof errObj.hint === "string" && errObj.hint) ||
+            "";
+      let message = rawMessage || "Failed to save request";
+      const code = typeof errObj.code === "string" ? errObj.code : undefined;
+      const status = typeof errObj.status === "number" ? errObj.status : undefined;
+
+      if (
+        code === "PGRST202" ||
+        status === 404 ||
+        /could not find the function/i.test(rawMessage) ||
+        /schema cache/i.test(rawMessage)
+      ) {
+        // A required RPC is missing from the database (migration not applied / drift).
+        message =
+          "Server function unavailable (edit_material_request_items). The database may be mid-migration — please retry shortly or contact support.";
+      } else if (code === "23505" || status === 409 || message.includes("409")) {
         message = "A request with this number already exists. Please try again.";
       }
       if (message.includes("timed out")) {
@@ -828,7 +974,7 @@ export default function MaterialRequestDialog({
             />
           </Grid>
 
-          {!isTeak && (
+          {!isTeak && !isPack && (
             <Grid size={{ xs: deliveryType === 'bulk' ? 3 : 4, md: 2 }}>
               <TextField
                 fullWidth
@@ -842,7 +988,7 @@ export default function MaterialRequestDialog({
             </Grid>
           )}
 
-          {!isTeak && deliveryType === 'bulk' && (
+          {!isTeak && !isPack && deliveryType === 'bulk' && (
             <Grid size={{ xs: 3, md: 2 }}>
               <TextField
                 fullWidth
@@ -857,7 +1003,7 @@ export default function MaterialRequestDialog({
             </Grid>
           )}
 
-          {!isTeak && (
+          {!isTeak && !isPack && (
             <Grid size={{ xs: deliveryType === 'bulk' ? 6 : 8, md: 3 }}>
               <TextField
                 fullWidth
@@ -870,7 +1016,7 @@ export default function MaterialRequestDialog({
             </Grid>
           )}
 
-          {!isTeak && (
+          {!isTeak && !isPack && (
             <Grid size={{ xs: 12, md: 2 }}>
               <Button
                 fullWidth
@@ -881,6 +1027,124 @@ export default function MaterialRequestDialog({
               >
                 Add
               </Button>
+            </Grid>
+          )}
+
+          {isPack && (
+            <Grid size={12}>
+              <Paper variant="outlined" sx={{ p: 2, bgcolor: "action.hover" }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                  Sold in whole cans — pick a can size and how many cans.
+                </Typography>
+                <Grid container spacing={1.5} alignItems="center">
+                  <Grid size={{ xs: 12, md: 5 }}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Can size</InputLabel>
+                      <Select
+                        value={selectedPackId}
+                        label="Can size"
+                        onChange={(e) => setSelectedPackId(e.target.value)}
+                        MenuProps={{ disablePortal: false }}
+                      >
+                        {packOptions.map((p) => (
+                          <MenuItem key={p.id} value={p.id}>
+                            {p.label}
+                            {p.price != null ? ` — ${formatCurrency(p.price)}` : ""}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid size={{ xs: 7, md: 4 }}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                        Number of cans
+                      </Typography>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <IconButton
+                          size="small"
+                          onClick={() => setPackCount((c) => Math.max(1, c - 1))}
+                          disabled={packCount <= 1}
+                          sx={{ border: 1, borderColor: "divider" }}
+                        >
+                          –
+                        </IconButton>
+                        <TextField
+                          size="small"
+                          type="number"
+                          value={packCount}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10);
+                            setPackCount(Number.isFinite(v) && v >= 1 ? v : 1);
+                          }}
+                          slotProps={{
+                            input: {
+                              inputProps: { min: 1, step: 1, style: { textAlign: "center" } },
+                            },
+                          }}
+                          sx={{ width: 72 }}
+                        />
+                        <IconButton
+                          size="small"
+                          onClick={() => setPackCount((c) => c + 1)}
+                          sx={{ border: 1, borderColor: "divider" }}
+                        >
+                          +
+                        </IconButton>
+                      </Box>
+                    </Box>
+                  </Grid>
+                  <Grid size={{ xs: 5, md: 3 }}>
+                    <Box
+                      sx={{
+                        minHeight: 40,
+                        px: 1.5,
+                        py: 0.5,
+                        border: 1,
+                        borderColor: "divider",
+                        borderRadius: 1,
+                        bgcolor: "background.paper",
+                      }}
+                    >
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                        Total
+                      </Typography>
+                      <Typography variant="body2" fontWeight={600}>
+                        {packBaseTotal > 0
+                          ? `${packBaseTotal} ${selectedMaterial?.unit ?? ""}`
+                          : "—"}
+                      </Typography>
+                      {selectedPack?.price != null && (
+                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem" }}>
+                          {formatCurrency(selectedPack.price * packCount)}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 9 }}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Notes (optional)"
+                      value={newItemNotes}
+                      onChange={(e) => setNewItemNotes(e.target.value)}
+                      placeholder="Optional"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 3 }}>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      startIcon={<AddIcon />}
+                      onClick={handleAddItem}
+                      sx={{ height: 40 }}
+                      disabled={!selectedPack || packCount < 1}
+                    >
+                      Add
+                    </Button>
+                  </Grid>
+                </Grid>
+              </Paper>
             </Grid>
           )}
 
@@ -1124,10 +1388,68 @@ export default function MaterialRequestDialog({
                             {item.materialName}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {item.unit}
+                            {item.pack_count
+                              ? `${item.pack_count} can${item.pack_count > 1 ? "s" : ""} · ${item.requested_qty} ${item.unit}`
+                              : item.unit}
                           </Typography>
                         </TableCell>
-                        <TableCell align="right">{item.requested_qty}</TableCell>
+                        <TableCell align="right">
+                          {isEdit && item.id && itemDeliveryStatus[item.id] ? (
+                            <Tooltip title="Cannot edit qty — has delivery records">
+                              <span>
+                                <TextField
+                                  type="number"
+                                  size="small"
+                                  value={item.requested_qty}
+                                  disabled
+                                  slotProps={{
+                                    input: {
+                                      inputProps: {
+                                        min: 0,
+                                        step: 0.01,
+                                        style: { textAlign: "right", width: 72 },
+                                      },
+                                    },
+                                  }}
+                                />
+                              </span>
+                            </Tooltip>
+                          ) : item.pack_count ? (
+                            <Tooltip title="Sold in whole cans — remove and re-add to change">
+                              <span>
+                                <TextField
+                                  type="number"
+                                  size="small"
+                                  value={item.requested_qty}
+                                  disabled
+                                  slotProps={{
+                                    input: {
+                                      inputProps: {
+                                        style: { textAlign: "right", width: 72 },
+                                      },
+                                    },
+                                  }}
+                                />
+                              </span>
+                            </Tooltip>
+                          ) : (
+                            <TextField
+                              type="number"
+                              size="small"
+                              value={item.requested_qty}
+                              onChange={(e) => handleQtyChange(index, e.target.value)}
+                              slotProps={{
+                                input: {
+                                  inputProps: {
+                                    min: 0,
+                                    step: 0.01,
+                                    style: { textAlign: "right", width: 72 },
+                                  },
+                                },
+                              }}
+                            />
+                          )}
+                        </TableCell>
                         {deliveryType === 'bulk' && (
                           <TableCell align="right">
                             <Typography variant="body2" color={item.first_batch_qty ? "primary" : "text.disabled"}>
@@ -1148,9 +1470,14 @@ export default function MaterialRequestDialog({
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Typography variant="caption" color="text.secondary">
-                            {item.notes || "-"}
-                          </Typography>
+                          <TextField
+                            size="small"
+                            fullWidth
+                            variant="standard"
+                            placeholder="-"
+                            value={item.notes ?? ""}
+                            onChange={(e) => handleNoteChange(index, e.target.value)}
+                          />
                         </TableCell>
                         <TableCell>
                           {isEdit && item.id && itemDeliveryStatus[item.id] ? (

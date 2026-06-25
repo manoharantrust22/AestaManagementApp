@@ -44,6 +44,8 @@ import {
   useFrequentMaterials,
 } from "@/hooks/queries/useMaterialRequests";
 import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
+import { activePacks, representativePack } from "@/lib/materials/packs";
+import { formatCurrency } from "@/lib/formatters";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
 import { MaterialRequestRow } from "@/components/materials/quick-request/MaterialRequestRow";
 import {
@@ -66,6 +68,9 @@ interface CartItem {
   material_name: string;
   unit: string;
   qty: number;
+  /** Pack-only materials: chosen can size + count. qty = contents × pack_count. */
+  pack_id?: string | null;
+  pack_count?: number | null;
 }
 
 const QUICK_QTY_PRESETS = [1, 5, 10, 25, 50];
@@ -118,7 +123,10 @@ export default function QuickRequestPage() {
   const [deliveryType, setDeliveryType] = useState<"one_time" | "bulk">("one_time");
   const [payingSiteId, setPayingSiteId] = useState<string>("");
   const [pickerMaterial, setPickerMaterial] = useState<MaterialWithDetails | null>(null);
+  // For ordinary materials pickerQty is the base-unit quantity; for pack-only
+  // materials it is the NUMBER OF CANS.
   const [pickerQty, setPickerQty] = useState(1);
+  const [pickerPackId, setPickerPackId] = useState<string>("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const isSubmittingRef = useRef(false);
@@ -227,10 +235,32 @@ export default function QuickRequestPage() {
   const isBackdated = requestDate !== todayIso();
   const submitting = createRequest.isPending;
 
+  // Pack-only material currently in the picker.
+  const pickerPacks = useMemo(
+    () => activePacks(pickerMaterial?.packs),
+    [pickerMaterial],
+  );
+  const isPickerPack = !!pickerMaterial?.sold_in_packs && pickerPacks.length > 0;
+  const selectedPickerPack =
+    pickerPacks.find((p) => p.id === pickerPackId) ?? null;
+
   const openPicker = (material: MaterialWithDetails) => {
     const existing = cartByMaterial.get(material.id);
+    const packs = activePacks(material.packs);
+    const isPack = !!material.sold_in_packs && packs.length > 0;
     setPickerMaterial(material);
-    setPickerQty(existing?.qty || 1);
+    if (isPack) {
+      // pickerQty = number of cans
+      const defaultPack =
+        packs.find((p) => p.id === existing?.pack_id) ??
+        representativePack(packs) ??
+        packs[0];
+      setPickerPackId(defaultPack?.id ?? "");
+      setPickerQty(existing?.pack_count || 1);
+    } else {
+      setPickerPackId("");
+      setPickerQty(existing?.qty || 1);
+    }
   };
 
   const openPickerById = (materialId: string, fallback?: Partial<MaterialWithDetails>) => {
@@ -245,11 +275,35 @@ export default function QuickRequestPage() {
   const closePicker = () => {
     setPickerMaterial(null);
     setPickerQty(1);
+    setPickerPackId("");
   };
 
   const addOrUpdateCart = () => {
     if (!pickerMaterial || pickerQty <= 0) return;
-    setQty(pickerMaterial, pickerQty);
+    if (isPickerPack) {
+      if (!selectedPickerPack) return;
+      const cans = Math.max(1, Math.round(pickerQty));
+      const baseTotal = parseFloat((selectedPickerPack.contents_qty * cans).toFixed(3));
+      setCart((prev) => {
+        const idx = prev.findIndex((c) => c.material_id === pickerMaterial.id);
+        const next: CartItem = {
+          material_id: pickerMaterial.id,
+          material_name: pickerMaterial.name,
+          unit: pickerMaterial.unit || "",
+          qty: baseTotal,
+          pack_id: selectedPickerPack.id,
+          pack_count: cans,
+        };
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = next;
+          return copy;
+        }
+        return [...prev, next];
+      });
+    } else {
+      setQty(pickerMaterial, pickerQty);
+    }
     closePicker();
   };
 
@@ -307,6 +361,8 @@ export default function QuickRequestPage() {
         items: cart.map((c) => ({
           material_id: c.material_id,
           requested_qty: c.qty,
+          pack_id: c.pack_id ?? null,
+          pack_count: c.pack_count ?? null,
         })),
       });
       const datePart = isBackdated ? ` for ${formatDateLabel(requestDate)}` : "";
@@ -503,6 +559,7 @@ export default function QuickRequestPage() {
           material={material}
           stock={stockByMaterial.get(material.id) || 0}
           cartQty={cartByMaterial.get(material.id)?.qty ?? null}
+          cartPackCount={cartByMaterial.get(material.id)?.pack_count ?? null}
           onOpenPicker={() => openPicker(material)}
           onChangeQty={(qty) => setQty(material, qty)}
         />
@@ -917,7 +974,9 @@ export default function QuickRequestPage() {
                 </Typography>
                 {pickerMaterial.unit && (
                   <Typography variant="caption" color="text.secondary">
-                    Quantity in {pickerMaterial.unit}
+                    {isPickerPack
+                      ? "Number of cans"
+                      : `Quantity in ${pickerMaterial.unit}`}
                   </Typography>
                 )}
               </Box>
@@ -925,6 +984,25 @@ export default function QuickRequestPage() {
                 <CloseIcon />
               </IconButton>
             </Stack>
+
+            {isPickerPack && (
+              <TextField
+                select
+                fullWidth
+                size="small"
+                label="Can size"
+                value={pickerPackId}
+                onChange={(e) => setPickerPackId(e.target.value)}
+                sx={{ mb: 1 }}
+              >
+                {pickerPacks.map((p) => (
+                  <MenuItem key={p.id} value={p.id}>
+                    {p.label}
+                    {p.price != null ? ` — ${formatCurrency(p.price)}` : ""}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
 
             <Stack
               direction="row"
@@ -970,28 +1048,44 @@ export default function QuickRequestPage() {
               </IconButton>
             </Stack>
 
-            <Stack
-              direction="row"
-              spacing={1}
-              sx={{ flexWrap: "wrap", justifyContent: "center", mb: 3 }}
-            >
-              {QUICK_QTY_PRESETS.map((n) => (
-                <Chip
-                  key={n}
-                  label={n}
-                  onClick={() => setPickerQty(n)}
-                  variant={pickerQty === n ? "filled" : "outlined"}
-                  color={pickerQty === n ? "primary" : "default"}
-                  sx={{ minWidth: 56 }}
-                />
-              ))}
-            </Stack>
+            {isPickerPack ? (
+              <Typography
+                align="center"
+                variant="body2"
+                color="text.secondary"
+                sx={{ mb: 3 }}
+              >
+                {selectedPickerPack
+                  ? `Total: ${(selectedPickerPack.contents_qty * Math.max(1, Math.round(pickerQty)))} ${pickerMaterial.unit}` +
+                    (selectedPickerPack.price != null
+                      ? ` · ${formatCurrency(selectedPickerPack.price * Math.max(1, Math.round(pickerQty)))}`
+                      : "")
+                  : "Pick a can size"}
+              </Typography>
+            ) : (
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{ flexWrap: "wrap", justifyContent: "center", mb: 3 }}
+              >
+                {QUICK_QTY_PRESETS.map((n) => (
+                  <Chip
+                    key={n}
+                    label={n}
+                    onClick={() => setPickerQty(n)}
+                    variant={pickerQty === n ? "filled" : "outlined"}
+                    color={pickerQty === n ? "primary" : "default"}
+                    sx={{ minWidth: 56 }}
+                  />
+                ))}
+              </Stack>
+            )}
 
             <Button
               fullWidth
               size="large"
               variant="contained"
-              disabled={pickerQty <= 0}
+              disabled={pickerQty <= 0 || (isPickerPack && !selectedPickerPack)}
               onClick={addOrUpdateCart}
               sx={{ height: 52, fontSize: 16, fontWeight: 600 }}
             >

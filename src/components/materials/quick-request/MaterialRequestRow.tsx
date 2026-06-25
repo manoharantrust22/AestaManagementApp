@@ -17,6 +17,7 @@ import {
   CheckCircle as CheckCircleIcon,
 } from "@mui/icons-material";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
+import { activePacks } from "@/lib/materials/packs";
 import type { MaterialWithDetails } from "@/types/material.types";
 
 interface MaterialRequestRowProps {
@@ -24,6 +25,8 @@ interface MaterialRequestRowProps {
   stock: number;
   /** Quantity currently in the request cart, or null/0 when not added. */
   cartQty: number | null;
+  /** Number of cans in the cart for pack-only materials (drives the "N cans" label). */
+  cartPackCount?: number | null;
   /** Open the quantity picker for precise entry (tapping the row body / Add). */
   onOpenPicker: () => void;
   /** Inline +/- adjustment. Passing 0 removes the item from the cart. */
@@ -39,10 +42,14 @@ export function MaterialRequestRow({
   material,
   stock,
   cartQty,
+  cartPackCount,
   onOpenPicker,
   onChangeQty,
 }: MaterialRequestRowProps) {
   const inCart = !!cartQty && cartQty > 0;
+  // Pack-only materials are bought in whole cans: the inline ±1 base stepper is
+  // meaningless, so we route the user to the picker instead.
+  const isPack = !!material.sold_in_packs && activePacks(material.packs).length > 0;
 
   return (
     <Card
@@ -94,7 +101,7 @@ export function MaterialRequestRow({
             >
               {material.unit && (
                 <Typography variant="caption" color="text.secondary">
-                  per {material.unit}
+                  {isPack ? "sold in cans" : `per ${material.unit}`}
                 </Typography>
               )}
               {stock > 0 ? (
@@ -123,7 +130,23 @@ export function MaterialRequestRow({
           </Box>
         </ButtonBase>
 
-        {inCart ? (
+        {inCart && isPack ? (
+          <Button
+            onClick={onOpenPicker}
+            variant="contained"
+            size="small"
+            sx={{
+              flexShrink: 0,
+              mr: 0.5,
+              minHeight: 40,
+              borderRadius: 2,
+              textTransform: "none",
+              fontWeight: 700,
+            }}
+          >
+            {cartPackCount ?? 1} can{(cartPackCount ?? 1) > 1 ? "s" : ""}
+          </Button>
+        ) : inCart ? (
           <Stack
             direction="row"
             alignItems="center"

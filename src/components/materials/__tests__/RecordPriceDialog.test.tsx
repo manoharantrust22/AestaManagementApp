@@ -39,6 +39,7 @@ const BASE_MATERIAL: Material = {
   min_order_qty: null,
   reorder_level: null,
   image_url: null,
+  sold_in_packs: false,
   is_active: true,
   created_at: "",
   updated_at: "",

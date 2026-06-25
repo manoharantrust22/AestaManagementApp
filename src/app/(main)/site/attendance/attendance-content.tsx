@@ -79,6 +79,7 @@ import {
   VisibilityOff as VisibilityOffIcon,
   EditCalendar as EditCalendarIcon,
   Groups as GroupsIcon,
+  Engineering as EngineeringIcon,
 } from "@mui/icons-material";
 import { type SiteHoliday } from "@/components/attendance/HolidayConfirmDialog";
 
@@ -164,9 +165,108 @@ import AttendanceSkeleton from "./attendance-skeleton";
 import { hasEditPermission } from "@/lib/permissions";
 import { useSearchParams, useRouter } from "next/navigation";
 import type { AttendancePageData } from "@/lib/data/attendance";
+import { useContractPresence } from "@/hooks/queries/useContractPresence";
+import {
+  formatContractWorkerCount,
+  formatContractDayLabel,
+  formatContractWorkerSummary,
+  contractItemHref,
+  type ContractPresenceDay,
+} from "@/lib/utils/contractPresenceUtils";
 
 type LaborerType = string;
 type DailyWorkSummary = Database["public"]["Tables"]["daily_work_summary"]["Row"];
+
+// Stable empty fallback so an absent contract-presence query doesn't churn the
+// combinedDateEntries memo deps on every render.
+const EMPTY_CONTRACT_PRESENCE: ReadonlyMap<string, ContractPresenceDay> = new Map();
+
+/**
+ * Calm "Contract work" row shown for a date that had documented contract/
+ * task-work crew but no marked attendance — replaces the red "unfilled" nag and
+ * taps through to the contract on /site/trades.
+ */
+function ContractWorkRow({ presence }: { presence: ContractPresenceDay }) {
+  const router = useRouter();
+  const theme = useTheme();
+  const only = presence.items.length === 1 ? presence.items[0] : null;
+  const href = only ? contractItemHref(only) : "/site/trades";
+  const workerSummary = formatContractWorkerSummary(presence);
+  return (
+    <TableRow
+      hover
+      onClick={() => router.push(href)}
+      sx={{
+        bgcolor: alpha(theme.palette.info.main, 0.06),
+        "&:hover": { bgcolor: alpha(theme.palette.info.main, 0.12) },
+        cursor: "pointer",
+      }}
+    >
+      <TableCell
+        colSpan={13}
+        sx={{ py: 1.25, borderLeft: 4, borderLeftColor: "info.main" }}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: { xs: 1, sm: 1.5 },
+            flexWrap: "wrap",
+          }}
+        >
+          <EngineeringIcon sx={{ color: "info.main", fontSize: { xs: 20, sm: 24 } }} />
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25 }}>
+            <Typography variant="body2" fontWeight={600} sx={{ lineHeight: 1.2 }}>
+              {dayjs(presence.date).format("DD MMM")}
+              <Typography
+                component="span"
+                variant="caption"
+                color="text.secondary"
+                sx={{ ml: 1 }}
+              >
+                {dayjs(presence.date).format("ddd")}
+              </Typography>
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ lineHeight: 1.15 }}
+            >
+              Contract work · {formatContractDayLabel(presence)}
+            </Typography>
+          </Box>
+          <Chip
+            label={formatContractWorkerCount(presence.totalUnits)}
+            size="small"
+            color="info"
+            variant="outlined"
+            sx={{ fontWeight: 600, height: 22, fontSize: "0.7rem" }}
+          />
+          {workerSummary && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: { xs: "none", sm: "block" } }}
+            >
+              {workerSummary}
+            </Typography>
+          )}
+          <Button
+            size="small"
+            endIcon={<ArrowForwardIcon />}
+            onClick={(e) => {
+              e.stopPropagation();
+              router.push(href);
+            }}
+            sx={{ ml: "auto" }}
+          >
+            View
+          </Button>
+        </Box>
+      </TableCell>
+    </TableRow>
+  );
+}
 import dayjs from "dayjs";
 import { weekStartStr } from "@/lib/utils/weekUtils";
 import {
@@ -995,6 +1095,21 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     enabled: !initialData || initialDataProcessedRef.current,
   });
 
+  // Contract / task-work presence per date (fixed-price package Day Logs +
+  // headcount-mode subcontracts). Used to (a) replace red "unfilled" nags on
+  // contract-only days with calm "Contract work" rows, and (b) drop those
+  // dates from the unfilled count. Loaded over the same visible range as the
+  // unfilled calc below, mirroring how holidays are handled.
+  const contractPresenceQuery = useContractPresence({
+    siteId: selectedSite?.id,
+    dateFrom,
+    dateTo,
+    isAllTime,
+    enabled: !initialData || initialDataProcessedRef.current,
+  });
+  const contractPresenceMap =
+    contractPresenceQuery.data ?? EMPTY_CONTRACT_PRESENCE;
+
   // Hook to invalidate attendance cache after mutations
   const invalidateAttendance = useInvalidateAttendanceData();
 
@@ -1585,13 +1700,38 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     // Get all in-scope holiday dates for unfilled calculation
     const holidayDates = new Set(scopedHolidays.map((h) => h.date));
 
+    // Dates that had documented contract/task-work crew — these are surfaced as
+    // calm "Contract work" rows, so they must NOT be flagged as red "unfilled".
+    const contractDates = new Set(contractPresenceMap.keys());
+
     // Calculate unfilled dates within the visible range, bounded by project dates
     const effectiveStart = dateFrom && projectStart ? (dateFrom > projectStart ? dateFrom : projectStart) : (dateFrom || projectStart);
     const effectiveEnd = dateTo && projectEnd ? (dateTo < projectEnd ? dateTo : projectEnd) : (dateTo || projectEnd);
 
     const unfilledDates = effectiveStart && effectiveEnd && showHolidays
-      ? getUnfilledDates(effectiveStart, effectiveEnd, attendanceDates, holidayDates)
+      ? getUnfilledDates(effectiveStart, effectiveEnd, attendanceDates, holidayDates, contractDates)
       : [];
+
+    // Contract-work rows: a date with documented contract crew but no
+    // attendance and no holiday. Shown regardless of the holidays toggle since
+    // it represents real logged work, not a holiday. Bounded to the visible
+    // range so a date filter still applies.
+    const contractWorkEntries = Array.from(contractPresenceMap.values())
+      .filter((day) => {
+        const inRange =
+          (!effectiveStart || day.date >= effectiveStart) &&
+          (!effectiveEnd || day.date <= effectiveEnd);
+        return (
+          inRange &&
+          !attendanceDates.has(day.date) &&
+          !holidayDates.has(day.date)
+        );
+      })
+      .map((day) => ({
+        type: "contract_work" as const,
+        date: day.date,
+        presence: day,
+      }));
 
     // Group consecutive unfilled dates
     const unfilledGroups = groupUnfilledDates(unfilledDates);
@@ -1622,7 +1762,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     });
 
     // Combine and sort by date descending
-    const combined = [...attendanceEntries, ...holidayGroupEntries, ...unfilledGroupEntries].sort(
+    const combined = [...attendanceEntries, ...holidayGroupEntries, ...unfilledGroupEntries, ...contractWorkEntries].sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
 
@@ -1633,6 +1773,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       | { type: "attendance"; date: string; summary: DateSummary; holiday: typeof recentHolidays[0] | null }
       | { type: "holiday_group"; date: string; endDate: string; group: HolidayGroup }
       | { type: "unfilled_group"; date: string; endDate: string; group: UnfilledGroup }
+      | { type: "contract_work"; date: string; presence: ContractPresenceDay }
       | { type: "weekly_separator"; date: string; weeklySummary: WeeklySummary };
 
     const withWeeklySeparators: CombinedEntry[] = [];
@@ -1747,7 +1888,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     });
 
     return withWeeklySeparators;
-  }, [dateSummaries, scopedDateSummaries, scopedHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date]);
+  }, [dateSummaries, scopedDateSummaries, scopedHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date, contractPresenceMap]);
 
   // Process initialData from server on first render
   useEffect(() => {
@@ -4162,6 +4303,11 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                             </TableCell>
                           </TableRow>
                         </>
+                      )}
+
+                      {/* Contract / task-work day (no attendance marked) */}
+                      {entry.type === "contract_work" && (
+                        <ContractWorkRow presence={entry.presence} />
                       )}
 
                       {/* Weekly separator strip */}

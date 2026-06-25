@@ -320,6 +320,10 @@ export function useCreateMaterialRequest() {
         suggested_vendor_id: item.suggested_vendor_id || null,
         suggested_unit_price:
           item.suggested_unit_price != null ? item.suggested_unit_price : null,
+        // Pack-only materials: record the can size + count (requested_qty is
+        // already the base-unit total = contents × count).
+        pack_id: item.pack_id || null,
+        pack_count: item.pack_count ?? null,
       }));
 
       console.log("[useCreateMaterialRequest] Inserting", requestItems.length, "items...");
@@ -384,6 +388,8 @@ export function useCreateMaterialRequest() {
           fulfilled_qty: 0,
           estimated_cost: item.estimated_cost || null,
           notes: item.notes || null,
+          pack_id: item.pack_id || null,
+          pack_count: item.pack_count ?? null,
           created_at: new Date().toISOString(),
           material: null,
         })),
@@ -1186,7 +1192,7 @@ export function useRequestItemsForConversion(requestId: string | undefined) {
         .select(
           `
           id, material_id, brand_id, requested_qty, approved_qty, fulfilled_qty, estimated_cost,
-          suggested_vendor_id, suggested_unit_price,
+          suggested_vendor_id, suggested_unit_price, pack_id, pack_count,
           material:materials(id, name, code, unit, gst_rate, parent_id, weight_per_unit, weight_unit, length_per_piece, length_unit, image_url),
           brand:material_brands(id, brand_name, image_url),
           suggested_vendor:vendors!material_request_items_suggested_vendor_id_fkey(id, name)
@@ -1317,6 +1323,9 @@ export function useRequestItemsForConversion(requestId: string | undefined) {
           suggested_vendor_name: (item.suggested_vendor as { name?: string } | null)?.name ?? null,
           suggested_unit_price:
             item.suggested_unit_price != null ? Number(item.suggested_unit_price) : null,
+          // Pack-only materials: carry the can size + count to the PO line.
+          pack_id: item.pack_id ?? null,
+          pack_count: item.pack_count ?? null,
         } as RequestItemForConversion;
       });
     },
@@ -1419,6 +1428,9 @@ export function useConvertRequestToPO() {
         total_amount: item.total_amount,
         received_qty: 0,
         pricing_mode: "per_piece",
+        // Pack-only materials: carry the can size + count (quantity stays base-unit).
+        pack_id: item.pack_id ?? null,
+        pack_count: item.pack_count ?? null,
       }));
 
       const { data: insertedItems, error: itemsError } = await supabase
@@ -1989,11 +2001,13 @@ export function useEditMaterialRequestItems() {
       siteId,
       itemsToRemove,
       itemsToAdd,
+      itemsToUpdate = [],
     }: {
       requestId: string;
       siteId: string;
       itemsToRemove: string[];
       itemsToAdd: MaterialRequestItemFormData[];
+      itemsToUpdate?: { id: string; requested_qty: number; notes: string | null }[];
     }) => {
       await ensureFreshSession();
 
@@ -2002,6 +2016,7 @@ export function useEditMaterialRequestItems() {
         p_site_id: siteId,
         p_items_to_remove: itemsToRemove,
         p_items_to_add: itemsToAdd,
+        p_items_to_update: itemsToUpdate,
       });
 
       if (error) throw error;

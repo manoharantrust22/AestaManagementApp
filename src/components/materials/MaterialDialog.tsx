@@ -172,6 +172,7 @@ export default function MaterialDialog({
       gst_rate: material?.gst_rate ?? 0,
       reorder_level: material?.reorder_level ?? undefined,
       min_order_qty: material?.min_order_qty ?? undefined,
+      sold_in_packs: material?.sold_in_packs ?? false,
       weight_per_unit: material?.weight_per_unit ?? null,
       weight_unit: material?.weight_unit || "kg",
       length_per_piece: material?.length_per_piece ?? null,
@@ -815,6 +816,35 @@ export default function MaterialDialog({
                   inputProps: { min: 0, step: 1 },
                   endAdornment: <InputAdornment position="end">{formData.unit}</InputAdornment>,
                 }}
+              />
+            </Box>
+
+            {/* Pack-only: products sold only in fixed standard cans/containers
+                (e.g. a 5 L can). Add the can sizes from the material's "Packs"
+                tab after saving; requests/POs are then constrained to whole cans
+                while stock/usage stay free-form in the primary unit. */}
+            <Box sx={{ mt: 1 }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={!!formData.sold_in_packs}
+                    onChange={(e) => handleChange("sold_in_packs", e.target.checked)}
+                  />
+                }
+                label={
+                  <Box component="span">
+                    <Typography component="span" sx={{ fontSize: 13 }}>
+                      Sold in fixed cans / containers
+                    </Typography>
+                    <Typography
+                      component="span"
+                      sx={{ display: "block", fontSize: 11, color: "text.secondary" }}
+                    >
+                      Bought in whole cans (e.g. 5 L can). Define sizes in the Packs tab.
+                    </Typography>
+                  </Box>
+                }
               />
             </Box>
 

@@ -152,6 +152,49 @@ export function WorkspaceLayout({
     didInit.current = true;
   }, [model, packagesByTrade]);
 
+  // Deep-link: /site/trades?package=<id> or ?contract=<id> opens that node once
+  // the model has loaded. Used by the attendance sheet's "Contract work" rows to
+  // jump straight to the package/contract behind a contract-only day. Read from
+  // the URL here (client-only effect) so the page render path stays untouched.
+  const didDeepLink = useRef(false);
+  useEffect(() => {
+    if (didDeepLink.current) return;
+    if (typeof window === "undefined" || model.trades.length === 0) return;
+
+    const sp = new URLSearchParams(window.location.search);
+    const pkgId = sp.get("package");
+    const contractId = sp.get("contract");
+    if (!pkgId && !contractId) {
+      didDeepLink.current = true;
+      return;
+    }
+
+    if (pkgId && pkgById.has(pkgId)) {
+      setSelectedPackageId(pkgId);
+      setSelectedTaskId(null);
+      for (const [tradeCatId, pkgs] of packagesByTrade) {
+        if (pkgs.some((p) => p.id === pkgId)) {
+          setOpenTrades((m) => ({ ...m, [tradeCatId]: true }));
+          break;
+        }
+      }
+      didDeepLink.current = true;
+      return;
+    }
+
+    if (contractId) {
+      const found = findContractNode(model, contractId);
+      if (found) {
+        setSelectedTaskId(contractId);
+        setSelectedPackageId(null);
+        setOpenTrades((m) => ({ ...m, [found.trade.category.id]: true }));
+        didDeepLink.current = true;
+      }
+    }
+    // If a param is present but not yet resolvable (data still loading), leave
+    // didDeepLink unset so a later render with fuller data can resolve it.
+  }, [model, packagesByTrade, pkgById]);
+
   const selectedTask = findTask(model, selectedTaskId);
   const selectedNode = findContractNode(model, selectedTaskId);
   // Looked up live so package edits reflect without re-selecting; falls back to

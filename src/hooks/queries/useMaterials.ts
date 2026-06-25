@@ -18,7 +18,43 @@ import type {
   MaterialSearchOption,
   BrandWithVariantLinks,
   MaterialBrandVariantLink,
+  MaterialPack,
 } from "@/types/material.types";
+
+const MATERIAL_PACK_COLUMNS =
+  "id, material_id, label, contents_qty, price, price_includes_gst, gst_rate, is_active, display_order, created_at, updated_at";
+
+/**
+ * Attach active `packs` to each material via a single separate query.
+ * Resilient: if the material_packs table doesn't exist yet (pre-migration),
+ * the error is swallowed and packs simply stay undefined — the catalog still
+ * renders with its normal best-price display.
+ */
+async function attachMaterialPacks(
+  supabase: ReturnType<typeof createClient>,
+  materials: MaterialWithDetails[],
+): Promise<void> {
+  if (materials.length === 0) return;
+  try {
+    const { data, error } = await (supabase as any)
+      .from("material_packs")
+      .select(MATERIAL_PACK_COLUMNS)
+      .eq("is_active", true);
+    if (error || !data) return;
+    const byMaterial = new Map<string, MaterialPack[]>();
+    for (const pack of data as MaterialPack[]) {
+      const list = byMaterial.get(pack.material_id) ?? [];
+      list.push(pack);
+      byMaterial.set(pack.material_id, list);
+    }
+    for (const m of materials) {
+      const packs = byMaterial.get(m.id);
+      if (packs) m.packs = packs;
+    }
+  } catch {
+    // material_packs not migrated yet — leave packs undefined.
+  }
+}
 
 // ============================================
 // MATERIAL CATEGORIES
@@ -239,6 +275,12 @@ export async function fetchMaterialCatalog(): Promise<MaterialWithDetails[]> {
   if (error) throw error;
 
   const materials = data as unknown as MaterialWithDetails[];
+
+  // Pack-only materials: attach standard can sizes via a SEPARATE query so the
+  // catalog stays resilient if material_packs hasn't been migrated yet (the
+  // table is tiny — only pack-only materials have rows).
+  await attachMaterialPacks(supabase, materials);
+
   const parentIds = [...new Set(materials.filter(m => m.parent_id).map(m => m.parent_id!))];
 
   if (parentIds.length > 0) {
@@ -890,6 +932,10 @@ export function usePaginatedMaterials(
         variant_count: variantCountsMap[m.id] || 0,
       })) as MaterialWithDetails[];
 
+      // Attach pack sizes so pack-only materials show honest per-can pricing
+      // (resilient if material_packs isn't migrated yet).
+      await attachMaterialPacks(supabase, materialsWithVariantCount);
+
       return {
         data: materialsWithVariantCount,
         totalCount: totalCount || 0,
@@ -928,6 +974,9 @@ export function useMaterial(id: string | undefined) {
       if (error) throw error;
 
       const material = data as unknown as MaterialWithDetails;
+
+      // Attach active packs (resilient if material_packs is not yet migrated).
+      await attachMaterialPacks(supabase, [material]);
 
       // Fetch parent material if this is a variant
       if (material.parent_id) {

@@ -28,6 +28,7 @@ import {
 import { ListRow } from "@/components/common/ListRow";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
 import { formatCurrency, formatDate } from "@/lib/formatters";
+import { activePacks, representativePack } from "@/lib/materials/packs";
 import type { MaterialWithDetails, MaterialUnit } from "@/types/material.types";
 import type { MaterialLatestPurchase } from "@/hooks/queries/useMaterialOrderStats";
 
@@ -113,6 +114,25 @@ export function MaterialListRow({
     };
 
   const unitLabel = UNIT_LABELS[material.unit] || material.unit;
+
+  // Pack-only materials show an honest per-can price ("₹1,620 / 5 L can")
+  // instead of the misleading per-base-unit ("PER LTR") best price.
+  const packs = activePacks(material.packs);
+  const isPack = material.sold_in_packs && packs.length > 0;
+  const repPack = isPack ? representativePack(material.packs) : null;
+  // Prefer the can's own price; otherwise estimate from the per-base-unit best
+  // price × contents (flagged "est.").
+  const packPriceEst =
+    repPack && repPack.price == null && bestPrice != null
+      ? bestPrice * repPack.contents_qty
+      : null;
+  const packAmount = repPack ? repPack.price ?? packPriceEst : null;
+  const packCaption = repPack
+    ? `${packs.length > 1 ? `${packs.length} sizes · ` : ""}/ ${repPack.label}${
+        repPack.price == null ? " (est.)" : ""
+      }`
+    : "";
+
   const visibleBrands = (material.brands || []).filter((b) => b.is_active);
   const preferredBrand = visibleBrands.find((b) => b.is_preferred) ?? visibleBrands[0];
   const remainingBrandCount = Math.max(0, brandCount - 1);
@@ -281,7 +301,36 @@ export function MaterialListRow({
 
   const rightContent = (
     <>
-      {bestPrice != null ? (
+      {isPack && packAmount != null ? (
+        <Tooltip
+          title={`Sold per can${
+            packs.length > 1 ? ` · ${packs.length} sizes available` : ""
+          }${repPack?.price == null ? " · price estimated from base rate" : ""}`}
+          placement="top"
+        >
+          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+            <Typography
+              sx={{
+                fontSize: 13,
+                fontWeight: 700,
+                fontVariantNumeric: "tabular-nums",
+                color: "success.dark",
+              }}
+            >
+              {formatCurrency(packAmount)}
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: 9.5,
+                color: "text.secondary",
+                letterSpacing: 0.4,
+              }}
+            >
+              {packCaption}
+            </Typography>
+          </Box>
+        </Tooltip>
+      ) : bestPrice != null ? (
         <Tooltip
           title={bestPriceVendor ? `Best price: ${bestPriceVendor}${priceNote ? ` · ${priceNote}` : ""}` : priceNote || "Best price"}
           placement="top"

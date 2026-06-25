@@ -358,6 +358,9 @@ export function useCreatePurchaseOrder() {
           calculated_weight: item.calculated_weight || null,
           actual_weight: item.actual_weight || null,
           actual_weight_per_piece: actualWeightPerPiece,
+          // Pack-only materials: can size + count (quantity stays base-unit).
+          pack_id: item.pack_id ?? null,
+          pack_count: item.pack_count ?? null,
         };
       });
 

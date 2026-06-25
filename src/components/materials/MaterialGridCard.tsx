@@ -11,6 +11,7 @@ import {
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
 import { useImageViewer } from "@/components/common/ImageViewerProvider";
 import { formatCurrency } from "@/lib/formatters";
+import { activePacks, representativePack } from "@/lib/materials/packs";
 import type { MaterialWithDetails, MaterialUnit } from "@/types/material.types";
 
 const UNIT_LABELS: Record<MaterialUnit, string> = {
@@ -61,6 +62,22 @@ export function MaterialGridCard({
   const theme = useTheme();
   const { openImage } = useImageViewer();
   const unitLabel = UNIT_LABELS[material.unit] || material.unit;
+
+  // Pack-only materials show an honest per-can price ("₹1,620 / 5 L can").
+  const packs = activePacks(material.packs);
+  const isPack = material.sold_in_packs && packs.length > 0;
+  const repPack = isPack ? representativePack(material.packs) : null;
+  const packPriceEst =
+    repPack && repPack.price == null && bestPrice != null
+      ? bestPrice * repPack.contents_qty
+      : null;
+  const packAmount = repPack ? repPack.price ?? packPriceEst : null;
+  const packCaption = repPack
+    ? `${packs.length > 1 ? `${packs.length} sizes · ` : ""}/ ${repPack.label}${
+        repPack.price == null ? " (est.)" : ""
+      }`
+    : "";
+
   const [imgFailed, setImgFailed] = useState(false);
   useEffect(() => {
     setImgFailed(false);
@@ -254,7 +271,30 @@ export function MaterialGridCard({
             gap: 0.5,
           }}
         >
-          {bestPrice != null ? (
+          {isPack && packAmount != null ? (
+            <Tooltip
+              placement="top"
+              title={`Sold per can${
+                packs.length > 1 ? ` · ${packs.length} sizes available` : ""
+              }${repPack?.price == null ? " · price estimated from base rate" : ""}`}
+            >
+              <Box sx={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                <Typography
+                  sx={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    fontVariantNumeric: "tabular-nums",
+                    color: "success.dark",
+                  }}
+                >
+                  {formatCurrency(packAmount)}
+                </Typography>
+                <Typography sx={{ fontSize: 9, color: "text.secondary" }}>
+                  {packCaption}
+                </Typography>
+              </Box>
+            </Tooltip>
+          ) : bestPrice != null ? (
             <Tooltip
               placement="top"
               title={
