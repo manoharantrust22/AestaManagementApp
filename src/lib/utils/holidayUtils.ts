@@ -1,8 +1,12 @@
 import type { Database } from "@/types/database.types";
 import dayjs from "dayjs";
 
-// Define SiteHoliday type from the Database schema
-export type SiteHoliday = Database["public"]["Tables"]["site_holidays"]["Row"];
+// Define SiteHoliday type from the Database schema, augmented with trade_category_id
+// (The migration 20260625110000_site_holiday_trade_scope already added this column;
+// this extends the type until auto-generated types are regenerated from Supabase)
+export type SiteHoliday = Database["public"]["Tables"]["site_holidays"]["Row"] & {
+  trade_category_id?: string | null;
+};
 
 /**
  * Represents a group of consecutive holidays with the same reason
@@ -108,4 +112,17 @@ export function formatHolidayDayRange(group: HolidayGroup): string {
     return "";
   }
   return `${dayjs(group.startDate).format("ddd")} - ${dayjs(group.endDate).format("ddd")}`;
+}
+
+/**
+ * Whether a holiday is visible in the current view. Whole-site holidays
+ * (trade_category_id null) show everywhere; a trade-scoped holiday shows only
+ * when that trade's workspace is active. (No scope = site/Civil view.)
+ */
+export function holidayInScope(
+  h: { trade_category_id?: string | null },
+  tradeCategoryId: string | null
+): boolean {
+  if (h.trade_category_id == null) return true;
+  return tradeCategoryId != null && h.trade_category_id === tradeCategoryId;
 }
