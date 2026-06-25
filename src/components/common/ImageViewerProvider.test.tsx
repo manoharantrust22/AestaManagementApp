@@ -1,6 +1,6 @@
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, waitForElementToBeRemoved } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, waitForElementToBeRemoved, act } from "@testing-library/react";
 import { ImageViewerProvider, useImageViewer } from "./ImageViewerProvider";
 
 vi.mock("react-zoom-pan-pinch", () => ({
@@ -45,5 +45,36 @@ describe("ImageViewerProvider / useImageViewer", () => {
     render(<Opener src="https://example.com/a.jpg" title="Alpha" />);
     expect(() => fireEvent.click(screen.getByText("open"))).not.toThrow();
     expect(screen.queryByAltText("Alpha")).toBeNull();
+  });
+
+  it("rapid close→re-open within animation window keeps new image visible", () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <ImageViewerProvider>
+          <Opener src="https://example.com/a.jpg" title="Alpha" />
+          <Opener src="https://example.com/b.jpg" title="Beta" />
+        </ImageViewerProvider>
+      );
+
+      // Open first image
+      act(() => { fireEvent.click(screen.getAllByText("open")[0]); });
+      expect(screen.getByAltText("Alpha")).toBeInTheDocument();
+
+      // Close it (starts the 300ms timer)
+      act(() => { fireEvent.click(screen.getByLabelText(/close/i)); });
+
+      // Re-open a different image within the animation window (< 300ms)
+      act(() => { fireEvent.click(screen.getAllByText("open")[1]); });
+      expect(screen.getByAltText("Beta")).toBeInTheDocument();
+
+      // Advance past the original 300ms — the stale timer must NOT fire
+      act(() => { vi.advanceTimersByTime(400); });
+
+      // Beta image should still be visible (not blanked by the stale timer)
+      expect(screen.getByAltText("Beta")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

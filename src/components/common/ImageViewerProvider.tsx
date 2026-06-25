@@ -1,7 +1,9 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import ImageZoomDialog from "./ImageZoomDialog";
+
+const CLOSE_ANIMATION_MS = 300;
 
 export interface OpenImageArgs {
   src: string;
@@ -24,9 +26,11 @@ export function useImageViewer(): ImageViewerContextValue {
 export function ImageViewerProvider({ children }: { children: React.ReactNode }) {
   const [current, setCurrent] = useState<OpenImageArgs | null>(null);
   const [displayed, setDisplayed] = useState<OpenImageArgs | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const openImage = useCallback((args: OpenImageArgs) => {
     if (args?.src) {
+      if (timerRef.current) clearTimeout(timerRef.current);
       setCurrent(args);
       setDisplayed(args);
     }
@@ -35,8 +39,12 @@ export function ImageViewerProvider({ children }: { children: React.ReactNode })
   const handleClose = useCallback(() => {
     setCurrent(null);
     // Delay clearing displayed to allow Dialog animation to complete
-    setTimeout(() => setDisplayed(null), 300);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setDisplayed(null), CLOSE_ANIMATION_MS);
   }, []);
+
+  // Cancel any pending timer on unmount to prevent state updates on unmounted component
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
   const value = useMemo(() => ({ openImage }), [openImage]);
 
