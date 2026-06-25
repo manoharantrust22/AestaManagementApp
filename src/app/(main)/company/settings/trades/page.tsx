@@ -13,6 +13,8 @@ import {
   DialogTitle,
   FormControlLabel,
   IconButton,
+  MenuItem,
+  Select,
   Stack,
   Switch,
   TextField,
@@ -185,6 +187,29 @@ export default function TradesSettingsPage() {
     }
   };
 
+  const handleTeaModeChange = async (
+    c: LaborCategory,
+    mode: "pool" | "own" | "off",
+    hostId: string | null
+  ) => {
+    try {
+      await updateC.mutateAsync({
+        id: c.id,
+        tea_mode: mode,
+        // 'own' hosts itself; 'pool' uses the chosen host (fallback = current/self);
+        // 'off' keeps whatever host was set (ignored while off).
+        tea_pool_host_category_id:
+          mode === "own"
+            ? c.id
+            : mode === "pool"
+              ? hostId ?? c.tea_pool_host_category_id
+              : c.tea_pool_host_category_id,
+      });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   const handleDelete = async (c: LaborCategory) => {
     if (c.is_system_seed) {
       setError(`"${c.name}" is a built-in trade — disable it instead of deleting.`);
@@ -265,6 +290,41 @@ export default function TradesSettingsPage() {
               />
             </Box>
           </Tooltip>
+          {/* Tea: how this trade takes part in the shared tea pool. */}
+          <Box sx={{ textAlign: "center", minWidth: 140 }}>
+            <Typography variant="caption" sx={{ display: "block", color: "text.secondary", lineHeight: 1.1 }}>
+              Tea
+            </Typography>
+            <Select
+              size="small"
+              value={c.tea_mode}
+              onChange={(e) =>
+                handleTeaModeChange(c, e.target.value as "pool" | "own" | "off", c.tea_pool_host_category_id)
+              }
+              sx={{ fontSize: 12 }}
+            >
+              <MenuItem value="pool">Share pool</MenuItem>
+              <MenuItem value="own">Own tea</MenuItem>
+              <MenuItem value="off">No tea</MenuItem>
+            </Select>
+            {c.tea_mode === "pool" && (
+              <Select
+                size="small"
+                displayEmpty
+                value={c.tea_pool_host_category_id ?? ""}
+                onChange={(e) => handleTeaModeChange(c, "pool", (e.target.value as string) || null)}
+                sx={{ fontSize: 12, mt: 0.5, display: "block" }}
+              >
+                {categories
+                  .filter((o) => o.tea_mode !== "off")
+                  .map((o) => (
+                    <MenuItem key={o.id} value={o.id}>
+                      with {o.name}
+                    </MenuItem>
+                  ))}
+              </Select>
+            )}
+          </Box>
           {/* Active = offered as a choice when creating new contracts. */}
           <Tooltip title={c.is_active ? "Active — offered for new contracts" : "Disabled — hidden from new contracts"}>
             <Box sx={{ textAlign: "center" }}>
