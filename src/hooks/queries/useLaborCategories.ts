@@ -27,6 +27,10 @@ export interface LaborCategory {
    * Contract ▸ Section ▸ Task ladder is shown. Hide-only — never deletes data.
    */
   has_workspace: boolean;
+  /** How this trade takes tea: shares a pool, runs its own, or none. */
+  tea_mode: "pool" | "own" | "off";
+  /** The trade that hosts this trade's pool (self for 'own'; Civil by default). */
+  tea_pool_host_category_id: string | null;
 }
 
 /** A custom trade still referenced somewhere can't be hard-deleted — disable it instead. */
@@ -64,7 +68,7 @@ export function useLaborCategories(activeOnly = false) {
       let query = supabase
         .from("labor_categories")
         .select(
-          "id, name, description, display_order, is_active, is_system_seed, company_id, has_workspace"
+          "id, name, description, display_order, is_active, is_system_seed, company_id, has_workspace, tea_mode, tea_pool_host_category_id"
         )
         .order("display_order", { ascending: true })
         .order("name", { ascending: true });
@@ -84,6 +88,10 @@ export interface LaborCategoryInput {
   is_active?: boolean;
   /** Full workspace surface on/off for this trade. New trades default ON. */
   has_workspace?: boolean;
+  /** Tea participation mode for this trade. */
+  tea_mode?: "pool" | "own" | "off";
+  /** Pool host trade id (used when tea_mode === 'pool'). */
+  tea_pool_host_category_id?: string | null;
 }
 
 export function useCreateLaborCategory() {
@@ -123,6 +131,9 @@ export function useUpdateLaborCategory() {
       if (rest.display_order !== undefined) payload.display_order = rest.display_order;
       if (rest.is_active !== undefined) payload.is_active = rest.is_active;
       if (rest.has_workspace !== undefined) payload.has_workspace = rest.has_workspace;
+      if (rest.tea_mode !== undefined) payload.tea_mode = rest.tea_mode;
+      if (rest.tea_pool_host_category_id !== undefined)
+        payload.tea_pool_host_category_id = rest.tea_pool_host_category_id;
       const { error } = await supabase.from("labor_categories").update(payload).eq("id", id);
       if (error) throw error;
     },
