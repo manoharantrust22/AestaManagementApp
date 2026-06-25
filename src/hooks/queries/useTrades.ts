@@ -115,7 +115,7 @@ export function useSiteTrades(siteId: string | undefined) {
     queryFn: wrapQueryFn(async (): Promise<Trade[]> => {
       if (!siteId) return [];
 
-      const [catsRes, contractsRes] = await Promise.all([
+      const [catsRes, contractsRes, settingsRes] = await Promise.all([
         supabase
           .from("labor_categories")
           .select("id, name, is_system_seed, is_active, has_workspace"),
@@ -136,20 +136,39 @@ export function useSiteTrades(siteId: string | undefined) {
           // `completed` is included so the workspace's Completed tab can review
           // finished contracts; `cancelled` stays excluded (shown in no tab).
           .in("status", ["draft", "active", "on_hold", "completed"]),
+        // Per-site overrides for each trade's workspace / offered state. Table isn't in
+        // the generated types yet (cast); a missing row / NULL column = inherit default.
+        (supabase as any)
+          .from("site_trade_settings")
+          .select("trade_category_id, has_workspace, is_offered")
+          .eq("site_id", siteId),
       ]);
 
       if (catsRes.error) throw catsRes.error;
       if (contractsRes.error) throw contractsRes.error;
+      // A missing/failed overrides read must never break the workspace — fall back to
+      // company defaults (today's behaviour) rather than throwing.
+      const overrideRows = (settingsRes?.error ? [] : settingsRes?.data ?? []) as {
+        trade_category_id: string;
+        has_workspace: boolean | null;
+        is_offered: boolean | null;
+      }[];
+      const overrideMap = new Map(overrideRows.map((o) => [o.trade_category_id, o]));
 
       const categories: TradeCategory[] = ((catsRes.data ?? []) as unknown as RawCategoryRow[]).map(
-        (r) => ({
-          id: r.id,
-          name: r.name,
-          isSystemSeed: r.is_system_seed,
-          isActive: r.is_active,
-          // Null only for rows predating the column; treat the absence as "has workspace".
-          hasWorkspace: r.has_workspace ?? true,
-        })
+        (r) => {
+          const ov = overrideMap.get(r.id);
+          return {
+            id: r.id,
+            name: r.name,
+            isSystemSeed: r.is_system_seed,
+            // Catalog retire (is_active) still hard-gates; the per-site is_offered override
+            // only narrows within a catalog-active trade. Either off => not offered here.
+            isActive: r.is_active && (ov?.is_offered ?? true),
+            // Per-site workspace override wins; else company default (null predates col => on).
+            hasWorkspace: ov?.has_workspace ?? (r.has_workspace ?? true),
+          };
+        }
       );
 
       const contracts: TradeContract[] = ((contractsRes.data ?? []) as unknown as RawContractRow[]).map(

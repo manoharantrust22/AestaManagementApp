@@ -14,6 +14,7 @@ import {
   Construction as ConstructionIcon,
   People as PeopleIcon,
   AccountBalanceWallet as PaymentSourcesIcon,
+  Engineering as EngineeringIcon,
 } from "@mui/icons-material";
 import { useSite } from "@/contexts/SiteContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -21,6 +22,7 @@ import PageHeader from "@/components/layout/PageHeader";
 import SiteSectionsManager from "@/components/site-settings/SiteSectionsManager";
 import SitePayersManager from "@/components/site-settings/SitePayersManager";
 import SitePaymentSourcesManager from "@/components/site-settings/SitePaymentSourcesManager";
+import SiteTradeWorkspacesManager from "@/components/site-settings/SiteTradeWorkspacesManager";
 import { createClient } from "@/lib/supabase/client";
 
 interface TabPanelProps {
@@ -142,6 +144,11 @@ export default function SiteSettingsPage() {
             iconPosition="start"
             label="Payment Sources"
           />
+          <Tab
+            icon={<EngineeringIcon sx={{ fontSize: 20 }} />}
+            iconPosition="start"
+            label="Trade Workspaces"
+          />
         </Tabs>
 
         {/* Work Sections Tab */}
@@ -196,6 +203,19 @@ export default function SiteSettingsPage() {
             </Typography>
 
             <SitePaymentSourcesManager siteId={siteId || ""} />
+          </Box>
+        </TabPanel>
+
+        {/* Trade Workspaces Tab */}
+        <TabPanel value={tabValue} index={3}>
+          <Box sx={{ px: { xs: 1, sm: 2 }, pb: 2 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Choose which trades run a full workspace (attendance, salary, tea &amp; holidays) and
+              which are offered for new contracts <strong>at this site</strong>. Some sites run a
+              trade&apos;s workspace; others don&apos;t need it.
+            </Typography>
+
+            <SiteTradeWorkspacesManager siteId={siteId || ""} />
           </Box>
         </TabPanel>
       </Paper>
