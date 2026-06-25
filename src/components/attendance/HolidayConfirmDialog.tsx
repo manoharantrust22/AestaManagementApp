@@ -56,6 +56,10 @@ export interface HolidayConfirmDialogProps {
   recentHolidays?: SiteHoliday[];
   onSuccess: (newHoliday?: SiteHoliday) => void;
   date?: string; // Optional date to mark as holiday (defaults to today)
+  /** Active trade scope — passed from T3; wired in T4 to scope the created holiday. */
+  tradeCategoryId?: string | null;
+  /** Active trade display name — passed from T3; shown in T4 confirm copy. */
+  tradeName?: string | null;
 }
 
 export default function HolidayConfirmDialog({

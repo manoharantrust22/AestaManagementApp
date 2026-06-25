@@ -173,6 +173,7 @@ import {
   groupHolidays,
   formatHolidayDateRange,
   formatHolidayDayRange,
+  holidayInScope,
   type HolidayGroup,
 } from "@/lib/utils/holidayUtils";
 import {
@@ -681,6 +682,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     is_paid_holiday: boolean | null;
     created_at: string;
     created_by: string | null;
+    trade_category_id?: string | null;
   } | null>(null);
   const [recentHolidays, setRecentHolidays] = useState<
     Array<{
@@ -691,6 +693,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       is_paid_holiday: boolean | null;
       created_at: string;
       created_by: string | null;
+      trade_category_id?: string | null;
     }>
   >([]);
 
@@ -706,6 +709,26 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       return true;
     }
   });
+
+  // ── Trade-scoped holiday views (Task 3) ──────────────────────────────────
+  /** tradeCategoryId of the active trade, or null in the plain Civil/site view. */
+  const scopeTradeCategoryId = tradeScope?.tradeCategoryId ?? null;
+
+  /** Holidays in scope for the current view.
+   *  - When tradeScope is null (Civil/plain): scopeTradeCategoryId=null → holidayInScope keeps
+   *    only trade_category_id==null rows, which is exactly all current rows → identical to today.
+   *  - When a non-Civil trade is active: whole-site (NULL) + that trade's holidays. */
+  const scopedHolidays = useMemo(
+    () => recentHolidays.filter((h) => holidayInScope(h, scopeTradeCategoryId)),
+    [recentHolidays, scopeTradeCategoryId]
+  );
+
+  /** Today's holiday, scoped to the current view. When tradeScope is null, this equals todayHoliday
+   *  (since all today's holidays have NULL trade_category_id → pass scope). When a trade is active,
+   *  a whole-site holiday still passes; a different-trade holiday is excluded. */
+  const scopedTodayHoliday = todayHoliday && holidayInScope(todayHoliday, scopeTradeCategoryId)
+    ? todayHoliday
+    : null;
 
   // Persist showHolidays preference to sessionStorage
   useEffect(() => {
@@ -1530,10 +1553,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       dateSummaries.map((s) => [s.date, s.records])
     );
 
-    // Filter holidays that don't have attendance
+    // Filter holidays that don't have attendance (scoped to the active trade)
     // When "All Time" is selected (dateFrom/dateTo are null), show all holidays
     // Otherwise, filter to the selected date range
-    const holidaysWithoutAttendance = recentHolidays.filter((h) => {
+    const holidaysWithoutAttendance = scopedHolidays.filter((h) => {
       const hDate = h.date;
       const inDateRange = !dateFrom || !dateTo || (hDate >= dateFrom && hDate <= dateTo);
       return inDateRange && !attendanceDates.has(hDate);
@@ -1559,8 +1582,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     const todayStr = dayjs().format("YYYY-MM-DD");
     const projectEnd = dateTo && dateTo < todayStr ? dateTo : todayStr;
 
-    // Get all holiday dates for unfilled calculation
-    const holidayDates = new Set(recentHolidays.map((h) => h.date));
+    // Get all in-scope holiday dates for unfilled calculation
+    const holidayDates = new Set(scopedHolidays.map((h) => h.date));
 
     // Calculate unfilled dates within the visible range, bounded by project dates
     const effectiveStart = dateFrom && projectStart ? (dateFrom > projectStart ? dateFrom : projectStart) : (dateFrom || projectStart);
@@ -1588,7 +1611,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     // calc below reads unscopedRecordsByDate so weekly totals also stay intact.
     const attendanceEntries = scopedDateSummaries.map((s) => {
       const holiday = showHolidays
-        ? recentHolidays.find((h) => h.date === s.date) || null
+        ? scopedHolidays.find((h) => h.date === s.date) || null
         : null;
       return {
         type: "attendance" as const,
@@ -1724,7 +1747,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     });
 
     return withWeeklySeparators;
-  }, [dateSummaries, scopedDateSummaries, recentHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date]);
+  }, [dateSummaries, scopedDateSummaries, scopedHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date]);
 
   // Process initialData from server on first render
   useEffect(() => {
@@ -2015,7 +2038,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   }, [checkTodayHoliday]);
 
   const handleHolidayClick = () => {
-    if (todayHoliday) {
+    if (scopedTodayHoliday) {
       setHolidayDialogMode("revoke");
     } else {
       setSelectedHolidayDate(null); setSelectedExistingHoliday(null); // null means today's date
@@ -2043,8 +2066,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
 
   // Handler for filling attendance on an unfilled date
   const handleFillUnfilledDate = useCallback((date: string) => {
-    // Check if this date is a holiday
-    const isHoliday = recentHolidays.some((h) => h.date === date);
+    // Check if this date is an in-scope holiday (whole-site or the active trade's)
+    const isHoliday = scopedHolidays.some((h) => h.date === date);
 
     if (isHoliday) {
       // Show confirmation dialog to remove holiday first
@@ -2055,7 +2078,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       setDrawerMode("full");
       setDrawerOpen(true);
     }
-  }, [recentHolidays]);
+  }, [scopedHolidays]);
 
   // Handler for marking an unfilled date as holiday (or revoking if already a holiday)
   const handleMarkUnfilledAsHoliday = useCallback(async (date: string) => {
@@ -7072,7 +7095,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           />
           <SpeedDialAction
             icon={<HolidayIcon />}
-            tooltipTitle={todayHoliday ? "Revoke Holiday" : "Mark as Holiday"}
+            tooltipTitle={scopedTodayHoliday ? "Revoke Holiday" : "Mark as Holiday"}
             tooltipOpen
             onClick={() => {
               setSpeedDialOpen(false);
@@ -7081,8 +7104,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
             sx={{
               "& .MuiSpeedDialAction-staticTooltipLabel": {
                 whiteSpace: "nowrap",
-                bgcolor: todayHoliday ? "error.main" : "success.main",
-                color: todayHoliday
+                bgcolor: scopedTodayHoliday ? "error.main" : "success.main",
+                color: scopedTodayHoliday
                   ? "error.contrastText"
                   : "success.contrastText",
               },
@@ -7098,10 +7121,12 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           onClose={() => { setSelectedHolidayDate(null); setSelectedExistingHoliday(null); setHolidayDialogOpen(false); }}
           mode={holidayDialogMode}
           site={{ id: selectedSite.id, name: selectedSite.name }}
-          existingHoliday={selectedExistingHoliday || todayHoliday}
+          existingHoliday={selectedExistingHoliday || scopedTodayHoliday}
           recentHolidays={recentHolidays}
           onSuccess={handleHolidaySuccess}
           date={selectedHolidayDate || undefined}
+          tradeCategoryId={scopeTradeCategoryId}
+          tradeName={tradeScope ? contractMeta?.trade_name ?? null : null}
         />
       )}
 
