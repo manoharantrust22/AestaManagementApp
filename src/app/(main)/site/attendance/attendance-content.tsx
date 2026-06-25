@@ -185,6 +185,7 @@ import {
 import { allocateAmounts } from "@/hooks/queries/useGroupTeaShop";
 import { useSubcontractMeta } from "@/hooks/queries/useSubcontractMeta";
 import { scopedLaborerIds } from "@/lib/workforce/laborerScope";
+import { useTradeTeaShare } from "@/hooks/queries/useTradeTeaShare";
 
 interface AttendanceContentProps {
   initialData: AttendancePageData | null;
@@ -460,6 +461,15 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     return { contractId: contractIdParam, tradeCategoryId, laborerIds };
   }, [contractIdParam, contractMeta, attendanceRecords]);
 
+  // Per-trade tea share — only fires when a non-Civil trade contract is scoped.
+  // Disabled (hook's `enabled` is false) when tradeScope is null, preserving the Civil path.
+  const teaShareByDate = useTradeTeaShare({
+    siteId: selectedSite?.id,
+    tradeCategoryId: tradeScope?.tradeCategoryId,
+    startDate: dateFrom,
+    endDate: dateTo,
+  }).data;
+
   /** The scoped named-labourer list for display. When tradeScope is null (plain Civil view),
    *  this is the SAME reference as attendanceRecords — no change in behaviour. */
   const scopedAttendance = useMemo(
@@ -528,11 +538,15 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         paidAmount: daily.filter((r) => r.is_paid).reduce((a, r) => a + r.daily_earnings, 0),
         pendingCount: daily.filter((r) => !r.is_paid).length,
         pendingAmount: daily.filter((r) => !r.is_paid).reduce((a, r) => a + r.daily_earnings, 0),
-        // Tea is NOT trade-scoped in this slice — exclude from the scoped totals.
-        teaShop: null,
+        // Tea scoped to the active trade's pool share from v_trade_tea_share.
+        teaShop: (() => {
+          const share = teaShareByDate?.get(s.date) ?? 0;
+          if (!share) return null;
+          return { teaTotal: share, snacksTotal: 0, total: share, workingCount: 0, workingTotal: share, nonWorkingCount: 0, nonWorkingTotal: 0, marketCount: 0, marketTotal: 0 };
+        })(),
       };
     });
-  }, [dateSummaries, tradeScope, scopedMarketByDate]);
+  }, [dateSummaries, tradeScope, scopedMarketByDate, teaShareByDate]);
   /** Display-only chip selection for TradeChipFilter. When tradeScope is active
    *  (lone ?contractId= pointing at a non-Civil detailed contract) we present
    *  that trade's chip as selected so the helper text and chip highlight reflect
@@ -1470,7 +1484,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     source.forEach((s) => {
       const isToday = s.date === todayDateStr;
       totalSalary += s.totalSalary;
-      // Tea is NOT scoped when tradeScope is active (teaShop is set to null in scopedDateSummaries).
+      // When tradeScope is active, teaShop is populated from v_trade_tea_share (trade's pool share).
       totalTeaShop += s.teaShop?.total || 0;
       totalLaborers += s.totalLaborerCount;
       totalPaidCount += s.paidCount;
