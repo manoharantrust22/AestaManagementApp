@@ -490,10 +490,12 @@ export default function PaymentsContent() {
   // Legacy-scoped waterfall (only fetched when the site is in audit mode).
   // Drives the LegacyBand body + the Reconcile dialog's pre-flight stats.
   // Date scope intentionally NOT applied here — the legacy band always shows
-  // the full pre-cutoff history regardless of the page's date filter.
+  // the full pre-cutoff history regardless of the page's date filter. Trade
+  // scope IS applied (selectedSubcontractId is null for the plain Civil view, so
+  // legacy stays site-wide there; for a scoped trade it shows only that trade's legacy).
   const legacyWaterfallQuery = useSalaryWaterfall({
     siteId: auditState.isAuditing ? selectedSite?.id : undefined,
-    subcontractId: null,
+    subcontractId: selectedSubcontractId,
     dateFrom: null,
     dateTo: null,
     period: "legacy",
