@@ -28,26 +28,31 @@ export interface SiteSplit {
 
 export function computeTeaSplitPreview(input: TeaSplitInput): SiteSplit[] {
   const { defaultHost, trades, sites } = input;
-  const byId = new Map(trades.map((t) => [t.id, t]));
   return sites.map((site) => {
     const host = site.poolHost ?? defaultHost;
-    const members = trades.filter((t) => t.teaMode !== "off" && resolvePoolHost(t, defaultHost) === host);
-    const units = members.map((m) => ({ m, u: site.unitsByTrade[m.id] ?? 0 }));
-    const total = units.reduce((a, x) => a + x.u, 0);
-    let perTrade: TradeShare[];
+    const members = trades
+      .filter((t) => t.teaMode !== "off" && resolvePoolHost(t, defaultHost) === host)
+      .sort((a, b) => {
+        const ah = a.id === host ? 0 : 1;
+        const bh = b.id === host ? 0 : 1;
+        if (ah !== bh) return ah - bh; // host first
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; // then by id
+      });
+    const total = members.reduce((s, m) => s + (site.unitsByTrade[m.id] ?? 0), 0);
+    const perTrade: TradeShare[] = [];
     if (total > 0) {
-      perTrade = units
-        .filter((x) => x.u > 0)
-        .map((x) => ({
-          tradeCategoryId: x.m.id,
-          tradeName: x.m.name,
-          amount: Math.round(site.amount * (x.u / total)),
-        }));
+      let running = 0;
+      let prevCum = 0;
+      for (const m of members) {
+        running += site.unitsByTrade[m.id] ?? 0;
+        const cum = Math.round(site.amount * (running / total));
+        const share = cum - prevCum;
+        prevCum = cum;
+        if (share !== 0) perTrade.push({ tradeCategoryId: m.id, tradeName: m.name, amount: share });
+      }
     } else {
-      const hostTrade = byId.get(host);
-      perTrade = hostTrade
-        ? [{ tradeCategoryId: host, tradeName: hostTrade.name, amount: Math.round(site.amount) }]
-        : [];
+      const first = members[0];
+      if (first) perTrade.push({ tradeCategoryId: first.id, tradeName: first.name, amount: Math.round(site.amount) });
     }
     return { siteId: site.siteId, perTrade };
   });

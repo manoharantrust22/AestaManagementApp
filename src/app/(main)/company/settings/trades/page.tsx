@@ -316,7 +316,7 @@ export default function TradesSettingsPage() {
                 sx={{ fontSize: 12, mt: 0.5, display: "block" }}
               >
                 {categories
-                  .filter((o) => o.tea_mode !== "off")
+                  .filter((o) => o.tea_mode !== "off" || o.id === c.tea_pool_host_category_id)
                   .map((o) => (
                     <MenuItem key={o.id} value={o.id}>
                       with {o.name}

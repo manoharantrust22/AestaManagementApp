@@ -38,4 +38,19 @@ describe("computeTeaSplitPreview", () => {
     const civil = out[0].perTrade.find((p) => p.tradeCategoryId === "civil")!;
     expect(civil.amount).toBe(120);
   });
+  it("conserves an indivisible split (no penny leak)", () => {
+    const t3 = [
+      { id: "a", name: "A", teaMode: "pool" as const, poolHost: "a" },
+      { id: "b", name: "B", teaMode: "pool" as const, poolHost: "a" },
+      { id: "c", name: "C", teaMode: "pool" as const, poolHost: "a" },
+    ];
+    const out = computeTeaSplitPreview({
+      defaultHost: "a",
+      trades: t3,
+      sites: [{ siteId: "s1", poolHost: "a", amount: 100, unitsByTrade: { a: 1, b: 1, c: 1 } }],
+    });
+    const shares = out[0].perTrade;
+    expect(shares.length).toBe(3);
+    expect(shares.reduce((s, p) => s + p.amount, 0)).toBe(100); // exact, no leak
+  });
 });
