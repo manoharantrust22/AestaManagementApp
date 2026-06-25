@@ -51,6 +51,7 @@ import { ViewToggle, type ViewMode } from "@/components/common/ViewToggle";
 import { MaterialListRow } from "@/components/materials/MaterialListRow";
 import { MaterialGridCard } from "@/components/materials/MaterialGridCard";
 import { MaterialInspectPane } from "@/components/materials/MaterialInspectPane";
+import { ImageViewerProvider } from "@/components/common/ImageViewerProvider";
 import { VendorInspectPane } from "@/components/vendors/VendorInspectPane";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { VendorQuoteDialog } from "@/components/shared/VendorQuoteDialog";
@@ -361,6 +362,7 @@ export default function MaterialsPage() {
   );
 
   return (
+    <ImageViewerProvider>
     <Box>
       <PageHeader
         title="Material Catalog"
@@ -729,6 +731,7 @@ export default function MaterialsPage() {
         </Alert>
       </Snackbar>
     </Box>
+    </ImageViewerProvider>
   );
 }
 

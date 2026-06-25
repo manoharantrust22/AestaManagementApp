@@ -35,6 +35,7 @@ import {
   Receipt as ReceiptIcon,
 } from "@mui/icons-material";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
+import { useImageViewer } from "@/components/common/ImageViewerProvider";
 import { useMaterial, useMaterialVariants, useMaterialBrands, useBrandVariantLinks } from "@/hooks/queries/useMaterials";
 import { useMaterialDesigns } from "@/hooks/queries/useMaterialDesigns";
 import {
@@ -111,6 +112,7 @@ export function MaterialInspectPane({
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const { openImage } = useImageViewer();
 
   const { data: material, isLoading } = useMaterial(materialId ?? undefined);
   const { data: vendorSummaries = [], isLoading: vendorsLoading } =
@@ -240,13 +242,26 @@ export function MaterialInspectPane({
             </Box>
           ) : (
             <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
-              <EntityImageAvatar
-                src={material.image_url}
-                name={material.name}
-                size={64}
-                fallbackIcon={<InventoryIcon />}
-                tint="primary"
-              />
+              <Box
+                onClick={
+                  material.image_url
+                    ? () => openImage({ src: material.image_url!, title: material.name })
+                    : undefined
+                }
+                sx={{
+                  display: "flex",
+                  borderRadius: 1.25,
+                  cursor: material.image_url ? "zoom-in" : "default",
+                }}
+              >
+                <EntityImageAvatar
+                  src={material.image_url}
+                  name={material.name}
+                  size={64}
+                  fallbackIcon={<InventoryIcon />}
+                  tint="primary"
+                />
+              </Box>
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography
                   sx={{
