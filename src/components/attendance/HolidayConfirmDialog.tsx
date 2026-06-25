@@ -99,13 +99,16 @@ export default function HolidayConfirmDialog({
     setError(null);
 
     try {
-      // Check if this date is already marked as a holiday
-      const { data: existingHolidayData } = await supabase
+      // Already a holiday for this date IN THE SAME SCOPE? (partial unique index => <=1 row)
+      let existQuery = supabase
         .from("site_holidays")
         .select("id")
         .eq("site_id", site.id)
-        .eq("date", targetDate)
-        .maybeSingle();
+        .eq("date", targetDate);
+      existQuery = tradeCategoryId
+        ? existQuery.eq("trade_category_id", tradeCategoryId)
+        : existQuery.is("trade_category_id", null);
+      const { data: existingHolidayData } = await existQuery.maybeSingle();
 
       if (existingHolidayData) {
         setError("This date is already marked as a holiday. Use the revoke option to remove it first.");

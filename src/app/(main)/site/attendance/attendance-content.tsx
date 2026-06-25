@@ -2002,18 +2002,19 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     const queryTo = dateTo || dayjs().add(30, "day").format("YYYY-MM-DD");
 
     try {
-      // Check today's holiday (use maybeSingle to avoid error when no holiday exists)
-      const { data: todayData, error: todayError } = await supabase
+      // Today's holiday(s) — (site_id,date) is no longer unique; pick the in-scope row.
+      const { data: todayRows, error: todayError } = await supabase
         .from("site_holidays")
         .select("*")
         .eq("site_id", selectedSite.id)
-        .eq("date", today)
-        .maybeSingle();
+        .eq("date", today);
 
       if (todayError) {
         console.error("Error fetching today's holiday:", todayError);
       }
-      setTodayHoliday(todayData || null);
+      setTodayHoliday(
+        (todayRows || []).find((h) => holidayInScope(h as SiteHoliday, scopeTradeCategoryId)) ?? null
+      );
 
       // Fetch holidays within the selected date range (plus upcoming holidays)
       const { data: holidaysData, error: holidaysError } = await supabase
@@ -2031,7 +2032,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     } catch (err) {
       console.error("Error checking holidays:", err);
     }
-  }, [selectedSite?.id, selectedSite?.start_date, supabase, dateFrom, dateTo]);
+  }, [selectedSite?.id, selectedSite?.start_date, supabase, dateFrom, dateTo, scopeTradeCategoryId]);
 
   useEffect(() => {
       checkTodayHoliday();
@@ -2093,13 +2094,14 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       return;
     }
 
-    // Check the database directly for existing holiday (more reliable than recentHolidays)
-    const { data: existingHolidayData } = await supabase
+    // Existing holiday for this date IN SCOPE ((site_id,date) is not unique anymore).
+    const { data: existingRows } = await supabase
       .from("site_holidays")
       .select("*")
       .eq("site_id", selectedSite.id)
-      .eq("date", date)
-      .maybeSingle();
+      .eq("date", date);
+    const existingHolidayData =
+      (existingRows || []).find((h) => holidayInScope(h as SiteHoliday, scopeTradeCategoryId)) ?? null;
 
     setSelectedHolidayDate(date);
     if (existingHolidayData) {
@@ -2112,7 +2114,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       setHolidayDialogMode("mark");
     }
     setHolidayDialogOpen(true);
-  }, [dateSummaries, selectedSite?.id, supabase]);
+  }, [dateSummaries, selectedSite?.id, supabase, scopeTradeCategoryId]);
 
 
   // Handler for confirming to overwrite a holiday with attendance
@@ -2120,12 +2122,16 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     if (!unfilledActionDialog?.date || !selectedSite?.id) return;
 
     try {
-      // Delete the holiday first
-      const { error: deleteError } = await supabase
+      // Delete only the in-scope holiday for this date (don't touch other scopes).
+      let delQuery = supabase
         .from("site_holidays")
         .delete()
         .eq("site_id", selectedSite.id)
         .eq("date", unfilledActionDialog.date);
+      delQuery = scopeTradeCategoryId
+        ? delQuery.eq("trade_category_id", scopeTradeCategoryId)
+        : delQuery.is("trade_category_id", null);
+      const { error: deleteError } = await delQuery;
 
       if (deleteError) {
         console.error("Error deleting holiday:", deleteError);
@@ -2145,7 +2151,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       console.error("Error overwriting holiday:", err);
       setRestorationMessage("An error occurred. Please try again.");
     }
-  }, [unfilledActionDialog, selectedSite?.id, supabase, checkTodayHoliday]);
+  }, [unfilledActionDialog, selectedSite?.id, supabase, checkTodayHoliday, scopeTradeCategoryId]);
 
   const toggleDateExpanded = (date: string) => {
     setDateSummaries((prev) =>
