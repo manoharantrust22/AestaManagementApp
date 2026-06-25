@@ -31,6 +31,7 @@ import {
 import dayjs from "dayjs";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { holidayInScope } from "@/lib/utils/holidayUtils";
 
 export interface SiteHoliday {
   id: string;
@@ -40,6 +41,8 @@ export interface SiteHoliday {
   is_paid_holiday: boolean | null;
   created_at: string;
   created_by: string | null;
+  /** Added by migration 20260625110000; used to scope list display. */
+  trade_category_id?: string | null;
 }
 
 interface Site {
@@ -71,6 +74,8 @@ export default function HolidayConfirmDialog({
   recentHolidays = [],
   onSuccess,
   date,
+  tradeCategoryId = null,
+  tradeName,
 }: HolidayConfirmDialogProps) {
   const supabase = createClient();
   const { userProfile } = useAuth();
@@ -129,6 +134,7 @@ export default function HolidayConfirmDialog({
           date: targetDate,
           reason: reason.trim(),
           created_by: userProfile?.id,
+          trade_category_id: tradeCategoryId ?? null,
         })
         .select()
         .single();
@@ -209,7 +215,7 @@ export default function HolidayConfirmDialog({
         <DialogTitle sx={{ pb: 1, display: "flex", alignItems: "center", gap: 1 }}>
           <HolidayIcon color="success" />
           <Typography variant="h6" component="span" fontWeight={600}>
-            Mark as Holiday
+            {tradeName ? `Mark holiday for ${tradeName}` : "Mark as Holiday"}
           </Typography>
         </DialogTitle>
 
@@ -242,7 +248,9 @@ export default function HolidayConfirmDialog({
 
           <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
             <Typography variant="body2">
-              Marking {isToday ? "today" : "this date"} as a holiday will prevent attendance reminder notifications for this site.
+              {tradeName
+                ? `This will mark ${isToday ? "today" : "this date"} as a holiday for ${tradeName}.`
+                : `Marking ${isToday ? "today" : "this date"} as a holiday will prevent attendance reminder notifications for this site.`}
             </Typography>
           </Alert>
 
@@ -372,10 +380,13 @@ export default function HolidayConfirmDialog({
 
   // List Mode - Show recent/upcoming holidays with delete option
   if (mode === "list") {
-    const upcomingHolidays = recentHolidays.filter(
+    const scopedHolidays = recentHolidays.filter((h) =>
+      holidayInScope(h, tradeCategoryId ?? null)
+    );
+    const upcomingHolidays = scopedHolidays.filter(
       (h) => dayjs(h.date).isSame(dayjs(), "day") || dayjs(h.date).isAfter(dayjs())
     );
-    const pastHolidays = recentHolidays.filter(
+    const pastHolidays = scopedHolidays.filter(
       (h) => dayjs(h.date).isBefore(dayjs(), "day")
     );
 
@@ -390,7 +401,7 @@ export default function HolidayConfirmDialog({
         <DialogTitle sx={{ pb: 1, display: "flex", alignItems: "center", gap: 1 }}>
           <HolidayIcon color="primary" />
           <Typography variant="h6" component="span" fontWeight={600}>
-            Site Holidays
+            {tradeName ? `${tradeName} Holidays` : "Site Holidays"}
           </Typography>
         </DialogTitle>
 
@@ -418,7 +429,7 @@ export default function HolidayConfirmDialog({
             </Alert>
           )}
 
-          {recentHolidays.length === 0 ? (
+          {scopedHolidays.length === 0 ? (
             <Alert severity="info" sx={{ borderRadius: 2 }}>
               No holidays marked for this site recently.
             </Alert>
