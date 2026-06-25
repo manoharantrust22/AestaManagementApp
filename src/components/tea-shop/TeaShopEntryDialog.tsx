@@ -44,6 +44,9 @@ import SimpleEntryModeContent from "./SimpleEntryModeContent";
 import GroupAllocationSection from "./GroupAllocationSection";
 import { useDayUnitsForDate, useTeaShopForSite, useCreateEntryAllocations } from "@/hooks/queries/useCompanyTeaShops";
 import { useSiteGroup } from "@/hooks/queries/useSiteGroups";
+import { useLaborCategories } from "@/hooks/queries/useLaborCategories";
+import { useTradePresentUnits } from "@/hooks/queries/useTradePresentUnits";
+import { computeTeaSplitPreview } from "@/lib/tea/teaSplitPreview";
 import dayjs from "dayjs";
 
 interface TeaShopEntryDialogProps {
@@ -203,6 +206,84 @@ export default function TeaShopEntryDialog({
     return [];
   }, [dayUnitsData, fallbackSites, simpleTotalCost, enableManualOverride, manualAllocations]);
 
+  // --- Per-trade split preview (display-only, no saved-amount change) ---
+  const { data: categories = [] } = useLaborCategories(false);
+  const teaTrades = useMemo(
+    () =>
+      categories.map((c) => ({
+        id: c.id,
+        name: c.name,
+        teaMode: c.tea_mode,
+        poolHost: c.tea_pool_host_category_id,
+      })),
+    [categories]
+  );
+  const defaultHost = useMemo(() => {
+    const civil = categories.find((c) => c.name.toLowerCase() === "civil");
+    return civil?.id ?? categories[0]?.id ?? "";
+  }, [categories]);
+
+  // Determine which site ids the current bill touches
+  const previewSiteIds = useMemo(() => {
+    const ids: string[] = [];
+    if (shop.site_id) ids.push(shop.site_id);
+    if (enableMultiSite && secondarySite?.id) ids.push(secondarySite.id);
+    if (showGroupAllocation && siteGroup?.sites) {
+      for (const s of siteGroup.sites as { id: string }[]) {
+        if (!ids.includes(s.id)) ids.push(s.id);
+      }
+    }
+    return ids;
+  }, [shop.site_id, enableMultiSite, secondarySite, showGroupAllocation, siteGroup]);
+
+  const { data: presentUnits = {} } = useTradePresentUnits(previewSiteIds, date);
+
+  const primarySiteId = shop.site_id ?? "";
+  const previewSites = useMemo(() => {
+    if (showGroupAllocation && calculatedAllocations.length > 0) {
+      // Group mode: use per-site allocated amounts
+      return calculatedAllocations.map((a) => ({
+        siteId: a.site_id as string,
+        poolHost: null as string | null,
+        amount: a.allocated_amount,
+        unitsByTrade: (presentUnits as Record<string, Record<string, number>>)[a.site_id as string] ?? {},
+      }));
+    }
+    if (enableMultiSite && secondarySite) {
+      // Multi-site legacy split
+      const primaryAmount = Math.round((primarySitePercent / 100) * simpleTotalCost);
+      const secondaryAmount = Math.round((secondarySitePercent / 100) * simpleTotalCost);
+      return [
+        { siteId: primarySiteId, poolHost: null as string | null, amount: primaryAmount, unitsByTrade: presentUnits[primarySiteId] ?? {} },
+        { siteId: secondarySite.id as string, poolHost: null as string | null, amount: secondaryAmount, unitsByTrade: presentUnits[secondarySite.id as string] ?? {} },
+      ];
+    }
+    // Single-site (common case)
+    return [
+      { siteId: primarySiteId, poolHost: null as string | null, amount: simpleTotalCost, unitsByTrade: presentUnits[primarySiteId] ?? {} },
+    ];
+  }, [showGroupAllocation, calculatedAllocations, enableMultiSite, secondarySite, primarySitePercent, secondarySitePercent, simpleTotalCost, primarySiteId, presentUnits]);
+
+  const splitPreview = useMemo(
+    () =>
+      defaultHost
+        ? computeTeaSplitPreview({ defaultHost, trades: teaTrades, sites: previewSites })
+        : [],
+    [defaultHost, teaTrades, previewSites]
+  );
+
+  // Helper: resolve site name from available data
+  const siteNameById = (siteId: string): string => {
+    if (siteId === primarySiteId) return selectedSite?.name ?? siteId;
+    if (enableMultiSite && secondarySite && siteId === secondarySite.id) return (secondarySite as any).name ?? siteId;
+    if (showGroupAllocation && siteGroup?.sites) {
+      const found = (siteGroup.sites as { id: string; name: string }[]).find((s) => s.id === siteId);
+      if (found) return found.name;
+    }
+    return siteId;
+  };
+  // -----------------------------------------------------------------------
+
   useEffect(() => {
     if (open) {
       if (entry) {
@@ -321,6 +402,7 @@ export default function TeaShopEntryDialog({
         nonworking_laborer_total: 0,
         working_laborer_count: 0,
         working_laborer_total: 0,
+        trade_pool_host_category_id: null, // common pool; resolved to the company default host by the view
         notes: notes.trim() || null,
         entered_by: userProfile?.name || null,
         entered_by_user_id: userProfile?.id || null,
@@ -744,6 +826,22 @@ export default function TeaShopEntryDialog({
           </>
         )}
       </DialogContent>
+
+      {simpleTotalCost > 0 && splitPreview.some((s) => s.perTrade.length > 0) && (
+        <Box sx={{ px: 2, pb: 1 }}>
+          <Alert severity="info" icon={false} sx={{ py: 0.5 }}>
+            <Typography variant="caption" component="div" sx={{ fontWeight: 600, mb: 0.5 }}>
+              This bill will be split across trades (added to each trade&apos;s contract):
+            </Typography>
+            {splitPreview.map((s) => (
+              <Typography key={s.siteId} variant="caption" component="div">
+                {siteNameById(s.siteId)}:{" "}
+                {s.perTrade.map((p) => `${p.tradeName} ₹${p.amount.toLocaleString("en-IN")}`).join(" · ")}
+              </Typography>
+            ))}
+          </Alert>
+        </Box>
+      )}
 
       <DialogActions sx={{ p: 2 }}>
         <Button onClick={onClose} disabled={loading}>
