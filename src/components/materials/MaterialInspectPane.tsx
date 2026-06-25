@@ -1174,6 +1174,8 @@ export function BrandsTabContent({
   brandLinks: BrandWithVariantLinks[];
   variants: Material[];
 }) {
+  const { openImage } = useImageViewer();
+
   if (isLoading) {
     return (
       <Box sx={{ p: 1.5 }}>
@@ -1230,12 +1232,21 @@ export function BrandsTabContent({
             alignItems: "flex-start",
           }}
         >
-          <EntityImageAvatar
-            src={brand.image_url}
-            name={brand.brand_name}
-            size={36}
-            tint={brand.is_preferred ? "primary" : "secondary"}
-          />
+          <Box
+            onClick={
+              brand.image_url
+                ? () => openImage({ src: brand.image_url!, title: brand.brand_name })
+                : undefined
+            }
+            sx={{ flexShrink: 0, cursor: brand.image_url ? "zoom-in" : "default", display: "flex" }}
+          >
+            <EntityImageAvatar
+              src={brand.image_url}
+              name={brand.brand_name}
+              size={36}
+              tint={brand.is_preferred ? "primary" : "secondary"}
+            />
+          </Box>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
               {brand.is_preferred ? (
@@ -1322,6 +1333,7 @@ function VariantsTab({
 }) {
   // Which row is in inline-edit mode (variantId), or "add" for the new-variant card
   const [editing, setEditing] = useState<string | "add" | null>(null);
+  const { openImage } = useImageViewer();
 
   if (isLoading) {
     return (
@@ -1367,7 +1379,14 @@ function VariantsTab({
               alignItems: "center",
             }}
           >
-            <Box sx={{ flexShrink: 0 }}>
+            <Box
+              onClick={
+                v.image_url
+                  ? () => openImage({ src: v.image_url!, title: v.name })
+                  : undefined
+              }
+              sx={{ flexShrink: 0, cursor: v.image_url ? "zoom-in" : "default", display: "flex" }}
+            >
               <EntityImageAvatar
                 src={v.image_url}
                 name={v.name}
