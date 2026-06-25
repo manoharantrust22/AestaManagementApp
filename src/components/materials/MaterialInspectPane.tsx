@@ -6,7 +6,6 @@ import {
   Button,
   Chip,
   CircularProgress,
-  Dialog,
   Divider,
   Drawer,
   IconButton,
@@ -547,7 +546,7 @@ function DesignsTab({
   isLoading: boolean;
   designs: MaterialDesign[];
 }) {
-  const [lightbox, setLightbox] = useState<MaterialDesign | null>(null);
+  const { openImage } = useImageViewer();
 
   if (isLoading) {
     return (
@@ -583,7 +582,9 @@ function DesignsTab({
         {designs.map((d) => (
           <Box
             key={d.id}
-            onClick={() => setLightbox(d)}
+            onClick={() =>
+              d.image_url && openImage({ src: d.image_url, title: d.name || "Design" })
+            }
             sx={{
               border: 1,
               borderColor: "divider",
@@ -623,43 +624,6 @@ function DesignsTab({
         ))}
       </Box>
 
-      <Dialog
-        open={!!lightbox}
-        onClose={() => setLightbox(null)}
-        maxWidth="md"
-        PaperProps={{ sx: { bgcolor: "background.paper" } }}
-      >
-        {lightbox && (
-          <Box sx={{ position: "relative" }}>
-            <IconButton
-              onClick={() => setLightbox(null)}
-              sx={{
-                position: "absolute",
-                top: 8,
-                right: 8,
-                bgcolor: "rgba(0,0,0,0.5)",
-                color: "#fff",
-                "&:hover": { bgcolor: "rgba(0,0,0,0.7)" },
-              }}
-            >
-              <CloseIcon />
-            </IconButton>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={lightbox.image_url}
-              alt={lightbox.name || "Design"}
-              style={{ display: "block", maxWidth: "100%", maxHeight: "80vh" }}
-            />
-            {lightbox.name ? (
-              <Typography
-                sx={{ p: 1.5, fontSize: 14, fontWeight: 700, textAlign: "center" }}
-              >
-                {lightbox.name}
-              </Typography>
-            ) : null}
-          </Box>
-        )}
-      </Dialog>
     </Box>
   );
 }
