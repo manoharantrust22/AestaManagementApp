@@ -537,7 +537,7 @@ function OverviewTab({ material }: { material: MaterialWithDetails }) {
 // Designs tab — shared visual gallery (e.g. tile patterns)
 //
 // Designs belong to the parent material and apply across all thickness
-// variants. Read-only thumbnail grid with a click-to-enlarge lightbox.
+// variants. Read-only thumbnail grid; click a design to zoom in the shared viewer.
 // =====================================================
 function DesignsTab({
   isLoading,
@@ -590,7 +590,7 @@ function DesignsTab({
               borderColor: "divider",
               borderRadius: 1.5,
               overflow: "hidden",
-              cursor: "pointer",
+              cursor: d.image_url ? "zoom-in" : "default",
               bgcolor: "background.paper",
               transition: "transform 120ms, box-shadow 120ms",
               "&:hover": { transform: "translateY(-2px)", boxShadow: 2 },
