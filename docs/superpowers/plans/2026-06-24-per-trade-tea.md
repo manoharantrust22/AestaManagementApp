@@ -820,7 +820,89 @@ git commit -m "feat(tea): live per-trade split preview in the tea-entry dialog"
 
 ---
 
-## Phase D — Contract attribution + settlement (financial; ships last)
+## Phase D — Contract attribution (REVISED: read-only, view-backed)
+
+> **Revision (2026-06-25, owner-approved):** the original D1/D2 (a `tea_settlement_trade_shares`
+> table + `attribute_tea_settlement_to_trades` RPC summing the view over a settlement's
+> `period_start..period_end`) is **financially incorrect** against the real model: tea settlements
+> settle specific unpaid entries via the oldest-first **waterfall**, not a date range — verified
+> read-only on prod, 42/51 site settlements diverge from their period/scope tea (avg |diff| ₹730),
+> and overlapping periods would double-count. **Replaced** with a read-only attribution that sums the
+> already-conserving `v_trade_tea_share` for (trade + the trade's site) and surfaces it as a
+> "Tea (attributed)" line on the trade's scoped contract view. No new table, no RPC, **zero
+> production writes**, conserves by construction. Delivers decision 6 (tea visible in the trade's
+> contract economics) correctly. The two tasks below are superseded by the single Task D (revised).
+
+### Task D (revised): read-only per-trade tea on the trade's contract view
+
+**Files:**
+- Create: `src/hooks/queries/useTradeTeaContractShares.ts`
+- Modify: `src/app/(main)/site/payments/payments-content.tsx` (the scoped-trade settlement summary)
+
+**Interfaces:**
+- Consumes: `v_trade_tea_share` (Task A2); the payments page's `scopeTradeId` / `contractMeta.trade_category_id` and `siteId`.
+- Produces: `useTradeTeaContractShares({ siteId, tradeCategoryId }) → number` (Σ of that trade's tea at that site from the view); a "Tea (attributed)" line shown only when scoped and > 0.
+
+- [ ] **Step 1: Write the read hook**
+
+```typescript
+import { useQuery } from "@tanstack/react-query";
+import { createClient } from "@/lib/supabase/client";
+
+/** Total tea attributed to a trade at a site (from the conserving v_trade_tea_share view). */
+export function useTradeTeaContractShares(params: {
+  siteId: string | undefined;
+  tradeCategoryId: string | null | undefined;
+}) {
+  const { siteId, tradeCategoryId } = params;
+  const supabase: any = createClient();
+  return useQuery({
+    queryKey: ["trade-tea-contract-shares", siteId, tradeCategoryId],
+    enabled: !!siteId && !!tradeCategoryId,
+    staleTime: 60_000,
+    queryFn: async (): Promise<number> => {
+      const { data, error } = await supabase
+        .from("v_trade_tea_share")
+        .select("amount")
+        .eq("site_id", siteId)
+        .eq("trade_category_id", tradeCategoryId);
+      if (error) throw error;
+      return (data ?? []).reduce((a: number, r: any) => a + Number(r.amount || 0), 0);
+    },
+  });
+}
+```
+
+- [ ] **Step 2: Surface on the scoped contract summary**
+
+In `payments-content.tsx`, where the scoped-trade settlement/contract summary renders (gated on
+`scopeTradeId` / `selectedSubcontractId`), add:
+
+```typescript
+const teaAttributed = useTradeTeaContractShares({
+  siteId,
+  tradeCategoryId: scopeTradeId,
+}).data ?? 0;
+// render only when scoped + > 0:  "Tea (attributed): ₹{teaAttributed.toLocaleString('en-IN')}"
+```
+
+Render the line ONLY when `scopeTradeId` is set and `teaAttributed > 0`, so the Civil/site-wide
+view is unchanged.
+
+- [ ] **Step 3: Verify**
+
+`npx tsc --noEmit` clean for the two files; with no trade scope the hook is disabled and the line is absent (Civil unchanged).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/hooks/queries/useTradeTeaContractShares.ts "src/app/(main)/site/payments/payments-content.tsx"
+git commit -m "feat(tea): read-only per-trade tea attributed on the trade's contract view"
+```
+
+---
+
+<details><summary>SUPERSEDED — original D1/D2 (do NOT implement; kept for the record)</summary>
 
 ### Task D1: RPC — split a pool tea settlement into per-trade contract rows
 
@@ -1005,6 +1087,8 @@ git commit -m "feat(tea): run tea-settlement trade attribution + show attributed
 ```
 
 ---
+
+</details>
 
 ## Live verification (controller, before/after the phase commits)
 
