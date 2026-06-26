@@ -169,7 +169,6 @@ import { useContractPresence } from "@/hooks/queries/useContractPresence";
 import {
   formatContractWorkerCount,
   formatContractDayLabel,
-  formatContractWorkerSummary,
   contractItemHref,
   type ContractPresenceDay,
 } from "@/lib/utils/contractPresenceUtils";
@@ -186,27 +185,13 @@ const EMPTY_CONTRACT_PRESENCE: ReadonlyMap<string, ContractPresenceDay> = new Ma
  * task-work crew but no marked attendance — replaces the red "unfilled" nag and
  * taps through to the contract on /site/trades.
  */
-function ContractWorkRow({ presence }: { presence: ContractPresenceDay }) {
+function ContractPresenceList({ presence }: { presence: ContractPresenceDay }) {
   const router = useRouter();
-  const theme = useTheme();
-  const only = presence.items.length === 1 ? presence.items[0] : null;
-  const href = only ? contractItemHref(only) : "/site/trades";
-  const workerSummary = formatContractWorkerSummary(presence);
   return (
-    <TableRow
-      hover
-      onClick={() => router.push(href)}
-      sx={{
-        bgcolor: alpha(theme.palette.info.main, 0.06),
-        "&:hover": { bgcolor: alpha(theme.palette.info.main, 0.12) },
-        cursor: "pointer",
-      }}
-    >
-      <TableCell
-        colSpan={13}
-        sx={{ py: 1.25, borderLeft: 4, borderLeftColor: "info.main" }}
-      >
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+      {presence.items.map((item, i) => (
         <Box
+          key={`${item.id}-${i}`}
           sx={{
             display: "flex",
             alignItems: "center",
@@ -214,9 +199,59 @@ function ContractWorkRow({ presence }: { presence: ContractPresenceDay }) {
             flexWrap: "wrap",
           }}
         >
-          <EngineeringIcon sx={{ color: "info.main", fontSize: { xs: 20, sm: 24 } }} />
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25 }}>
-            <Typography variant="body2" fontWeight={600} sx={{ lineHeight: 1.2 }}>
+          <EngineeringIcon sx={{ color: "info.main", fontSize: 18 }} />
+          <Typography variant="body2" fontWeight={600} sx={{ lineHeight: 1.2 }}>
+            {item.title}
+          </Typography>
+          <Chip
+            label={formatContractWorkerCount(item.units)}
+            size="small"
+            color="info"
+            variant="outlined"
+            sx={{ fontWeight: 600, height: 20, fontSize: "0.7rem" }}
+          />
+          {item.workerSummary && (
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: { xs: "none", sm: "block" } }}
+            >
+              {item.workerSummary}
+            </Typography>
+          )}
+          <Button
+            size="small"
+            endIcon={<ArrowForwardIcon />}
+            onClick={(e) => {
+              e.stopPropagation();
+              router.push(contractItemHref(item));
+            }}
+            sx={{ ml: "auto" }}
+          >
+            View
+          </Button>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+function ContractWorkRow({ presence }: { presence: ContractPresenceDay }) {
+  const theme = useTheme();
+  return (
+    <TableRow
+      sx={{
+        bgcolor: alpha(theme.palette.info.main, 0.06),
+        "&:hover": { bgcolor: alpha(theme.palette.info.main, 0.12) },
+      }}
+    >
+      <TableCell
+        colSpan={13}
+        sx={{ py: 1.25, borderLeft: 4, borderLeftColor: "info.main" }}
+      >
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+            <Typography variant="body2" fontWeight={700} sx={{ lineHeight: 1.2 }}>
               {dayjs(presence.date).format("DD MMM")}
               <Typography
                 component="span"
@@ -227,41 +262,20 @@ function ContractWorkRow({ presence }: { presence: ContractPresenceDay }) {
                 {dayjs(presence.date).format("ddd")}
               </Typography>
             </Typography>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ lineHeight: 1.15 }}
-            >
-              Contract work · {formatContractDayLabel(presence)}
+            <Typography variant="caption" color="info.main" fontWeight={600}>
+              Contract work
             </Typography>
+            {presence.items.length > 1 && (
+              <Chip
+                label={`${presence.items.length} contracts · ${formatContractWorkerCount(presence.totalUnits)}`}
+                size="small"
+                color="info"
+                variant="outlined"
+                sx={{ fontWeight: 600, height: 20, fontSize: "0.7rem" }}
+              />
+            )}
           </Box>
-          <Chip
-            label={formatContractWorkerCount(presence.totalUnits)}
-            size="small"
-            color="info"
-            variant="outlined"
-            sx={{ fontWeight: 600, height: 22, fontSize: "0.7rem" }}
-          />
-          {workerSummary && (
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ display: { xs: "none", sm: "block" } }}
-            >
-              {workerSummary}
-            </Typography>
-          )}
-          <Button
-            size="small"
-            endIcon={<ArrowForwardIcon />}
-            onClick={(e) => {
-              e.stopPropagation();
-              router.push(href);
-            }}
-            sx={{ ml: "auto" }}
-          >
-            View
-          </Button>
+          <ContractPresenceList presence={presence} />
         </Box>
       </TableCell>
     </TableRow>
@@ -843,6 +857,9 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
 
   // Unfilled dates tracking state
   const [expandedUnfilledGroups, setExpandedUnfilledGroups] = useState<Set<string>>(new Set());
+  // Dates whose "Contract · N" chip on the attendance row is expanded to show
+  // the contract details (a day that has BOTH attendance and contract work).
+  const [expandedContractDates, setExpandedContractDates] = useState<Set<string>>(new Set());
   const [unfilledActionDialog, setUnfilledActionDialog] = useState<{
     open: boolean;
     date: string;
@@ -4586,6 +4603,39 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                     />
                                   );
                                 })()}
+                                {/* Contract-work chip — day with BOTH attendance and contract work. */}
+                                {(() => {
+                                  const cp = contractPresenceMap.get(entry.summary.date);
+                                  if (!cp) return null;
+                                  const expanded = expandedContractDates.has(entry.summary.date);
+                                  return (
+                                    <Tooltip title={`Contract work: ${formatContractDayLabel(cp)} — tap for details`}>
+                                      <Chip
+                                        icon={<EngineeringIcon sx={{ fontSize: 14 }} />}
+                                        label={`Contract · ${Math.round(cp.totalUnits)}`}
+                                        size="small"
+                                        color="info"
+                                        variant={expanded ? "filled" : "outlined"}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setExpandedContractDates((prev) => {
+                                            const next = new Set(prev);
+                                            if (next.has(entry.summary.date)) next.delete(entry.summary.date);
+                                            else next.add(entry.summary.date);
+                                            return next;
+                                          });
+                                        }}
+                                        sx={{
+                                          height: 20,
+                                          fontSize: "0.65rem",
+                                          fontWeight: 600,
+                                          cursor: "pointer",
+                                          "& .MuiChip-icon": { ml: "4px" },
+                                        }}
+                                      />
+                                    </Tooltip>
+                                  );
+                                })()}
                               </Box>
                             </TableCell>
                             <TableCell align="center">
@@ -4911,6 +4961,43 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                   )}
                                 </Box>
                               </Box>
+                            </TableCell>
+                          </TableRow>
+                          {/* Contract-work details — expands from the "Contract · N" chip
+                              when a day has both attendance and contract work. */}
+                          <TableRow>
+                            <TableCell colSpan={13} sx={{ py: 0, border: 0 }}>
+                              <Collapse
+                                in={expandedContractDates.has(entry.summary.date)}
+                                timeout="auto"
+                                unmountOnExit
+                              >
+                                {(() => {
+                                  const cp = contractPresenceMap.get(entry.summary.date);
+                                  if (!cp) return null;
+                                  return (
+                                    <Box
+                                      sx={{
+                                        px: 2,
+                                        py: 1.5,
+                                        bgcolor: alpha(theme.palette.info.main, 0.06),
+                                        borderLeft: 4,
+                                        borderLeftColor: "info.main",
+                                      }}
+                                    >
+                                      <Typography
+                                        variant="caption"
+                                        color="info.main"
+                                        fontWeight={700}
+                                        sx={{ display: "block", mb: 0.75 }}
+                                      >
+                                        Contract work this day
+                                      </Typography>
+                                      <ContractPresenceList presence={cp} />
+                                    </Box>
+                                  );
+                                })()}
+                              </Collapse>
                             </TableCell>
                           </TableRow>
                           <TableRow>
@@ -7200,7 +7287,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           }}
           sx={{
             position: "fixed",
-            bottom: { xs: 150, md: 90 },
+            bottom: { xs: 80, md: 24 },
             right: { xs: 16, md: 24 },
             "& .MuiFab-primary": {
               bgcolor: tradeColor.main,

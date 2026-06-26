@@ -45,6 +45,7 @@ import {
   Visibility as ViewIcon,
   CheckCircle as CheckCircleIcon,
   Groups as GroupsIcon,
+  Engineering as EngineeringIcon,
 } from "@mui/icons-material";
 import TeaShopPayBottomSheet from "@/components/tea-shop/TeaShopPayBottomSheet";
 import { useRouter } from "next/navigation";
@@ -107,8 +108,17 @@ import {
 type CombinedEntryType =
   | { type: "entry"; date: string; entry: TeaShopEntry; siteName?: string; source?: "individual" | "group" }
   | { type: "holiday"; date: string; holiday: SiteHoliday }
-  | { type: "no_entry"; date: string; attendanceCount: { named: number; market: number } };
+  | { type: "no_entry"; date: string; attendanceCount: { named: number; market: number } }
+  | { type: "contract_no_tea"; date: string; presence: ContractPresenceDay };
 import dayjs from "dayjs";
+import { useContractPresence } from "@/hooks/queries/useContractPresence";
+import {
+  formatContractWorkerCount,
+  formatContractDayLabel,
+  formatContractWorkerSummary,
+  contractItemHref,
+  type ContractPresenceDay,
+} from "@/lib/utils/contractPresenceUtils";
 import { weekStartStr } from "@/lib/utils/weekUtils";
 
 interface TabPanelProps {
@@ -222,6 +232,22 @@ export default function TeaShopPage() {
     // Always filter by the selected site's ID
     return selectedSite?.id;
   }, [selectedSite?.id]);
+
+  // Contract / task-work presence per (selected site, date). Powers the Att
+  // column "Contract" tag and the "contract day, no tea logged" reminder rows.
+  const { data: contractPresenceByDate } = useContractPresence({
+    siteId: selectedSite?.id,
+    dateFrom,
+    dateTo,
+    isAllTime,
+  });
+
+  // Holidays keyed by date, so the Att column can show a "Holiday" tag in any mode.
+  const holidayByDate = useMemo(() => {
+    const m = new Map<string, SiteHoliday>();
+    for (const h of holidays) m.set((h as any).date, h);
+    return m;
+  }, [holidays]);
 
   // Date-filtered entries for the table — paginated weekly (newest first) so the
   // table renders fast even on All Time. Summary cards still use all-time data
@@ -802,9 +828,21 @@ export default function TeaShopPage() {
       });
     }
 
+    // Surface contract days with NO tea logged (any mode) — the crew was on site
+    // and almost certainly drank tea/snacks, so a missing entry is effectively a
+    // missing split. Logging it routes the cross-site split automatically.
+    if (contractPresenceByDate) {
+      contractPresenceByDate.forEach((cp, date) => {
+        const inRange = isAllTime || (dateFrom && dateTo && date >= dateFrom && date <= dateTo);
+        if (inRange && !entryDates.has(date) && !holidayDates.has(date)) {
+          result.push({ type: "contract_no_tea", date, presence: cp });
+        }
+      });
+    }
+
     // Sort by date descending
     return result.sort((a, b) => b.date.localeCompare(a.date));
-  }, [filteredEntries, holidays, attendanceByDate, dateFrom, dateTo, isAllTime, isInGroup, combinedEntriesData, effectiveFilterBySiteId, stats.totalPaid]);
+  }, [filteredEntries, holidays, attendanceByDate, contractPresenceByDate, dateFrom, dateTo, isAllTime, isInGroup, combinedEntriesData, effectiveFilterBySiteId, stats.totalPaid]);
 
   // Calculate table-specific stats (date-filtered) for display in table header
   const tableStats = useMemo(() => {
@@ -1288,6 +1326,72 @@ export default function TeaShopPage() {
                         );
                       }
 
+                      if (item.type === "contract_no_tea") {
+                        const cp = item.presence;
+                        const only = cp.items.length === 1 ? cp.items[0] : null;
+                        return (
+                          <TableRow key={`contract-no-tea-${item.date}`} sx={{ bgcolor: "info.50" }}>
+                            <TableCell
+                              colSpan={isInGroup ? 7 : 6}
+                              sx={{
+                                py: 1.5,
+                                borderLeft: 4,
+                                borderLeftColor: "info.main",
+                              }}
+                            >
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+                                <EngineeringIcon sx={{ color: "info.main", fontSize: 24 }} />
+                                <Typography variant="body2" fontWeight={600}>
+                                  {dayjs(item.date).format("DD MMM")}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {dayjs(item.date).format("dddd")}
+                                </Typography>
+                                <Tooltip title={formatContractDayLabel(cp)}>
+                                  <Chip
+                                    label={`Contract · ${formatContractWorkerCount(cp.totalUnits)}`}
+                                    size="small"
+                                    color="info"
+                                    variant="outlined"
+                                    onClick={only ? () => router.push(contractItemHref(only)) : undefined}
+                                    sx={{ fontWeight: 600, ...(only ? { cursor: "pointer" } : {}) }}
+                                  />
+                                </Tooltip>
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                  sx={{ display: { xs: "none", sm: "block" } }}
+                                >
+                                  {formatContractDayLabel(cp)}
+                                </Typography>
+                                <Chip
+                                  label="No tea logged"
+                                  size="small"
+                                  variant="outlined"
+                                  color="warning"
+                                  sx={{ fontWeight: 600 }}
+                                />
+                                {canEdit && (
+                                  <Button
+                                    size="small"
+                                    variant="contained"
+                                    startIcon={<AddIcon />}
+                                    onClick={() => {
+                                      setEditingEntry(null);
+                                      setInitialEntryDate(item.date);
+                                      setEntryDialogOpen(true);
+                                    }}
+                                    sx={{ ml: "auto" }}
+                                  >
+                                    Add Tea
+                                  </Button>
+                                )}
+                              </Box>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      }
+
                       // Regular entry row
                       const entry = item.entry;
                       const extEntry = entry as TeaShopEntryExtended;
@@ -1347,12 +1451,50 @@ export default function TeaShopPage() {
                           <TableCell align="center">
                             {(() => {
                               const att = attendanceByDate.get(entry.date);
-                              if (!att || (att.named === 0 && att.market === 0)) {
+                              // 1. Real attendance → people count.
+                              if (att && (att.named > 0 || att.market > 0)) {
                                 return (
-                                  <Tooltip title="No attendance found for this date">
+                                  <Tooltip title={`Named: ${att.named}, Market: ${att.market}`}>
                                     <Chip
-                                      icon={<WarningIcon fontSize="small" />}
-                                      label="N/A"
+                                      icon={<GroupIcon fontSize="small" />}
+                                      label={`${att.named}+${att.market}`}
+                                      size="small"
+                                      color="success"
+                                      variant="outlined"
+                                    />
+                                  </Tooltip>
+                                );
+                              }
+                              // 2. Contract / task-work crew was on site (this is why the
+                              //    split has a value even with no marked attendance).
+                              const cp = contractPresenceByDate?.get(entry.date);
+                              if (cp) {
+                                const only = cp.items.length === 1 ? cp.items[0] : null;
+                                const summary = formatContractWorkerSummary(cp);
+                                return (
+                                  <Tooltip
+                                    title={`${formatContractDayLabel(cp)}${summary ? " · " + summary : ""}`}
+                                  >
+                                    <Chip
+                                      icon={<EngineeringIcon sx={{ fontSize: 16 }} />}
+                                      label={`Contract · ${Math.round(cp.totalUnits)}`}
+                                      size="small"
+                                      color="info"
+                                      variant="outlined"
+                                      onClick={only ? () => router.push(contractItemHref(only)) : undefined}
+                                      sx={only ? { cursor: "pointer" } : undefined}
+                                    />
+                                  </Tooltip>
+                                );
+                              }
+                              // 3. Holiday.
+                              const hol = holidayByDate.get(entry.date);
+                              if (hol) {
+                                return (
+                                  <Tooltip title={`Holiday${(hol as any).reason ? ": " + (hol as any).reason : ""}`}>
+                                    <Chip
+                                      icon={<BeachAccessIcon fontSize="small" />}
+                                      label="Holiday"
                                       size="small"
                                       color="warning"
                                       variant="outlined"
@@ -1360,13 +1502,14 @@ export default function TeaShopPage() {
                                   </Tooltip>
                                 );
                               }
+                              // 4. Genuinely nothing recorded.
                               return (
-                                <Tooltip title={`Named: ${att.named}, Market: ${att.market}`}>
+                                <Tooltip title="No attendance found for this date">
                                   <Chip
-                                    icon={<GroupIcon fontSize="small" />}
-                                    label={`${att.named}+${att.market}`}
+                                    icon={<WarningIcon fontSize="small" />}
+                                    label="N/A"
                                     size="small"
-                                    color="success"
+                                    color="warning"
                                     variant="outlined"
                                   />
                                 </Tooltip>
