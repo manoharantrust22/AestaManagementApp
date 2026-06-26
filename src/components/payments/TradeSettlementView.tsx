@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Box,
   Paper,
@@ -364,6 +365,7 @@ export function TradeSettlementView({
   contract,
   tradeColor,
 }: TradeSettlementViewProps) {
+  const router = useRouter();
   const supabase = createClient();
   const queryClient = useQueryClient();
   const theme = useTheme();
@@ -635,6 +637,16 @@ export function TradeSettlementView({
     return [];
   }, [mode, midEntries, headcount]);
 
+  // Defensive redirect: detailed contracts now live on Path 2 (?contractId= URL).
+  // If someone lands here via a legacy triple URL (?categoryId=&contractId=&trade=)
+  // with a detailed contract, silently redirect to the full Path-2 screen.
+  // useEffect is unconditional (before any conditional return) to satisfy hooks rules.
+  useEffect(() => {
+    if (mode === "detailed") {
+      router.replace(`/site/payments?contractId=${contract.id}`);
+    }
+  }, [mode, contract.id, router]);
+
   if (mode === "mesthri_only") {
     return (
       <Alert severity="info" sx={{ m: 2 }}>
@@ -645,10 +657,9 @@ export function TradeSettlementView({
   }
   if (mode === "detailed") {
     return (
-      <Alert severity="info" sx={{ m: 2 }}>
-        <strong>Detailed mode</strong> — uses the same per-laborer waterfall as Civil. Switch back
-        to the Civil chip to settle these.
-      </Alert>
+      <Box sx={{ p: 4, display: "flex", justifyContent: "center" }}>
+        <CircularProgress />
+      </Box>
     );
   }
 

@@ -1,9 +1,11 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Box,
   Alert,
+  CircularProgress,
   SpeedDial,
   SpeedDialAction,
   SpeedDialIcon,
@@ -51,6 +53,7 @@ export function TradeAttendanceView({
   selection,
   onChipChange,
 }: TradeAttendanceViewProps) {
+  const router = useRouter();
   const { selectedSite } = useSelectedSite();
   const queryClient = useQueryClient();
   const siteId = selectedSite?.id;
@@ -109,6 +112,15 @@ export function TradeAttendanceView({
     };
     return () => bc.close();
   }, [siteId, queryClient]);
+
+  // Defensive redirect: detailed contracts now live on Path 2 (?contractId= URL).
+  // If someone lands here via a legacy triple URL (?categoryId=&contractId=&trade=)
+  // with a detailed contract, silently redirect to the full Path-2 screen.
+  useEffect(() => {
+    if (contract?.laborTrackingMode === "detailed") {
+      router.replace(`/site/attendance?contractId=${contract.id}`);
+    }
+  }, [contract?.laborTrackingMode, contract?.id, router]);
 
   if (!selectedSite) {
     return null;
@@ -275,11 +287,9 @@ export function TradeAttendanceView({
           )}
 
           {contract.laborTrackingMode === "detailed" && (
-            <Alert severity="info">
-              <strong>Detailed (per-laborer) mode</strong> for non-civil contracts
-              ships in the next slice. For now visit <strong>/site/trades</strong>{" "}
-              and expand this contract for the full picture.
-            </Alert>
+            <Box sx={{ p: 4, display: "flex", justifyContent: "center" }}>
+              <CircularProgress />
+            </Box>
           )}
         </>
       )}
