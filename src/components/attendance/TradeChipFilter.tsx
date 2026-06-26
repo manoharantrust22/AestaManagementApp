@@ -40,6 +40,14 @@ interface TradeChipFilterProps {
    * surface as much data as possible without scrolling.
    */
   compact?: boolean;
+  /**
+   * When provided, clicking a detailed trade chip navigates to its Path-2
+   * ?contractId= URL (passing the contract id) instead of calling onChange with
+   * kind:'trade', and clicking Civil navigates to the base path (passing null)
+   * to CLEAR an active ?contractId= scope. Used by attendance/payments; omitted
+   * on /site/expenses (where Civil just calls onChange({kind:'civil'})).
+   */
+  onNavigateScope?: (contractId: string | null) => void;
 }
 
 const CIVIL_SENTINEL = "__civil__";
@@ -50,6 +58,7 @@ export function TradeChipFilter({
   onChange,
   allowAllChip = false,
   compact = false,
+  onNavigateScope,
 }: TradeChipFilterProps) {
   const { data: trades, isLoading } = useSiteTrades(siteId);
 
@@ -98,6 +107,10 @@ export function TradeChipFilter({
     contracts: TradeContract[]
   ) => {
     if (contracts.length === 0) return;
+    if (onNavigateScope && contracts[0]?.laborTrackingMode === "detailed") {
+      onNavigateScope(contracts[0].id);
+      return;
+    }
     onChange({
       kind: "trade",
       categoryId,
@@ -112,7 +125,7 @@ export function TradeChipFilter({
       ? "All trades — rows grouped by trade with subtotals. Tap a chip to scope down."
       : selected.kind === "civil"
       ? "Civil work uses this page. Tap any other trade to record headcount / photos / payments here."
-      : `${selected.tradeName} attendance — same page, transformed for this trade. Tap Civil to return.`;
+      : `${selected.tradeName} workspace — full attendance for this trade. Tap Civil to return.`;
 
   return (
     <Box sx={{ mb: compact ? 0 : 2 }}>
@@ -159,7 +172,10 @@ export function TradeChipFilter({
               variant={isSelected ? "filled" : "outlined"}
               onClick={
                 isCivil
-                  ? () => onChange({ kind: "civil" })
+                  ? () =>
+                      onNavigateScope
+                        ? onNavigateScope(null)
+                        : onChange({ kind: "civil" })
                   : () =>
                       handleTradeChipClick(
                         trade.category.id,
@@ -198,14 +214,18 @@ export function TradeChipFilter({
                   label={label}
                   size="small"
                   variant={isPicked ? "filled" : "outlined"}
-                  onClick={() =>
-                    onChange({
-                      kind: "trade",
-                      categoryId: selected.categoryId,
-                      tradeName: selected.tradeName,
-                      contractId: c.id,
-                    })
-                  }
+                  onClick={() => {
+                    if (onNavigateScope && c.laborTrackingMode === "detailed") {
+                      onNavigateScope(c.id);
+                    } else {
+                      onChange({
+                        kind: "trade",
+                        categoryId: selected.categoryId,
+                        tradeName: selected.tradeName,
+                        contractId: c.id,
+                      });
+                    }
+                  }}
                   sx={{
                     cursor: "pointer",
                     ...(isPicked

@@ -826,6 +826,7 @@ export default function PaymentsContent() {
             selected={tradeChipSelectionForDisplay}
             onChange={setTradeChipSelection}
             compact
+            onNavigateScope={(id) => router.push(id ? `/site/payments?contractId=${id}` : "/site/payments")}
           />
         </Box>
       </Box>

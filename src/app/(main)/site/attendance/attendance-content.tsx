@@ -3361,6 +3361,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           siteId={selectedSite?.id}
           selected={tradeChipSelectionForDisplay}
           onChange={setTradeChipSelection}
+          onNavigateScope={(id) => router.push(id ? `/site/attendance?contractId=${id}` : "/site/attendance")}
         />
       </Box>
 
