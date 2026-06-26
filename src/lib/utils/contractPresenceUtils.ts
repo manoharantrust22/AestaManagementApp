@@ -22,6 +22,8 @@ export interface ContractPresenceItem {
   units: number;
   /** Per-type breakdown for packages, e.g. "Mason ×2 · Helper ×1" ("" otherwise). */
   workerSummary: string;
+  /** labor_categories.id of the package/subcontract's trade; null if unset. */
+  tradeCategoryId: string | null;
 }
 
 export interface ContractPresenceDay {
@@ -30,6 +32,32 @@ export interface ContractPresenceDay {
   /** Σ units across the day's contracts (drives the "N workers" chip). */
   totalUnits: number;
   items: ContractPresenceItem[];
+}
+
+/**
+ * Restrict a contract-presence map to a single trade.
+ *
+ * When `scope` is null (the plain Civil view) the input map is returned
+ * UNCHANGED — same reference — so Civil behaviour stays byte-for-byte identical.
+ * Otherwise a new map is built keeping only items whose `tradeCategoryId`
+ * matches the scope; each day's `totalUnits` is recomputed from the kept items,
+ * and days that lose all their items are dropped entirely.
+ */
+export function scopeContractPresence(
+  map: ReadonlyMap<string, ContractPresenceDay>,
+  scope: { tradeCategoryId: string } | null
+): ReadonlyMap<string, ContractPresenceDay> {
+  if (!scope) return map;
+  const out = new Map<string, ContractPresenceDay>();
+  for (const [date, day] of map) {
+    const items = day.items.filter(
+      (i) => i.tradeCategoryId === scope.tradeCategoryId
+    );
+    if (items.length === 0) continue;
+    const totalUnits = items.reduce((sum, i) => sum + i.units, 0);
+    out.set(date, { date: day.date, totalUnits, items });
+  }
+  return out;
 }
 
 /** "3 workers" / "1 worker" (rounds fractional man-days for display). */

@@ -170,6 +170,7 @@ import {
   formatContractWorkerCount,
   formatContractDayLabel,
   contractItemHref,
+  scopeContractPresence,
   type ContractPresenceDay,
 } from "@/lib/utils/contractPresenceUtils";
 
@@ -534,7 +535,9 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
 
   // ── Trade scoping (Task 3) ───────────────────────────────────────────────
   // When a lone ?contractId= is present (in-house DETAILED contract), scope the
-  // named-labourer list to that trade. Market/tea/holidays are NOT scoped.
+  // view to that trade: named labourers, market labour, tea, AND contract
+  // presence (the "Contract work" rows) are all filtered to the trade.
+  // Holidays are scoped separately via slice-3 (scopedHolidays).
   const { data: contractMeta } = useSubcontractMeta(contractIdParam);
 
   /** Identifies which labourers belong to the active trade contract, or null when
@@ -1124,8 +1127,21 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     isAllTime,
     enabled: !initialData || initialDataProcessedRef.current,
   });
-  const contractPresenceMap =
+  const rawContractPresenceMap =
     contractPresenceQuery.data ?? EMPTY_CONTRACT_PRESENCE;
+  // Scope contract-work rows to the active trade so a non-Civil trade view
+  // doesn't leak Civil's contract presence. When tradeScope is null this is the
+  // SAME reference as the raw map (Civil byte-for-byte). Every downstream
+  // consumer (contractWorkEntries memo, the WIP "Contract · N" chip + Collapse,
+  // and the row lookups) inherits the fix via this single derivation.
+  const contractPresenceMap = useMemo(
+    () =>
+      scopeContractPresence(
+        rawContractPresenceMap,
+        tradeScope ? { tradeCategoryId: tradeScope.tradeCategoryId } : null
+      ),
+    [rawContractPresenceMap, tradeScope]
+  );
 
   // Hook to invalidate attendance cache after mutations
   const invalidateAttendance = useInvalidateAttendanceData();

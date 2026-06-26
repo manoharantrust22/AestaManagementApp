@@ -60,7 +60,7 @@ export function useContractPresence({
       // .from() on a cast client (same pattern as useTaskWorkDayLogs).
       let pkgQuery = (supabase.from("task_work_day_logs" as any) as any)
         .select(
-          "log_date, man_days, worker_count, worker_lines, package_id, task_work_packages!inner(title)"
+          "log_date, man_days, worker_count, worker_lines, package_id, task_work_packages!inner(title, labor_category_id)"
         )
         .eq("site_id", siteId);
       if (from) pkgQuery = pkgQuery.gte("log_date", from);
@@ -69,7 +69,7 @@ export function useContractPresence({
       // Headcount-mode subcontract attendance (site_id resolved via subcontracts).
       let scQuery = (supabase.from("subcontract_headcount_attendance" as any) as any)
         .select(
-          "attendance_date, units, subcontract_id, subcontracts!inner(title, site_id)"
+          "attendance_date, units, subcontract_id, subcontracts!inner(title, site_id, trade_category_id)"
         )
         .eq("subcontracts.site_id", siteId);
       if (from) scQuery = scQuery.gte("attendance_date", from);
@@ -103,6 +103,7 @@ export function useContractPresence({
           title: r.task_work_packages?.title ?? "Task work",
           units,
           workerSummary: summarizeLines(lines),
+          tradeCategoryId: r.task_work_packages?.labor_category_id ?? null,
         });
       }
 
@@ -110,7 +111,13 @@ export function useContractPresence({
       // per (subcontract, date) by summing units.
       const scAgg = new Map<
         string,
-        { id: string; title: string; date: string; units: number }
+        {
+          id: string;
+          title: string;
+          date: string;
+          units: number;
+          tradeCategoryId: string | null;
+        }
       >();
       for (const r of (scRes.data || []) as any[]) {
         const key = `${r.subcontract_id}|${r.attendance_date}`;
@@ -119,6 +126,7 @@ export function useContractPresence({
           title: r.subcontracts?.title ?? "Contract",
           date: r.attendance_date,
           units: 0,
+          tradeCategoryId: r.subcontracts?.trade_category_id ?? null,
         };
         cur.units += num(r.units);
         scAgg.set(key, cur);
@@ -130,6 +138,7 @@ export function useContractPresence({
           title: agg.title,
           units: agg.units,
           workerSummary: "",
+          tradeCategoryId: agg.tradeCategoryId,
         });
       }
 

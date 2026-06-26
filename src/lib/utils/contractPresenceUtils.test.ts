@@ -14,6 +14,7 @@ const pkg = (over: Partial<ContractPresenceItem> = {}): ContractPresenceItem => 
   title: "All civil Work & elevation - Barun",
   units: 3,
   workerSummary: "Mason ×2 · Helper ×1",
+  tradeCategoryId: null,
   ...over,
 });
 
@@ -53,7 +54,7 @@ describe("contractPresenceUtils", () => {
     it("joins per-package breakdowns and skips blanks", () => {
       const d = day([
         pkg(),
-        { kind: "subcontract", id: "sc-1", title: "RCC", units: 2, workerSummary: "" },
+        { kind: "subcontract", id: "sc-1", title: "RCC", units: 2, workerSummary: "", tradeCategoryId: null },
       ]);
       expect(formatContractWorkerSummary(d)).toBe("Mason ×2 · Helper ×1");
     });
@@ -69,6 +70,7 @@ describe("contractPresenceUtils", () => {
           title: "RCC",
           units: 1,
           workerSummary: "",
+          tradeCategoryId: null,
         })
       ).toBe("/site/trades?contract=sc-9");
     });
