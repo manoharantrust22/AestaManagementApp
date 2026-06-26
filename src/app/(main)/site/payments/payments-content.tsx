@@ -1930,6 +1930,7 @@ export default function PaymentsContent() {
                 },
                 engineerId: payload.engineerId,
                 notes: payload.notes,
+                subcontractId: selectedSubcontractId ?? undefined,
                 userId: userProfile!.id,
                 userName: userProfile!.name || userProfile!.email || "Unknown",
               });
@@ -1943,6 +1944,7 @@ export default function PaymentsContent() {
           onClose={() => setDayDialog(null)}
           dailyRecords={dayPendingQuery.data ?? []}
           allowSubcontractLink
+          defaultSubcontractId={selectedSubcontractId ?? undefined}
           onSuccess={() => {
             setDayDialog(null);
             void queryClient.invalidateQueries({ queryKey: ["payments-ledger"] });
