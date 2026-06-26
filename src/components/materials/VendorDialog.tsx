@@ -2,10 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
+  Drawer,
   Button,
   TextField,
   Grid,
@@ -39,8 +36,17 @@ import {
   TravelExplore as TravelExploreIcon,
   OpenInNew as OpenInNewIcon,
   ContentPaste as PasteIcon,
+  Warehouse as WarehouseIcon,
+  Category as CategoryIcon,
+  Payments as PaymentsIcon,
+  AccountBalance as BankIcon,
+  Notes as NotesIcon,
+  ContactPhone as ContactPhoneIcon,
+  Place as PlaceIcon,
+  Badge as BadgeIcon,
 } from "@mui/icons-material";
 import CategoryAutocomplete from "@/components/common/CategoryAutocomplete";
+import DraftRestoreBanner from "@/components/common/DraftRestoreBanner";
 import { compressImage } from "@/components/attendance/work-updates/imageUtils";
 import { createClient } from "@/lib/supabase/client";
 import { hardenedUpload } from "@/lib/storage/uploadHelpers";
@@ -71,6 +77,35 @@ interface VendorDialogProps {
   prefill?: Partial<VendorFormData>;
 }
 
+/** A left-aligned heading for the always-visible sections at the top of the drawer. */
+function SectionTitle({
+  icon,
+  children,
+  sx,
+}: {
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  sx?: object;
+}) {
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5, ...sx }}>
+      <Box sx={{ color: "primary.main", display: "flex" }}>{icon}</Box>
+      <Typography variant="subtitle2" sx={{ fontWeight: 700, letterSpacing: 0.2 }}>
+        {children}
+      </Typography>
+    </Box>
+  );
+}
+
+// Shared look for the collapsible advanced sections: a clean list of rows with a
+// hairline divider between them, no elevation, no default expand line.
+const sectionAccordionSx = {
+  "&:before": { display: "none" },
+  borderTop: "1px solid",
+  borderColor: "divider",
+  bgcolor: "transparent",
+} as const;
+
 export default function VendorDialog({
   open,
   onClose,
@@ -92,6 +127,11 @@ export default function VendorDialog({
   const [uploadingQr, setUploadingQr] = useState(false);
   const [uploadingShopPhoto, setUploadingShopPhoto] = useState(false);
   const [taxDetailsExpanded, setTaxDetailsExpanded] = useState(false);
+  const [storeExpanded, setStoreExpanded] = useState(false);
+  const [servicesExpanded, setServicesExpanded] = useState(false);
+  const [categoriesExpanded, setCategoriesExpanded] = useState(false);
+  const [bankExpanded, setBankExpanded] = useState(false);
+  const [notesExpanded, setNotesExpanded] = useState(false);
   const [sameAsAddress, setSameAsAddress] = useState(false);
 
   // Memoize initial form data based on vendor prop
@@ -151,6 +191,7 @@ export default function VendorDialog({
     updateField,
     isDirty,
     hasRestoredDraft,
+    restoredAt,
     clearDraft,
     discardDraft,
   } = useFormDraft<VendorFormData>({
@@ -168,11 +209,52 @@ export default function VendorDialog({
     }
   }, [vendor, open]);
 
-  // Sync tax details accordion state when dialog opens
+  // When opening to edit, expand only the advanced sections that already hold
+  // data so existing values aren't hidden behind a collapsed accordion. On a
+  // fresh create everything stays collapsed (progressive disclosure).
   useEffect(() => {
-    if (open) {
-      setTaxDetailsExpanded(!!vendor);
-    }
+    if (!open) return;
+    const v = vendor;
+    setStoreExpanded(
+      !!(
+        v &&
+        (v.has_physical_store ||
+          v.store_address ||
+          v.delivery_radius_km ||
+          v.shop_photo_url)
+      )
+    );
+    setServicesExpanded(
+      !!(
+        v &&
+        (v.provides_transport ||
+          v.provides_loading ||
+          v.provides_unloading ||
+          v.min_order_amount)
+      )
+    );
+    setCategoriesExpanded(!!(v && v.categories?.length));
+    setTaxDetailsExpanded(
+      !!(
+        v &&
+        (v.gst_number ||
+          v.pan_number ||
+          v.credit_limit ||
+          v.accepts_credit ||
+          (v.payment_terms_days ?? 30) !== 30)
+      )
+    );
+    setBankExpanded(
+      !!(
+        v &&
+        (v.upi_id ||
+          v.qr_code_url ||
+          v.bank_name ||
+          v.bank_account_number ||
+          v.bank_ifsc)
+      )
+    );
+    setNotesExpanded(!!(v && v.notes));
   }, [open, vendor]);
 
   // Initialize "Same as address" toggle when dialog opens
@@ -374,59 +456,83 @@ export default function VendorDialog({
         onCreated?.(created);
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to save vendor";
-      setError(message);
+      // Supabase PostgrestErrors are plain objects, not Error instances, so the
+      // real cause (e.g. a duplicate code) would otherwise be swallowed.
+      const raw =
+        err instanceof Error
+          ? err.message
+          : err && typeof err === "object" && "message" in err
+            ? String((err as { message: unknown }).message)
+            : "Failed to save vendor";
+      setError(
+        /duplicate key|23505/i.test(raw)
+          ? "That vendor code is already taken. Pick another under Customize."
+          : raw
+      );
     }
   };
 
   const isSubmitting = createVendor.isPending || updateVendor.isPending;
 
   return (
-    <Dialog
+    <Drawer
+      anchor="right"
       open={open}
-      onClose={(_event, reason) => { if (reason !== "backdropClick") onClose(); }}
-      maxWidth="md"
-      fullWidth
-      fullScreen={isMobile}
+      onClose={(_event, reason) => {
+        if (reason !== "backdropClick") onClose();
+      }}
+      // Sit above any Dialog (e.g. the Purchase Order quick-add) that opened us.
+      sx={{ zIndex: (theme) => theme.zIndex.modal + 1 }}
+      slotProps={{
+        paper: {
+          sx: {
+            width: { xs: "100%", sm: 560 },
+            maxWidth: "100%",
+            display: "flex",
+            flexDirection: "column",
+          },
+        },
+      }}
     >
-      <DialogTitle
+      {/* Sticky header */}
+      <Box
         sx={{
+          px: 2,
+          py: 1.5,
+          borderBottom: 1,
+          borderColor: "divider",
           display: "flex",
-          justifyContent: "space-between",
           alignItems: "center",
+          justifyContent: "space-between",
+          bgcolor: "background.paper",
+          flexShrink: 0,
         }}
       >
         <Typography variant="h6" component="span">
           {isEdit ? "Edit Vendor" : "Add New Vendor"}
         </Typography>
-        <IconButton onClick={onClose} size="small">
+        <IconButton onClick={onClose} size="small" aria-label="Close">
           <CloseIcon />
         </IconButton>
-      </DialogTitle>
+      </Box>
 
-      <DialogContent dividers>
-        {hasRestoredDraft && (
-          <Alert
-            severity="info"
-            sx={{ mb: 2 }}
-            action={
-              <Button size="small" color="inherit" onClick={discardDraft}>
-                Discard
-              </Button>
-            }
-          >
-            Restored from previous session
-          </Alert>
-        )}
+      {/* Scrollable body */}
+      <Box sx={{ flex: 1, overflow: "auto", p: 2 }}>
+        <DraftRestoreBanner
+          show={hasRestoredDraft}
+          restoredAt={restoredAt}
+          onDiscard={discardDraft}
+        />
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
           </Alert>
         )}
 
+        {/* ---------------- Basics (always visible) ---------------- */}
+        <SectionTitle icon={<BadgeIcon fontSize="small" />}>Basics</SectionTitle>
         <Grid container spacing={2}>
-          {/* Basic Info */}
-          <Grid size={{ xs: 12, md: customizeCode ? 5 : 8 }}>
+          <Grid size={{ xs: 12, sm: customizeCode ? 7 : 12 }}>
             <TextField
               fullWidth
               label="Vendor Name"
@@ -452,7 +558,7 @@ export default function VendorDialog({
             />
           </Grid>
           {customizeCode && (
-            <Grid size={{ xs: 12, md: 3 }}>
+            <Grid size={{ xs: 12, sm: 5 }}>
               <TextField
                 fullWidth
                 label="Vendor Code"
@@ -463,29 +569,12 @@ export default function VendorDialog({
               />
             </Grid>
           )}
-          <Grid size={{ xs: 12, md: 4 }}>
-            <Box sx={{ display: "flex", flexDirection: "column" }}>
-              <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5 }}>
-                Rating
-              </Typography>
-              <Rating
-                value={formData.rating || 0}
-                onChange={(_, value) => handleChange("rating", value)}
-                precision={0.5}
-              />
-            </Box>
-          </Grid>
 
-          {/* Vendor Type Selector */}
+          {/* Vendor Type — compact icon-over-label grid that wraps in the drawer */}
           <Grid size={12}>
-            <Divider sx={{ my: 1 }}>
-              <Typography variant="caption" color="text.secondary">
-                Vendor Type
-              </Typography>
-            </Divider>
-          </Grid>
-
-          <Grid size={12}>
+            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+              Vendor Type
+            </Typography>
             <ToggleButtonGroup
               value={formData.vendor_type}
               exclusive
@@ -499,27 +588,47 @@ export default function VendorDialog({
                 }
               }}
               aria-label="vendor type"
-              fullWidth
-              sx={{ mb: 1 }}
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "repeat(3, 1fr)", sm: "repeat(5, 1fr)" },
+                gap: 1,
+                width: "100%",
+                "& .MuiToggleButtonGroup-grouped": {
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: 1.5,
+                  flexDirection: "column",
+                  gap: 0.5,
+                  py: 1,
+                  textTransform: "none",
+                  fontSize: "0.7rem",
+                  lineHeight: 1.2,
+                  "&.Mui-selected": {
+                    borderColor: "primary.main",
+                    bgcolor: "action.selected",
+                    color: "primary.main",
+                  },
+                },
+              }}
             >
               <ToggleButton value="shop" aria-label="shop">
-                <StoreIcon sx={{ mr: 1 }} />
+                <StoreIcon fontSize="small" />
                 {VENDOR_TYPE_LABELS.shop}
               </ToggleButton>
               <ToggleButton value="dealer" aria-label="dealer">
-                <DealerIcon sx={{ mr: 1 }} />
+                <DealerIcon fontSize="small" />
                 {VENDOR_TYPE_LABELS.dealer}
               </ToggleButton>
               <ToggleButton value="manufacturer" aria-label="manufacturer">
-                <FactoryIcon sx={{ mr: 1 }} />
+                <FactoryIcon fontSize="small" />
                 {VENDOR_TYPE_LABELS.manufacturer}
               </ToggleButton>
               <ToggleButton value="individual" aria-label="individual">
-                <PersonIcon sx={{ mr: 1 }} />
+                <PersonIcon fontSize="small" />
                 {VENDOR_TYPE_LABELS.individual}
               </ToggleButton>
               <ToggleButton value="rental_store" aria-label="rental_store">
-                <RentalIcon sx={{ mr: 1 }} />
+                <RentalIcon fontSize="small" />
                 {VENDOR_TYPE_LABELS.rental_store}
               </ToggleButton>
             </ToggleButtonGroup>
@@ -540,14 +649,25 @@ export default function VendorDialog({
           )}
 
           <Grid size={12}>
-            <Divider sx={{ my: 1 }}>
-              <Typography variant="caption" color="text.secondary">
-                Contact Information
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+              <Typography variant="body2" color="text.secondary">
+                Rating
               </Typography>
-            </Divider>
+              <Rating
+                value={formData.rating || 0}
+                onChange={(_, value) => handleChange("rating", value)}
+                precision={0.5}
+              />
+            </Box>
           </Grid>
+        </Grid>
 
-          <Grid size={{ xs: 12, md: 4 }}>
+        {/* ---------------- Contact (always visible) ---------------- */}
+        <SectionTitle icon={<ContactPhoneIcon fontSize="small" />} sx={{ mt: 3 }}>
+          Contact
+        </SectionTitle>
+        <Grid container spacing={2}>
+          <Grid size={12}>
             <TextField
               fullWidth
               label="Contact Person"
@@ -555,7 +675,7 @@ export default function VendorDialog({
               onChange={(e) => handleChange("contact_person", e.target.value)}
             />
           </Grid>
-          <Grid size={{ xs: 6, md: 4 }}>
+          <Grid size={{ xs: 6 }}>
             <TextField
               fullWidth
               label="Phone"
@@ -564,7 +684,7 @@ export default function VendorDialog({
               placeholder="+91 99999 99999"
             />
           </Grid>
-          <Grid size={{ xs: 6, md: 4 }}>
+          <Grid size={{ xs: 6 }}>
             <TextField
               fullWidth
               label="Alternate Phone"
@@ -572,7 +692,7 @@ export default function VendorDialog({
               onChange={(e) => handleChange("alternate_phone", e.target.value)}
             />
           </Grid>
-          <Grid size={{ xs: 6, md: 4 }}>
+          <Grid size={{ xs: 6 }}>
             <TextField
               fullWidth
               label="WhatsApp"
@@ -580,7 +700,7 @@ export default function VendorDialog({
               onChange={(e) => handleChange("whatsapp_number", e.target.value)}
             />
           </Grid>
-          <Grid size={{ xs: 6, md: 8 }}>
+          <Grid size={{ xs: 6 }}>
             <TextField
               fullWidth
               label="Email"
@@ -589,16 +709,13 @@ export default function VendorDialog({
               onChange={(e) => handleChange("email", e.target.value)}
             />
           </Grid>
-
           <Grid size={12}>
             <TextField
               fullWidth
               label="Google Business / Maps link"
               placeholder="https://maps.app.goo.gl/..."
               value={formData.google_business_url}
-              onChange={(e) =>
-                handleChange("google_business_url", e.target.value)
-              }
+              onChange={(e) => handleChange("google_business_url", e.target.value)}
               helperText="Tap Find → open the listing on Google → Share → copy the link → paste it here."
               InputProps={{
                 endAdornment: (
@@ -609,9 +726,7 @@ export default function VendorDialog({
                         edge="end"
                         aria-label="Open saved link"
                         onClick={() => {
-                          const href = googleBusinessHref(
-                            formData.google_business_url
-                          );
+                          const href = googleBusinessHref(formData.google_business_url);
                           if (href) window.open(href, "_blank", "noopener");
                         }}
                       >
@@ -643,15 +758,13 @@ export default function VendorDialog({
               }}
             />
           </Grid>
+        </Grid>
 
-          <Grid size={12}>
-            <Divider sx={{ my: 1 }}>
-              <Typography variant="caption" color="text.secondary">
-                Address
-              </Typography>
-            </Divider>
-          </Grid>
-
+        {/* ---------------- Location (always visible) ---------------- */}
+        <SectionTitle icon={<PlaceIcon fontSize="small" />} sx={{ mt: 3 }}>
+          Location
+        </SectionTitle>
+        <Grid container spacing={2}>
           <Grid size={12}>
             <TextField
               fullWidth
@@ -662,7 +775,7 @@ export default function VendorDialog({
               rows={2}
             />
           </Grid>
-          <Grid size={{ xs: 6, md: 4 }}>
+          <Grid size={{ xs: 12, sm: 4 }}>
             <TextField
               fullWidth
               label="City"
@@ -670,7 +783,7 @@ export default function VendorDialog({
               onChange={(e) => handleChange("city", e.target.value)}
             />
           </Grid>
-          <Grid size={{ xs: 6, md: 4 }}>
+          <Grid size={{ xs: 6, sm: 4 }}>
             <TextField
               fullWidth
               label="State"
@@ -678,7 +791,7 @@ export default function VendorDialog({
               onChange={(e) => handleChange("state", e.target.value)}
             />
           </Grid>
-          <Grid size={{ xs: 6, md: 4 }}>
+          <Grid size={{ xs: 6, sm: 4 }}>
             <TextField
               fullWidth
               label="Pincode"
@@ -686,468 +799,123 @@ export default function VendorDialog({
               onChange={(e) => handleChange("pincode", e.target.value)}
             />
           </Grid>
+        </Grid>
 
-          {/* Store Location - shown for shop and dealer types with physical store */}
+        {/* ---------------- Advanced (collapsed by default) ---------------- */}
+        <Box sx={{ mt: 3 }}>
+          {/* Store & warehouse — for shop and any vendor with a physical store */}
           {(formData.vendor_type === "shop" || formData.has_physical_store) && (
-            <>
-              <Grid size={12}>
-                <Divider sx={{ my: 1 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Store/Warehouse Location
-                  </Typography>
-                </Divider>
-              </Grid>
-
-              {formData.vendor_type !== "shop" && (
-                <Grid size={12}>
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={formData.has_physical_store || false}
-                        onChange={(e) =>
-                          handleChange("has_physical_store", e.target.checked)
-                        }
-                      />
-                    }
-                    label="Has physical store/warehouse"
-                  />
-                </Grid>
-              )}
-
-              <Grid size={12}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={sameAsAddress}
-                      onChange={(e) => handleSameAsAddressToggle(e.target.checked)}
-                    />
-                  }
-                  label="Same as address"
-                />
-              </Grid>
-
-              <Grid size={12}>
-                <TextField
-                  fullWidth
-                  label="Store Address"
-                  value={formData.store_address}
-                  onChange={(e) => handleChange("store_address", e.target.value)}
-                  multiline
-                  rows={2}
-                  placeholder="Physical store/warehouse address"
-                  disabled={sameAsAddress}
-                />
-              </Grid>
-              <Grid size={{ xs: 6, md: 4 }}>
-                <TextField
-                  fullWidth
-                  label="Store City"
-                  value={formData.store_city}
-                  onChange={(e) => handleChange("store_city", e.target.value)}
-                  disabled={sameAsAddress}
-                />
-              </Grid>
-              <Grid size={{ xs: 6, md: 4 }}>
-                <TextField
-                  fullWidth
-                  label="Store Pincode"
-                  value={formData.store_pincode}
-                  onChange={(e) => handleChange("store_pincode", e.target.value)}
-                  disabled={sameAsAddress}
-                />
-              </Grid>
-              <Grid size={{ xs: 6, md: 4 }}>
-                <TextField
-                  fullWidth
-                  label="Delivery Radius (km)"
-                  type="number"
-                  value={formData.delivery_radius_km || ""}
-                  onChange={(e) =>
-                    handleChange(
-                      "delivery_radius_km",
-                      parseInt(e.target.value) || 0
-                    )
-                  }
-                  slotProps={{
-                    input: { inputProps: { min: 0 } },
-                  }}
-                />
-              </Grid>
-
-              {/* Shop Photo Upload */}
-              <Grid size={12}>
-                <Box
-                  onPaste={handleShopPhotoPasteEvent}
-                  tabIndex={0}
-                  sx={{ outline: "none" }}
-                >
-                  <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
-                    Shop/Store Photo
-                  </Typography>
-                  <input
-                    ref={shopPhotoInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleShopPhotoUpload}
-                    style={{ display: "none" }}
-                    id="vendor-shop-photo-upload"
-                  />
-                  {formData.shop_photo_url ? (
-                    <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2 }}>
-                      <Box
-                        component="img"
-                        src={formData.shop_photo_url}
-                        alt="Shop Photo"
-                        sx={{
-                          width: 150,
-                          height: 100,
-                          objectFit: "cover",
-                          borderRadius: 1,
-                          border: "1px solid",
-                          borderColor: "divider",
-                        }}
-                      />
-                      <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => shopPhotoInputRef.current?.click()}
-                          disabled={uploadingShopPhoto}
-                          startIcon={uploadingShopPhoto ? <CircularProgress size={16} /> : <UploadIcon />}
-                        >
-                          Replace
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={handlePasteShopPhoto}
-                          disabled={uploadingShopPhoto}
-                          startIcon={<PasteIcon />}
-                        >
-                          Paste
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="error"
-                          onClick={handleRemoveShopPhoto}
-                          startIcon={<DeleteIcon />}
-                        >
-                          Remove
-                        </Button>
-                      </Box>
-                    </Box>
-                  ) : (
-                    <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                      <Button
-                        variant="outlined"
-                        onClick={() => shopPhotoInputRef.current?.click()}
-                        disabled={uploadingShopPhoto}
-                        startIcon={uploadingShopPhoto ? <CircularProgress size={16} /> : <UploadIcon />}
-                        sx={{ height: 56 }}
-                      >
-                        {uploadingShopPhoto ? "Uploading..." : "Upload Shop Photo"}
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        onClick={handlePasteShopPhoto}
-                        disabled={uploadingShopPhoto}
-                        startIcon={<PasteIcon />}
-                        sx={{ height: 56 }}
-                      >
-                        Paste
-                      </Button>
-                    </Box>
-                  )}
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-                    Add a photo of the vendor&apos;s shop — upload, or paste a copied image (Ctrl/Cmd+V)
+            <Accordion
+              expanded={storeExpanded}
+              onChange={(_, v) => setStoreExpanded(v)}
+              disableGutters
+              elevation={0}
+              square
+              sx={sectionAccordionSx}
+            >
+              <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 0 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <WarehouseIcon fontSize="small" color="action" />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                    Store &amp; warehouse
                   </Typography>
                 </Box>
-              </Grid>
-            </>
-          )}
-
-          {/* Services & Delivery Options - Hide for rental vendors */}
-          {formData.vendor_type !== "rental_store" && (
-            <>
-              <Grid size={12}>
-                <Divider sx={{ my: 1 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Services & Delivery
-                  </Typography>
-                </Divider>
-              </Grid>
-
-              <Grid size={{ xs: 6, md: 4 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formData.provides_transport || false}
-                      onChange={(e) =>
-                        handleChange("provides_transport", e.target.checked)
-                      }
-                    />
-                  }
-                  label="Provides Transport"
-                />
-              </Grid>
-              <Grid size={{ xs: 6, md: 4 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formData.provides_loading || false}
-                      onChange={(e) =>
-                        handleChange("provides_loading", e.target.checked)
-                      }
-                    />
-                  }
-                  label="Provides Loading"
-                />
-              </Grid>
-              <Grid size={{ xs: 6, md: 4 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formData.provides_unloading || false}
-                      onChange={(e) =>
-                        handleChange("provides_unloading", e.target.checked)
-                      }
-                    />
-                  }
-                  label="Provides Unloading"
-                />
-              </Grid>
-              <Grid size={{ xs: 6, md: 4 }}>
-                <TextField
-                  fullWidth
-                  label="Minimum Order Amount (₹)"
-                  type="number"
-                  value={formData.min_order_amount || ""}
-                  onChange={(e) =>
-                    handleChange("min_order_amount", parseFloat(e.target.value) || 0)
-                  }
-                  slotProps={{
-                    input: {
-                      inputProps: { min: 0 },
-                      startAdornment: (
-                        <InputAdornment position="start">₹</InputAdornment>
-                      ),
-                    },
-                  }}
-                />
-              </Grid>
-            </>
-          )}
-
-          {/* Material Categories - Hide for rental vendors */}
-          {formData.vendor_type !== "rental_store" && (
-            <>
-              <Grid size={12}>
-                <Divider sx={{ my: 1 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Material Categories Supplied
-                  </Typography>
-                </Divider>
-              </Grid>
-
-              <Grid size={12}>
-                <CategoryAutocomplete
-                  value={formData.category_ids || []}
-                  onChange={(value) => handleChange("category_ids", value || [])}
-                  multiple
-                  parentOnly
-                  label="Categories"
-                  placeholder="Search and select categories..."
-                />
-              </Grid>
-            </>
-          )}
-
-          {/* Tax & Payment Section - Accordion */}
-          <Grid size={12}>
-            <Accordion
-              expanded={taxDetailsExpanded}
-              onChange={(_, expanded) => setTaxDetailsExpanded(expanded)}
-            >
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Typography>Tax & Payment Details</Typography>
               </AccordionSummary>
-              <AccordionDetails>
+              <AccordionDetails sx={{ px: 0 }}>
                 <Grid container spacing={2}>
-                  <Grid size={{ xs: 6, md: 4 }}>
-                    <TextField
-                      fullWidth
-                      label="GST Number"
-                      value={formData.gst_number}
-                      onChange={(e) =>
-                        handleChange("gst_number", e.target.value.toUpperCase())
-                      }
-                      placeholder="22AAAAA0000A1Z5"
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 6, md: 4 }}>
-                    <TextField
-                      fullWidth
-                      label="PAN Number"
-                      value={formData.pan_number}
-                      onChange={(e) =>
-                        handleChange("pan_number", e.target.value.toUpperCase())
-                      }
-                      placeholder="AAAAA0000A"
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 6, md: 4 }}>
-                    <TextField
-                      fullWidth
-                      label="Payment Terms (Days)"
-                      type="number"
-                      value={formData.payment_terms_days}
-                      onChange={(e) =>
-                        handleChange(
-                          "payment_terms_days",
-                          parseInt(e.target.value) || 0
-                        )
-                      }
-                      slotProps={{
-                        input: { inputProps: { min: 0 } },
-                      }}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 6, md: 4 }}>
-                    <TextField
-                      fullWidth
-                      label="Credit Limit (₹)"
-                      type="number"
-                      value={formData.credit_limit}
-                      onChange={(e) =>
-                        handleChange(
-                          "credit_limit",
-                          parseFloat(e.target.value) || 0
-                        )
-                      }
-                      slotProps={{
-                        input: { inputProps: { min: 0 } },
-                      }}
-                    />
-                  </Grid>
-
-                  {/* Payment Methods Accepted */}
-                  <Grid size={12}>
-                    <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
-                      Payment Methods Accepted
-                    </Typography>
-                  </Grid>
-                  <Grid size={{ xs: 4, md: 3 }}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={formData.accepts_upi || false}
-                          onChange={(e) =>
-                            handleChange("accepts_upi", e.target.checked)
-                          }
-                        />
-                      }
-                      label="UPI"
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 4, md: 3 }}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={formData.accepts_cash || false}
-                          onChange={(e) =>
-                            handleChange("accepts_cash", e.target.checked)
-                          }
-                        />
-                      }
-                      label="Cash"
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 4, md: 3 }}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={formData.accepts_credit || false}
-                          onChange={(e) =>
-                            handleChange("accepts_credit", e.target.checked)
-                          }
-                        />
-                      }
-                      label="Credit"
-                    />
-                  </Grid>
-                  {formData.accepts_credit && (
-                    <Grid size={{ xs: 6, md: 3 }}>
-                      <TextField
-                        fullWidth
-                        label="Credit Days"
-                        type="number"
-                        value={formData.credit_days || ""}
-                        onChange={(e) =>
-                          handleChange(
-                            "credit_days",
-                            parseInt(e.target.value) || 0
-                          )
+                  {formData.vendor_type !== "shop" && (
+                    <Grid size={12}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={formData.has_physical_store || false}
+                            onChange={(e) =>
+                              handleChange("has_physical_store", e.target.checked)
+                            }
+                          />
                         }
-                        slotProps={{
-                          input: { inputProps: { min: 0 } },
-                        }}
-                        helperText="Days of credit allowed"
+                        label="Has physical store/warehouse"
                       />
                     </Grid>
                   )}
-                </Grid>
-              </AccordionDetails>
-            </Accordion>
-          </Grid>
-
-          {/* Bank & Payment Details - Accordion */}
-          <Grid size={12}>
-            <Accordion>
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Typography>Bank & Payment Details</Typography>
-              </AccordionSummary>
-              <AccordionDetails>
-                <Grid container spacing={2}>
-                  {/* UPI Section */}
                   <Grid size={12}>
-                    <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                      UPI / Digital Payment
-                    </Typography>
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <TextField
-                      fullWidth
-                      label="UPI ID"
-                      value={formData.upi_id}
-                      onChange={(e) => handleChange("upi_id", e.target.value)}
-                      placeholder="name@upi or phone@bank"
-                      helperText="e.g., vendor@ybl, 9876543210@paytm"
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={sameAsAddress}
+                          onChange={(e) => handleSameAsAddressToggle(e.target.checked)}
+                        />
+                      }
+                      label="Same as address"
                     />
                   </Grid>
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <Box>
+                  <Grid size={12}>
+                    <TextField
+                      fullWidth
+                      label="Store Address"
+                      value={formData.store_address}
+                      onChange={(e) => handleChange("store_address", e.target.value)}
+                      multiline
+                      rows={2}
+                      placeholder="Physical store/warehouse address"
+                      disabled={sameAsAddress}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 4 }}>
+                    <TextField
+                      fullWidth
+                      label="Store City"
+                      value={formData.store_city}
+                      onChange={(e) => handleChange("store_city", e.target.value)}
+                      disabled={sameAsAddress}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 4 }}>
+                    <TextField
+                      fullWidth
+                      label="Store Pincode"
+                      value={formData.store_pincode}
+                      onChange={(e) => handleChange("store_pincode", e.target.value)}
+                      disabled={sameAsAddress}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <TextField
+                      fullWidth
+                      label="Delivery Radius (km)"
+                      type="number"
+                      value={formData.delivery_radius_km || ""}
+                      onChange={(e) =>
+                        handleChange("delivery_radius_km", parseInt(e.target.value) || 0)
+                      }
+                      slotProps={{ input: { inputProps: { min: 0 } } }}
+                    />
+                  </Grid>
+
+                  {/* Shop Photo Upload */}
+                  <Grid size={12}>
+                    <Box onPaste={handleShopPhotoPasteEvent} tabIndex={0} sx={{ outline: "none" }}>
                       <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
-                        Payment QR Code
+                        Shop/Store Photo
                       </Typography>
                       <input
-                        ref={fileInputRef}
+                        ref={shopPhotoInputRef}
                         type="file"
                         accept="image/*"
-                        onChange={handleQrCodeUpload}
+                        onChange={handleShopPhotoUpload}
                         style={{ display: "none" }}
-                        id="vendor-qr-upload"
+                        id="vendor-shop-photo-upload"
                       />
-                      {formData.qr_code_url ? (
+                      {formData.shop_photo_url ? (
                         <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2 }}>
                           <Box
                             component="img"
-                            src={formData.qr_code_url}
-                            alt="Payment QR Code"
+                            src={formData.shop_photo_url}
+                            alt="Shop Photo"
                             sx={{
-                              width: 100,
+                              width: 150,
                               height: 100,
-                              objectFit: "contain",
+                              objectFit: "cover",
                               borderRadius: 1,
                               border: "1px solid",
                               borderColor: "divider",
@@ -1157,17 +925,26 @@ export default function VendorDialog({
                             <Button
                               size="small"
                               variant="outlined"
-                              onClick={() => fileInputRef.current?.click()}
-                              disabled={uploadingQr}
-                              startIcon={uploadingQr ? <CircularProgress size={16} /> : <UploadIcon />}
+                              onClick={() => shopPhotoInputRef.current?.click()}
+                              disabled={uploadingShopPhoto}
+                              startIcon={uploadingShopPhoto ? <CircularProgress size={16} /> : <UploadIcon />}
                             >
                               Replace
                             </Button>
                             <Button
                               size="small"
                               variant="outlined"
+                              onClick={handlePasteShopPhoto}
+                              disabled={uploadingShopPhoto}
+                              startIcon={<PasteIcon />}
+                            >
+                              Paste
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
                               color="error"
-                              onClick={handleRemoveQrCode}
+                              onClick={handleRemoveShopPhoto}
                               startIcon={<DeleteIcon />}
                             >
                               Remove
@@ -1175,86 +952,451 @@ export default function VendorDialog({
                           </Box>
                         </Box>
                       ) : (
-                        <Button
-                          variant="outlined"
-                          onClick={() => fileInputRef.current?.click()}
-                          disabled={uploadingQr}
-                          startIcon={uploadingQr ? <CircularProgress size={16} /> : <UploadIcon />}
-                          sx={{ height: 56 }}
-                        >
-                          {uploadingQr ? "Uploading..." : "Upload QR Code"}
-                        </Button>
+                        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                          <Button
+                            variant="outlined"
+                            onClick={() => shopPhotoInputRef.current?.click()}
+                            disabled={uploadingShopPhoto}
+                            startIcon={uploadingShopPhoto ? <CircularProgress size={16} /> : <UploadIcon />}
+                            sx={{ height: 56 }}
+                          >
+                            {uploadingShopPhoto ? "Uploading..." : "Upload Shop Photo"}
+                          </Button>
+                          <Button
+                            variant="outlined"
+                            onClick={handlePasteShopPhoto}
+                            disabled={uploadingShopPhoto}
+                            startIcon={<PasteIcon />}
+                            sx={{ height: 56 }}
+                          >
+                            Paste
+                          </Button>
+                        </Box>
                       )}
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
+                        Add a photo of the vendor&apos;s shop — upload, or paste a copied image (Ctrl/Cmd+V)
+                      </Typography>
                     </Box>
                   </Grid>
+                </Grid>
+              </AccordionDetails>
+            </Accordion>
+          )}
 
-                  {/* Bank Details Section */}
-                  <Grid size={12}>
-                    <Divider sx={{ my: 1 }} />
-                    <Typography variant="subtitle2" sx={{ mt: 1, mb: 1 }}>
-                      Bank Account Details
-                    </Typography>
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 4 }}>
-                    <TextField
-                      fullWidth
-                      label="Bank Name"
-                      value={formData.bank_name}
-                      onChange={(e) => handleChange("bank_name", e.target.value)}
+          {/* Services & delivery — hidden for rental vendors */}
+          {formData.vendor_type !== "rental_store" && (
+            <Accordion
+              expanded={servicesExpanded}
+              onChange={(_, v) => setServicesExpanded(v)}
+              disableGutters
+              elevation={0}
+              square
+              sx={sectionAccordionSx}
+            >
+              <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 0 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <DealerIcon fontSize="small" color="action" />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                    Services &amp; delivery
+                  </Typography>
+                </Box>
+              </AccordionSummary>
+              <AccordionDetails sx={{ px: 0 }}>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 6, sm: 4 }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={formData.provides_transport || false}
+                          onChange={(e) => handleChange("provides_transport", e.target.checked)}
+                        />
+                      }
+                      label="Transport"
                     />
                   </Grid>
-                  <Grid size={{ xs: 6, md: 4 }}>
-                    <TextField
-                      fullWidth
-                      label="Account Number"
-                      value={formData.bank_account_number}
-                      onChange={(e) =>
-                        handleChange("bank_account_number", e.target.value)
+                  <Grid size={{ xs: 6, sm: 4 }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={formData.provides_loading || false}
+                          onChange={(e) => handleChange("provides_loading", e.target.checked)}
+                        />
                       }
+                      label="Loading"
                     />
                   </Grid>
-                  <Grid size={{ xs: 6, md: 4 }}>
+                  <Grid size={{ xs: 6, sm: 4 }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={formData.provides_unloading || false}
+                          onChange={(e) => handleChange("provides_unloading", e.target.checked)}
+                        />
+                      }
+                      label="Unloading"
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6 }}>
                     <TextField
                       fullWidth
-                      label="IFSC Code"
-                      value={formData.bank_ifsc}
+                      label="Minimum Order Amount (₹)"
+                      type="number"
+                      value={formData.min_order_amount || ""}
                       onChange={(e) =>
-                        handleChange("bank_ifsc", e.target.value.toUpperCase())
+                        handleChange("min_order_amount", parseFloat(e.target.value) || 0)
                       }
+                      slotProps={{
+                        input: {
+                          inputProps: { min: 0 },
+                          startAdornment: <InputAdornment position="start">₹</InputAdornment>,
+                        },
+                      }}
                     />
                   </Grid>
                 </Grid>
               </AccordionDetails>
             </Accordion>
-          </Grid>
+          )}
+
+          {/* Material categories — hidden for rental vendors */}
+          {formData.vendor_type !== "rental_store" && (
+            <Accordion
+              expanded={categoriesExpanded}
+              onChange={(_, v) => setCategoriesExpanded(v)}
+              disableGutters
+              elevation={0}
+              square
+              sx={sectionAccordionSx}
+            >
+              <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 0 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <CategoryIcon fontSize="small" color="action" />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                    Material categories
+                  </Typography>
+                </Box>
+              </AccordionSummary>
+              <AccordionDetails sx={{ px: 0 }}>
+                <CategoryAutocomplete
+                  value={formData.category_ids || []}
+                  onChange={(value) => handleChange("category_ids", value || [])}
+                  multiple
+                  parentOnly
+                  label="Categories"
+                  placeholder="Search and select categories..."
+                />
+              </AccordionDetails>
+            </Accordion>
+          )}
+
+          {/* Tax & payment */}
+          <Accordion
+            expanded={taxDetailsExpanded}
+            onChange={(_, v) => setTaxDetailsExpanded(v)}
+            disableGutters
+            elevation={0}
+            square
+            sx={sectionAccordionSx}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 0 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <PaymentsIcon fontSize="small" color="action" />
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                  Tax &amp; payment
+                </Typography>
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails sx={{ px: 0 }}>
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 6, sm: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="GST Number"
+                    value={formData.gst_number}
+                    onChange={(e) => handleChange("gst_number", e.target.value.toUpperCase())}
+                    placeholder="22AAAAA0000A1Z5"
+                  />
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="PAN Number"
+                    value={formData.pan_number}
+                    onChange={(e) => handleChange("pan_number", e.target.value.toUpperCase())}
+                    placeholder="AAAAA0000A"
+                  />
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="Payment Terms (Days)"
+                    type="number"
+                    value={formData.payment_terms_days}
+                    onChange={(e) =>
+                      handleChange("payment_terms_days", parseInt(e.target.value) || 0)
+                    }
+                    slotProps={{ input: { inputProps: { min: 0 } } }}
+                  />
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="Credit Limit (₹)"
+                    type="number"
+                    value={formData.credit_limit}
+                    onChange={(e) =>
+                      handleChange("credit_limit", parseFloat(e.target.value) || 0)
+                    }
+                    slotProps={{ input: { inputProps: { min: 0 } } }}
+                  />
+                </Grid>
+
+                <Grid size={12}>
+                  <Typography variant="subtitle2" sx={{ mt: 1, mb: 0.5 }}>
+                    Payment Methods Accepted
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 4 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={formData.accepts_upi || false}
+                        onChange={(e) => handleChange("accepts_upi", e.target.checked)}
+                      />
+                    }
+                    label="UPI"
+                  />
+                </Grid>
+                <Grid size={{ xs: 4 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={formData.accepts_cash || false}
+                        onChange={(e) => handleChange("accepts_cash", e.target.checked)}
+                      />
+                    }
+                    label="Cash"
+                  />
+                </Grid>
+                <Grid size={{ xs: 4 }}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={formData.accepts_credit || false}
+                        onChange={(e) => handleChange("accepts_credit", e.target.checked)}
+                      />
+                    }
+                    label="Credit"
+                  />
+                </Grid>
+                {formData.accepts_credit && (
+                  <Grid size={{ xs: 6, sm: 4 }}>
+                    <TextField
+                      fullWidth
+                      label="Credit Days"
+                      type="number"
+                      value={formData.credit_days || ""}
+                      onChange={(e) =>
+                        handleChange("credit_days", parseInt(e.target.value) || 0)
+                      }
+                      slotProps={{ input: { inputProps: { min: 0 } } }}
+                      helperText="Days of credit allowed"
+                    />
+                  </Grid>
+                )}
+              </Grid>
+            </AccordionDetails>
+          </Accordion>
+
+          {/* Bank & UPI */}
+          <Accordion
+            expanded={bankExpanded}
+            onChange={(_, v) => setBankExpanded(v)}
+            disableGutters
+            elevation={0}
+            square
+            sx={sectionAccordionSx}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 0 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <BankIcon fontSize="small" color="action" />
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                  Bank &amp; UPI
+                </Typography>
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails sx={{ px: 0 }}>
+              <Grid container spacing={2}>
+                <Grid size={12}>
+                  <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                    UPI / Digital Payment
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField
+                    fullWidth
+                    label="UPI ID"
+                    value={formData.upi_id}
+                    onChange={(e) => handleChange("upi_id", e.target.value)}
+                    placeholder="name@upi or phone@bank"
+                    helperText="e.g., vendor@ybl, 9876543210@paytm"
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
+                      Payment QR Code
+                    </Typography>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleQrCodeUpload}
+                      style={{ display: "none" }}
+                      id="vendor-qr-upload"
+                    />
+                    {formData.qr_code_url ? (
+                      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2 }}>
+                        <Box
+                          component="img"
+                          src={formData.qr_code_url}
+                          alt="Payment QR Code"
+                          sx={{
+                            width: 100,
+                            height: 100,
+                            objectFit: "contain",
+                            borderRadius: 1,
+                            border: "1px solid",
+                            borderColor: "divider",
+                          }}
+                        />
+                        <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={uploadingQr}
+                            startIcon={uploadingQr ? <CircularProgress size={16} /> : <UploadIcon />}
+                          >
+                            Replace
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="error"
+                            onClick={handleRemoveQrCode}
+                            startIcon={<DeleteIcon />}
+                          >
+                            Remove
+                          </Button>
+                        </Box>
+                      </Box>
+                    ) : (
+                      <Button
+                        variant="outlined"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadingQr}
+                        startIcon={uploadingQr ? <CircularProgress size={16} /> : <UploadIcon />}
+                        sx={{ height: 56 }}
+                      >
+                        {uploadingQr ? "Uploading..." : "Upload QR Code"}
+                      </Button>
+                    )}
+                  </Box>
+                </Grid>
+
+                <Grid size={12}>
+                  <Divider sx={{ my: 1 }} />
+                  <Typography variant="subtitle2" sx={{ mt: 1, mb: 0.5 }}>
+                    Bank Account Details
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="Bank Name"
+                    value={formData.bank_name}
+                    onChange={(e) => handleChange("bank_name", e.target.value)}
+                  />
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="Account Number"
+                    value={formData.bank_account_number}
+                    onChange={(e) => handleChange("bank_account_number", e.target.value)}
+                  />
+                </Grid>
+                <Grid size={{ xs: 6, sm: 4 }}>
+                  <TextField
+                    fullWidth
+                    label="IFSC Code"
+                    value={formData.bank_ifsc}
+                    onChange={(e) => handleChange("bank_ifsc", e.target.value.toUpperCase())}
+                  />
+                </Grid>
+              </Grid>
+            </AccordionDetails>
+          </Accordion>
 
           {/* Notes */}
-          <Grid size={12}>
-            <TextField
-              fullWidth
-              label="Notes"
-              value={formData.notes}
-              onChange={(e) => handleChange("notes", e.target.value)}
-              multiline
-              rows={2}
-              placeholder="Additional notes about this vendor..."
-            />
-          </Grid>
-        </Grid>
-      </DialogContent>
+          <Accordion
+            expanded={notesExpanded}
+            onChange={(_, v) => setNotesExpanded(v)}
+            disableGutters
+            elevation={0}
+            square
+            sx={sectionAccordionSx}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ px: 0 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <NotesIcon fontSize="small" color="action" />
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                  Notes
+                </Typography>
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails sx={{ px: 0 }}>
+              <TextField
+                fullWidth
+                label="Notes"
+                value={formData.notes}
+                onChange={(e) => handleChange("notes", e.target.value)}
+                multiline
+                rows={3}
+                placeholder="Additional notes about this vendor..."
+              />
+            </AccordionDetails>
+          </Accordion>
+        </Box>
+      </Box>
 
-      <DialogActions sx={{ px: 3, py: 2 }}>
-        <Button onClick={onClose} disabled={isSubmitting}>
+      {/* Sticky footer */}
+      <Box
+        sx={{
+          borderTop: 1,
+          borderColor: "divider",
+          p: 2,
+          display: "flex",
+          gap: 1,
+          justifyContent: "flex-end",
+          bgcolor: "background.paper",
+          flexShrink: 0,
+        }}
+      >
+        <Button onClick={onClose} disabled={isSubmitting} fullWidth={isMobile}>
           Cancel
         </Button>
         <Button
           variant="contained"
           onClick={handleSubmit}
           disabled={isSubmitting || !formData.name.trim()}
+          fullWidth={isMobile}
+          startIcon={isSubmitting ? <CircularProgress size={16} color="inherit" /> : undefined}
         >
           {isSubmitting ? "Saving..." : isEdit ? "Update" : "Create"}
         </Button>
-      </DialogActions>
-    </Dialog>
+      </Box>
+    </Drawer>
   );
 }

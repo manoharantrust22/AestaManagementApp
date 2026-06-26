@@ -43,6 +43,7 @@ import {
 } from "@mui/icons-material";
 import DataTable, { type MRT_ColumnDef } from "@/components/common/DataTable";
 import PageHeader from "@/components/layout/PageHeader";
+import ResumeDraftButton from "@/components/common/ResumeDraftButton";
 import Breadcrumbs from "@/components/layout/Breadcrumbs";
 import MaterialWorkflowBar from "@/components/materials/MaterialWorkflowBar";
 import { useAuth } from "@/contexts/AuthContext";
@@ -832,13 +833,21 @@ export default function PurchaseOrdersPage() {
         title="Purchase Orders"
         actions={
           !isMobile && canCreatePO ? (
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => setRedirectDialogOpen(true)}
-            >
-              Create PO
-            </Button>
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+              <ResumeDraftButton
+                draftKey="po_dialog_create"
+                entityId={null}
+                onResume={() => handleOpenDialog()}
+                watch={dialogOpen}
+              />
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => setRedirectDialogOpen(true)}
+              >
+                Create PO
+              </Button>
+            </Box>
           ) : null
         }
       />

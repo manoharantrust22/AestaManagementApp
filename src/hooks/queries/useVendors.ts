@@ -552,13 +552,21 @@ async function generateVendorCode(
   };
   const prefix = prefixMap[vendorType || ""] || "VEN";
 
-  // Get count of vendors with same prefix
-  const { count } = await supabase
+  // Take the highest existing numeric suffix and add 1. Using MAX (not COUNT)
+  // is gap-proof: deleted or non-contiguous codes (e.g. SHP-0005/0006 missing)
+  // would make COUNT collide with an existing code and fail the unique
+  // constraint on every insert. Non-numeric codes are ignored defensively.
+  const { data } = await supabase
     .from("vendors")
-    .select("*", { count: "exact", head: true })
+    .select("code")
     .ilike("code", `${prefix}-%`);
 
-  const sequence = ((count || 0) + 1).toString().padStart(4, "0");
+  const maxSeq = (data ?? []).reduce((max, row) => {
+    const n = parseInt(String(row.code ?? "").replace(`${prefix}-`, ""), 10);
+    return Number.isFinite(n) && n > max ? n : max;
+  }, 0);
+
+  const sequence = (maxSeq + 1).toString().padStart(4, "0");
   return `${prefix}-${sequence}`;
 }
 
@@ -576,20 +584,40 @@ export function useCreateVendor() {
 
       const { category_ids, ...vendorData } = data;
 
-      // Auto-generate code if not provided
+      // Auto-generate code if not provided. Retry on a unique-violation so a
+      // concurrent insert (two users at once landing on the same next code)
+      // self-heals by regenerating. A code the user typed themselves is never
+      // silently changed — that collision is surfaced so they can fix it.
       let code = vendorData.code?.trim() || null;
-      if (!code) {
-        code = await generateVendorCode(supabase, vendorData.vendor_type);
+      const userProvidedCode = !!code;
+      let vendor: Vendor | undefined;
+
+      for (let attempt = 0; attempt < 5; attempt++) {
+        if (!code) {
+          code = await generateVendorCode(supabase, vendorData.vendor_type);
+        }
+        const { data: inserted, error } = await supabase
+          .from("vendors")
+          .insert({ ...vendorData, code })
+          .select()
+          .single();
+
+        if (!error) {
+          vendor = inserted as Vendor;
+          break;
+        }
+        if (error.code === "23505" && !userProvidedCode) {
+          code = null; // regenerate and retry
+          continue;
+        }
+        throw error;
       }
 
-      // Create vendor with auto-generated code
-      const { data: vendor, error } = await supabase
-        .from("vendors")
-        .insert({ ...vendorData, code })
-        .select()
-        .single();
-
-      if (error) throw error;
+      if (!vendor) {
+        throw new Error(
+          "Couldn't generate a unique vendor code — please set one manually under Customize."
+        );
+      }
 
       // Add category associations
       if (category_ids && category_ids.length > 0) {

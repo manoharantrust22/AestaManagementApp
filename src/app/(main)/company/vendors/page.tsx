@@ -33,6 +33,7 @@ import { useMaterialCategories } from "@/hooks/queries/useMaterials";
 import { useVendorMaterialCounts } from "@/hooks/queries/useVendorInventory";
 import VendorDialog from "@/components/materials/VendorDialog";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
+import ResumeDraftButton from "@/components/common/ResumeDraftButton";
 import { VendorQuoteDialog } from "@/components/shared/VendorQuoteDialog";
 import { FilterBar, type FilterChipDef } from "@/components/common/FilterBar";
 import { ViewToggle, type ViewMode } from "@/components/common/ViewToggle";
@@ -350,9 +351,17 @@ export default function VendorsPage() {
         title="Vendors & Suppliers"
         actions={
           !isMobile && canEdit ? (
-            <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenAdd}>
-              Add Vendor
-            </Button>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <ResumeDraftButton
+                draftKey="vendor_dialog"
+                entityId={null}
+                onResume={handleOpenAdd}
+                watch={dialogOpen}
+              />
+              <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenAdd}>
+                Add Vendor
+              </Button>
+            </Stack>
           ) : null
         }
       />

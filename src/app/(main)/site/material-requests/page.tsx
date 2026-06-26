@@ -43,6 +43,7 @@ import {
 } from "@mui/icons-material";
 import DataTable, { type MRT_ColumnDef } from "@/components/common/DataTable";
 import PageHeader from "@/components/layout/PageHeader";
+import ResumeDraftButton from "@/components/common/ResumeDraftButton";
 import MaterialWorkflowBar from "@/components/materials/MaterialWorkflowBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSite } from "@/contexts/SiteContext";
@@ -780,13 +781,21 @@ export default function MaterialRequestsPage() {
         title="Material Requests"
         actions={
           !isMobile && canEdit ? (
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => handleOpenDialog()}
-            >
-              New Request
-            </Button>
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+              <ResumeDraftButton
+                draftKey="material_request_create"
+                entityId={null}
+                onResume={() => handleOpenDialog()}
+                watch={dialogOpen}
+              />
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => handleOpenDialog()}
+              >
+                New Request
+              </Button>
+            </Box>
           ) : null
         }
       />

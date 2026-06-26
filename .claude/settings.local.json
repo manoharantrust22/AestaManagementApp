@@ -634,7 +634,12 @@
       "PowerShell(\"===== .mcp.json =====\")",
       "PowerShell(npx vercel ls --yes 2>&1)",
       "PowerShell($ErrorActionPreference='SilentlyContinue'; $v = \\(npx --no-install supabase --version\\) 2>$null; Write-Output \"supabase-cli: $v\"; $s = \\(npx --no-install supabase status\\) 2>&1 | Select-Object -First 12; Write-Output $s)",
-      "PowerShell(Get-Process node -ErrorAction SilentlyContinue | Select-Object Id, StartTime, @{N='Mem\\(MB\\)';E={[int]\\($_.WorkingSet64/1MB\\)}} | Format-Table -AutoSize; Write-Output \"---\"; Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in 3000,3001,3002 } | Select-Object LocalPort, OwningProcess)"
+      "PowerShell(Get-Process node -ErrorAction SilentlyContinue | Select-Object Id, StartTime, @{N='Mem\\(MB\\)';E={[int]\\($_.WorkingSet64/1MB\\)}} | Format-Table -AutoSize; Write-Output \"---\"; Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in 3000,3001,3002 } | Select-Object LocalPort, OwningProcess)",
+      "Bash(awk '{print $1}')",
+      "PowerShell(npx vercel ls aesta_management_app --yes 2>&1)",
+      "PowerShell(Stop-Process -Id 11452 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1; $p = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($p\\) { \"still listening: $\\($p.OwningProcess\\)\" } else { \"port 3000 free\" })",
+      "mcp__plugin_playwright_playwright__browser_handle_dialog",
+      "PowerShell($conns = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($conns\\) { $conns.OwningProcess | Sort-Object -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 1 }; $still = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($still\\) { \"still listening\" } else { \"port 3000 free\" })"
     ],
     "deny": [],
     "ask": [],

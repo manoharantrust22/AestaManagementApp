@@ -1,10 +1,18 @@
 "use client";
 
 import { useEffect, useCallback, useRef, useState } from "react";
+import {
+  DEFAULT_EXPIRY_MS,
+  draftStorageKey,
+  entitiesMatch,
+  readStoredDraft,
+  removeStoredDraft,
+  useDraftFlushOnLeave,
+  writeStoredDraft,
+  type DraftMetadata,
+} from "./formDraftStorage";
 
-// Storage key prefix
-const STORAGE_PREFIX = "form_draft_";
-const EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
+export type { DraftMetadata };
 
 export interface FormDraftOptions<T> {
   /** Unique key for this form (e.g., "vendor_dialog", "material_dialog") */
@@ -17,67 +25,10 @@ export interface FormDraftOptions<T> {
   entityId?: string | null;
   /** Debounce delay in ms for saving (default: 500) */
   debounceMs?: number;
+  /** How long a draft survives before it auto-expires (default: 24h) */
+  expiryMs?: number;
   /** Called when draft is restored */
   onRestore?: (data: T, metadata: DraftMetadata) => void;
-}
-
-export interface DraftMetadata {
-  timestamp: number;
-  entityId?: string | null;
-}
-
-interface StoredDraft<T> {
-  data: T;
-  metadata: DraftMetadata;
-}
-
-// Helper to safely access sessionStorage
-function getStorageItem<T>(key: string): StoredDraft<T> | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const item = sessionStorage.getItem(key);
-    if (!item) return null;
-    const parsed = JSON.parse(item) as StoredDraft<T>;
-
-    // Check expiry
-    if (Date.now() - parsed.metadata.timestamp > EXPIRY_MS) {
-      sessionStorage.removeItem(key);
-      return null;
-    }
-
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function setStorageItem<T>(
-  key: string,
-  data: T,
-  entityId?: string | null
-): void {
-  if (typeof window === "undefined") return;
-  try {
-    const stored: StoredDraft<T> = {
-      data,
-      metadata: {
-        timestamp: Date.now(),
-        entityId,
-      },
-    };
-    sessionStorage.setItem(key, JSON.stringify(stored));
-  } catch {
-    // Ignore storage errors (quota exceeded, etc.)
-  }
-}
-
-function removeStorageItem(key: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    sessionStorage.removeItem(key);
-  } catch {
-    // Ignore errors
-  }
 }
 
 export interface UseFormDraftReturn<T> {
@@ -93,6 +44,8 @@ export interface UseFormDraftReturn<T> {
   isDirty: boolean;
   /** Whether a draft was restored when the dialog opened */
   hasRestoredDraft: boolean;
+  /** Timestamp (ms) of the restored draft, if any — for "restored from {time}" UI */
+  restoredAt: number | null;
   /** Clear the draft (call after successful save) */
   clearDraft: () => void;
   /** Discard draft and reset to initial data */
@@ -107,12 +60,14 @@ export function useFormDraft<T extends object>({
   isOpen,
   entityId,
   debounceMs = 500,
+  expiryMs = DEFAULT_EXPIRY_MS,
   onRestore,
 }: FormDraftOptions<T>): UseFormDraftReturn<T> {
-  const storageKey = `${STORAGE_PREFIX}${key}`;
+  const storageKey = draftStorageKey(key);
   const [formData, setFormData] = useState<T>(initialData);
   const [isDirty, setIsDirty] = useState(false);
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
+  const [restoredAt, setRestoredAt] = useState<number | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousOpenRef = useRef(isOpen);
   const previousEntityIdRef = useRef(entityId);
@@ -135,45 +90,35 @@ export function useFormDraft<T extends object>({
   useEffect(() => {
     if (isOpen && !previousOpenRef.current) {
       // Dialog just opened
-      const storedDraft = getStorageItem<T>(storageKey);
+      const storedDraft = readStoredDraft<T>(storageKey, expiryMs);
 
-      if (storedDraft) {
-        // Check if draft is for the same entity (or both are new/null)
-        const draftEntityId = storedDraft.metadata.entityId;
-        const isSameEntity =
-          draftEntityId === entityId ||
-          (draftEntityId === null && entityId === null) ||
-          (draftEntityId === undefined && entityId === undefined);
-
-        if (isSameEntity) {
-          setFormData(storedDraft.data);
-          setIsDirty(true);
-          setHasRestoredDraft(true);
-          onRestoreRef.current?.(storedDraft.data, storedDraft.metadata);
-        } else {
-          // Different entity - use initial data and clear old draft
-          removeStorageItem(storageKey);
-          setFormData(initialDataRef.current);
-          setIsDirty(false);
-          setHasRestoredDraft(false);
-        }
+      if (storedDraft && entitiesMatch(storedDraft.metadata.entityId, entityId)) {
+        setFormData(storedDraft.data);
+        setIsDirty(true);
+        setHasRestoredDraft(true);
+        setRestoredAt(storedDraft.metadata.timestamp);
+        onRestoreRef.current?.(storedDraft.data, storedDraft.metadata);
       } else {
+        // No draft, or a draft for a different entity — start clean.
+        if (storedDraft) removeStoredDraft(storageKey);
         setFormData(initialDataRef.current);
         setIsDirty(false);
         setHasRestoredDraft(false);
+        setRestoredAt(null);
       }
     }
     previousOpenRef.current = isOpen;
-  }, [isOpen, storageKey, entityId]);
+  }, [isOpen, storageKey, entityId, expiryMs]);
 
   // Reset form when entityId changes while dialog is open (switching from edit to new, etc.)
   useEffect(() => {
     if (isOpen && previousEntityIdRef.current !== entityId) {
       // Entity changed - reset form
-      removeStorageItem(storageKey);
+      removeStoredDraft(storageKey);
       setFormData(initialDataRef.current);
       setIsDirty(false);
       setHasRestoredDraft(false);
+      setRestoredAt(null);
     }
     previousEntityIdRef.current = entityId;
   }, [isOpen, entityId, storageKey]);
@@ -187,7 +132,7 @@ export function useFormDraft<T extends object>({
     }
 
     debounceTimerRef.current = setTimeout(() => {
-      setStorageItem(storageKey, formData, entityId);
+      writeStoredDraft(storageKey, formData, entityId);
     }, debounceMs);
 
     return () => {
@@ -197,16 +142,23 @@ export function useFormDraft<T extends object>({
     };
   }, [isOpen, isDirty, formData, storageKey, debounceMs, entityId]);
 
+  // Flush the freshest data the instant the page is hidden/closed (app-switch,
+  // refresh, tab close) — before the debounce timer would have fired.
+  useDraftFlushOnLeave(isOpen && isDirty, () => {
+    writeStoredDraft(storageKey, formData, entityId);
+  });
+
   // Clear draft when dialog closes normally (without dirty state)
   useEffect(() => {
     if (previousOpenRef.current && !isOpen && !isDirty) {
       // Dialog closed and form is clean - clear draft
-      removeStorageItem(storageKey);
+      removeStoredDraft(storageKey);
       setHasRestoredDraft(false);
+      setRestoredAt(null);
     }
   }, [isOpen, isDirty, storageKey]);
 
-  // Warn on page unload if dirty
+  // Warn on page unload if dirty (secondary net; the flush above is the real save)
   useEffect(() => {
     if (!isOpen || !isDirty) return;
 
@@ -238,17 +190,19 @@ export function useFormDraft<T extends object>({
 
   // Clear draft (call after successful save)
   const clearDraft = useCallback(() => {
-    removeStorageItem(storageKey);
+    removeStoredDraft(storageKey);
     setIsDirty(false);
     setHasRestoredDraft(false);
+    setRestoredAt(null);
   }, [storageKey]);
 
   // Discard draft and reset to initial
   const discardDraft = useCallback(() => {
-    removeStorageItem(storageKey);
+    removeStoredDraft(storageKey);
     setFormData(initialDataRef.current);
     setIsDirty(false);
     setHasRestoredDraft(false);
+    setRestoredAt(null);
   }, [storageKey]);
 
   // Mark as clean without clearing storage
@@ -263,6 +217,7 @@ export function useFormDraft<T extends object>({
     updateFormData,
     isDirty,
     hasRestoredDraft,
+    restoredAt,
     clearDraft,
     discardDraft,
     markClean,

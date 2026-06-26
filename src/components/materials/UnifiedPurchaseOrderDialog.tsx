@@ -47,6 +47,7 @@ import {
   Info as InfoIcon,
 } from "@mui/icons-material";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useDraftSnapshot } from "@/hooks/useDraftSnapshot";
 import { useVendors, useVendorsForMaterials, VendorForMaterials } from "@/hooks/queries/useVendors";
 import { useMaterialSearchOptions, filterMaterialSearchOptions } from "@/hooks/queries/useMaterials";
 import { useLatestPrice, useVendorMaterialPrice, useVendorMaterialBrands } from "@/hooks/queries/useVendorInventory";
@@ -82,6 +83,7 @@ import {
 import { PRIORITY_LABELS, PRIORITY_COLORS } from "@/types/material.types";
 import { useToast } from "@/contexts/ToastContext";
 import FileUploader from "@/components/common/FileUploader";
+import DraftRestoreBanner from "@/components/common/DraftRestoreBanner";
 import { BillPreviewButton } from "@/components/common/BillViewerDialog";
 import { createClient } from "@/lib/supabase/client";
 import RequestItemRow from "./RequestItemRow";
@@ -605,6 +607,98 @@ export default function UnifiedPurchaseOrderDialog({
     setNewItemQty("");
     setNewItemPrice("");
   }, [purchaseOrder, allVendors, groupedMaterials, materialSearchOptions, open, prefilledVendorId, prefilledMaterialId, request, isRequestMode, today]);
+
+  // ---- Draft persistence (fresh "direct" PO create only) ----
+  // Protects a from-scratch PO (vendor, items, terms) against a network error or
+  // refresh. Disabled for edit and request-conversion modes, which hydrate from
+  // the server. Declared after the main reset effect so its restore wins.
+  const poDraftEnabled = mode === "direct" && !isEdit;
+  const poDraftDirty =
+    poDraftEnabled &&
+    (items.length > 0 ||
+      !!selectedVendor ||
+      notes.trim() !== "" ||
+      deliveryAddress.trim() !== "" ||
+      paymentTerms.trim() !== "" ||
+      transportCost.trim() !== "" ||
+      expectedDeliveryDate !== "" ||
+      vendorBillUrl !== "" ||
+      isGroupStock);
+
+  const poDraftSnapshot = useMemo(
+    () => ({
+      selectedVendor,
+      purchaseDate,
+      expectedDeliveryDate,
+      deliveryAddress,
+      paymentTerms,
+      paymentTiming,
+      notes,
+      items,
+      isGroupStock,
+      payingSiteId,
+      transportCost,
+      priceIncludesGst,
+      vendorBillUrl,
+    }),
+    [
+      selectedVendor,
+      purchaseDate,
+      expectedDeliveryDate,
+      deliveryAddress,
+      paymentTerms,
+      paymentTiming,
+      notes,
+      items,
+      isGroupStock,
+      payingSiteId,
+      transportCost,
+      priceIncludesGst,
+      vendorBillUrl,
+    ],
+  );
+
+  const {
+    hasRestoredDraft: hasRestoredPODraft,
+    restoredAt: poDraftRestoredAt,
+    clearDraft: clearPODraft,
+    discardDraft: discardPODraft,
+  } = useDraftSnapshot({
+    key: "po_dialog_create",
+    isOpen: open,
+    enabled: poDraftEnabled,
+    dirty: poDraftDirty,
+    snapshot: poDraftSnapshot,
+    applyDraft: (d) => {
+      setSelectedVendor(d.selectedVendor ?? null);
+      if (d.purchaseDate) setPurchaseDate(d.purchaseDate);
+      setExpectedDeliveryDate(d.expectedDeliveryDate ?? "");
+      setDeliveryAddress(d.deliveryAddress ?? "");
+      setPaymentTerms(d.paymentTerms ?? "");
+      setPaymentTiming(d.paymentTiming ?? "on_delivery");
+      setNotes(d.notes ?? "");
+      setItems(Array.isArray(d.items) ? d.items : []);
+      setIsGroupStock(!!d.isGroupStock);
+      setPayingSiteId(d.payingSiteId ?? siteId);
+      setTransportCost(d.transportCost ?? "");
+      setPriceIncludesGst(!!d.priceIncludesGst);
+      setVendorBillUrl(d.vendorBillUrl ?? "");
+    },
+    onDiscard: () => {
+      setSelectedVendor(null);
+      setExpectedDeliveryDate("");
+      setDeliveryAddress("");
+      setPaymentTerms("");
+      setPaymentTiming("on_delivery");
+      setNotes("");
+      setItems([]);
+      setIsGroupStock(false);
+      setPayingSiteId(siteId);
+      setTransportCost("");
+      setPriceIncludesGst(false);
+      setVendorBillUrl("");
+    },
+  });
 
   // Initialize request items state when request items load
   useEffect(() => {
@@ -1239,6 +1333,7 @@ export default function UnifiedPurchaseOrderDialog({
         // Additional approval logic can be added here if needed
       }
 
+      clearPODraft();
       onClose();
       onSuccess?.(result?.id || "");
 
@@ -1373,6 +1468,11 @@ export default function UnifiedPurchaseOrderDialog({
       </DialogTitle>
 
       <DialogContent dividers>
+        <DraftRestoreBanner
+          show={hasRestoredPODraft}
+          restoredAt={poDraftRestoredAt}
+          onDiscard={discardPODraft}
+        />
         {error && (
           <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError("")}>
             {error}

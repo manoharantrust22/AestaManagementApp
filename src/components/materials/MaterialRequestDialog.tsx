@@ -40,6 +40,8 @@ import {
   Inventory2 as InventoryIcon,
 } from "@mui/icons-material";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useDraftSnapshot } from "@/hooks/useDraftSnapshot";
+import DraftRestoreBanner from "@/components/common/DraftRestoreBanner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/contexts/ToastContext";
 import { useMaterials, useMaterialBrands } from "@/hooks/queries/useMaterials";
@@ -380,6 +382,82 @@ export default function MaterialRequestDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request, open]);
 
+  // ---- Draft persistence (create flow only) ----
+  // Auto-save the in-progress request so a network error or refresh doesn't wipe
+  // a half-built multi-item request. Edit mode is excluded (it hydrates from the
+  // server). This hook is declared AFTER the reset effect above so its restore
+  // runs last and wins over the reset.
+  const draftDirty =
+    !isEdit &&
+    (items.length > 0 ||
+      notes.trim() !== "" ||
+      sectionId !== "" ||
+      requiredByDate !== "" ||
+      priority !== "normal" ||
+      purchaseType !== "own_site" ||
+      deliveryType !== "one_time" ||
+      payingSiteId !== "");
+
+  const draftSnapshot = useMemo(
+    () => ({
+      sectionId,
+      requestDate,
+      requiredByDate,
+      priority,
+      purchaseType,
+      payingSiteId,
+      deliveryType,
+      notes,
+      items,
+    }),
+    [
+      sectionId,
+      requestDate,
+      requiredByDate,
+      priority,
+      purchaseType,
+      payingSiteId,
+      deliveryType,
+      notes,
+      items,
+    ],
+  );
+
+  const {
+    hasRestoredDraft,
+    restoredAt,
+    clearDraft,
+    discardDraft,
+  } = useDraftSnapshot({
+    key: "material_request_create",
+    isOpen: open,
+    enabled: !isEdit,
+    dirty: draftDirty,
+    snapshot: draftSnapshot,
+    applyDraft: (d) => {
+      setSectionId(d.sectionId ?? "");
+      setRequestDate(d.requestDate || today);
+      setRequiredByDate(d.requiredByDate ?? "");
+      setPriority(d.priority ?? "normal");
+      setPurchaseType(d.purchaseType ?? "own_site");
+      setPayingSiteId(d.payingSiteId ?? "");
+      setDeliveryType(d.deliveryType ?? "one_time");
+      setNotes(d.notes ?? "");
+      setItems(Array.isArray(d.items) ? d.items : []);
+    },
+    onDiscard: () => {
+      setSectionId("");
+      setRequestDate(today);
+      setRequiredByDate("");
+      setPriority("normal");
+      setPurchaseType("own_site");
+      setPayingSiteId("");
+      setDeliveryType("one_time");
+      setNotes("");
+      setItems([]);
+    },
+  });
+
   const handleAddItem = () => {
     if (!selectedMaterial) {
       setError("Please select a material");
@@ -663,6 +741,7 @@ export default function MaterialRequestDialog({
           }),
         });
       }
+      clearDraft();
       onClose();
     } catch (err: unknown) {
       console.error("[MaterialRequestDialog] Submit error:", err);
@@ -728,6 +807,11 @@ export default function MaterialRequestDialog({
       </DialogTitle>
 
       <DialogContent dividers>
+        <DraftRestoreBanner
+          show={hasRestoredDraft}
+          restoredAt={restoredAt}
+          onDiscard={discardDraft}
+        />
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}

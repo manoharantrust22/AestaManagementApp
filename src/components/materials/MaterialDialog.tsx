@@ -39,6 +39,7 @@ import {
   Storefront as BrandIcon,
 } from "@mui/icons-material";
 import CategoryAutocomplete from "@/components/common/CategoryAutocomplete";
+import DraftRestoreBanner from "@/components/common/DraftRestoreBanner";
 import FileUploader from "@/components/common/FileUploader";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
 import { SaveButton } from "@/components/common/SaveButton";
@@ -186,6 +187,7 @@ export default function MaterialDialog({
     formData,
     updateField,
     hasRestoredDraft,
+    restoredAt,
     clearDraft,
     discardDraft,
   } = useFormDraft<MaterialFormData>({
@@ -488,19 +490,11 @@ export default function MaterialDialog({
 
       <DialogContent sx={{ p: 0, bgcolor: alpha(theme.palette.background.default, 0.4) }}>
         <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 2 }}>
-          {hasRestoredDraft && (
-            <Alert
-              severity="info"
-              sx={{ fontSize: 12 }}
-              action={
-                <Button size="small" color="inherit" onClick={discardDraft}>
-                  Discard
-                </Button>
-              }
-            >
-              Restored from previous session
-            </Alert>
-          )}
+          <DraftRestoreBanner
+            show={hasRestoredDraft}
+            restoredAt={restoredAt}
+            onDiscard={discardDraft}
+          />
           {error && (
             isTimeoutError ? (
               <InlineErrorBanner
