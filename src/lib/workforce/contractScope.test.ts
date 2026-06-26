@@ -93,4 +93,71 @@ describe("buildContractScopeHref", () => {
     expect(url.searchParams.get("categoryId")).toBe("cat-paint");
     expect(url.searchParams.get("trade")).toBe("Painting");
   });
+
+  // --- Required invariants (exact refs from the task spec) ---
+
+  it("detailed non-Civil (isInHouse:true) attendance → contractId only", () => {
+    const ref: ContractScopeRef = {
+      id: "c1",
+      tradeCategoryId: "t1",
+      tradeName: "Painting",
+      isInHouse: true,
+      mode: "detailed",
+    };
+    const href = buildContractScopeHref("/site/attendance", ref);
+    expect(href).toBe("/site/attendance?contractId=c1");
+  });
+
+  it("detailed non-Civil (isInHouse:true) payments → contract-scoped settlement", () => {
+    const ref: ContractScopeRef = {
+      id: "c1",
+      tradeCategoryId: "t1",
+      tradeName: "Painting",
+      isInHouse: true,
+      mode: "detailed",
+    };
+    const href = buildContractScopeHref("/site/payments", ref);
+    expect(href).toBe("/site/payments?contractId=c1");
+  });
+
+  it("Civil payments → bare (no query string)", () => {
+    const ref: ContractScopeRef = {
+      id: "c2",
+      tradeCategoryId: "civ",
+      tradeName: "Civil",
+      isInHouse: true,
+      mode: "detailed",
+    };
+    expect(buildContractScopeHref("/site/payments", ref)).toBe("/site/payments");
+  });
+
+  it("headcount non-Civil attendance → triple with all three params", () => {
+    const ref: ContractScopeRef = {
+      id: "c3",
+      tradeCategoryId: "t3",
+      tradeName: "Tiling",
+      isInHouse: false,
+      mode: "headcount",
+    };
+    const href = buildContractScopeHref("/site/attendance", ref);
+    const url = new URL(href, "http://x");
+    expect(url.searchParams.get("categoryId")).toBe("t3");
+    expect(url.searchParams.get("contractId")).toBe("c3");
+    expect(url.searchParams.get("trade")).toBe("Tiling");
+  });
+
+  it("headcount non-Civil payments → triple with all three params", () => {
+    const ref: ContractScopeRef = {
+      id: "c3",
+      tradeCategoryId: "t3",
+      tradeName: "Tiling",
+      isInHouse: false,
+      mode: "headcount",
+    };
+    const href = buildContractScopeHref("/site/payments", ref);
+    const url = new URL(href, "http://x");
+    expect(url.searchParams.get("categoryId")).toBe("t3");
+    expect(url.searchParams.get("contractId")).toBe("c3");
+    expect(url.searchParams.get("trade")).toBe("Tiling");
+  });
 });
