@@ -381,7 +381,11 @@ export default function AttendanceDrawer({
   // remain selectable even if their category_id changed — prevents silent disappearance.
   const { data: attendedIdsData } = useQuery({
     queryKey: ["contract-attended-laborers", scopedContractId],
-    enabled: !!scopeTradeId,
+    // Require scopedContractId too: scopeTradeId can briefly linger (cached
+    // useSubcontractMeta) after the URL ?contractId= is cleared on "Tap Civil to
+    // return", and `.eq("subcontract_id", null)` is a malformed PostgREST filter
+    // (=> subcontract_id=eq.null) that 400s. No contract id => nothing to fetch.
+    enabled: !!scopeTradeId && !!scopedContractId,
     staleTime: 5 * 60 * 1000,
     queryFn: async (): Promise<string[]> => {
       const supabaseQ: any = createClient();
