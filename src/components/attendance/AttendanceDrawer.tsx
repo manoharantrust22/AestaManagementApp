@@ -1709,19 +1709,30 @@ export default function AttendanceDrawer({
       try {
         const totalAmount = summary.totalExpense;
         if (totalAmount > 0) {
-          // First try to get existing labor category
+          // Resolve the canonical "Labor" expense category. Filter by BOTH
+          // module AND name: many module='labor' categories exist
+          // (Transportation, Tea & Snacks, Medical, …), so an unqualified
+          // .eq("module","labor").maybeSingle() errors on multiple rows —
+          // which made the code fall through and blind-insert a duplicate
+          // "Labor", throwing a 409 on the expense_categories_module_name_key
+          // unique constraint. (module,name) is unique, so this returns 0 or 1.
           let categoryId: string | null = null;
-          const { data: laborCategory } = await (
-            supabase.from("expense_categories") as any
-          )
-            .select("id")
-            .eq("module", "labor")
-            .maybeSingle(); // Use maybeSingle to avoid error when no match
+          const findLaborCategory = async () =>
+            (
+              await (supabase.from("expense_categories") as any)
+                .select("id")
+                .eq("module", "labor")
+                .eq("name", "Labor")
+                .maybeSingle()
+            ).data as { id: string } | null;
 
+          const laborCategory = await findLaborCategory();
           if (laborCategory) {
-            categoryId = (laborCategory as { id: string }).id;
+            categoryId = laborCategory.id;
           } else {
-            // Try to create labor category if it doesn't exist
+            // Create the canonical "Labor" category on first use. If a
+            // concurrent save created it first (409), re-read instead of
+            // leaving the day's labor expense unsynced.
             try {
               const { data: newCategory } = await (
                 supabase.from("expense_categories") as any
@@ -1731,14 +1742,16 @@ export default function AttendanceDrawer({
                   module: "labor",
                   description: "Labor and attendance expenses",
                 })
-                .select()
+                .select("id")
                 .single();
 
               if (newCategory) {
                 categoryId = (newCategory as { id: string }).id;
               }
             } catch (catErr) {
-              console.warn("Could not create expense category:", catErr);
+              console.warn("Could not create expense category, re-reading:", catErr);
+              const existing = await findLaborCategory();
+              if (existing) categoryId = existing.id;
             }
           }
 
