@@ -665,6 +665,22 @@ export default function PaymentsContent() {
     }
     return rows;
   }, [settlementRowsAll, hideCancelled, scopeTradeId, contractIdParam, tradeChipSelection, tradeCategoryIdSet]);
+
+  // Rows for the top-of-tab "Unlinked · N settlements" reconciliation group.
+  // Unlinked means subcontract_id IS NULL — i.e. the settlement belongs to no
+  // trade. In a trade scope those are NOT this trade's data (they're the
+  // Civil/site-wide backlog), so suppress the group entirely; only the plain
+  // Civil view surfaces them for linking. Once a row is linked it gains a
+  // subcontract and naturally leaves this set. Civil (selectedSubcontractId
+  // null) is byte-for-byte the prior inline filter.
+  const unlinkedSettlementRows = useMemo(
+    () =>
+      selectedSubcontractId
+        ? []
+        : settlementRowsAll.filter((r) => !r.subcontractId),
+    [selectedSubcontractId, settlementRowsAll],
+  );
+
   const tabCancelledCount = cancelledForTab(activeTab);
 
   const pendingDailyMarketCount = (dailyMarketLedgerQuery.data ?? []).filter(
@@ -1213,9 +1229,7 @@ export default function PaymentsContent() {
             </Box>
             <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
               <UnlinkedSettlementsGroup
-                rows={(settlementsListQuery.data ?? []).filter(
-                  (r) => !r.subcontractId,
-                )}
+                rows={unlinkedSettlementRows}
                 siteId={selectedSite.id}
                 onRowClick={(row) => setRefDetail(row.ref)}
               />
@@ -1450,9 +1464,7 @@ export default function PaymentsContent() {
             </Box>
             <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
               <UnlinkedSettlementsGroup
-                rows={(settlementsListQuery.data ?? []).filter(
-                  (r) => !r.subcontractId,
-                )}
+                rows={unlinkedSettlementRows}
                 siteId={selectedSite.id}
                 onRowClick={(row) => setRefDetail(row.ref)}
               />
@@ -1651,9 +1663,7 @@ export default function PaymentsContent() {
             {viewMode === "default" ? (
               <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "auto" }}>
                 <UnlinkedSettlementsGroup
-                  rows={(settlementsListQuery.data ?? []).filter(
-                    (r) => !r.subcontractId,
-                  )}
+                  rows={unlinkedSettlementRows}
                   siteId={selectedSite.id}
                   onRowClick={(row) => setRefDetail(row.ref)}
                 />
@@ -1668,9 +1678,7 @@ export default function PaymentsContent() {
             ) : (
               <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
                 <UnlinkedSettlementsGroup
-                  rows={(settlementsListQuery.data ?? []).filter(
-                    (r) => !r.subcontractId,
-                  )}
+                  rows={unlinkedSettlementRows}
                   siteId={selectedSite.id}
                   onRowClick={(row) => setRefDetail(row.ref)}
                 />
