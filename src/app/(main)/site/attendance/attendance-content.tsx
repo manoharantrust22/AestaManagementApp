@@ -302,6 +302,7 @@ import {
 } from "@/lib/utils/unfilledDatesUtils";
 import { allocateAmounts } from "@/hooks/queries/useGroupTeaShop";
 import { useSubcontractMeta } from "@/hooks/queries/useSubcontractMeta";
+import { useCivilCategoryId } from "@/hooks/queries/useCivilCategoryId";
 import { scopedLaborerIds } from "@/lib/workforce/laborerScope";
 import { keepScopedDay } from "@/lib/workforce/attendanceScope";
 import { useTradeTeaShare } from "@/hooks/queries/useTradeTeaShare";
@@ -839,14 +840,23 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     }
   });
 
-  // ── Trade-scoped holiday views (Task 3) ──────────────────────────────────
-  /** tradeCategoryId of the active trade, or null in the plain Civil/site view. */
-  const scopeTradeCategoryId = tradeScope?.tradeCategoryId ?? null;
+  // ── Trade-scoped holiday views ───────────────────────────────────────────
+  /** The company's Civil labor_categories.id (a real scope for holidays), or null
+   *  while loading / if no Civil category exists. */
+  const civilCategoryId = useCivilCategoryId(selectedSite?.id);
+
+  /** Holiday scope for the current view: the active non-Civil trade, else Civil.
+   *  Civil is now a real scope (its own holidays), so the plain/Civil view passes
+   *  the Civil category id rather than null. trade_category_id NULL means "all
+   *  workspaces" and passes in every scope (holidayInScope keeps that rule). */
+  const scopeTradeCategoryId = tradeScope?.tradeCategoryId ?? civilCategoryId;
 
   /** Holidays in scope for the current view.
-   *  - When tradeScope is null (Civil/plain): scopeTradeCategoryId=null → holidayInScope keeps
-   *    only trade_category_id==null rows, which is exactly all current rows → identical to today.
-   *  - When a non-Civil trade is active: whole-site (NULL) + that trade's holidays. */
+   *  - Civil/plain view: Civil-tagged holidays + whole-site ("all workspaces", NULL) rows.
+   *    (Pre-migration, legacy NULL rows still pass — NULL always passes — so the list is
+   *    unchanged until the one-time re-tag migration runs.)
+   *  - A non-Civil trade active: that trade's holidays + "all workspaces" rows ONLY
+   *    (Civil-tagged rows no longer leak in). */
   const scopedHolidays = useMemo(
     () => recentHolidays.filter((h) => holidayInScope(h, scopeTradeCategoryId)),
     [recentHolidays, scopeTradeCategoryId]
