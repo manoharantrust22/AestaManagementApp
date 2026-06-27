@@ -77,6 +77,9 @@ export function useWorkUpdates(
           (supabase.from("daily_work_summary") as any)
             .select("date, work_updates, entered_by, updated_by")
             .eq("site_id", siteId)
+            // Site-wide work-updates inspector: only the main/Civil (subcontract_id NULL)
+            // log, so per-trade logs don't appear here as duplicate cards.
+            .is("subcontract_id", null)
             .gte("date", dateFrom)
             .lte("date", dateTo)
             .order("date", { ascending: true })

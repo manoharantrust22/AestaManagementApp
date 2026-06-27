@@ -3061,38 +3061,61 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     setLoading(true);
 
     try {
+      // In a trade workspace, "delete day" deletes ONLY this trade's attendance/market/
+      // work-log for the date — never Civil's or another trade's, and not the shared
+      // tea entry. The Civil/main (unscoped) view stays the master delete: everything for
+      // the day, byte-for-byte as before.
+      const inTrade = !!tradeScope;
+
       // Delete daily attendance records
-      const { error: dailyError } = await supabase
+      let dailyDel: any = supabase
         .from("daily_attendance")
         .delete()
         .eq("site_id", selectedSite.id)
         .eq("date", date);
+      if (inTrade) dailyDel = dailyDel.eq("subcontract_id", tradeScope.contractId);
+      const { error: dailyError } = await dailyDel;
       if (dailyError) throw dailyError;
 
-      // Delete market laborer attendance
-      const { error: marketError } = await (
-        supabase.from("market_laborer_attendance") as any
-      )
+      // Delete market laborer attendance (scope by the trade's role category in a trade
+      // workspace; sentinel guards an empty role set into a no-op, never a delete-all)
+      let marketDel: any = (supabase.from("market_laborer_attendance") as any)
         .delete()
         .eq("site_id", selectedSite.id)
         .eq("date", date);
+      if (inTrade) {
+        const { data: roleRows } = await (supabase.from("labor_roles") as any)
+          .select("id")
+          .eq("category_id", tradeScope.tradeCategoryId);
+        const roleIds = (roleRows ?? []).map((r: any) => r.id as string);
+        marketDel = marketDel.in(
+          "role_id",
+          roleIds.length ? roleIds : ["00000000-0000-0000-0000-000000000000"]
+        );
+      }
+      const { error: marketError } = await marketDel;
       if (marketError) throw marketError;
 
-      // Delete tea shop entries for this date
-      const { error: teaError } = await (
-        supabase.from("tea_shop_entries") as any
-      )
-        .delete()
-        .eq("site_id", selectedSite.id)
-        .eq("date", date);
-      if (teaError) throw teaError;
+      // Tea shop entries are site-wide/shared — only the Civil/master delete removes them.
+      if (!inTrade) {
+        const { error: teaError } = await (
+          supabase.from("tea_shop_entries") as any
+        )
+          .delete()
+          .eq("site_id", selectedSite.id)
+          .eq("date", date);
+        if (teaError) throw teaError;
+      }
 
-      // Delete daily work summary
-      const { error: summaryError } = await supabase
+      // Delete daily work summary (this trade's own log in a trade workspace; the
+      // site-wide + all trade logs in the Civil/master delete, as before)
+      let summaryDel: any = supabase
         .from("daily_work_summary")
         .delete()
         .eq("site_id", selectedSite.id)
         .eq("date", date);
+      if (inTrade) summaryDel = summaryDel.eq("subcontract_id", tradeScope.contractId);
+      const { error: summaryError } = await summaryDel;
       if (summaryError) throw summaryError;
 
       invalidateAttendance();
