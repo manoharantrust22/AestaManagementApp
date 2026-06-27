@@ -1373,15 +1373,21 @@ export default function AttendanceDrawer({
       // first (Delete settlement dialog), which resets is_paid/settlement_group_id and
       // unlinks the wallet transaction, after which editing is safe.
       try {
+        // In a trade workspace, only THIS contract's settled rows should block the edit —
+        // a settled Civil row on the same date must not lock the trade's own attendance.
+        let settledDailyQuery: any = supabase
+          .from("daily_attendance")
+          .select("id")
+          .eq("site_id", siteId)
+          .eq("date", selectedDate)
+          .or("is_paid.eq.true,settlement_group_id.not.is.null")
+          .limit(1);
+        if (tradeScopeActive) {
+          settledDailyQuery = settledDailyQuery.eq("subcontract_id", scopedContractId);
+        }
         const [{ data: settledDaily, error: settledDailyErr }, { data: settledMarket, error: settledMarketErr }] =
           await Promise.all([
-            supabase
-              .from("daily_attendance")
-              .select("id")
-              .eq("site_id", siteId)
-              .eq("date", selectedDate)
-              .or("is_paid.eq.true,settlement_group_id.not.is.null")
-              .limit(1),
+            settledDailyQuery,
             supabase
               .from("market_laborer_attendance")
               .select("id")
