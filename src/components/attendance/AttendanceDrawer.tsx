@@ -1268,13 +1268,15 @@ export default function AttendanceDrawer({
     }
 
     try {
-      // Check if a holiday exists for this date
-      const { data: existingHoliday, error: holidayError } = await supabase
+      // Check if a holiday exists for this date. (site_id, date) is no longer
+      // unique — a per-trade row and an "all workspaces" row can coexist — so
+      // fetch all matching rows rather than .maybeSingle() (which would throw on
+      // more than one), and block if any exist.
+      const { data: holidayRows, error: holidayError } = await supabase
         .from("site_holidays")
         .select("date, reason")
         .eq("site_id", siteId)
-        .eq("date", selectedDate)
-        .maybeSingle();
+        .eq("date", selectedDate);
 
       if (holidayError) {
         console.error("[AttendanceDrawer] Error checking holidays:", holidayError);
@@ -1282,6 +1284,7 @@ export default function AttendanceDrawer({
         return;
       }
 
+      const existingHoliday = holidayRows && holidayRows.length > 0 ? holidayRows[0] : null;
       if (existingHoliday) {
         setError(`Cannot record attendance - ${selectedDate} is marked as a holiday (${existingHoliday.reason || 'No reason specified'})`);
         return;

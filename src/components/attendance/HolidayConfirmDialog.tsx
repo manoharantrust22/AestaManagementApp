@@ -19,6 +19,11 @@ import {
   ListItemSecondaryAction,
   IconButton,
   Divider,
+  FormControl,
+  FormLabel,
+  FormControlLabel,
+  RadioGroup,
+  Radio,
 } from "@mui/material";
 import {
   EventBusy as HolidayIcon,
@@ -83,6 +88,9 @@ export default function HolidayConfirmDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Scope of the holiday being marked: the active workspace only, or all
+  // workspaces (trade_category_id NULL).
+  const [applyToAll, setApplyToAll] = useState(false);
 
   // Use provided date or default to today
   const targetDate = date || dayjs().format("YYYY-MM-DD");
@@ -98,6 +106,9 @@ export default function HolidayConfirmDialog({
     setSaving(true);
     setError(null);
 
+    // Target scope: the active workspace, or NULL for "all workspaces".
+    const targetTradeCategoryId = applyToAll ? null : tradeCategoryId ?? null;
+
     try {
       // Already a holiday for this date IN THE SAME SCOPE? (partial unique index => <=1 row)
       let existQuery = supabase
@@ -105,8 +116,8 @@ export default function HolidayConfirmDialog({
         .select("id")
         .eq("site_id", site.id)
         .eq("date", targetDate);
-      existQuery = tradeCategoryId
-        ? existQuery.eq("trade_category_id", tradeCategoryId)
+      existQuery = targetTradeCategoryId
+        ? existQuery.eq("trade_category_id", targetTradeCategoryId)
         : existQuery.is("trade_category_id", null);
       const { data: existingHolidayData } = await existQuery.maybeSingle();
 
@@ -137,7 +148,7 @@ export default function HolidayConfirmDialog({
           date: targetDate,
           reason: reason.trim(),
           created_by: userProfile?.id,
-          trade_category_id: tradeCategoryId ?? null,
+          trade_category_id: targetTradeCategoryId,
         })
         .select()
         .single();
@@ -202,6 +213,7 @@ export default function HolidayConfirmDialog({
   const handleClose = () => {
     setReason("");
     setError(null);
+    setApplyToAll(false);
     onClose();
   };
 
@@ -256,6 +268,29 @@ export default function HolidayConfirmDialog({
                 : `Marking ${isToday ? "today" : "this date"} as a holiday will prevent attendance reminder notifications for this site.`}
             </Typography>
           </Alert>
+
+          {/* Scope: this workspace only, or all workspaces */}
+          {tradeCategoryId && (
+            <FormControl sx={{ mb: 2 }}>
+              <FormLabel sx={{ fontSize: 13, mb: 0.5 }}>Applies to</FormLabel>
+              <RadioGroup
+                row
+                value={applyToAll ? "all" : "workspace"}
+                onChange={(e) => setApplyToAll(e.target.value === "all")}
+              >
+                <FormControlLabel
+                  value="workspace"
+                  control={<Radio size="small" />}
+                  label={tradeName ? `${tradeName} only` : "This workspace only"}
+                />
+                <FormControlLabel
+                  value="all"
+                  control={<Radio size="small" />}
+                  label="All workspaces"
+                />
+              </RadioGroup>
+            </FormControl>
+          )}
 
           {/* Reason Input */}
           <TextField
