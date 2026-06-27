@@ -2332,23 +2332,38 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   // Handler for confirming to overwrite a holiday with attendance
   const handleConfirmOverwriteHoliday = useCallback(async () => {
     if (!unfilledActionDialog?.date || !selectedSite?.id) return;
+    // Don't act until the workspace scope has resolved, else we'd target the
+    // wrong scope (e.g. delete a NULL row when Civil rows are civilId-tagged).
+    if (scopeTradeCategoryId == null) {
+      setRestorationMessage("Workspace is still loading — please try again in a moment.");
+      return;
+    }
 
     try {
-      // Delete only the in-scope holiday for this date (don't touch other scopes).
-      let delQuery = supabase
+      // A date can hold this trade's row and an "all workspaces" (NULL) row.
+      // Find the holiday actually shown in this view and delete it by id —
+      // robust to whether it's NULL-tagged (pre re-tag migration) or scope-tagged.
+      const { data: existingRows } = await supabase
         .from("site_holidays")
-        .delete()
+        .select("*")
         .eq("site_id", selectedSite.id)
         .eq("date", unfilledActionDialog.date);
-      delQuery = scopeTradeCategoryId
-        ? delQuery.eq("trade_category_id", scopeTradeCategoryId)
-        : delQuery.is("trade_category_id", null);
-      const { error: deleteError } = await delQuery;
+      const inScope =
+        (existingRows || []).find((h) =>
+          holidayInScope(h as SiteHoliday, scopeTradeCategoryId)
+        ) ?? null;
 
-      if (deleteError) {
-        console.error("Error deleting holiday:", deleteError);
-        setRestorationMessage("Failed to remove holiday. Please try again.");
-        return;
+      if (inScope) {
+        const { error: deleteError } = await supabase
+          .from("site_holidays")
+          .delete()
+          .eq("id", inScope.id);
+
+        if (deleteError) {
+          console.error("Error deleting holiday:", deleteError);
+          setRestorationMessage("Failed to remove holiday. Please try again.");
+          return;
+        }
       }
 
       // Refresh holidays

@@ -103,11 +103,19 @@ export default function HolidayConfirmDialog({
       return;
     }
 
-    setSaving(true);
-    setError(null);
-
     // Target scope: the active workspace, or NULL for "all workspaces".
     const targetTradeCategoryId = applyToAll ? null : tradeCategoryId ?? null;
+
+    // Guard the load window: if the workspace id hasn't resolved yet and the
+    // user didn't pick "all workspaces", don't silently tag the holiday NULL
+    // (which would make a workspace-intended holiday show in every workspace).
+    if (!applyToAll && tradeCategoryId == null) {
+      setError("Workspace is still loading — please try again in a moment.");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
 
     try {
       // Already a holiday for this date IN THE SAME SCOPE? (partial unique index => <=1 row)
