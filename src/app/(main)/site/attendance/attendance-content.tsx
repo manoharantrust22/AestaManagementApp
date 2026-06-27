@@ -1416,7 +1416,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       category_name: record.laborers.labor_categories?.name || "Unknown",
       role_name: record.laborers.labor_roles?.name || "Unknown",
       team_name: record.laborers.team?.name || null,
-      section_name: record.building_sections.name,
+      section_name: record.building_sections?.name || "Unknown",
       work_days: record.work_days,
       hours_worked: record.hours_worked,
       daily_rate_applied: record.daily_rate_applied,
