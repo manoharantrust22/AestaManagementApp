@@ -303,6 +303,7 @@ import {
 import { allocateAmounts } from "@/hooks/queries/useGroupTeaShop";
 import { useSubcontractMeta } from "@/hooks/queries/useSubcontractMeta";
 import { scopedLaborerIds } from "@/lib/workforce/laborerScope";
+import { keepScopedDay } from "@/lib/workforce/attendanceScope";
 import { useTradeTeaShare } from "@/hooks/queries/useTradeTeaShare";
 
 interface AttendanceContentProps {
@@ -636,6 +637,9 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         ...s,
         records: named,
         marketLaborers: scopedMarketLaborers,
+        // Trade scope: the unscoped work_description belongs to whoever logged it
+        // (often Civil); blanking it keeps Civil's work text out of the trade view.
+        workDescription: null,
         totalSalary: namedSalary + m.salary,
         totalSnacks: namedSnacks + m.snacks,
         totalExpense: namedSalary + namedSnacks + m.salary + m.snacks,
@@ -1749,7 +1753,9 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     const effectiveStart = dateFrom && projectStart ? (dateFrom > projectStart ? dateFrom : projectStart) : (dateFrom || projectStart);
     const effectiveEnd = dateTo && projectEnd ? (dateTo < projectEnd ? dateTo : projectEnd) : (dateTo || projectEnd);
 
-    const unfilledDates = effectiveStart && effectiveEnd && showHolidays
+    // Trade scope is CLEAN: no "unfilled" nags (a freshly-enabled trade would
+    // otherwise flag the whole history). Civil keeps its unfilled reminders.
+    const unfilledDates = !tradeScope && effectiveStart && effectiveEnd && showHolidays
       ? getUnfilledDates(effectiveStart, effectiveEnd, attendanceDates, holidayDates, contractDates)
       : [];
 
@@ -1790,17 +1796,29 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     // Use the trade-scoped summaries for rendering (named-labourer sub-rows are
     // filtered to the trade). Totals on each summary are unchanged; the weekly
     // calc below reads unscopedRecordsByDate so weekly totals also stay intact.
-    const attendanceEntries = scopedDateSummaries.map((s) => {
-      const holiday = showHolidays
-        ? scopedHolidays.find((h) => h.date === s.date) || null
-        : null;
-      return {
-        type: "attendance" as const,
-        date: s.date,
-        summary: s,
-        holiday,
-      };
-    });
+    const attendanceEntries = scopedDateSummaries
+      .map((s) => {
+        const holiday = showHolidays
+          ? scopedHolidays.find((h) => h.date === s.date) || null
+          : null;
+        return {
+          type: "attendance" as const,
+          date: s.date,
+          summary: s,
+          holiday,
+        };
+      })
+      // Trade scope: keep a date only if THIS trade had activity (named/market/
+      // contract-presence). Drops Civil-only days. Civil view keeps every day.
+      .filter((e) =>
+        !tradeScope
+          ? true
+          : keepScopedDay({
+              scopedNamedCount: e.summary.records.length,
+              scopedMarketCount: e.summary.marketLaborers.length,
+              hasContractPresence: contractPresenceMap.has(e.date),
+            })
+      );
 
     // Combine and sort by date descending
     const combined = [...attendanceEntries, ...holidayGroupEntries, ...unfilledGroupEntries, ...contractWorkEntries].sort(
@@ -1860,9 +1878,9 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           // Contract pending is suppressed for the entire current week
           // since contract crews are settled weekly after the week ends.
           const skipToday = e.date === todayStr;
-          // Weekly totals blend named + market regardless of trade scoping → read
-          // the UNSCOPED named records for this date (e.summary may be scoped).
-          (unscopedRecordsByDate.get(e.date) ?? e.summary.records).forEach((r) => {
+          // Civil blends ALL named labour (unscoped); a trade scope reads only the
+          // scoped named records so the weekly strip totals the trade, not the site.
+          (tradeScope ? e.summary.records : (unscopedRecordsByDate.get(e.date) ?? e.summary.records)).forEach((r) => {
             if (!r.is_paid) {
               if (r.laborer_type === "contract") {
                 if (!isCurrentWeek) {
@@ -1929,7 +1947,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     });
 
     return withWeeklySeparators;
-  }, [dateSummaries, scopedDateSummaries, scopedHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date, contractPresenceMap]);
+  }, [dateSummaries, scopedDateSummaries, scopedHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date, contractPresenceMap, tradeScope]);
 
   // Process initialData from server on first render
   useEffect(() => {
