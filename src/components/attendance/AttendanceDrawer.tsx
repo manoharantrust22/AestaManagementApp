@@ -815,14 +815,17 @@ export default function AttendanceDrawer({
         setMarketLaborers([]);
       }
 
-      // Load work summary for this date
-      const { data: summaryData } = await (
-        supabase.from("daily_work_summary") as any
-      )
+      // Load work summary for this date. In a trade workspace, load THIS contract's own
+      // log (subcontract_id = scopedContractId); in the Civil/main view, the site-wide
+      // (subcontract_id IS NULL) row.
+      let summaryQuery: any = (supabase.from("daily_work_summary") as any)
         .select("work_description, work_status, comments, work_updates")
         .eq("site_id", siteId)
-        .eq("date", dateToLoad)
-        .single();
+        .eq("date", dateToLoad);
+      summaryQuery = tradeScopeActive
+        ? summaryQuery.eq("subcontract_id", scopedContractId)
+        : summaryQuery.is("subcontract_id", null);
+      const { data: summaryData } = await summaryQuery.maybeSingle();
 
       if (summaryData) {
         setWorkDescription(summaryData.work_description || "");
@@ -834,6 +837,12 @@ export default function AttendanceDrawer({
         } else {
           setWorkUpdates(null);
         }
+      } else {
+        // No log for this scope yet (e.g. a fresh trade day) — clear, don't carry over.
+        setWorkDescription("");
+        setWorkStatus("");
+        setComments("");
+        setWorkUpdates(null);
       }
 
       // Load existing tea shop entry for this date
@@ -1704,6 +1713,8 @@ export default function AttendanceDrawer({
         const summaryRecord: Record<string, unknown> = {
           site_id: siteId,
           date: selectedDate,
+          // Per-trade log: tag the trade contract in a workspace, NULL = Civil/main.
+          subcontract_id: tradeScopeActive ? scopedContractId : null,
           work_description: workDescription || null,
           work_status: workStatus || null,
           comments: comments || null,
@@ -1728,9 +1739,24 @@ export default function AttendanceDrawer({
         }
 
         console.log("[AttendanceDrawer] Saving work summary:", summaryRecord);
-        // Add timeout to work summary upsert (15s since it's non-critical)
-        const summaryUpsertPromise = (supabase.from("daily_work_summary") as any)
-          .upsert(summaryRecord, { onConflict: "site_id,date" });
+        // Manual upsert keyed by (site_id, date, scope). The partial unique indexes
+        // (site-wide vs per-trade) can't be targeted via onConflict, so find this scope's
+        // row and update it, else insert. Scoping by subcontract_id means a trade save
+        // never overwrites Civil's (NULL) log, and vice-versa.
+        let existingSummaryQuery: any = (supabase.from("daily_work_summary") as any)
+          .select("id")
+          .eq("site_id", siteId)
+          .eq("date", selectedDate);
+        existingSummaryQuery = tradeScopeActive
+          ? existingSummaryQuery.eq("subcontract_id", scopedContractId)
+          : existingSummaryQuery.is("subcontract_id", null);
+        const { data: existingSummary } = await existingSummaryQuery.maybeSingle();
+        // Add timeout to work summary write (15s since it's non-critical)
+        const summaryUpsertPromise = existingSummary?.id
+          ? (supabase.from("daily_work_summary") as any)
+              .update(summaryRecord)
+              .eq("id", existingSummary.id)
+          : (supabase.from("daily_work_summary") as any).insert(summaryRecord);
         const summaryTimeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error("Work summary upsert timed out after 15s")), 15000)
         );

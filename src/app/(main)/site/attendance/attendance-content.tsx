@@ -521,6 +521,12 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   const [workSummaries, setWorkSummaries] = useState<
     Map<string, DailyWorkSummary>
   >(new Map());
+  // Per-trade day logs, keyed `${date}|${subcontract_id}`. Civil/site-wide logs
+  // (subcontract_id NULL) live in workSummaries above; these are the trade-scoped ones,
+  // surfaced in scopedDateSummaries so each workspace shows its own work text/photos.
+  const [tradeSummaryMap, setTradeSummaryMap] = useState<
+    Map<string, DailyWorkSummary>
+  >(new Map());
   const [viewMode, setViewMode] = useState<"date-wise" | "detailed">(
     "date-wise"
   );
@@ -634,13 +640,18 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       const namedSnacks = named.reduce((a, r) => a + (r.snacks_amount || 0), 0);
       const daily = named.filter((r) => r.laborer_type !== "contract");
       const contract = named.filter((r) => r.laborer_type === "contract");
+      // Per-trade work log: THIS trade's own day summary (keyed date + contract). The
+      // ...s spread carries the site-wide (Civil) summary, so override all four narrative
+      // fields — undefined until the trade logs its own.
+      const ts = tradeSummaryMap.get(`${s.date}|${tradeScope.contractId}`);
       return {
         ...s,
         records: named,
         marketLaborers: scopedMarketLaborers,
-        // Trade scope: the unscoped work_description belongs to whoever logged it
-        // (often Civil); blanking it keeps Civil's work text out of the trade view.
-        workDescription: null,
+        workDescription: ts?.work_description ?? null,
+        workStatus: ts?.work_status ?? null,
+        comments: ts?.comments ?? null,
+        workUpdates: (ts?.work_updates as any) ?? null,
         totalSalary: namedSalary + m.salary,
         totalSnacks: namedSnacks + m.snacks,
         totalExpense: namedSalary + namedSnacks + m.salary + m.snacks,
@@ -663,7 +674,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         })(),
       };
     });
-  }, [dateSummaries, tradeScope, scopedMarketByDate, teaShareByDate]);
+  }, [dateSummaries, tradeScope, scopedMarketByDate, teaShareByDate, tradeSummaryMap]);
   /** Display-only chip selection for TradeChipFilter. When tradeScope is active
    *  (lone ?contractId= pointing at a non-Civil detailed contract) we present
    *  that trade's chip as selected so the helper text and chip highlight reflect
@@ -1241,6 +1252,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         setAttendanceRecords([]);
         setDateSummaries([]);
         setWorkSummaries(new Map());
+        setTradeSummaryMap(new Map());
         setLoading(true);
       }
       previousSiteIdRef.current = selectedSite.id;
@@ -1326,12 +1338,17 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       teaShopMap.set(date, existing);
     });
 
-    // Build work summaries map
+    // Build work summaries map. Civil/main (subcontract_id NULL) → summaryMap (the table's
+    // site-wide log, unchanged); per-trade rows → tradeSummaries keyed date|subcontract.
     const summaryMap = new Map<string, DailyWorkSummary>();
+    const tradeSummaries = new Map<string, DailyWorkSummary>();
     rawWorkSummaries.forEach((s: DailyWorkSummary) => {
-      summaryMap.set(s.date, s);
+      const subId = (s as any).subcontract_id ?? null;
+      if (subId == null) summaryMap.set(s.date, s);
+      else tradeSummaries.set(`${s.date}|${subId}`, s);
     });
     setWorkSummaries(summaryMap);
+    setTradeSummaryMap(tradeSummaries);
 
     // Build market data map
     const marketMap = new Map<
@@ -1985,12 +2002,17 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   const processServerData = useCallback((data: AttendancePageData) => {
     const { attendanceRecords: rawAttendance, marketLaborerRecords: rawMarket, workSummaries: rawSummaries, teaShopEntries: rawTeaShop, teaShopAllocations } = data;
 
-    // Build work summaries map
+    // Build work summaries map. Civil/main (subcontract_id NULL) → summaryMap (site-wide,
+    // unchanged); per-trade rows → tradeSummaries keyed date|subcontract.
     const summaryMap = new Map<string, DailyWorkSummary>();
+    const tradeSummaries = new Map<string, DailyWorkSummary>();
     (rawSummaries || []).forEach((s: DailyWorkSummary) => {
-      summaryMap.set(s.date, s);
+      const subId = (s as any).subcontract_id ?? null;
+      if (subId == null) summaryMap.set(s.date, s);
+      else tradeSummaries.set(`${s.date}|${subId}`, s);
     });
     setWorkSummaries(summaryMap);
+    setTradeSummaryMap(tradeSummaries);
 
     // Build a set of entry IDs that have allocations for this site
     // (to avoid double-counting when entry.site_id === current site AND has allocation)
