@@ -15,6 +15,8 @@ export interface UseCancelledSettlementCountsArgs {
   dateTo: string | null;
   period?: AuditPeriod;
   cutoffDate?: string | null;
+  /** Scope to one in-house trade contract. undefined (Civil) = whole site. */
+  subcontractId?: string;
 }
 
 // Cancelled-only counts for the by-settlement strip + tab badges. Contract vs
@@ -24,7 +26,7 @@ export function useCancelledSettlementCounts(
   args: UseCancelledSettlementCountsArgs,
 ) {
   const supabase = createClient();
-  const { siteId, dateFrom, dateTo, period = "all", cutoffDate = null } = args;
+  const { siteId, dateFrom, dateTo, period = "all", cutoffDate = null, subcontractId } = args;
 
   return useQuery<CancelledSettlementCounts>({
     queryKey: [
@@ -34,6 +36,7 @@ export function useCancelledSettlementCounts(
       dateTo,
       period,
       cutoffDate,
+      subcontractId ?? null,
     ],
     enabled: Boolean(siteId),
     staleTime: 60_000,
@@ -49,6 +52,9 @@ export function useCancelledSettlementCounts(
         .eq("site_id", siteId)
         .eq("is_archived", false)
         .eq("is_cancelled", true);
+
+      // Trade scope: only this in-house contract's cancelled settlements.
+      if (subcontractId) q = q.eq("subcontract_id", subcontractId);
 
       if (dateFrom) q = q.gte("settlement_date", dateFrom);
       if (dateTo) q = q.lte("settlement_date", dateTo);

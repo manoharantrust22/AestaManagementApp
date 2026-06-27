@@ -483,7 +483,8 @@ export default function PaymentsContent() {
     selectedSite?.id,
     effectiveFrom,
     effectiveTo,
-    tabPeriod
+    tabPeriod,
+    selectedSubcontractId ?? undefined
   );
 
   const salarySummaryQuery = useSalarySliceSummary({
@@ -534,7 +535,8 @@ export default function PaymentsContent() {
     auditState.isAuditing ? selectedSite?.id : undefined,
     null,
     null,
-    "legacy"
+    "legacy",
+    selectedSubcontractId ?? undefined
   );
   const legacyDailyMarketPendingCount =
     legacyPaymentSummaryQuery.data?.pendingDatesCount ?? 0;
@@ -561,6 +563,7 @@ export default function PaymentsContent() {
     dateFrom: effectiveFrom,
     dateTo: effectiveTo,
     period: tabPeriod,
+    subcontractId: selectedSubcontractId ?? undefined,
   });
 
   const dailyMarketLedgerQuery = usePaymentsLedger({
@@ -570,6 +573,7 @@ export default function PaymentsContent() {
     status: "all",
     type: "daily-market",
     period: tabPeriod,
+    subcontractId: selectedSubcontractId ?? undefined,
   });
 
   // Client-side weekly roll-up over the same ledger rows. Cheap; no extra
@@ -580,6 +584,7 @@ export default function PaymentsContent() {
     dateFrom: effectiveFrom,
     dateTo: effectiveTo,
     period: tabPeriod,
+    subcontractId: selectedSubcontractId ?? undefined,
   });
 
   const allLedgerQuery = usePaymentsLedger({
@@ -589,6 +594,7 @@ export default function PaymentsContent() {
     status: "all",
     type: "all",
     period: tabPeriod,
+    subcontractId: selectedSubcontractId ?? undefined,
   });
 
   // Chronological flat list of settlement_groups. Filter follows the active
@@ -617,6 +623,7 @@ export default function PaymentsContent() {
     dateTo: effectiveTo,
     period: tabPeriod,
     cutoffDate: auditState.dataStartedAt,
+    subcontractId: selectedSubcontractId ?? undefined,
   });
   const cancelledForTab = (tab: ActiveTab): number => {
     const c = cancelledCountsQuery.data;

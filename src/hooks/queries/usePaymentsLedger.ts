@@ -12,13 +12,15 @@ export interface UsePaymentsLedgerArgs {
   type?: "all" | "daily-market" | "weekly";
   /** Period scope. Defaults to 'all'. Non-auditing sites ignore this. */
   period?: AuditPeriod;
+  /** Scope to one in-house trade contract. undefined (Civil) = whole site. */
+  subcontractId?: string;
 }
 
 export function usePaymentsLedger(args: UsePaymentsLedgerArgs) {
   const supabase = createClient();
-  const { siteId, dateFrom, dateTo, status = "all", type = "all", period = "all" } = args;
+  const { siteId, dateFrom, dateTo, status = "all", type = "all", period = "all", subcontractId } = args;
   return useQuery<PaymentsLedgerRow[]>({
-    queryKey: ["payments-ledger", siteId, dateFrom, dateTo, status, type, period],
+    queryKey: ["payments-ledger", siteId, dateFrom, dateTo, status, type, period, subcontractId ?? null],
     enabled: Boolean(siteId),
     staleTime: 60_000,
     queryFn: async () => {
@@ -30,6 +32,7 @@ export function usePaymentsLedger(args: UsePaymentsLedgerArgs) {
           p_status:    status,
           p_type:      type,
           p_period:    period,
+          p_subcontract_id: subcontractId ?? null,
         })),
         TIMEOUTS.QUERY,
         "Payments ledger query timed out. Please retry.",

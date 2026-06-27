@@ -17,13 +17,15 @@ export interface UseAdvancesArgs {
   dateFrom: string | null;
   dateTo: string | null;
   period?: AuditPeriod;
+  /** Scope to one in-house trade contract. undefined (Civil) = whole site. */
+  subcontractId?: string;
 }
 
 export function useAdvances(args: UseAdvancesArgs) {
   const supabase = createClient();
-  const { siteId, dateFrom, dateTo, period = "all" } = args;
+  const { siteId, dateFrom, dateTo, period = "all", subcontractId } = args;
   return useQuery<AdvanceRow[]>({
-    queryKey: ["advances", siteId, dateFrom, dateTo, period],
+    queryKey: ["advances", siteId, dateFrom, dateTo, period, subcontractId ?? null],
     enabled: Boolean(siteId),
     staleTime: 60_000,
     queryFn: async () => {
@@ -35,6 +37,7 @@ export function useAdvances(args: UseAdvancesArgs) {
           p_status:    "completed",
           p_type:      "weekly",
           p_period:    period,
+          p_subcontract_id: subcontractId ?? null,
         })),
         TIMEOUTS.QUERY,
         "Advances query timed out. Please retry.",

@@ -10,10 +10,12 @@ export function usePaymentSummary(
   dateTo: string | null,
   /** Period scope. Defaults to 'all'. Non-auditing sites ignore this. */
   period: AuditPeriod = "all",
+  /** Scope to one in-house trade contract. undefined (Civil) = whole site. */
+  subcontractId?: string,
 ) {
   const supabase = createClient();
   return useQuery<PaymentScopeSummary>({
-    queryKey: ["payment-summary", siteId, dateFrom, dateTo, period],
+    queryKey: ["payment-summary", siteId, dateFrom, dateTo, period, subcontractId ?? null],
     enabled: Boolean(siteId),
     queryFn: async () => {
       const { data, error } = await withTimeout(
@@ -22,6 +24,7 @@ export function usePaymentSummary(
           p_date_from: dateFrom,
           p_date_to:   dateTo,
           p_period:    period,
+          p_subcontract_id: subcontractId ?? null,
         })),
         TIMEOUTS.QUERY,
         "Payment summary query timed out. Please retry.",
