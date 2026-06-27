@@ -377,6 +377,14 @@ export default function AttendanceDrawer({
       ? meta.data.trade_category_id
       : null;
 
+  // Single switch that scopes BOTH the edit-load and the save-delete together for a
+  // trade workspace — they MUST stay in lockstep or saving a trade day would delete
+  // Civil's same-day attendance. Requires the LIVE scopedContractId (so clearing
+  // ?contractId= immediately reverts to the unscoped/site-wide path), a detailed trade,
+  // and excludes Civil — mirroring the attendance page's own gate.
+  const tradeScopeActive =
+    !!scopedContractId && !!scopeTradeId && meta.data?.trade_name !== "Civil";
+
   // Historical attendees: labourers who already have attendance under this contract must
   // remain selectable even if their category_id changed — prevents silent disappearance.
   const { data: attendedIdsData } = useQuery({
@@ -690,14 +698,22 @@ export default function AttendanceDrawer({
   const loadExistingAttendanceForDate = async (dateToLoad: string) => {
     try {
 
-      // Load existing daily attendance for this date (including audit fields and two-phase status)
-      const { data: attendanceData, error: attendanceError } = await supabase
+      // Load existing daily attendance for this date (including audit fields and two-phase status).
+      // In a trade workspace, scope to THIS contract's rows only — and the save-delete below
+      // is scoped identically — so Civil's same-day rows are neither shown nor deleted.
+      let attendanceQuery: any = supabase
         .from("daily_attendance")
         .select(
           "laborer_id, work_days, daily_rate_applied, section_id, in_time, lunch_out, lunch_in, out_time, work_hours, break_hours, total_hours, day_units, entered_by, recorded_by_user_id, attendance_status, work_progress_percent, salary_override, salary_override_reason"
         )
         .eq("site_id", siteId)
         .eq("date", dateToLoad);
+      if (tradeScopeActive) {
+        attendanceQuery = attendanceQuery
+          .eq("subcontract_id", scopedContractId)
+          .eq("is_deleted", false);
+      }
+      const { data: attendanceData, error: attendanceError } = await attendanceQuery;
 
       if (attendanceError) throw attendanceError;
 
@@ -757,7 +773,7 @@ export default function AttendanceDrawer({
         supabase.from("market_laborer_attendance") as any
       )
         .select(
-          "id, role_id, worker_index, count, work_days, rate_per_person, in_time, lunch_out, lunch_in, out_time, work_hours, break_hours, total_hours, day_units, salary_override_per_person, salary_override_reason, labor_roles(name)"
+          "id, role_id, worker_index, count, work_days, rate_per_person, in_time, lunch_out, lunch_in, out_time, work_hours, break_hours, total_hours, day_units, salary_override_per_person, salary_override_reason, labor_roles(name, category_id)"
         )
         .eq("site_id", siteId)
         .eq("date", dateToLoad)
@@ -765,7 +781,14 @@ export default function AttendanceDrawer({
 
       let marketCount = 0;
       if (!marketError && marketData) {
-        const existingMarket: MarketLaborerEntry[] = marketData.map(
+        // Trade workspace: keep only market rows whose role belongs to this trade's
+        // category (market rows carry no subcontract_id, so scope by role category).
+        const marketRows = tradeScopeActive
+          ? (marketData as any[]).filter(
+              (m) => (m.labor_roles?.category_id ?? null) === scopeTradeId
+            )
+          : (marketData as any[]);
+        const existingMarket: MarketLaborerEntry[] = marketRows.map(
           (m: any) => ({
             id: m.id,
             roleId: m.role_id,
@@ -1412,7 +1435,13 @@ export default function AttendanceDrawer({
           section_id: wholeContract ? null : (sectionId || null),
           // Whole-contract attendance (no floor) links straight to the contract the
           // user came from; floor-specific attendance stays unlinked until settlement.
-          subcontract_id: wholeContract ? (scopedContractId ?? null) : null,
+          // In a trade workspace always tag the contract, so the scoped save-delete
+          // (keyed on subcontract_id) always matches exactly what we insert.
+          subcontract_id: tradeScopeActive
+            ? scopedContractId
+            : wholeContract
+            ? (scopedContractId ?? null)
+            : null,
           work_days: s.dayUnits,
           hours_worked: s.workHours || 0,
           daily_rate_applied: s.dailyRate,
@@ -1467,12 +1496,18 @@ export default function AttendanceDrawer({
         siteId
       );
 
-      // Add timeout wrapper to detect hanging queries
-      const deletePromise = supabase
+      // Add timeout wrapper to detect hanging queries.
+      // Trade workspace: delete ONLY this contract's rows — in lockstep with the scoped
+      // load above — so saving a trade day never wipes Civil's same-day attendance.
+      let deleteBuilder: any = supabase
         .from("daily_attendance")
         .delete()
         .eq("site_id", siteId)
         .eq("date", selectedDate);
+      if (tradeScopeActive) {
+        deleteBuilder = deleteBuilder.eq("subcontract_id", scopedContractId);
+      }
+      const deletePromise = deleteBuilder;
 
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error("Delete query timed out after 15s")), 15000)
@@ -1527,11 +1562,25 @@ export default function AttendanceDrawer({
 
       // 2. Save market laborers
       console.log("[AttendanceDrawer] Deleting existing market attendance...");
-      const marketDeletePromise = supabase
+      let marketDeleteBuilder: any = supabase
         .from("market_laborer_attendance")
         .delete()
         .eq("site_id", siteId)
         .eq("date", selectedDate);
+      // Trade workspace: delete only market rows whose role belongs to this trade's
+      // category (market rows carry no subcontract_id). Sentinel guarantees an empty
+      // roster is a provable no-op, never a delete-all.
+      if (tradeScopeActive && scopeTradeId) {
+        const { data: roleRows } = await (supabase.from("labor_roles") as any)
+          .select("id")
+          .eq("category_id", scopeTradeId);
+        const roleIds = (roleRows ?? []).map((r: any) => r.id as string);
+        marketDeleteBuilder = marketDeleteBuilder.in(
+          "role_id",
+          roleIds.length ? roleIds : ["00000000-0000-0000-0000-000000000000"]
+        );
+      }
+      const marketDeletePromise = marketDeleteBuilder;
 
       const marketTimeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error("Market delete timed out after 15s")), 15000)
@@ -1708,7 +1757,10 @@ export default function AttendanceDrawer({
       // Wrap in try-catch so attendance save succeeds even if expense sync fails
       try {
         const totalAmount = summary.totalExpense;
-        if (totalAmount > 0) {
+        // Skip in a trade workspace: the site labor-expense row is keyed by site+date with
+        // no trade dimension, so a scoped (partial-total) save would overwrite the whole
+        // site's labor expense. (Trade-aware expense model is future work.)
+        if (totalAmount > 0 && !tradeScopeActive) {
           // Resolve the canonical "Labor" expense category. Filter by BOTH
           // module AND name: many module='labor' categories exist
           // (Transportation, Tea & Snacks, Medical, …), so an unqualified
