@@ -1794,8 +1794,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     // Map dateSummaries and check if each date is also a holiday
     // Only show holiday indicator if showHolidays is true
     // Use the trade-scoped summaries for rendering (named-labourer sub-rows are
-    // filtered to the trade). Totals on each summary are unchanged; the weekly
-    // calc below reads unscopedRecordsByDate so weekly totals also stay intact.
+    // filtered to the trade). Civil: the weekly calc reads unscopedRecordsByDate
+    // so site-wide totals stay intact. Trade scope: it reads e.summary.records
+    // (already scoped) so the weekly strip totals only the trade, and the filter
+    // below drops days with no scoped activity.
     const attendanceEntries = scopedDateSummaries
       .map((s) => {
         const holiday = showHolidays
