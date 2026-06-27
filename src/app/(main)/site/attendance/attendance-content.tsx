@@ -159,6 +159,8 @@ import {
 } from "@/components/attendance/TradeChipFilter";
 import { TradeAttendanceView } from "@/components/attendance/trade-view/TradeAttendanceView";
 import { getTradeColor } from "@/theme/tradeColors";
+import { ThemeProvider } from "@mui/material/styles";
+import { createTradeTheme } from "@/theme/theme";
 import { useSiteAuditState } from "@/hooks/queries/useSiteAuditState";
 import { LegacyAuditBanner } from "@/components/audit";
 import AttendanceSkeleton from "./attendance-skeleton";
@@ -485,14 +487,6 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       }
       return { kind: "civil" };
     });
-  // Per-trade color tokens for chips/header strip/FAB. Civil → existing primary blue.
-  const tradeColor = React.useMemo(
-    () =>
-      getTradeColor(
-        tradeChipSelection.kind === "trade" ? tradeChipSelection.tradeName : "Civil"
-      ),
-    [tradeChipSelection]
-  );
   const router = useRouter();
   const theme = useTheme();
 
@@ -687,6 +681,20 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     return tradeChipSelection;
   }, [tradeScope, contractMeta, tradeChipSelection]);
   // ── End trade scoping ────────────────────────────────────────────────────
+  // Per-trade color tokens for chips/header strip/FAB. Civil → existing primary blue.
+  const tradeColor = React.useMemo(
+    () =>
+      getTradeColor(
+        tradeChipSelectionForDisplay.kind === "trade"
+          ? tradeChipSelectionForDisplay.tradeName
+          : "Civil"
+      ),
+    [tradeChipSelectionForDisplay]
+  );
+  const tradeTheme = React.useMemo(
+    () => (tradeScope ? createTradeTheme(theme, tradeColor) : null),
+    [tradeScope, theme, tradeColor]
+  );
 
   // Fetch version counter to handle race conditions
   const fetchVersionRef = useRef(0);
@@ -3288,7 +3296,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     );
   }
 
-  return (
+  const content = (
     <Box
       ref={tableContainerRef}
       sx={{
@@ -7554,5 +7562,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         }}
       />
     </Box>
+  );
+  return tradeTheme ? (
+    <ThemeProvider theme={tradeTheme}>{content}</ThemeProvider>
+  ) : (
+    content
   );
 }

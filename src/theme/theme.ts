@@ -1,4 +1,6 @@
 import { createTheme, PaletteOptions } from "@mui/material/styles";
+import type { Theme } from "@mui/material/styles";
+import type { TradeColor } from "@/theme/tradeColors";
 type ThemePreference = string;
 
 // Light palette
@@ -641,5 +643,19 @@ export function createAppTheme(mode: ThemePreference) {
 
 // Export palettes for reference
 export { lightPalette, darkPalette };
+
+/** Trade-scoped theme: recolor palette.primary AND the two hardcoded
+ *  #1976d2 component styles (MuiChip.filled.bg, MuiIconButton.root.color)
+ *  which do NOT follow palette.primary. Caller memoizes and wraps ONLY the
+ *  scoped subtree — Civil renders with no wrapper (byte-for-byte). */
+export function createTradeTheme(base: Theme, tc: TradeColor): Theme {
+  return createTheme(base, {
+    palette: { primary: { main: tc.main, light: tc.light, dark: tc.dark, contrastText: tc.contrastText } },
+    components: {
+      MuiChip: { styleOverrides: { filled: { backgroundColor: tc.main, color: tc.contrastText } } },
+      MuiIconButton: { styleOverrides: { root: { color: tc.main } } },
+    },
+  });
+}
 
 export default theme;

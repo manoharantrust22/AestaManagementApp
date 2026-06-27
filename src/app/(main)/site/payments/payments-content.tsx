@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ThemeProvider, useTheme } from "@mui/material/styles";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
@@ -38,6 +39,7 @@ import {
 import { TradeSettlementView } from "@/components/payments/TradeSettlementView";
 import { useSiteTrades } from "@/hooks/queries/useTrades";
 import { getTradeColor } from "@/theme/tradeColors";
+import { createTradeTheme } from "@/theme/theme";
 import ScopeChip from "@/components/common/ScopeChip";
 import UnsettledBanner from "@/components/payments/UnsettledBanner";
 import { SalarySliceHero } from "@/components/payments/SalarySliceHero";
@@ -190,6 +192,7 @@ export default function PaymentsContent() {
   const { selectedSite } = useSelectedSite();
   const { formatForApi, isAllTime } = useDateRange();
   const router = useRouter();
+  const theme = useTheme();
   const searchParams = useSearchParams();
 
   const { dateFrom, dateTo } = formatForApi();
@@ -290,11 +293,15 @@ export default function PaymentsContent() {
   const selectedTradeColor = useMemo(
     () =>
       getTradeColor(
-        tradeChipSelection.kind === "trade"
-          ? tradeChipSelection.tradeName
+        tradeChipSelectionForDisplay.kind === "trade"
+          ? tradeChipSelectionForDisplay.tradeName
           : "Civil"
       ),
-    [tradeChipSelection]
+    [tradeChipSelectionForDisplay]
+  );
+  const tradeTheme = useMemo(
+    () => (scopeTradeId ? createTradeTheme(theme, selectedTradeColor) : null),
+    [scopeTradeId, theme, selectedTradeColor]
   );
   // Per-tab view mode. "default" is the existing waterfall (Contract) /
   // ledger (Daily+Market, All) view; "by-settlement" shows a flat
@@ -751,7 +758,7 @@ export default function PaymentsContent() {
     );
   }
 
-  return (
+  const content = (
     <Box
       sx={{
         display: "flex",
@@ -1981,5 +1988,10 @@ export default function PaymentsContent() {
       </>
       )}
     </Box>
+  );
+  return tradeTheme ? (
+    <ThemeProvider theme={tradeTheme}>{content}</ThemeProvider>
+  ) : (
+    content
   );
 }
