@@ -8,21 +8,15 @@ import dayjs from "dayjs";
 import {
   Alert,
   Box,
-  Button,
   Chip,
-  FormControlLabel,
   IconButton,
   Snackbar,
-  Switch,
   Tab,
   Tabs,
-  ToggleButton,
-  ToggleButtonGroup,
   Tooltip,
   Typography,
 } from "@mui/material";
 import {
-  Add as AddIcon,
   Fullscreen as FullscreenIcon,
   FullscreenExit as FullscreenExitIcon,
 } from "@mui/icons-material";
@@ -69,6 +63,7 @@ import SettlementRefDetailDialog, {
   type SettlementDetails,
 } from "@/components/payments/SettlementRefDetailDialog";
 import { SettlementsList } from "@/components/payments/SettlementsList";
+import { SettlementViewToolbar } from "@/components/payments/SettlementViewToolbar";
 import { UnlinkedSettlementsGroup } from "@/components/payments/UnlinkedSettlementsGroup";
 import ContractSettlementEditDialog from "@/components/payments/ContractSettlementEditDialog";
 import DeleteContractSettlementDialog from "@/components/payments/DeleteContractSettlementDialog";
@@ -612,6 +607,7 @@ export default function PaymentsContent() {
     dateTo: effectiveTo,
     period: tabPeriod,
     cutoffDate: auditState.dataStartedAt,
+    subcontractId: selectedSubcontractId ?? undefined,
   });
 
   // Per-tab cancelled counts — drives the small red badge on each main tab
@@ -665,6 +661,24 @@ export default function PaymentsContent() {
     }
     return rows;
   }, [settlementRowsAll, hideCancelled, scopeTradeId, contractIdParam, tradeChipSelection, tradeCategoryIdSet]);
+
+  // Count shown in the by-settlement strip header. Mirrors settlementRowsVisible's
+  // scoping (trade workspace → only this contract; Civil → exclude trade-category
+  // settlements) but WITHOUT the Hide-cancelled filter, so the header reads the
+  // scope total ("N settlements") while "· M cancelled" comes from the scoped
+  // cancelledCounts query. Using settlementRowsAll.length here was the bug: it
+  // showed the whole-site total even inside a single trade workspace.
+  const scopedSettlementCount = useMemo(() => {
+    if (scopeTradeId && contractIdParam) {
+      return settlementRowsAll.filter((r) => r.subcontractId === contractIdParam).length;
+    }
+    if (tradeChipSelection.kind === "civil") {
+      return settlementRowsAll.filter(
+        (r) => !r.subcontractCategoryId || !tradeCategoryIdSet.has(r.subcontractCategoryId),
+      ).length;
+    }
+    return settlementRowsAll.length;
+  }, [settlementRowsAll, scopeTradeId, contractIdParam, tradeChipSelection, tradeCategoryIdSet]);
 
   // Rows for the top-of-tab "Unlinked · N settlements" reconciliation group.
   // Unlinked means subcontract_id IS NULL — i.e. the settlement belongs to no
@@ -1103,131 +1117,31 @@ export default function PaymentsContent() {
               legacyCount={legacyWeeksPending}
               legacyAmount={legacyContractPendingAmount}
             />
-            <Box
-              sx={{
-                px: { xs: 1, sm: 1.5 },
-                py: 1,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 0.75,
-                borderBottom: 1,
-                borderColor: "divider",
-                flexWrap: "nowrap",
-                flexShrink: 0,
-              }}
-            >
-              <ToggleButtonGroup
-                value={viewMode}
-                exclusive
-                size="small"
-                onChange={(_, v) => v && setViewMode(v as ViewMode)}
-                aria-label="View mode"
-                sx={{
-                  flexShrink: 1,
-                  minWidth: 0,
-                  "& .MuiToggleButton-root": {
-                    fontSize: { xs: 10.5, sm: 11 },
-                    fontWeight: 600,
-                    textTransform: "none",
-                    py: 0.25,
-                    px: { xs: 0.75, sm: 1.25 },
-                    whiteSpace: "nowrap",
-                  },
-                }}
-              >
-                <ToggleButton value="default" aria-label="Weekly waterfall">
-                  <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
-                    📊 Weekly
-                  </Box>
-                  <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-                    📊 Weekly waterfall
-                  </Box>
-                </ToggleButton>
-                <ToggleButton value="by-settlement" aria-label="By settlement">
-                  <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
-                    📜 Settled
-                  </Box>
-                  <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-                    📜 By settlement
-                  </Box>
-                </ToggleButton>
-              </ToggleButtonGroup>
-              {viewMode === "by-settlement" && (
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: { xs: 0.5, sm: 1.25 },
-                    flex: 1,
-                    minWidth: 0,
-                    flexWrap: "nowrap",
-                    overflow: "hidden",
-                  }}
-                >
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      color: "text.secondary",
-                      whiteSpace: "nowrap",
-                      fontVariantNumeric: "tabular-nums",
-                      ml: 1,
-                    }}
-                  >
-                    {settlementRowsAll.length} settlements
-                    {tabCancelledCount > 0 && (
-                      <Box
-                        component="span"
-                        sx={{ color: "error.main", ml: 0.75 }}
-                      >
-                        · {tabCancelledCount} cancelled
-                      </Box>
-                    )}
-                  </Typography>
-                  <Box sx={{ ml: "auto" }}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          size="small"
-                          checked={hideCancelled}
-                          onChange={(_, v) => setHideCancelled(v)}
-                        />
-                      }
-                      label={
-                        <Typography variant="caption">
-                          Hide cancelled
-                        </Typography>
-                      }
-                      sx={{ m: 0 }}
-                    />
-                  </Box>
-                </Box>
-              )}
-              <Button
-                variant="contained"
-                color="primary"
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={() => setRecordPaymentOpen(true)}
-                sx={{
-                  flexShrink: 0,
-                  whiteSpace: "nowrap",
-                  px: { xs: 1, sm: 1.5 },
-                  fontSize: { xs: 11, sm: 13 },
-                  "& .MuiButton-startIcon": {
-                    mr: { xs: 0.25, sm: 1 },
-                  },
-                }}
-              >
-                <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
-                  Record
-                </Box>
-                <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-                  Record mesthri payment
-                </Box>
-              </Button>
-            </Box>
-            <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+            <SettlementViewToolbar
+              viewMode={viewMode}
+              onViewModeChange={(v) => setViewMode(v as ViewMode)}
+              toggleOptions={[
+                {
+                  value: "default",
+                  shortLabel: "📊 Weekly",
+                  longLabel: "📊 Weekly waterfall",
+                  ariaLabel: "Weekly waterfall",
+                },
+                {
+                  value: "by-settlement",
+                  shortLabel: "📜 Settled",
+                  longLabel: "📜 By settlement",
+                  ariaLabel: "By settlement",
+                },
+              ]}
+              settlementCount={scopedSettlementCount}
+              cancelledCount={tabCancelledCount}
+              hideCancelled={hideCancelled}
+              onHideCancelledChange={setHideCancelled}
+              onRecord={() => setRecordPaymentOpen(true)}
+              recordLabel="Record mesthri payment"
+            />
+            <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", pb: { xs: 9, sm: 0 } }}>
               <UnlinkedSettlementsGroup
                 rows={unlinkedSettlementRows}
                 siteId={selectedSite.id}
@@ -1329,73 +1243,33 @@ export default function PaymentsContent() {
               ctaLabel="Settle in Attendance →"
               onCtaClick={settleDailyMarketInAttendance}
             />
-            <Box
-              sx={{
-                px: 1.5,
-                py: 1,
-                display: "flex",
-                justifyContent: "flex-start",
-                borderBottom: 1,
-                borderColor: "divider",
-                flexShrink: 0,
-              }}
-            >
-              <ToggleButtonGroup
-                value={viewMode}
-                exclusive
-                size="small"
-                onChange={(_, v) => v && setViewMode(v as ViewMode)}
-                aria-label="View mode"
-                sx={{
-                  "& .MuiToggleButton-root": {
-                    fontSize: { xs: 10.5, sm: 11 },
-                    fontWeight: 600,
-                    textTransform: "none",
-                    py: 0.25,
-                    px: { xs: 0.75, sm: 1.25 },
-                    whiteSpace: "nowrap",
-                  },
-                }}
-              >
-                <ToggleButton value="by-week" aria-label="By week">
-                  <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
-                    📊 Week
-                  </Box>
-                  <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-                    📊 By week
-                  </Box>
-                </ToggleButton>
-                <ToggleButton value="by-date" aria-label="By date">
-                  <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
-                    📅 Date
-                  </Box>
-                  <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-                    📅 By date
-                  </Box>
-                </ToggleButton>
-                <ToggleButton value="by-settlement" aria-label="By settlement">
-                  <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
-                    📜 Settled
-                  </Box>
-                  <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-                    📜 By settlement
-                  </Box>
-                </ToggleButton>
-              </ToggleButtonGroup>
-              {viewMode !== "by-settlement" && (
+            <SettlementViewToolbar
+              viewMode={viewMode}
+              onViewModeChange={(v) => setViewMode(v as ViewMode)}
+              toggleOptions={[
+                { value: "by-week", shortLabel: "📊 Week", longLabel: "📊 By week", ariaLabel: "By week" },
+                { value: "by-date", shortLabel: "📅 Date", longLabel: "📅 By date", ariaLabel: "By date" },
+                {
+                  value: "by-settlement",
+                  shortLabel: "📜 Settled",
+                  longLabel: "📜 By settlement",
+                  ariaLabel: "By settlement",
+                },
+              ]}
+              settlementCount={scopedSettlementCount}
+              cancelledCount={tabCancelledCount}
+              hideCancelled={hideCancelled}
+              onHideCancelledChange={setHideCancelled}
+              summary={
                 <Typography
                   variant="caption"
                   sx={{
-                    ml: 1,
                     color: "text.secondary",
                     whiteSpace: "nowrap",
                     fontVariantNumeric: "tabular-nums",
                   }}
                 >
-                  <Box
-                    component="span"
-                    sx={{ color: "success.main", fontWeight: 600 }}
-                  >
+                  <Box component="span" sx={{ color: "success.main", fontWeight: 600 }}>
                     {summaryQuery.data?.dailyMarketCount ?? 0} settled
                   </Box>
                   {" · "}
@@ -1412,56 +1286,8 @@ export default function PaymentsContent() {
                     {summaryQuery.data?.pendingDatesCount ?? 0} unsettled
                   </Box>
                 </Typography>
-              )}
-              {viewMode === "by-settlement" && (
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 1.25,
-                    flex: 1,
-                    minWidth: 0,
-                    ml: 1,
-                  }}
-                >
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      color: "text.secondary",
-                      whiteSpace: "nowrap",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {settlementRowsAll.length} settlements
-                    {tabCancelledCount > 0 && (
-                      <Box
-                        component="span"
-                        sx={{ color: "error.main", ml: 0.75 }}
-                      >
-                        · {tabCancelledCount} cancelled
-                      </Box>
-                    )}
-                  </Typography>
-                  <Box sx={{ ml: "auto" }}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          size="small"
-                          checked={hideCancelled}
-                          onChange={(_, v) => setHideCancelled(v)}
-                        />
-                      }
-                      label={
-                        <Typography variant="caption">
-                          Hide cancelled
-                        </Typography>
-                      }
-                      sx={{ m: 0 }}
-                    />
-                  </Box>
-                </Box>
-              )}
-            </Box>
+              }
+            />
             <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
               <UnlinkedSettlementsGroup
                 rows={unlinkedSettlementRows}
@@ -1566,100 +1392,28 @@ export default function PaymentsContent() {
                 legacyContractPendingAmount + legacyDailyMarketPendingAmount
               }
             />
-            <Box
-              sx={{
-                px: 1.5,
-                py: 1,
-                display: "flex",
-                justifyContent: "flex-start",
-                borderBottom: 1,
-                borderColor: "divider",
-                flexShrink: 0,
-              }}
-            >
-              <ToggleButtonGroup
-                value={viewMode}
-                exclusive
-                size="small"
-                onChange={(_, v) => v && setViewMode(v as ViewMode)}
-                aria-label="View mode"
-                sx={{
-                  "& .MuiToggleButton-root": {
-                    fontSize: { xs: 10.5, sm: 11 },
-                    fontWeight: 600,
-                    textTransform: "none",
-                    py: 0.25,
-                    px: { xs: 0.75, sm: 1.25 },
-                    whiteSpace: "nowrap",
-                  },
-                }}
-              >
-                <ToggleButton value="default" aria-label="Unified ledger">
-                  <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
-                    📋 Ledger
-                  </Box>
-                  <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-                    📋 Unified ledger
-                  </Box>
-                </ToggleButton>
-                <ToggleButton value="by-settlement" aria-label="By settlement">
-                  <Box component="span" sx={{ display: { xs: "inline", sm: "none" } }}>
-                    📜 Settled
-                  </Box>
-                  <Box component="span" sx={{ display: { xs: "none", sm: "inline" } }}>
-                    📜 By settlement
-                  </Box>
-                </ToggleButton>
-              </ToggleButtonGroup>
-              {viewMode === "by-settlement" && (
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 1.25,
-                    flex: 1,
-                    minWidth: 0,
-                    ml: 1,
-                  }}
-                >
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      color: "text.secondary",
-                      whiteSpace: "nowrap",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {settlementRowsAll.length} settlements
-                    {tabCancelledCount > 0 && (
-                      <Box
-                        component="span"
-                        sx={{ color: "error.main", ml: 0.75 }}
-                      >
-                        · {tabCancelledCount} cancelled
-                      </Box>
-                    )}
-                  </Typography>
-                  <Box sx={{ ml: "auto" }}>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          size="small"
-                          checked={hideCancelled}
-                          onChange={(_, v) => setHideCancelled(v)}
-                        />
-                      }
-                      label={
-                        <Typography variant="caption">
-                          Hide cancelled
-                        </Typography>
-                      }
-                      sx={{ m: 0 }}
-                    />
-                  </Box>
-                </Box>
-              )}
-            </Box>
+            <SettlementViewToolbar
+              viewMode={viewMode}
+              onViewModeChange={(v) => setViewMode(v as ViewMode)}
+              toggleOptions={[
+                {
+                  value: "default",
+                  shortLabel: "📋 Ledger",
+                  longLabel: "📋 Unified ledger",
+                  ariaLabel: "Unified ledger",
+                },
+                {
+                  value: "by-settlement",
+                  shortLabel: "📜 Settled",
+                  longLabel: "📜 By settlement",
+                  ariaLabel: "By settlement",
+                },
+              ]}
+              settlementCount={scopedSettlementCount}
+              cancelledCount={tabCancelledCount}
+              hideCancelled={hideCancelled}
+              onHideCancelledChange={setHideCancelled}
+            />
             {viewMode === "default" ? (
               <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "auto" }}>
                 <UnlinkedSettlementsGroup

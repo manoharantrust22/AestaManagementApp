@@ -49,14 +49,19 @@ export interface UseSettlementsListArgs {
   period?: AuditPeriod;
   /** ISO YYYY-MM-DD. Required for period='legacy' or 'current' to take effect. */
   cutoffDate?: string | null;
+  /** Scope to one in-house trade contract (the active trade workspace).
+   *  undefined (Civil / site-wide) = all subcontracts. Mirrors
+   *  useCancelledSettlementCounts so the by-settlement count and the cancelled
+   *  badge stay in lock-step for the trade workspace. */
+  subcontractId?: string;
 }
 
 export function useSettlementsList(args: UseSettlementsListArgs) {
   const supabase = createClient();
-  const { siteId, filter, dateFrom, dateTo, period = "all", cutoffDate = null } = args;
+  const { siteId, filter, dateFrom, dateTo, period = "all", cutoffDate = null, subcontractId } = args;
 
   return useQuery<SettlementListRow[]>({
-    queryKey: ["settlements-list", siteId, filter, dateFrom, dateTo, period, cutoffDate],
+    queryKey: ["settlements-list", siteId, filter, dateFrom, dateTo, period, cutoffDate, subcontractId ?? null],
     enabled: Boolean(siteId),
     staleTime: 60_000,
     queryFn: async () => {
@@ -92,6 +97,10 @@ export function useSettlementsList(args: UseSettlementsListArgs) {
         .eq("is_archived", false)
         .order("settlement_date", { ascending: false })
         .order("created_at", { ascending: false });
+
+      // Trade scope: only this in-house contract's settlements. Civil view
+      // passes undefined → site-wide (unchanged).
+      if (subcontractId) q = q.eq("subcontract_id", subcontractId);
 
       if (dateFrom) q = q.gte("settlement_date", dateFrom);
       if (dateTo) q = q.lte("settlement_date", dateTo);
