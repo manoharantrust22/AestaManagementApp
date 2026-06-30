@@ -23,10 +23,18 @@ import { useContractPresenceForSites } from "@/hooks/queries/useContractPresence
 import { useTeaEntryContractSelections } from "@/hooks/queries/useTeaEntryContractSelections";
 import { useSiteTrades } from "@/hooks/queries/useTrades";
 import { computeContractTeaSplit, type TeaSplitRow } from "@/lib/tea/contractTeaSplit";
-import { buildContractTeaModel, type ContractTeaModel } from "@/lib/tea/buildContractTeaModel";
+import type {
+  SiteAllocationInput,
+  ContractSelectionInput,
+} from "@/lib/tea/saveContractTeaEntry";
 import type { ContractPresenceItem } from "@/lib/utils/contractPresenceUtils";
 
-export type { ContractTeaModel };
+export interface ContractTeaModel {
+  total: number;
+  totalDayUnits: number;
+  allocations: SiteAllocationInput[];
+  selections: ContractSelectionInput[];
+}
 
 interface AllocRow {
   key: string;
@@ -203,13 +211,58 @@ export default function ContractTeaAllocator({
     return m;
   }, [split]);
 
-  // Emit the model upward — built by the shared pure builder so this matches the
-  // batch backfill path byte-for-byte.
+  // Emit the model upward.
   useEffect(() => {
-    onModelChange(buildContractTeaModel(totalCost, rows, sites, { included, overrides }));
+    if (rows.length === 0) {
+      onModelChange(null);
+      return;
+    }
+    // Per-site allocation = Σ included row amounts; included man-days for the site.
+    const bySiteUnits = new Map<string, number>();
+    const bySiteWorkers = new Map<string, number>();
+    for (const r of rows) {
+      if (!(included[r.key] ?? true)) continue;
+      bySiteUnits.set(r.siteId, (bySiteUnits.get(r.siteId) ?? 0) + r.manDays);
+      bySiteWorkers.set(r.siteId, (bySiteWorkers.get(r.siteId) ?? 0) + r.manDays);
+    }
+    const allocations: SiteAllocationInput[] = [];
+    for (const site of sites) {
+      const amount = split.bySite[site.id] ?? 0;
+      const units = bySiteUnits.get(site.id) ?? 0;
+      // Only emit allocations for sites that participate (amount or units > 0).
+      if (amount <= 0 && units <= 0) continue;
+      allocations.push({
+        site_id: site.id,
+        day_units_sum: Math.round(units * 100) / 100,
+        worker_count: Math.round(bySiteWorkers.get(site.id) ?? 0),
+        allocation_percentage:
+          split.total > 0 ? Math.round((amount / split.total) * 100) : 0,
+        allocated_amount: amount,
+      });
+    }
+    const selections: ContractSelectionInput[] = rows.map((r) => ({
+      site_id: r.siteId,
+      presence_kind: r.presenceKind,
+      ref_id: r.refId,
+      trade_category_id: r.tradeCategoryId,
+      man_days: Math.round(r.manDays * 100) / 100,
+      allocated_amount: amountByKey.get(r.key) ?? 0,
+      is_included: included[r.key] ?? true,
+      is_amount_override: (overrides[r.key] ?? null) != null,
+    }));
+    const totalDayUnits = rows
+      .filter((r) => included[r.key] ?? true)
+      .reduce((s, r) => s + r.manDays, 0);
+
+    onModelChange({
+      total: split.total,
+      totalDayUnits: Math.round(totalDayUnits * 100) / 100,
+      allocations,
+      selections,
+    });
     // onModelChange is provided fresh each render by the parent; depend on data.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, included, overrides, totalCost, sites]);
+  }, [rows, included, overrides, split, amountByKey, sites]);
 
   const loading = loadingDayUnits || loadingPresence;
 
