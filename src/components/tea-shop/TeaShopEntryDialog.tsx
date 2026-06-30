@@ -41,12 +41,14 @@ interface TeaShopEntryExtended extends TeaShopEntry {
   // Add extended fields if needed
 }
 import SimpleEntryModeContent from "./SimpleEntryModeContent";
-import GroupAllocationSection from "./GroupAllocationSection";
+import ContractTeaAllocator, { type ContractTeaModel } from "./ContractTeaAllocator";
 import { useDayUnitsForDate, useTeaShopForSite, useCreateEntryAllocations } from "@/hooks/queries/useCompanyTeaShops";
 import { useSiteGroup } from "@/hooks/queries/useSiteGroups";
 import { useLaborCategories } from "@/hooks/queries/useLaborCategories";
 import { useTradePresentUnits } from "@/hooks/queries/useTradePresentUnits";
 import { computeTeaSplitPreview } from "@/lib/tea/teaSplitPreview";
+import { saveContractTeaEntry } from "@/lib/tea/saveContractTeaEntry";
+import { useRecentTeaRatePerManDay } from "@/hooks/queries/useRecentTeaRatePerManDay";
 import dayjs from "dayjs";
 
 interface TeaShopEntryDialogProps {
@@ -95,6 +97,13 @@ export default function TeaShopEntryDialog({
   const [enableManualOverride, setEnableManualOverride] = useState(false);
   const [manualAllocations, setManualAllocations] = useState<{ siteId: string; percentage: number; amount: number }[]>([]);
 
+  // Contract-aware allocator model (group entries) — the authoritative per-site +
+  // per-contract split the engineer composed in ContractTeaAllocator.
+  const [contractModel, setContractModel] = useState<ContractTeaModel | null>(null);
+  // Backfill suggestion: pre-fill the total once for a NEW group entry from the
+  // group's recent ₹/man-day × this day's man-days (engineer edits before save).
+  const suggestedRef = React.useRef(false);
+
   // Detect if site is in a group with company tea shop
   const siteGroupId = selectedSite?.site_group_id as string | undefined;
   const isInGroup = !!siteGroupId;
@@ -108,7 +117,7 @@ export default function TeaShopEntryDialog({
   }, [siteGroup?.sites]);
 
   // Get day units data for allocation (only when in group)
-  const { data: dayUnitsData, isLoading: loadingDayUnits } = useDayUnitsForDate(
+  const { data: dayUnitsData } = useDayUnitsForDate(
     isInGroup ? siteGroupId : undefined,
     date,
     undefined, // totalAmount - not needed for allocation preview
@@ -325,10 +334,33 @@ export default function TeaShopEntryDialog({
         // Reset group allocation state
         setEnableManualOverride(false);
         setManualAllocations([]);
+        suggestedRef.current = false;
       }
       setError(null);
     }
   }, [open, entry, initialDate]);
+
+  // Recent ₹/man-day for this group, used only to pre-fill a backfill suggestion.
+  const { data: ratePerManDay } = useRecentTeaRatePerManDay(
+    showGroupAllocation ? siteGroupId : undefined
+  );
+
+  // One-time suggested pre-fill for a NEW group entry on a day with crew on site.
+  useEffect(() => {
+    if (
+      open &&
+      !entry &&
+      showGroupAllocation &&
+      simpleTotalCost === 0 &&
+      !suggestedRef.current &&
+      ratePerManDay &&
+      contractModel &&
+      contractModel.totalDayUnits > 0
+    ) {
+      suggestedRef.current = true;
+      setSimpleTotalCost(Math.round(ratePerManDay * contractModel.totalDayUnits));
+    }
+  }, [open, entry, showGroupAllocation, simpleTotalCost, ratePerManDay, contractModel]);
 
   const handleSave = async () => {
     // Validate percentage sum (only for non-group mode or if labor split is used)
@@ -358,6 +390,45 @@ export default function TeaShopEntryDialog({
     setError(null);
 
     try {
+      // --- Contract-aware GROUP path -------------------------------------------
+      // A grouped site with a company tea shop saves via the shared contract-aware
+      // writer: per-site allocations (is_manual_override=true so the auto-recalc
+      // never re-includes an excluded contract) + the per-contract breakdown.
+      if (showGroupAllocation) {
+        if (!contractModel || contractModel.total <= 0) {
+          setError("Enter a cost and include at least one crew to split.");
+          setLoading(false);
+          return;
+        }
+        if (!siteGroupId) {
+          setError("This site is not in a group.");
+          setLoading(false);
+          return;
+        }
+        setLoadingMessage("Saving entry…");
+        await saveContractTeaEntry({
+          supabase,
+          existingEntryId: entry?.id ?? null,
+          teaShopId: shop.id,
+          primarySiteId: shop.site_id ?? null,
+          companyTeaShopId: companyTeaShop?.id ?? null,
+          siteGroupId,
+          date,
+          total: contractModel.total,
+          notes: notes.trim() || null,
+          totalDayUnits: contractModel.totalDayUnits,
+          allocations: contractModel.allocations,
+          selections: contractModel.selections,
+          user: { name: userProfile?.name ?? null, id: userProfile?.id ?? null },
+        });
+        queryClient.invalidateQueries({ queryKey: queryKeys.combinedTeaShop.entries(siteGroupId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.combinedTeaShop.pending(siteGroupId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.combinedTeaShop.unsettled(siteGroupId) });
+        setLoadingMessage(null);
+        onSuccess?.();
+        return;
+      }
+      // --- Legacy single-site / multi-site path (unchanged) --------------------
       // Calculate the amount for this site (after multi-site split)
       const thisSiteAmount = enableMultiSite && secondarySite
         ? Math.round((primarySitePercent / 100) * simpleTotalCost)
@@ -807,27 +878,28 @@ export default function TeaShopEntryDialog({
           hideForGroupEntry={!!showGroupAllocation}
         />
 
-        {/* Group Allocation Section - shows when site is in a group with company tea shop */}
-        {showGroupAllocation && (
+        {/* Contract-aware allocator — shows when the site is in a group with a
+            company tea shop. Lists each site's activated contracts + the regular
+            (mesthri) crew; the bill splits by man-days, dedicated to each site. */}
+        {showGroupAllocation && siteGroupId && (
           <>
             <Divider sx={{ my: 2 }} />
-            <GroupAllocationSection
-              isInGroup={isInGroup}
-              dayUnitsData={dayUnitsData}
-              isLoadingDayUnits={loadingDayUnits}
-              totalCost={simpleTotalCost}
+            <ContractTeaAllocator
+              siteGroupId={siteGroupId}
+              primarySiteId={shop.site_id ?? selectedSite?.id}
               date={date}
-              enableManualOverride={enableManualOverride}
-              onManualOverrideChange={setEnableManualOverride}
-              manualAllocations={manualAllocations}
-              onManualAllocationsChange={setManualAllocations}
-              siteGroup={siteGroup}
+              totalCost={simpleTotalCost}
+              onTotalCostChange={setSimpleTotalCost}
+              sites={fallbackSites ?? []}
+              onModelChange={setContractModel}
+              showTotalField={false}
+              entryId={entry?.id ?? null}
             />
           </>
         )}
       </DialogContent>
 
-      {simpleTotalCost > 0 && splitPreview.some((s) => s.perTrade.length > 0) && (
+      {!showGroupAllocation && simpleTotalCost > 0 && splitPreview.some((s) => s.perTrade.length > 0) && (
         <Box sx={{ px: 2, pb: 1 }}>
           <Alert severity="info" icon={false} sx={{ py: 0.5 }}>
             <Typography variant="caption" component="div" sx={{ fontWeight: 600, mb: 0.5 }}>

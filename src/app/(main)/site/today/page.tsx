@@ -22,6 +22,7 @@ import {
   ShoppingCart as BoughtIcon,
   Splitscreen as SplitIcon,
   FactCheck as ChecklistIcon,
+  LocalCafe as CafeIcon,
 } from "@mui/icons-material";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSelectedSite } from "@/contexts/SiteContext";
@@ -97,6 +98,13 @@ export default function SiteTodayPage() {
       href: "/site/spot-purchase",
       icon: <BoughtIcon sx={{ fontSize: 36 }} />,
       accent: "primary",
+    },
+    {
+      label: "Log tea / snacks",
+      description: "Split a tea bill across sites and contract crews",
+      href: "/site/tea-shop/quick",
+      icon: <CafeIcon sx={{ fontSize: 36 }} />,
+      accent: "secondary",
     },
   ];
 

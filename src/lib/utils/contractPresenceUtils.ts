@@ -60,6 +60,40 @@ export function scopeContractPresence(
   return out;
 }
 
+/**
+ * Drop contract-presence items whose trade's per-site workspace is OFF.
+ *
+ * The owner's rule for the tea-shop surfaces: a trade that is *not* activated
+ * (its per-site Workspace toggle is OFF — its crew is handled by the mesthri as
+ * part of regular labour) should NOT show as a separate contract; it's understood
+ * to be inside the regular crew. Only *activated* contracts are surfaced.
+ *
+ * We pass the set of EXPLICITLY-deactivated trade category ids (resolved from
+ * `category.hasWorkspace === false`) and drop only those — everything else is
+ * kept by default: `tradeCategoryId === null` (uncategorised task work = real
+ * crew, no workspace concept) and any trade not explicitly OFF.
+ *
+ * When the set is undefined/empty (still loading, or no trade is OFF) the input
+ * map is returned UNCHANGED — same reference — so the common case and the loading
+ * window stay byte-for-byte identical (mirrors `scopeContractPresence(map, null)`).
+ */
+export function filterContractPresenceToActivated(
+  map: ReadonlyMap<string, ContractPresenceDay>,
+  deactivatedTradeIds: ReadonlySet<string> | undefined
+): ReadonlyMap<string, ContractPresenceDay> {
+  if (!deactivatedTradeIds || deactivatedTradeIds.size === 0) return map;
+  const out = new Map<string, ContractPresenceDay>();
+  for (const [date, day] of map) {
+    const items = day.items.filter(
+      (i) => i.tradeCategoryId === null || !deactivatedTradeIds.has(i.tradeCategoryId)
+    );
+    if (items.length === 0) continue;
+    const totalUnits = items.reduce((sum, i) => sum + i.units, 0);
+    out.set(date, { date: day.date, totalUnits, items });
+  }
+  return out;
+}
+
 /** "3 workers" / "1 worker" (rounds fractional man-days for display). */
 export function formatContractWorkerCount(units: number): string {
   const n = Math.max(0, Math.round(units));

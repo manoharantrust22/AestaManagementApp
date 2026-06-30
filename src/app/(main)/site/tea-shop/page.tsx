@@ -112,11 +112,11 @@ type CombinedEntryType =
   | { type: "contract_no_tea"; date: string; presence: ContractPresenceDay };
 import dayjs from "dayjs";
 import { useContractPresence } from "@/hooks/queries/useContractPresence";
+import { useSiteTrades } from "@/hooks/queries/useTrades";
 import {
   formatContractWorkerCount,
-  formatContractDayLabel,
-  formatContractWorkerSummary,
   contractItemHref,
+  filterContractPresenceToActivated,
   type ContractPresenceDay,
 } from "@/lib/utils/contractPresenceUtils";
 import { weekStartStr } from "@/lib/utils/weekUtils";
@@ -235,12 +235,35 @@ export default function TeaShopPage() {
 
   // Contract / task-work presence per (selected site, date). Powers the Att
   // column "Contract" tag and the "contract day, no tea logged" reminder rows.
-  const { data: contractPresenceByDate } = useContractPresence({
+  const { data: rawContractPresenceByDate } = useContractPresence({
     siteId: selectedSite?.id,
     dateFrom,
     dateTo,
     isAllTime,
   });
+
+  // Trades that are NOT activated (per-site Workspace toggle OFF) are handled by
+  // the mesthri as regular labour — their contract crews must NOT surface as a
+  // separate "Contract" tag here. Build the set of explicitly-deactivated trade
+  // category ids and drop their presence items. (Loading / nothing-OFF ⇒ the
+  // map passes through unchanged.)
+  const { data: siteTrades } = useSiteTrades(selectedSite?.id);
+  const deactivatedTradeIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of siteTrades ?? []) {
+      if (t.category.name !== "Civil" && t.category.hasWorkspace === false) {
+        s.add(t.category.id);
+      }
+    }
+    return s;
+  }, [siteTrades]);
+  const contractPresenceByDate = useMemo(
+    () =>
+      rawContractPresenceByDate
+        ? filterContractPresenceToActivated(rawContractPresenceByDate, deactivatedTradeIds)
+        : rawContractPresenceByDate,
+    [rawContractPresenceByDate, deactivatedTradeIds]
+  );
 
   // Holidays keyed by date, so the Att column can show a "Holiday" tag in any mode.
   const holidayByDate = useMemo(() => {
@@ -1328,7 +1351,6 @@ export default function TeaShopPage() {
 
                       if (item.type === "contract_no_tea") {
                         const cp = item.presence;
-                        const only = cp.items.length === 1 ? cp.items[0] : null;
                         return (
                           <TableRow key={`contract-no-tea-${item.date}`} sx={{ bgcolor: "info.50" }}>
                             <TableCell
@@ -1347,23 +1369,33 @@ export default function TeaShopPage() {
                                 <Typography variant="caption" color="text.secondary">
                                   {dayjs(item.date).format("dddd")}
                                 </Typography>
-                                <Tooltip title={formatContractDayLabel(cp)}>
-                                  <Chip
-                                    label={`Contract · ${formatContractWorkerCount(cp.totalUnits)}`}
-                                    size="small"
-                                    color="info"
-                                    variant="outlined"
-                                    onClick={only ? () => router.push(contractItemHref(only)) : undefined}
-                                    sx={{ fontWeight: 600, ...(only ? { cursor: "pointer" } : {}) }}
-                                  />
-                                </Tooltip>
-                                <Typography
-                                  variant="caption"
-                                  color="text.secondary"
-                                  sx={{ display: { xs: "none", sm: "block" } }}
-                                >
-                                  {formatContractDayLabel(cp)}
+                                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                                  Contract · {formatContractWorkerCount(cp.totalUnits)}
                                 </Typography>
+                                {/* One chip per contract/trade that worked the day — each
+                                    clickable through to its contract (no more "+N more"). */}
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
+                                  {cp.items.map((it) => (
+                                    <Tooltip
+                                      key={`${it.kind}-${it.id}`}
+                                      title={it.workerSummary ? `${it.title} · ${it.workerSummary}` : it.title}
+                                    >
+                                      <Chip
+                                        label={`${it.title} · ${Math.round(it.units)}`}
+                                        size="small"
+                                        color="info"
+                                        variant="outlined"
+                                        onClick={() => router.push(contractItemHref(it))}
+                                        sx={{
+                                          fontWeight: 600,
+                                          cursor: "pointer",
+                                          maxWidth: 260,
+                                          "& .MuiChip-label": { overflow: "hidden", textOverflow: "ellipsis" },
+                                        }}
+                                      />
+                                    </Tooltip>
+                                  ))}
+                                </Box>
                                 <Chip
                                   label="No tea logged"
                                   size="small"
@@ -1470,11 +1502,13 @@ export default function TeaShopPage() {
                               const cp = contractPresenceByDate?.get(entry.date);
                               if (cp) {
                                 const only = cp.items.length === 1 ? cp.items[0] : null;
-                                const summary = formatContractWorkerSummary(cp);
+                                // Enumerate EVERY contract/trade for the day in the tooltip
+                                // (the narrow Att cell keeps a single summary chip).
+                                const itemsLabel = cp.items
+                                  .map((it) => `${it.title} · ${Math.round(it.units)}`)
+                                  .join("  •  ");
                                 return (
-                                  <Tooltip
-                                    title={`${formatContractDayLabel(cp)}${summary ? " · " + summary : ""}`}
-                                  >
+                                  <Tooltip title={itemsLabel || "Contract work"}>
                                     <Chip
                                       icon={<EngineeringIcon sx={{ fontSize: 16 }} />}
                                       label={`Contract · ${Math.round(cp.totalUnits)}`}

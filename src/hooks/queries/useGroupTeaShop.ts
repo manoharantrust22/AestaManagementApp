@@ -391,7 +391,7 @@ export function useCreateGroupTeaShopEntry() {
  * 2. Reset all entries' payment status
  * 3. Re-apply total paid using waterfall (oldest first)
  */
-async function recalculateWaterfallForGroup(
+export async function recalculateWaterfallForGroup(
   supabase: any,
   siteGroupId: string
 ): Promise<void> {
