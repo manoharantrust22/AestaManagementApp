@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Box, Stack, Chip, Typography, Skeleton } from "@mui/material";
+import { Box, Stack, Chip, Typography, Skeleton, Badge, Tooltip } from "@mui/material";
 import { useSiteTrades } from "@/hooks/queries/useTrades";
 import type { TradeContract } from "@/types/trade.types";
 import {
@@ -9,6 +9,7 @@ import {
   hasNonCivilWorkspace,
 } from "@/lib/trades/visibleTradeWorkspaces";
 import { getTradeColor } from "@/theme/tradeColors";
+import { wsColors } from "@/lib/workforce/workspaceTokens";
 
 /**
  * Slice E — controlled trade chip filter at the top of /site/attendance.
@@ -52,6 +53,12 @@ interface TradeChipFilterProps {
    * on /site/expenses (where Civil just calls onChange({kind:'civil'})).
    */
   onNavigateScope?: (contractId: string | null) => void;
+  /**
+   * Category ids whose trade has a contract but no agreed amount (Σ total_value === 0).
+   * When a rendered chip's trade is in this set, an amber dot flags "daily-wage only".
+   * Optional + opt-in: call sites that omit it render exactly as before.
+   */
+  noAgreedAmountCategoryIds?: Set<string>;
 }
 
 const CIVIL_SENTINEL = "__civil__";
@@ -63,6 +70,7 @@ export function TradeChipFilter({
   allowAllChip = false,
   compact = false,
   onNavigateScope,
+  noAgreedAmountCategoryIds,
 }: TradeChipFilterProps) {
   const { data: trades, isLoading } = useSiteTrades(siteId);
 
@@ -156,7 +164,7 @@ export function TradeChipFilter({
                 color: chipColor.main,
                 borderColor: chipColor.main,
               };
-          return (
+          const chip = (
             <Chip
               key={trade.category.id}
               size={compact ? "small" : "medium"}
@@ -180,6 +188,27 @@ export function TradeChipFilter({
               sx={{ cursor: "pointer", ...selectedSx }}
               data-testid={isCivil ? "trade-chip-civil" : `trade-chip-${trade.category.name.toLowerCase()}`}
             />
+          );
+
+          // No agreed amount on this trade → flag it with an amber corner dot so the
+          // engineer sees, before tapping in, that it's running daily-wage with no ceiling.
+          if (!noAgreedAmountCategoryIds?.has(trade.category.id)) return chip;
+
+          return (
+            <Tooltip key={trade.category.id} title="No agreed amount — daily wage only">
+              <Badge
+                variant="dot"
+                overlap="circular"
+                slotProps={{
+                  badge: {
+                    "data-testid": `trade-chip-noamount-${trade.category.name.toLowerCase()}`,
+                  } as Record<string, unknown>,
+                }}
+                sx={{ "& .MuiBadge-badge": { bgcolor: wsColors.amber } }}
+              >
+                {chip}
+              </Badge>
+            </Tooltip>
           );
         })}
       </Stack>

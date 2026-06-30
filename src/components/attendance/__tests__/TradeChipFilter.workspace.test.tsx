@@ -105,6 +105,26 @@ describe("TradeChipFilter — Workspace toggle (has_workspace) gating", () => {
     expect(screen.getByTestId("trade-chip-painting")).toBeTruthy();
   });
 
+  it("shows an amber 'no agreed amount' dot only for trades in noAgreedAmountCategoryIds", () => {
+    mockTrades([
+      trade({ id: "civ", name: "Civil", hasWorkspace: true }, [detailedContract("civ-c", "civ")]),
+      trade({ id: "paint", name: "Painting", hasWorkspace: true }, [detailedContract("paint-c", "paint")]),
+    ]);
+
+    render(
+      <TradeChipFilter
+        siteId="s1"
+        selected={{ kind: "civil" }}
+        onChange={vi.fn()}
+        onNavigateScope={vi.fn()}
+        noAgreedAmountCategoryIds={new Set(["paint"])}
+      />
+    );
+
+    expect(screen.getByTestId("trade-chip-noamount-painting")).toBeTruthy();
+    expect(screen.queryByTestId("trade-chip-noamount-civil")).toBeNull();
+  });
+
   it("self-hides the whole row when the only non-Civil trade has its workspace OFF", () => {
     mockTrades([
       trade({ id: "civ", name: "Civil", hasWorkspace: true }, [detailedContract("civ-c", "civ")]),
