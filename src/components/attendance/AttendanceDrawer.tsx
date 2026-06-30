@@ -59,13 +59,11 @@ import LaborerSelectionDialog from "./LaborerSelectionDialog";
 import MarketLaborerDialog from "./MarketLaborerDialog";
 import TeaShopEntryDialog from "../tea-shop/TeaShopEntryDialog";
 import TeaShopEntryModeDialog from "../tea-shop/TeaShopEntryModeDialog";
-import GroupTeaShopEntryDialog from "../tea-shop/GroupTeaShopEntryDialog";
 import { useSiteGroup } from "@/hooks/queries/useSiteGroups";
 import { useGroupTeaShopAccount } from "@/hooks/queries/useGroupTeaShop";
 import { useQuery } from "@tanstack/react-query";
 import { useSubcontractMeta } from "@/hooks/queries/useSubcontractMeta";
 import { scopedLaborerIds } from "@/lib/workforce/laborerScope";
-import type { SiteGroupWithSites } from "@/types/material.types";
 import AttendanceSaveConfirmDialog from "./AttendanceSaveConfirmDialog";
 import { WorkUpdatesSection } from "./work-updates";
 import SectionAutocomplete from "../common/SectionAutocomplete";
@@ -3903,6 +3901,9 @@ export default function AttendanceDrawer({
           entry={existingTeaEntry}
           onSuccess={handleTeaShopDialogSuccess}
           initialDate={selectedDate}
+          // Site-specific path: force single-site for new entries; editing
+          // follows the entry's own type.
+          forceSiteSpecific={existingTeaEntry ? !(existingTeaEntry as any).is_group_entry : true}
         />
       )}
 
@@ -3924,14 +3925,14 @@ export default function AttendanceDrawer({
         />
       )}
 
-      {/* Group Tea Shop Entry Dialog */}
+      {/* Group Tea Shop Entry — unified contract-aware dialog (group mode). */}
       {groupTeaShop && siteGroup && (
-        <GroupTeaShopEntryDialog
+        <TeaShopEntryDialog
           open={groupTeaShopDialogOpen}
           onClose={() => setGroupTeaShopDialogOpen(false)}
-          shop={groupTeaShop}
-          siteGroup={siteGroup as SiteGroupWithSites}
+          shop={groupTeaShop as any}
           initialDate={selectedDate}
+          forceSiteSpecific={false}
           onSuccess={() => {
             setGroupTeaShopDialogOpen(false);
             // Refresh tea shop data

@@ -110,13 +110,8 @@ const TeaShopEntryModeDialog = dynamic(
   () => import("@/components/tea-shop/TeaShopEntryModeDialog"),
   { ssr: false }
 );
-const GroupTeaShopEntryDialog = dynamic(
-  () => import("@/components/tea-shop/GroupTeaShopEntryDialog"),
-  { ssr: false }
-);
 import { useSiteGroup } from "@/hooks/queries/useSiteGroups";
 import { useTeaShopForGroup } from "@/hooks/queries/useCompanyTeaShops";
-import type { SiteGroupWithSites } from "@/types/material.types";
 
 // More lazy-loaded dialogs
 const PaymentDialog = dynamic(
@@ -2688,12 +2683,6 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         return;
       }
 
-      // Fetch allocations from tea_shop_entry_allocations
-      const { data: allocations } = await (supabase as any)
-        .from("tea_shop_entry_allocations")
-        .select("*, site:sites(id, name)")
-        .eq("entry_id", entryId);
-
       // Fetch tea shop from entry's tea_shop_id (fallback if groupTeaShop is null)
       let teaShopForEdit = groupTeaShop;
       if (!teaShopForEdit && entry.tea_shop_id) {
@@ -2716,40 +2705,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         siteGroupForEdit = fetchedGroup;
       }
 
-      // Transform to expected format for GroupTeaShopEntryDialog
-      // RECALCULATE allocations based on current total_amount and percentages
-      const percentages = (allocations || []).map((a: any) => a.allocation_percentage || 0);
-      const recalculatedAmounts = allocateAmounts(entry.total_amount, percentages);
-
-      const fullEntry = {
-        id: entry.id,
-        tea_shop_id: entry.tea_shop_id,
-        site_group_id: entry.site_group_id || null,
-        date: entry.date,
-        total_amount: entry.total_amount,
-        is_percentage_override: entry.is_percentage_override || false,
-        percentage_split: entry.percentage_split || null,
-        notes: entry.notes,
-        entered_by: entry.entered_by,
-        entered_by_user_id: entry.entered_by_user_id,
-        created_at: entry.created_at,
-        updated_at: entry.updated_at,
-        allocations: (allocations || []).map((a: any, index: number) => ({
-          id: a.id,
-          group_entry_id: entryId,
-          site_id: a.site_id,
-          site: a.site,
-          named_laborer_count: a.worker_count || 0,
-          market_laborer_count: 0,
-          attendance_count: a.worker_count || 0,
-          allocation_percentage: a.allocation_percentage,
-          // Use recalculated amount instead of potentially stale stored value
-          allocated_amount: recalculatedAmounts[index],
-        })),
-      };
-
-      // Set data and open dialog
-      setEditingGroupEntryData(fullEntry);
+      // The unified TeaShopEntryDialog (group mode) reloads the per-site
+      // allocations AND per-contract selections itself from the entry id, so we
+      // just hand it the raw entry — no manual transform needed.
+      setEditingGroupEntryData(entry);
       setEditingTeaShop(teaShopForEdit);
       setEditingSiteGroup(siteGroupForEdit);
       setTeaShopDialogDate(date);
@@ -6199,6 +6158,9 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           shop={teaShopAccount}
           entry={teaShopEditingEntry}
           initialDate={teaShopDialogDate}
+          // This mount is the site-specific path. Force single-site for new
+          // entries; when editing, follow the entry's own type.
+          forceSiteSpecific={teaShopEditingEntry ? !(teaShopEditingEntry as any).is_group_entry : true}
           onSuccess={() => {
             invalidateAttendance();
             setTeaShopDialogOpen(false);
@@ -6220,15 +6182,18 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           groupSites={siteGroup.sites?.map((s: any) => s.name) || []}
           onSelectGroupEntry={() => {
             setTeaShopEntryModeDialogOpen(false);
+            setEditingGroupEntryData(null); // new entry, not a stale edit
             setGroupTeaShopDialogOpen(true);
           }}
           onSelectSiteEntry={handleSiteSpecificTeaEntry}
         />
       )}
 
-      {/* Group Tea Shop Entry Dialog */}
+      {/* Group Tea Shop Entry — unified contract-aware dialog (same as the
+          tea-shop page). Group mode (forceSiteSpecific=false) renders the
+          ContractTeaAllocator: per-site crews + contract include/exclude. */}
       {(groupTeaShop || editingTeaShop) && (siteGroup || editingSiteGroup) && (
-        <GroupTeaShopEntryDialog
+        <TeaShopEntryDialog
           open={groupTeaShopDialogOpen}
           onClose={() => {
             setGroupTeaShopDialogOpen(false);
@@ -6237,10 +6202,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
             setEditingTeaShop(null);
             setEditingSiteGroup(null);
           }}
-          shop={groupTeaShop || editingTeaShop}
-          siteGroup={(siteGroup || editingSiteGroup) as SiteGroupWithSites}
-          initialDate={teaShopDialogDate}
+          shop={(groupTeaShop || editingTeaShop) as any}
           entry={editingGroupEntryData}
+          initialDate={teaShopDialogDate}
+          forceSiteSpecific={false}
           onSuccess={() => {
             invalidateAttendance();
             setGroupTeaShopDialogOpen(false);

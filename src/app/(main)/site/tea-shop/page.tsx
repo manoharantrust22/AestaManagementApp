@@ -27,6 +27,7 @@ import {
   DialogContent,
   DialogActions,
   Avatar,
+  Collapse,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -46,6 +47,8 @@ import {
   CheckCircle as CheckCircleIcon,
   Groups as GroupsIcon,
   Engineering as EngineeringIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
 } from "@mui/icons-material";
 import TeaShopPayBottomSheet from "@/components/tea-shop/TeaShopPayBottomSheet";
 import { useRouter } from "next/navigation";
@@ -59,10 +62,11 @@ import { useSiteAuditState } from "@/hooks/queries/useSiteAuditState";
 import { LegacyAuditBanner } from "@/components/audit";
 import { hasEditPermission } from "@/lib/permissions";
 import TeaShopEntryDialog from "@/components/tea-shop/TeaShopEntryDialog";
+import TeaEntryBreakdown from "@/components/tea-shop/TeaEntryBreakdown";
+import TeaShopEntryModeDialog from "@/components/tea-shop/TeaShopEntryModeDialog";
 import AuditAvatarGroup from "@/components/common/AuditAvatarGroup";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import TeaShopSettlementDialog from "@/components/tea-shop/TeaShopSettlementDialog";
-import GroupTeaShopEntryDialog from "@/components/tea-shop/GroupTeaShopEntryDialog";
 import GroupTeaShopSettlementDialog from "@/components/tea-shop/GroupTeaShopSettlementDialog";
 import UnlinkedTeaSettlementsGroup, {
   type UnlinkedTeaSettlementRowData,
@@ -205,6 +209,12 @@ export default function TeaShopPage() {
   const [settlementInitialAmount, setSettlementInitialAmount] = useState<number | undefined>(undefined);
   const [editingEntry, setEditingEntry] = useState<TeaShopEntry | null>(null);
   const [editingSettlement, setEditingSettlement] = useState<TeaShopSettlement | null>(null);
+  // Group entries that are expanded to show the per-site / per-contract breakdown.
+  const [expandedEntryIds, setExpandedEntryIds] = useState<Set<string>>(new Set());
+  // "Group vs Site-Specific" chooser shown before adding an entry on a grouped site.
+  const [entryModeDialogOpen, setEntryModeDialogOpen] = useState(false);
+  // When the engineer explicitly picks a site-specific entry, suppress group mode.
+  const [forceSiteSpecificEntry, setForceSiteSpecificEntry] = useState(false);
 
   // Delete confirmation dialog state
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -328,6 +338,20 @@ export default function TeaShopPage() {
   const { data: groupSettlements } = useGroupTeaShopSettlements(isInGroup ? siteGroupId : undefined);
 
   const canEdit = hasEditPermission(userProfile?.role);
+
+  // Open the add-entry flow. On a grouped site with a company tea shop, show the
+  // "Group vs Site-Specific" chooser first (same UX as the attendance page);
+  // otherwise open the entry dialog directly. `date` pre-fills the entry date.
+  const openAddEntry = (date?: string) => {
+    setEditingEntry(null);
+    setInitialEntryDate(date);
+    if (isInGroup && companyTeaShop) {
+      setEntryModeDialogOpen(true);
+    } else {
+      setForceSiteSpecificEntry(false);
+      setEntryDialogOpen(true);
+    }
+  };
 
   // Calculate summary stats
   const stats = useMemo(() => {
@@ -980,10 +1004,7 @@ export default function TeaShopPage() {
                     variant="contained"
                     color="primary"
                     startIcon={<AddIcon />}
-                    onClick={() => {
-                      setEditingEntry(null);
-                      setEntryDialogOpen(true);
-                    }}
+                    onClick={() => openAddEntry()}
                     disabled={!canEdit}
                     size="small"
                   >
@@ -1333,11 +1354,7 @@ export default function TeaShopPage() {
                                     size="small"
                                     variant="outlined"
                                     startIcon={<AddIcon />}
-                                    onClick={() => {
-                                      setEditingEntry(null);
-                                      setInitialEntryDate(item.date);
-                                      setEntryDialogOpen(true);
-                                    }}
+                                    onClick={() => openAddEntry(item.date)}
                                     sx={{ ml: "auto" }}
                                   >
                                     Add Entry
@@ -1408,11 +1425,7 @@ export default function TeaShopPage() {
                                     size="small"
                                     variant="contained"
                                     startIcon={<AddIcon />}
-                                    onClick={() => {
-                                      setEditingEntry(null);
-                                      setInitialEntryDate(item.date);
-                                      setEntryDialogOpen(true);
-                                    }}
+                                    onClick={() => openAddEntry(item.date)}
                                     sx={{ ml: "auto" }}
                                   >
                                     Add Tea
@@ -1432,7 +1445,8 @@ export default function TeaShopPage() {
                       const entrySource = item.source;
 
                       return (
-                        <TableRow key={entry.id} hover>
+                        <React.Fragment key={entry.id}>
+                        <TableRow hover>
                           <TableCell sx={{
                             position: 'sticky',
                             left: 0,
@@ -1551,16 +1565,52 @@ export default function TeaShopPage() {
                             })()}
                           </TableCell>
                           <TableCell align="right">
-                            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.5 }}>
-                              {(entry as any).isGroupEntry && (
-                                <Tooltip title={`Group entry - showing this site's allocated share (Total: ₹${((entry as any).original_total_amount || entry.total_amount || 0).toLocaleString()})`}>
-                                  <GroupsIcon fontSize="small" color="primary" sx={{ fontSize: { xs: '0.8rem', sm: '1rem' } }} />
-                                </Tooltip>
-                              )}
+                            {(entry as any).isGroupEntry ? (
+                              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.25 }}>
+                                <Box sx={{ textAlign: "right" }}>
+                                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.5 }}>
+                                    <GroupsIcon fontSize="small" color="primary" sx={{ fontSize: { xs: '0.8rem', sm: '1rem' } }} />
+                                    <Typography fontWeight={600} sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' } }}>
+                                      ₹{((entry as any).display_amount !== undefined ? (entry as any).display_amount : entry.total_amount || 0).toLocaleString()}
+                                    </Typography>
+                                  </Box>
+                                  {/* Group total shown inline (not just on hover) so the engineer
+                                      can reconcile against the shop notebook on a phone. */}
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ display: "block", fontSize: { xs: '0.6rem', sm: '0.7rem' }, lineHeight: 1.2, whiteSpace: "nowrap" }}
+                                  >
+                                    of ₹{((entry as any).original_total_amount || entry.total_amount || 0).toLocaleString()} total
+                                  </Typography>
+                                </Box>
+                                <IconButton
+                                  size="small"
+                                  onClick={() =>
+                                    setExpandedEntryIds((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(entry.id)) next.delete(entry.id);
+                                      else next.add(entry.id);
+                                      return next;
+                                    })
+                                  }
+                                  aria-label={expandedEntryIds.has(entry.id) ? "Hide split breakdown" : "Show split breakdown"}
+                                  aria-expanded={expandedEntryIds.has(entry.id)}
+                                  aria-controls={`tea-breakdown-${entry.id}`}
+                                  sx={{ p: 0.5 }}
+                                >
+                                  {expandedEntryIds.has(entry.id) ? (
+                                    <ExpandLessIcon fontSize="small" />
+                                  ) : (
+                                    <ExpandMoreIcon fontSize="small" />
+                                  )}
+                                </IconButton>
+                              </Box>
+                            ) : (
                               <Typography fontWeight={600} sx={{ fontSize: { xs: '0.7rem', sm: '0.875rem' } }}>
-                                ₹{((entry as any).display_amount !== undefined ? (entry as any).display_amount : entry.total_amount || 0).toLocaleString()}
+                                ₹{(entry.total_amount || 0).toLocaleString()}
                               </Typography>
-                            </Box>
+                            )}
                           </TableCell>
                           {/* Payment Status Column */}
                           <TableCell align="center">
@@ -1647,6 +1697,45 @@ export default function TeaShopPage() {
                             </Box>
                           </TableCell>
                         </TableRow>
+                        {/* Verification breakdown — total + per-site split + included
+                            contracts, so the engineer can reconcile against the notebook. */}
+                        {(entry as any).isGroupEntry && (
+                          <TableRow>
+                            <TableCell
+                              colSpan={isInGroup ? 7 : 6}
+                              sx={{
+                                py: 0,
+                                borderBottom: expandedEntryIds.has(entry.id) ? undefined : "none",
+                              }}
+                            >
+                              <Collapse
+                                in={expandedEntryIds.has(entry.id)}
+                                timeout="auto"
+                                unmountOnExit
+                                id={`tea-breakdown-${entry.id}`}
+                              >
+                                <Box sx={{ py: 1 }}>
+                                  <TeaEntryBreakdown
+                                    entryId={entry.id}
+                                    total={(entry as any).original_total_amount || entry.total_amount || 0}
+                                    currentSiteId={selectedSite?.id}
+                                    date={entry.date}
+                                    shopName={companyTeaShop?.name || shop?.shop_name || undefined}
+                                    primarySiteId={selectedSite?.id}
+                                    enabled={expandedEntryIds.has(entry.id)}
+                                    canEdit={canEdit}
+                                    onEdit={() => {
+                                      setEditingEntry(entry);
+                                      setInitialEntryDate(undefined);
+                                      setEntryDialogOpen(true);
+                                    }}
+                                  />
+                                </Box>
+                              </Collapse>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        </React.Fragment>
                       );
                     })}
                     {combinedEntries.length === 0 && !fetchingOlderEntries && (
@@ -1904,6 +1993,27 @@ export default function TeaShopPage() {
         </DialogActions>
       </Dialog>
 
+      {/* Group vs Site-Specific chooser — shown before adding an entry on a
+          grouped site, matching the attendance page's entry-type flow. */}
+      {isInGroup && companyTeaShop && (
+        <TeaShopEntryModeDialog
+          open={entryModeDialogOpen}
+          onClose={() => setEntryModeDialogOpen(false)}
+          siteName={selectedSite?.name ?? "this site"}
+          groupSites={(siteGroup?.sites ?? []).map((s: any) => s.name)}
+          onSelectGroupEntry={() => {
+            setForceSiteSpecificEntry(false);
+            setEntryModeDialogOpen(false);
+            setEntryDialogOpen(true);
+          }}
+          onSelectSiteEntry={() => {
+            setForceSiteSpecificEntry(true);
+            setEntryModeDialogOpen(false);
+            setEntryDialogOpen(true);
+          }}
+        />
+      )}
+
       {/* Site-level dialogs - always use site dialogs, entries are site-specific */}
       {/* Create a compatible shop object from company tea shop if needed */}
       {(() => {
@@ -1949,6 +2059,9 @@ export default function TeaShopPage() {
               shop={effectiveShop}
               entry={editingEntry}
               initialDate={initialEntryDate}
+              // New entry: honor the chooser. Editing: follow the entry's own type
+              // (group entries → group mode, site entries → site-specific).
+              forceSiteSpecific={editingEntry ? !(editingEntry as any).is_group_entry : forceSiteSpecificEntry}
               onSuccess={() => {
                 setEntryDialogOpen(false);
                 setEditingEntry(null);
@@ -1999,10 +2112,7 @@ export default function TeaShopPage() {
       {/* Mobile FAB - always rendered, visibility controlled by CSS */}
       <Fab
         color="primary"
-        onClick={() => {
-          setEditingEntry(null);
-          setEntryDialogOpen(true);
-        }}
+        onClick={() => openAddEntry()}
         sx={{
           display: (shop || companyTeaShop) && canEdit ? { xs: 'flex', sm: 'none' } : 'none',
           position: "fixed",

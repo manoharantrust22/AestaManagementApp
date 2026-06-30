@@ -58,6 +58,12 @@ interface TeaShopEntryDialogProps {
   entry?: TeaShopEntry | null;
   onSuccess?: () => void;
   initialDate?: string; // Optional: pre-set the date (YYYY-MM-DD format)
+  /**
+   * Force a single-site entry even when the site belongs to a group with a
+   * company tea shop. Set by the "Site-Specific" choice in the entry-type
+   * chooser so the engineer can log a bill that is NOT shared with sibling sites.
+   */
+  forceSiteSpecific?: boolean;
 }
 
 export default function TeaShopEntryDialog({
@@ -67,6 +73,7 @@ export default function TeaShopEntryDialog({
   entry,
   onSuccess,
   initialDate,
+  forceSiteSpecific = false,
 }: TeaShopEntryDialogProps) {
   const { userProfile } = useAuth();
   const { selectedSite, sites } = useSite();
@@ -127,8 +134,9 @@ export default function TeaShopEntryDialog({
   // Mutation for creating entry allocations
   const createAllocations = useCreateEntryAllocations();
 
-  // Show group allocation section when site is in a group and has a company tea shop
-  const showGroupAllocation = !!(isInGroup && companyTeaShop);
+  // Show group allocation section when site is in a group and has a company tea
+  // shop — unless the engineer explicitly chose a site-specific entry.
+  const showGroupAllocation = !!(isInGroup && companyTeaShop && !forceSiteSpecific);
 
   // Handler for site percentage change
   const handleSitePercentChange = (primary: number, secondary: number) => {
