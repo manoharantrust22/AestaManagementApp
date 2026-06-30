@@ -31,6 +31,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { DailyPeekSite } from "@/hooks/queries/useCompanyDailyPeek";
 import type { WorkPhoto } from "@/types/work-updates.types";
 import PhotoLightbox from "./PhotoLightbox";
+import { recordedStatusMeta } from "./recordedStatusMeta";
 
 interface SitePeekModalProps {
   open: boolean;
@@ -292,6 +293,74 @@ export default function SitePeekModal({ open, site, date, onClose }: SitePeekMod
                   >
                     <Typography variant="body2">{site.eveningSummaryText}</Typography>
                   </Box>
+                </Box>
+              )}
+
+              {/* Per-trade breakdown — only when a non-Civil scope also logged. */}
+              {site.trades.length > 1 && (
+                <Box>
+                  <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 1 }}>
+                    By trade
+                  </Typography>
+                  <Stack spacing={1} sx={{ mt: 0.75 }}>
+                    {site.trades.map((t) => {
+                      const meta = recordedStatusMeta(t.status);
+                      const photos = [...t.morningPhotos, ...t.eveningPhotos];
+                      return (
+                        <Box
+                          key={t.subcontractId ?? "__civil__"}
+                          sx={{
+                            p: 1,
+                            border: "1px solid",
+                            borderColor: "divider",
+                            borderRadius: 1,
+                          }}
+                        >
+                          <Stack
+                            direction="row"
+                            alignItems="center"
+                            justifyContent="space-between"
+                            spacing={1}
+                          >
+                            <Typography variant="body2" fontWeight={600} noWrap>
+                              {t.scopeLabel}
+                            </Typography>
+                            <Chip
+                              size="small"
+                              label={meta.label}
+                              color={meta.color}
+                              icon={meta.icon}
+                              sx={{ height: 20, "& .MuiChip-label": { fontSize: 11, fontWeight: 600 } }}
+                            />
+                          </Stack>
+                          {photos.length > 0 && (
+                            <Box sx={{ display: "flex", gap: 0.5, mt: 0.75, flexWrap: "wrap" }}>
+                              {photos.map((p, idx) => (
+                                <Box
+                                  key={`${t.subcontractId ?? "civil"}-${p.id}-${p.url}`}
+                                  component="img"
+                                  src={p.url}
+                                  alt={p.description || `Photo ${p.id}`}
+                                  onClick={() => openLightbox(photos, idx)}
+                                  sx={{
+                                    width: 48,
+                                    height: 48,
+                                    objectFit: "cover",
+                                    borderRadius: 1,
+                                    cursor: "zoom-in",
+                                    border: "1px solid",
+                                    borderColor: "divider",
+                                    transition: "transform 0.15s",
+                                    "&:hover": { transform: "scale(1.05)", borderColor: "primary.main" },
+                                  }}
+                                />
+                              ))}
+                            </Box>
+                          )}
+                        </Box>
+                      );
+                    })}
+                  </Stack>
                 </Box>
               )}
 

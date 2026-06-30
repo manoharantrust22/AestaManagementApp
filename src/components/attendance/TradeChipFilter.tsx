@@ -4,6 +4,10 @@ import React from "react";
 import { Box, Stack, Chip, Typography, Skeleton } from "@mui/material";
 import { useSiteTrades } from "@/hooks/queries/useTrades";
 import type { TradeContract } from "@/types/trade.types";
+import {
+  visibleTradeWorkspaces,
+  hasNonCivilWorkspace,
+} from "@/lib/trades/visibleTradeWorkspaces";
 import { getTradeColor } from "@/theme/tradeColors";
 
 /**
@@ -72,24 +76,14 @@ export function TradeChipFilter({
     );
   }
 
-  // A contract has a "Workspace" only on the FULL per-laborer mode ("detailed").
-  // Count-by-role ("headcount") and lump ("mesthri_only") contracts do their
-  // counts/payouts inline on the contract and don't belong on the attendance /
-  // salary screens, so we drop them from the chips.
-  const isTracked = (c: TradeContract) => c.laborTrackingMode === "detailed";
+  // Which trades earn an attendance-workspace chip is governed by the shared
+  // `visibleTradeWorkspaces` rule (Civil always in; a non-Civil trade needs its
+  // per-site Workspace toggle ON *and* a detailed contract to scope into). Keeping
+  // this in one place is what stops the chips from drifting out of lock-step with
+  // the holidays gate and the site-dashboard card.
+  const visibleTrades = visibleTradeWorkspaces(trades);
 
-  // Civil + non-civil trades that have at least one tracked contract.
-  const visibleTrades = (trades ?? [])
-    .map((t) => ({ ...t, contracts: t.contracts.filter(isTracked) }))
-    .filter((t) => {
-      if (t.category.name === "Civil") return true;
-      return t.contracts.length > 0;
-    });
-
-  const hasNonCivil = visibleTrades.some(
-    (t) => t.category.name !== "Civil" && t.contracts.length > 0
-  );
-  if (!hasNonCivil) return null;
+  if (!hasNonCivilWorkspace(trades)) return null;
 
   // Resolve sub-picker visibility: when the selected trade has >1 tracked
   // contract, render a second chip row to switch contractor.

@@ -2,45 +2,16 @@
 
 import { Box, Card, CardActionArea, Chip, Stack, Typography } from "@mui/material";
 import {
-  CheckCircle as RecordedIcon,
-  HourglassEmpty as WaitingIcon,
-  AccessTime as InProgressIcon,
   PhotoCamera as PhotoIcon,
   LocationOn as LocationIcon,
 } from "@mui/icons-material";
 import dayjs from "dayjs";
 import type { DailyPeekSite } from "@/hooks/queries/useCompanyDailyPeek";
+import { recordedStatusMeta } from "./recordedStatusMeta";
 
 interface SitePeekCardProps {
   site: DailyPeekSite;
   onClick: () => void;
-}
-
-function statusMeta(status: DailyPeekSite["recordedStatus"]) {
-  switch (status) {
-    case "recorded":
-      return {
-        label: "Recorded",
-        color: "success" as const,
-        icon: <RecordedIcon sx={{ fontSize: 16 }} />,
-        borderColor: "success.main",
-      };
-    case "in_progress":
-      return {
-        label: "In progress",
-        color: "info" as const,
-        icon: <InProgressIcon sx={{ fontSize: 16 }} />,
-        borderColor: "info.main",
-      };
-    case "waiting":
-    default:
-      return {
-        label: "Waiting",
-        color: "warning" as const,
-        icon: <WaitingIcon sx={{ fontSize: 16 }} />,
-        borderColor: "warning.main",
-      };
-  }
 }
 
 function formatRecordedAt(site: DailyPeekSite): string {
@@ -54,7 +25,7 @@ function formatRecordedAt(site: DailyPeekSite): string {
 }
 
 export default function SitePeekCard({ site, onClick }: SitePeekCardProps) {
-  const meta = statusMeta(site.recordedStatus);
+  const meta = recordedStatusMeta(site.recordedStatus);
   const isWaiting = site.recordedStatus === "waiting";
   const photos = [...site.morningPhotos, ...site.eveningPhotos];
   const photoStrip = photos.slice(0, 4);

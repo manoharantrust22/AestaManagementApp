@@ -3,11 +3,21 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { withTimeout } from "@/lib/utils/timeout";
+import { toWorkPhotoArray as toPhotoArray } from "@/lib/work-updates/photos";
 import type { WorkPhoto } from "@/types/work-updates.types";
 
 const DAILY_PEEK_TIMEOUT_MS = 10_000;
 
 export type SiteRecordedStatus = "recorded" | "in_progress" | "waiting";
+
+/** One per-scope (Civil or a trade) entry in a site's daily work breakdown. */
+export interface DailyPeekTradeScope {
+  subcontractId: string | null; // null = Civil / site-wide
+  scopeLabel: string;
+  status: SiteRecordedStatus;
+  morningPhotos: WorkPhoto[];
+  eveningPhotos: WorkPhoto[];
+}
 
 export interface DailyPeekSite {
   siteId: string;
@@ -35,27 +45,14 @@ export interface DailyPeekSite {
   // Task M-4: spot-purchase per-site rollup for today.
   spotPurchaseCountToday: number;
   spotPurchaseTotalToday: number;
+  /** Per-scope (Civil + each trade) work breakdown for the day. Civil-first. */
+  trades: DailyPeekTradeScope[];
 }
 
 function toNumber(v: unknown): number {
   if (v == null) return 0;
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : 0;
-}
-
-function toPhotoArray(v: unknown): WorkPhoto[] {
-  if (!Array.isArray(v)) return [];
-  return v
-    .filter((p) => p && typeof p === "object" && typeof (p as { url?: unknown }).url === "string")
-    .map((p) => {
-      const raw = p as Record<string, unknown>;
-      return {
-        id: String(raw.id ?? ""),
-        url: String(raw.url),
-        description: typeof raw.description === "string" ? raw.description : undefined,
-        uploadedAt: typeof raw.uploadedAt === "string" ? raw.uploadedAt : "",
-      };
-    });
 }
 
 export function useCompanyDailyPeek(companyId: string | null | undefined, date: string) {
@@ -122,6 +119,20 @@ export function useCompanyDailyPeek(companyId: string | null | undefined, date: 
             // Task M-4: keys absent on pre-migration prod return 0 via toNumber.
             spotPurchaseCountToday: toNumber(r.spot_purchase_count_today),
             spotPurchaseTotalToday: toNumber(r.spot_purchase_total_today),
+            // Per-trade breakdown — absent on pre-migration prod → [] (back-compat).
+            trades: Array.isArray(r.trades)
+              ? (r.trades as unknown[]).map((t) => {
+                  const tr = t as Record<string, unknown>;
+                  return {
+                    subcontractId:
+                      tr.subcontract_id == null ? null : String(tr.subcontract_id),
+                    scopeLabel: String(tr.scope_label ?? "Civil"),
+                    status: (tr.status as SiteRecordedStatus) ?? "waiting",
+                    morningPhotos: toPhotoArray(tr.morning_photos),
+                    eveningPhotos: toPhotoArray(tr.evening_photos),
+                  };
+                })
+              : [],
           };
         });
       } catch (err) {

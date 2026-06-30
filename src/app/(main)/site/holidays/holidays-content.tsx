@@ -52,6 +52,7 @@ import {
 import { useSubcontractMeta } from "@/hooks/queries/useSubcontractMeta";
 import { useCivilCategoryId } from "@/hooks/queries/useCivilCategoryId";
 import { useSiteTrades } from "@/hooks/queries/useTrades";
+import { hasNonCivilWorkspace } from "@/lib/trades/visibleTradeWorkspaces";
 import { getTradeColor } from "@/theme/tradeColors";
 import { createTradeTheme } from "@/theme/theme";
 
@@ -172,13 +173,11 @@ export default function HolidaysContent() {
   );
 
   // Whether to show the workspace chip row at all (Civil-only sites = today).
+  // Uses the shared gate so it stays exactly in lock-step with TradeChipFilter —
+  // without it this row would render its "Holidays for" caption while
+  // TradeChipFilter (correctly) drew no chips for a ladder-only trade.
   const hasWorkspaceChips = useMemo(
-    () =>
-      (trades ?? []).some(
-        (t) =>
-          t.category.name !== "Civil" &&
-          t.contracts.some((c) => c.laborTrackingMode === "detailed")
-      ),
+    () => hasNonCivilWorkspace(trades),
     [trades]
   );
 

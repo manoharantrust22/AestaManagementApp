@@ -45,6 +45,7 @@ import PageHeader from "@/components/layout/PageHeader";
 import { useSiteAuditState } from "@/hooks/queries/useSiteAuditState";
 import { LegacyAuditBanner } from "@/components/audit";
 import SiteMoneyMiniCard from "@/components/site/SiteMoneyMiniCard";
+import TodayByTradeCard from "@/components/dashboard/TodayByTradeCard";
 import { createClient } from "@/lib/supabase/client";
 import dayjs from "dayjs";
 import {
@@ -300,6 +301,9 @@ export default function DashboardContent({
           <SiteMoneyMiniCard siteId={siteId} />
         </Box>
       )}
+
+      {/* Today by trade — switch trade, peek today's work, jump to daily pages */}
+      {siteId && <TodayByTradeCard siteId={siteId} />}
 
       {/* Stats Cards */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
