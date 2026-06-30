@@ -80,6 +80,7 @@ import {
   EditCalendar as EditCalendarIcon,
   Groups as GroupsIcon,
   Engineering as EngineeringIcon,
+  ContentCopy as ContentCopyIcon,
 } from "@mui/icons-material";
 import { type SiteHoliday } from "@/components/attendance/HolidayConfirmDialog";
 
@@ -91,6 +92,10 @@ const AttendanceDrawer = dynamic(
 );
 const HolidayConfirmDialog = dynamic(
   () => import("@/components/attendance/HolidayConfirmDialog"),
+  { ssr: false }
+);
+const CopyDayDialog = dynamic(
+  () => import("@/components/attendance/CopyDayDialog"),
   { ssr: false }
 );
 const UnifiedSettlementDialog = dynamic(
@@ -157,6 +162,8 @@ import {
   TradeChipFilter,
   type TradeChipSelection,
 } from "@/components/attendance/TradeChipFilter";
+import { ContractMoneyStrip } from "@/components/attendance/ContractMoneyStrip";
+import { useTradeContractSummaries } from "@/hooks/queries/useTradeContractSummary";
 import { TradeAttendanceView } from "@/components/attendance/trade-view/TradeAttendanceView";
 import { getTradeColor } from "@/theme/tradeColors";
 import { ThemeProvider } from "@mui/material/styles";
@@ -534,6 +541,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   const [drawerMode, setDrawerMode] = useState<"morning" | "evening" | "full">(
     "full"
   );
+  // "Copy day" shortcut — the source date whose laborers are being copied.
+  const [copyDayDate, setCopyDayDate] = useState<string | null>(null);
 
   // ── Trade scoping (Task 3) ───────────────────────────────────────────────
   // When a lone ?contractId= is present (in-house DETAILED contract), scope the
@@ -580,6 +589,12 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     });
     return { contractId: contractIdParam, tradeCategoryId, laborerIds };
   }, [contractIdParam, contractMeta, attendanceRecords]);
+
+  // Money summaries (agreed/spent/left + "no agreed amount" flags) for this site.
+  const moneySummaries = useTradeContractSummaries(selectedSite?.id);
+  const scopedMoneySummary = tradeScope?.contractId
+    ? moneySummaries.byContractId.get(tradeScope.contractId) ?? null
+    : null;
 
   // Per-trade tea share — only fires when a non-Civil trade contract is scoped.
   // Disabled (hook's `enabled` is false) when tradeScope is null, preserving the Civil path.
@@ -3460,6 +3475,11 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           selected={tradeChipSelectionForDisplay}
           onChange={setTradeChipSelection}
           onNavigateScope={(id) => router.push(id ? `/site/attendance?contractId=${id}` : "/site/attendance")}
+          noAgreedAmountCategoryIds={moneySummaries.noAgreedAmountCategoryIds}
+        />
+        <ContractMoneyStrip
+          summary={scopedMoneySummary}
+          onOpenContract={(id) => router.push(`/site/trades?contract=${id}`)}
         />
       </Box>
 
@@ -5045,6 +5065,22 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                     </Tooltip>
                                   )}
 
+                                  {/* Copy day to other dates */}
+                                  {canEdit && entry.summary.totalLaborerCount > 0 && (
+                                    <Tooltip title="Copy day to other dates">
+                                      <IconButton
+                                        size="small"
+                                        color="primary"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setCopyDayDate(entry.summary.date);
+                                        }}
+                                      >
+                                        <ContentCopyIcon sx={{ fontSize: 16 }} />
+                                      </IconButton>
+                                    </Tooltip>
+                                  )}
+
                                   {/* View */}
                                   <Tooltip title="View summary">
                                     <IconButton
@@ -6128,6 +6164,28 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         siteGroupId={(selectedSite as any)?.site_group_id}
         siteName={selectedSite?.name || "Current Site"}
       />
+
+      {/* Copy day's attendance to other dates */}
+      {copyDayDate &&
+        (() => {
+          const src = scopedDateSummaries.find((s) => s.date === copyDayDate);
+          return (
+            <CopyDayDialog
+              open={!!copyDayDate}
+              onClose={() => setCopyDayDate(null)}
+              sourceDate={copyDayDate}
+              siteId={selectedSite?.id || ""}
+              subcontractId={tradeScope?.contractId ?? null}
+              tradeCategoryId={tradeScope?.tradeCategoryId ?? null}
+              tradeName={contractMeta?.trade_name ?? null}
+              sourceNamedCount={
+                (src?.dailyLaborerCount ?? 0) + (src?.contractLaborerCount ?? 0)
+              }
+              sourceMarketCount={src?.marketLaborerCount ?? 0}
+              onSuccess={() => invalidateAttendance()}
+            />
+          );
+        })()}
 
       {/* Tea Shop Entry Dialog (Direct) */}
       {teaShopAccount && (

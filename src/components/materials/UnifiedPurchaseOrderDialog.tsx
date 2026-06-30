@@ -561,14 +561,17 @@ export default function UnifiedPurchaseOrderDialog({
         }
       }
 
-      // Auto-fill dates based on mode. Expected Delivery defaults to the same
-      // value as Purchase Date (the request's required_by_date when set, else
-      // today) so it is never left blank; both stay manually editable.
+      // Auto-fill dates based on mode. In request mode both Purchase Date and
+      // Expected Delivery default to the request's created date (request_date,
+      // falling back to created_at) so the PO reflects when the request was
+      // made; both stay manually editable.
       if (isRequestMode && request) {
-        const requiredByDate = toDateInputFormat(request.required_by_date);
-        const baseDate = requiredByDate || today;
-        setPurchaseDate(baseDate);
-        setExpectedDeliveryDate(baseDate);
+        const createdDate =
+          toDateInputFormat(request.request_date) ||
+          toDateInputFormat(request.created_at) ||
+          today;
+        setPurchaseDate(createdDate);
+        setExpectedDeliveryDate(createdDate);
       } else {
         setPurchaseDate(today);
         setExpectedDeliveryDate(today);
@@ -1425,6 +1428,9 @@ export default function UnifiedPurchaseOrderDialog({
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mt: 0.5 }}>
               <Typography variant="body2" color="text.secondary">
                 From: {request.request_number}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Created: {new Date(request.request_date || request.created_at).toLocaleDateString()}
               </Typography>
               <Chip
                 label={PRIORITY_LABELS[request.priority]}
