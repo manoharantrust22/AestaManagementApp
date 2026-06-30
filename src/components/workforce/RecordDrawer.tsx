@@ -265,7 +265,14 @@ export function RecordDrawer({
     <ResponsiveSheet open={open} onClose={onClose} title="Log today's count" subtitle={subtitle}>
       <Box sx={{ py: 1 }}>
         <BackRow onBack={() => setView("menu")} />
-        <HeadcountEntryInline siteId={siteId} contractId={task.id} />
+        <HeadcountEntryInline
+          siteId={siteId}
+          contractId={task.id}
+          onSaved={() => {
+            notify("Today's count saved");
+            onClose();
+          }}
+        />
       </Box>
     </ResponsiveSheet>
   );

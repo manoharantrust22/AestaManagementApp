@@ -24,6 +24,13 @@ import {
 interface HeadcountEntryInlineProps {
   siteId: string;
   contractId: string;
+  /**
+   * Called after the day's count is saved successfully. When provided (e.g. the
+   * RecordDrawer sheet), the host owns the success feedback — typically a global
+   * toast + closing the sheet — so we skip the small inline "Saved" chip, which
+   * sits above the fold and goes unnoticed on a long role list.
+   */
+  onSaved?: () => void;
 }
 
 function todayISO(): string {
@@ -35,7 +42,7 @@ function formatINR(n: number): string {
   return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(n);
 }
 
-export function HeadcountEntryInline({ siteId, contractId }: HeadcountEntryInlineProps) {
+export function HeadcountEntryInline({ siteId, contractId, onSaved }: HeadcountEntryInlineProps) {
   const supabase = createClient();
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useContractHeadcount(contractId);
@@ -146,8 +153,14 @@ export function HeadcountEntryInline({ siteId, contractId }: HeadcountEntryInlin
         bc.close();
       }
 
-      setSavedFlash(true);
-      setTimeout(() => setSavedFlash(false), 1500);
+      if (onSaved) {
+        // Host (e.g. the RecordDrawer sheet) shows the toast and closes — don't
+        // also start a flash timer that would fire setState after unmount.
+        onSaved();
+      } else {
+        setSavedFlash(true);
+        setTimeout(() => setSavedFlash(false), 1500);
+      }
     } catch (e: any) {
       setSaveError(e.message ?? String(e));
     } finally {
