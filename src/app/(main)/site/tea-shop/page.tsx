@@ -2066,6 +2066,19 @@ export default function TeaShopPage() {
                 setEntryDialogOpen(false);
                 setEditingEntry(null);
                 setInitialEntryDate(undefined);
+                // In group mode the visible table is rendered from the combined-tea-shop
+                // React Query cache (the infinite list + the all-time summary), which
+                // fetchData() does NOT touch — and the dialog's single-site "new entry"
+                // path doesn't invalidate anything. Without invalidating here, a freshly
+                // added entry only appears after a manual page reload. Mirror the
+                // settlement-delete handler so every save path refreshes reliably.
+                if (siteGroupId) {
+                  queryClient.invalidateQueries({ queryKey: queryKeys.combinedTeaShop.entries(siteGroupId) });
+                  queryClient.invalidateQueries({ queryKey: queryKeys.combinedTeaShop.pending(siteGroupId) });
+                  queryClient.invalidateQueries({ queryKey: queryKeys.combinedTeaShop.settlements(siteGroupId) });
+                  queryClient.invalidateQueries({ queryKey: queryKeys.combinedTeaShop.unsettled(siteGroupId) });
+                }
+                queryClient.invalidateQueries({ queryKey: ["tea-shop"] });
                 fetchData();
               }}
             />
