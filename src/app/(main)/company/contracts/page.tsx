@@ -54,6 +54,7 @@ import {
   type SubcontractPaymentChannel,
 } from "@/lib/services/subcontractService";
 import SpecialistLaborerPicker from "@/components/contracts/SpecialistLaborerPicker";
+import { CrossSiteTradeOverview } from "@/components/contracts/CrossSiteTradeOverview";
 import {
   ReceiptCapture,
   type ReceiptCaptureValue,
@@ -108,7 +109,7 @@ export default function CompanyContractsPage() {
   const [error, setError] = useState("");
 
   // Filters
-  const [activeTab, setActiveTab] = useState<ContractStatus | "all">("all");
+  const [activeTab, setActiveTab] = useState<ContractStatus | "all" | "overview">("all");
 
   // Form state
   const [form, setForm] = useState({
@@ -209,7 +210,7 @@ export default function CompanyContractsPage() {
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (activeTab !== "all") {
+      if (activeTab !== "all" && activeTab !== "overview") {
         query = query.eq("status", activeTab);
       }
 
@@ -866,6 +867,7 @@ export default function CompanyContractsPage() {
             sx={{ borderBottom: 1, borderColor: "divider" }}
           >
             <Tab label="All" value="all" />
+            <Tab label="Money by trade" value="overview" />
             <Tab label="Draft" value="draft" />
             <Tab label="Active" value="active" />
             <Tab label="Completed" value="completed" />
@@ -874,7 +876,15 @@ export default function CompanyContractsPage() {
         </CardContent>
       </Card>
 
-      <DataTable columns={columns} data={subcontracts} isLoading={loading} showRecordCount />
+      {activeTab === "overview" ? (
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <CrossSiteTradeOverview />
+          </CardContent>
+        </Card>
+      ) : (
+        <DataTable columns={columns} data={subcontracts} isLoading={loading} showRecordCount />
+      )}
 
       {/* Add/Edit Dialog */}
       <Dialog
