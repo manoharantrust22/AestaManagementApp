@@ -59,6 +59,7 @@ import { useSiteAuditState } from "@/hooks/queries/useSiteAuditState";
 import { LegacyAuditBanner } from "@/components/audit";
 import { hasEditPermission } from "@/lib/permissions";
 import TeaShopEntryDialog from "@/components/tea-shop/TeaShopEntryDialog";
+import TeaBackfillDialog from "@/components/tea-shop/TeaBackfillDialog";
 import AuditAvatarGroup from "@/components/common/AuditAvatarGroup";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import TeaShopSettlementDialog from "@/components/tea-shop/TeaShopSettlementDialog";
@@ -200,6 +201,7 @@ export default function TeaShopPage() {
   // Dialog states
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
   const [entryDialogOpen, setEntryDialogOpen] = useState(false);
+  const [backfillOpen, setBackfillOpen] = useState(false);
   const [settlementDialogOpen, setSettlementDialogOpen] = useState(false);
   const [payBottomSheetOpen, setPayBottomSheetOpen] = useState(false);
   const [settlementInitialAmount, setSettlementInitialAmount] = useState<number | undefined>(undefined);
@@ -989,6 +991,22 @@ export default function TeaShopPage() {
                   >
                     Add Entry
                   </Button>
+                  {isInGroup && (
+                    <Tooltip title="Fill tea on past contract days that were never logged">
+                      <span>
+                        <Button
+                          variant="outlined"
+                          color="info"
+                          startIcon={<EngineeringIcon />}
+                          onClick={() => setBackfillOpen(true)}
+                          disabled={!canEdit}
+                          size="small"
+                        >
+                          Backfill tea
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  )}
                   <Button
                     variant="outlined"
                     startIcon={<PaymentIcon />}
@@ -1956,6 +1974,21 @@ export default function TeaShopPage() {
                 fetchData();
               }}
             />
+
+            {isInGroup && siteGroupId && (
+              <TeaBackfillDialog
+                open={backfillOpen}
+                onClose={() => setBackfillOpen(false)}
+                onSuccess={() => fetchData()}
+                siteGroupId={siteGroupId}
+                sites={(siteGroup?.sites ?? []).map((s: any) => ({ id: s.id, name: s.name }))}
+                teaShopId={effectiveShop.id}
+                companyTeaShopId={companyTeaShop?.id ?? null}
+                primarySiteId={effectiveShop.site_id ?? null}
+                user={{ name: userProfile?.name ?? null, id: userProfile?.id ?? null }}
+                deactivatedTradeIds={deactivatedTradeIds}
+              />
+            )}
 
             <TeaShopSettlementDialog
               open={settlementDialogOpen}

@@ -56,6 +56,13 @@ export interface SaveContractTeaEntryParams {
   allocations: SiteAllocationInput[];
   selections: ContractSelectionInput[];
   user: { name: string | null; id: string | null };
+  /**
+   * Skip the per-call settlement-waterfall recompute. The batch backfill sets
+   * this and runs `recalculateWaterfallForGroup` ONCE after all days are written
+   * (the waterfall is oldest-first over the whole group, so one pass at the end
+   * is both faster and correct). Single-entry callers leave it false.
+   */
+  skipWaterfall?: boolean;
 }
 
 /** Persist a contract-aware tea entry; returns the entry id. */
@@ -150,8 +157,9 @@ export async function saveContractTeaEntry(p: SaveContractTeaEntryParams): Promi
     if (selError) throw selError;
   }
 
-  // Re-run the oldest-first settlement waterfall for the whole group.
-  if (p.siteGroupId) {
+  // Re-run the oldest-first settlement waterfall for the whole group (unless the
+  // caller batches and runs it once at the end).
+  if (p.siteGroupId && !p.skipWaterfall) {
     await recalculateWaterfallForGroup(supabase, p.siteGroupId);
   }
 

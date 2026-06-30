@@ -664,7 +664,10 @@
       "Bash(awk 'BEGIN{printf \"%.1f KB \\(%d bytes\\)\\\\n\", __TRACKED_VAR__/1024, __TRACKED_VAR__}')",
       "PowerShell($c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { $c | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 1; \"killed leftover on 3000\" } else { \"port 3000 free\" })",
       "Bash(kill -0 %1)",
-      "Bash(sleep 3)"
+      "Bash(sleep 3)",
+      "Bash(awk '{print \"behind=\"$1\"  ahead=\"$2}')",
+      "Bash(rm -f backfill-dialog.png backfill-dialog-2.png backfill-dialog-3.png backfill-done.png backfill-saving.png)",
+      "Bash(ls backfill-*.png)"
     ],
     "deny": [],
     "ask": [],
