@@ -289,7 +289,7 @@ function ActiveTradeCard({
             ) : (
               <>
                 {hasDaily && <SubRow label="Daily" amount={card.dailyAmount} />}
-                {hasContract && <SubRow label="Contract" amount={card.contractAmount} />}
+                {hasContract && <SubRow label="Company" amount={card.contractAmount} />}
               </>
             )}
           </Box>

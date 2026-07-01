@@ -215,7 +215,7 @@ export function CivilStyleTradeTable({
               <TableRow sx={{ bgcolor: tradeColor.dark }}>
                 <TableCell sx={{ ...headerCellSx, minWidth: 110 }}>Date</TableCell>
                 <TableCell sx={{ ...headerCellSx, textAlign: "center", minWidth: 60 }}>Daily</TableCell>
-                <TableCell sx={{ ...headerCellSx, textAlign: "center", minWidth: 70 }}>Contract</TableCell>
+                <TableCell sx={{ ...headerCellSx, textAlign: "center", minWidth: 70 }}>Company</TableCell>
                 <TableCell sx={{ ...headerCellSx, textAlign: "center", minWidth: 60 }}>Market</TableCell>
                 <TableCell sx={{ ...headerCellSx, textAlign: "center", minWidth: 60 }}>Total</TableCell>
                 <TableCell sx={{ ...headerCellSx, textAlign: "center", minWidth: 60 }}>In</TableCell>

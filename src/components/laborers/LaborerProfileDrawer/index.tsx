@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import {
   Avatar,
   Box,
+  ButtonBase,
   Chip,
   Divider,
   Drawer,
@@ -15,8 +17,10 @@ import {
   Close as CloseIcon,
   Edit as EditIcon,
   Block as BlockIcon,
+  ZoomIn as ZoomInIcon,
 } from "@mui/icons-material";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import ImageZoomDialog from "@/components/common/ImageZoomDialog";
 import {
   startOfMonthISO,
   useLaborerProfileSummary,
@@ -71,6 +75,11 @@ export default function LaborerProfileDrawer({
 }: LaborerProfileDrawerProps) {
   const isMobile = useIsMobile();
   const monthStart = startOfMonthISO();
+
+  // Full-size photo viewer (opened from the header avatar). Reuses the shared
+  // zoom/pan ImageZoomDialog so the face can be inspected without leaving the page.
+  const [photoOpen, setPhotoOpen] = useState(false);
+  const hasPhoto = Boolean(laborer?.photo_url);
   const {
     data: summary,
     isLoading,
@@ -128,12 +137,61 @@ export default function LaborerProfileDrawer({
               }}
             >
               <Box sx={{ display: "flex", gap: 1.5, minWidth: 0, flex: 1 }}>
-                <Avatar
-                  src={laborer.photo_url ?? undefined}
-                  sx={{ width: 56, height: 56, bgcolor: "primary.light" }}
-                >
-                  {laborer.name.charAt(0).toUpperCase()}
-                </Avatar>
+                {hasPhoto ? (
+                  <Tooltip title="View photo">
+                    <ButtonBase
+                      onClick={() => setPhotoOpen(true)}
+                      aria-label={`View photo of ${laborer.name}`}
+                      sx={{
+                        borderRadius: "50%",
+                        flexShrink: 0,
+                        position: "relative",
+                        "&:hover .laborer-photo-zoom": { opacity: 1 },
+                        "&:focus-visible": {
+                          outline: 2,
+                          outlineColor: "primary.main",
+                          outlineOffset: 2,
+                        },
+                      }}
+                    >
+                      <Avatar
+                        src={laborer.photo_url ?? undefined}
+                        sx={{ width: 56, height: 56, bgcolor: "primary.light" }}
+                      >
+                        {laborer.name.charAt(0).toUpperCase()}
+                      </Avatar>
+                      <Box
+                        className="laborer-photo-zoom"
+                        sx={{
+                          position: "absolute",
+                          inset: 0,
+                          borderRadius: "50%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          bgcolor: "rgba(0,0,0,0.45)",
+                          color: "common.white",
+                          opacity: 0,
+                          transition: "opacity 0.15s ease",
+                        }}
+                      >
+                        <ZoomInIcon fontSize="small" />
+                      </Box>
+                    </ButtonBase>
+                  </Tooltip>
+                ) : (
+                  <Avatar
+                    src={undefined}
+                    sx={{
+                      width: 56,
+                      height: 56,
+                      bgcolor: "primary.light",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {laborer.name.charAt(0).toUpperCase()}
+                  </Avatar>
+                )}
                 <Box sx={{ minWidth: 0, flex: 1 }}>
                   <Typography
                     variant="h6"
@@ -294,6 +352,13 @@ export default function LaborerProfileDrawer({
               <PersonalDetails laborer={laborer} />
             </Stack>
           </Box>
+
+          <ImageZoomDialog
+            open={photoOpen}
+            src={photoOpen ? laborer.photo_url ?? null : null}
+            title={laborer.name}
+            onClose={() => setPhotoOpen(false)}
+          />
         </>
       )}
     </Drawer>

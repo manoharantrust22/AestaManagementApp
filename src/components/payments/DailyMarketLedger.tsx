@@ -434,7 +434,7 @@ function LaborerChip({
           textUnderlineOffset: 3,
         }}
       >
-        {count} {kind === "contract" ? "con" : kind === "market" ? "mkt" : "daily"}
+        {count} {kind === "contract" ? "co" : kind === "market" ? "mkt" : "daily"}
       </Box>
     </Tooltip>
   );
@@ -454,7 +454,7 @@ function LaborerTooltipBody({
   const theme = useTheme();
   const { data, isLoading } = useAttendanceForDate(siteId, date, { enabled: true });
 
-  const title = kind === "daily" ? "Daily" : kind === "contract" ? "Contract" : "Market";
+  const title = kind === "daily" ? "Daily" : kind === "contract" ? "Company" : "Market";
 
   if (isLoading || !data) {
     return (

@@ -771,7 +771,7 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
         filterVariant: "select",
         filterSelectOptions: [
           { value: "daily_market", label: "Daily/Market" },
-          { value: "contract", label: "Contract" },
+          { value: "contract", label: "Company" },
         ],
         Cell: ({ cell }) => {
           const type = cell.getValue<string>() || "daily_market";
@@ -780,10 +780,10 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
               label={
                 isMobile
                   ? type === "contract"
-                    ? "C"
+                    ? "Co"
                     : "D"
                   : type === "contract"
-                    ? "CONTRACT"
+                    ? "COMPANY"
                     : "DAILY"
               }
               size="small"
@@ -1001,7 +1001,7 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
         sx={{ mb: 1.5, flexWrap: "wrap", gap: 0.75 }}
       >
         <Chip
-          label={`Daily Market (${chipCounts.daily_market})`}
+          label={`Daily/Market (${chipCounts.daily_market})`}
           size="small"
           color={typeFilters.daily_market ? "primary" : "default"}
           variant={typeFilters.daily_market ? "filled" : "outlined"}
@@ -1392,10 +1392,10 @@ export default function LaborersContent({ initialData }: LaborersContentProps) {
                     label="Laborer Type"
                   >
                     <MenuItem value="daily_market">
-                      Daily Market (Hired separately - paid directly)
+                      Daily/Market (Hired separately - paid directly)
                     </MenuItem>
                     <MenuItem value="contract">
-                      Contract (Mesthri&apos;s team - paid via Mesthri)
+                      Company (Mesthri&apos;s team - paid via Mesthri)
                     </MenuItem>
                   </Select>
                 </FormControl>

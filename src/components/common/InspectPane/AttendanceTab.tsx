@@ -248,7 +248,7 @@ function DailyShape({
             color="text.secondary"
             sx={SECTION_LABEL_SX}
           >
-            Contract Laborers ({contractList.length})
+            Company Laborers ({contractList.length})
           </Typography>
           <Box
             sx={{
@@ -409,7 +409,7 @@ function WeeklyShape({
         />
         {contractAmount > 0 && (
           <TotalTile
-            label="Contract"
+            label="Company"
             value={`₹${contractAmount.toLocaleString("en-IN")}`}
           />
         )}
@@ -1221,7 +1221,7 @@ function DayDetailExpansion({
                     >
                       {isDailyMarketPrimary
                         ? `Daily Laborers (${dailyCount})`
-                        : `Contract / Daily Laborers (${dailyCount})`}
+                        : `Company / Daily Laborers (${dailyCount})`}
                     </Typography>
                     <Typography
                       variant="caption"
@@ -1435,7 +1435,7 @@ function DayDetailExpansion({
                         fontWeight: 600,
                       }}
                     >
-                      Contract Laborers ({contractCount})
+                      Company Laborers ({contractCount})
                     </Typography>
                     <Typography
                       variant="caption"

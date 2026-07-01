@@ -703,7 +703,7 @@ export default function TeamsPage() {
         </DialogTitle>
         <DialogContent>
           <Typography variant="subtitle2" sx={{ mt: 2, mb: 1, fontWeight: 600 }}>
-            Associated Contract Laborers ({teamMembers.length})
+            Associated Company Laborers ({teamMembers.length})
           </Typography>
           <List dense>
             {teamMembers.map((m) => (
@@ -720,7 +720,7 @@ export default function TeamsPage() {
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                       <Typography fontWeight={500}>{m.name}</Typography>
                       <Chip
-                        label={m.laborer_type === "contract" ? "CONTRACT" : "DAILY"}
+                        label={m.laborer_type === "contract" ? "COMPANY" : "DAILY"}
                         size="small"
                         color={m.laborer_type === "contract" ? "primary" : "warning"}
                         variant="outlined"

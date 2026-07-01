@@ -130,7 +130,7 @@ export default function ContractLaborerSummaryDashboard({
               <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
                 <PeopleIcon color="info" fontSize="small" />
                 <Typography variant="caption" color="text.secondary">
-                  Contract Laborers
+                  Company Laborers
                 </Typography>
               </Box>
               <Typography variant="h5" fontWeight={600} color="info.dark">

@@ -373,7 +373,7 @@ export function SettlementsList({
                     r.isContract ? (
                       <Chip
                         size="small"
-                        label="Contract"
+                        label="Company"
                         sx={{ height: 16, fontSize: 9.5 }}
                       />
                     ) : (

@@ -117,7 +117,7 @@ export default function PercentageSplitInput({
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <WorkIcon color="secondary" fontSize="small" />
             <TextField
-              label="Contract Laborers"
+              label="Company Laborers"
               type="number"
               size="small"
               value={contract}

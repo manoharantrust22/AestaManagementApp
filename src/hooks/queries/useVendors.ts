@@ -662,10 +662,22 @@ export function useUpdateVendor() {
 
       const { category_ids, ...vendorData } = data;
 
+      // Normalize an empty/whitespace-only code to null before writing.
+      // An empty string "" is a single unique value on the vendors_code_key
+      // unique index (unlike NULL, which may repeat), so writing "" for a
+      // codeless vendor collides with any other codeless-but-"" vendor and
+      // throws 23505. Mirrors useCreateVendor. Only touch `code` when it was
+      // actually sent — partial updates (e.g. publishing a draft with just
+      // { is_draft: false }) must not clobber an existing code.
+      const codeUpdate =
+        "code" in vendorData
+          ? { code: vendorData.code?.trim() || null }
+          : {};
+
       // Update vendor
       const { data: vendor, error } = await supabase
         .from("vendors")
-        .update({ ...vendorData, updated_at: new Date().toISOString() })
+        .update({ ...vendorData, ...codeUpdate, updated_at: new Date().toISOString() })
         .eq("id", id)
         .select()
         .single();

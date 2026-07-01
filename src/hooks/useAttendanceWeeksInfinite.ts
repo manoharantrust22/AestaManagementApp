@@ -74,7 +74,7 @@ async function fetchAttendanceWeek(
     .from("daily_attendance")
     .select(
       `
-      id, date, laborer_id, work_days, hours_worked, daily_rate_applied, daily_earnings, is_paid, payment_notes, subcontract_id,
+      id, date, laborer_id, work_days, hours_worked, daily_rate_applied, daily_earnings, is_paid, payment_notes, subcontract_id, task_work_package_id,
       in_time, lunch_out, lunch_in, out_time, work_hours, break_hours, total_hours, day_units, snacks_amount,
       attendance_status, work_progress_percent,
       engineer_transaction_id, expense_id, paid_via,

@@ -76,7 +76,7 @@ export default function PaymentsKpiStrip({
       sub:   `${summary.dailyMarketCount} dates`,
     },
     {
-      label: "Weekly Contract",
+      label: "Weekly Company",
       value: `₹${summary.weeklyAmount.toLocaleString("en-IN")}`,
       sub:   `${summary.weeklyCount} records`,
     },

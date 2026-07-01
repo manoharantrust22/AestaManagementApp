@@ -133,7 +133,7 @@ export default function RecentAttendance({
       >
         <LegendDot color="success.main" label="Present" />
         <LegendDot color="warning.light" label="Half" />
-        <LegendDot color="info.main" label="Contract" />
+        <LegendDot color="info.main" label="Company" />
         <LegendDot color="grey.300" label="No record" />
       </Box>
     </Box>

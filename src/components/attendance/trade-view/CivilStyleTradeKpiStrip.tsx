@@ -141,7 +141,7 @@ export function CivilStyleTradeKpiStrip({
               {/* Row 2: Daily, Contract, Market */}
               <Box sx={{ display: "flex", alignItems: "stretch", mb: 1 }}>
                 <MobileTile label="Daily" value={0} color="warning.main" />
-                <MobileTile label="Contract" value={salary} color="info.main" />
+                <MobileTile label="Company" value={salary} color="info.main" />
                 <MobileTile label="Market" value={0} color="secondary.main" />
               </Box>
               <Divider sx={{ my: 0.5 }} />
@@ -206,7 +206,7 @@ export function CivilStyleTradeKpiStrip({
               }}
             />
             <DesktopTile
-              label="Contract"
+              label="Company"
               value={salary}
               valueSx={{
                 fontSize: "1.125rem",

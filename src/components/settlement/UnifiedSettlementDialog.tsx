@@ -534,7 +534,7 @@ export default function UnifiedSettlementDialog({
                       onClick={() => setSettlementType("contract")}
                       sx={{ cursor: "pointer" }}
                     >
-                      <TableCell>Contract Laborers</TableCell>
+                      <TableCell>Company Laborers</TableCell>
                       <TableCell align="right">
                         <Chip
                           size="small"

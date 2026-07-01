@@ -113,7 +113,7 @@ export default function SalarySettlementTile({ group, activeTypes, onSelectTypes
         />
         <ExpenseTile
           variant="subrow"
-          label="Contract"
+          label="Company"
           amount={contractAmount}
           count={contractCount}
           meta={advanceCount != null ? `${advanceCount} advance` : undefined}

@@ -170,9 +170,9 @@ import { hasEditPermission } from "@/lib/permissions";
 import { useSearchParams, useRouter } from "next/navigation";
 import type { AttendancePageData } from "@/lib/data/attendance";
 import { useContractPresence } from "@/hooks/queries/useContractPresence";
+import { useAttendanceDateCoverage } from "@/hooks/queries/useAttendanceDateCoverage";
 import {
   formatContractWorkerCount,
-  formatContractDayLabel,
   formatContractDayValue,
   contractItemHref,
   scopeContractPresence,
@@ -187,6 +187,8 @@ type DailyWorkSummary = Database["public"]["Tables"]["daily_work_summary"]["Row"
 // Stable empty fallback so an absent contract-presence query doesn't churn the
 // combinedDateEntries memo deps on every render.
 const EMPTY_CONTRACT_PRESENCE: ReadonlyMap<string, ContractPresenceDay> = new Map();
+// Same stable-reference trick for the attendance-date-coverage set.
+const EMPTY_DATE_SET: ReadonlySet<string> = new Set();
 
 /**
  * Calm "Contract work" row shown for a date that had documented contract/
@@ -337,7 +339,9 @@ function ContractDayRow({
           )}
         </TableCell>
 
-        {/* 2. Date + "Contract" tag */}
+        {/* 2. Date + task-work tag(s) — one named chip per contract so a
+            multi-contract day names both (the only place the name shows on
+            mobile, where the Work column is hidden). */}
         <TableCell
           sx={{
             position: "sticky",
@@ -358,32 +362,50 @@ function ContractDayRow({
               {dayjs(presence.date).format("ddd")}
             </Typography>
           </Typography>
-          <Chip
-            icon={<EngineeringIcon sx={{ fontSize: "13px !important" }} />}
-            label="Contract"
-            size="small"
-            color="info"
-            variant="outlined"
-            sx={{ height: 18, fontSize: "0.62rem", mt: 0.25, fontWeight: 600 }}
-          />
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 0.25 }}>
+            {presence.items.map((item, i) => (
+              <Chip
+                key={`${item.id}-${i}`}
+                icon={<EngineeringIcon sx={{ fontSize: "13px !important" }} />}
+                label={item.title}
+                size="small"
+                color="info"
+                variant="outlined"
+                onClick={multi ? () => setOpen((v) => !v) : undefined}
+                sx={{
+                  height: 18,
+                  maxWidth: 150,
+                  fontSize: "0.62rem",
+                  fontWeight: 600,
+                  cursor: multi ? "pointer" : "default",
+                  "& .MuiChip-label": {
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  },
+                }}
+              />
+            ))}
+          </Box>
         </TableCell>
 
         {/* 3. Daily */}
         <TableCell align="center">
           <DashCell />
         </TableCell>
-        {/* 4. Contract count */}
+        {/* 4. Company — a pure task-work day has no non-task-work crew */}
+        <TableCell align="center">
+          <DashCell />
+        </TableCell>
+        {/* 5. Task-work count */}
         <TableCell align="center">
           <Chip
+            icon={<EngineeringIcon sx={{ fontSize: 14 }} />}
             label={Math.round(presence.totalUnits)}
             size="small"
             color="info"
             sx={{ height: 20, fontWeight: 700 }}
           />
-        </TableCell>
-        {/* 5. Market */}
-        <TableCell align="center">
-          <DashCell />
         </TableCell>
         {/* 6. Total */}
         <TableCell align="center">
@@ -456,9 +478,15 @@ function ContractDayRow({
                 {item.title}
               </Typography>
             </TableCell>
+            {/* Daily */}
             <TableCell align="center">
               <DashCell />
             </TableCell>
+            {/* Company */}
+            <TableCell align="center">
+              <DashCell />
+            </TableCell>
+            {/* Task-work */}
             <TableCell align="center">
               <Chip
                 label={Math.round(item.units)}
@@ -468,9 +496,7 @@ function ContractDayRow({
                 sx={{ height: 20, fontWeight: 700 }}
               />
             </TableCell>
-            <TableCell align="center">
-              <DashCell />
-            </TableCell>
+            {/* Total */}
             <TableCell align="center">
               <Typography variant="body2" sx={tabular}>
                 {Math.round(item.units)}
@@ -543,6 +569,9 @@ interface AttendanceRecord {
   laborer_id: string;
   /** The subcontract this day was tagged to (used for trade-scoping). */
   subcontract_id?: string | null;
+  /** The task-work package this day was tagged to. Non-null == the laborer
+   *  worked on a real fixed-price contract that day (the "Task-work" bucket). */
+  task_work_package_id?: string | null;
   /** The laborer's trade category id (used for trade-scoping). */
   laborers_category_id?: string | null;
   laborer_name: string;
@@ -638,6 +667,11 @@ interface DateSummary {
   contractLaborerCount: number;
   marketLaborerCount: number;
   totalLaborerCount: number;
+  /** Subset of contractLaborerCount that is tagged to a real task-work package.
+   *  The row shows Company = contractLaborerCount − taskWorkLaborerCount and
+   *  Task-work = taskWorkLaborerCount, so the two never collide in one column.
+   *  Optional so any DateSummary literal that omits it defaults to 0. */
+  taskWorkLaborerCount?: number;
   // Times
   firstInTime: string | null;
   lastOutTime: string | null;
@@ -894,6 +928,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         dailyLaborerAmount: daily.reduce((a, r) => a + r.daily_earnings, 0),
         contractLaborerCount: contract.length,
         contractLaborerAmount: contract.reduce((a, r) => a + r.daily_earnings, 0),
+        taskWorkLaborerCount: contract.filter((r) => r.task_work_package_id).length,
         marketLaborerCount: m.count,
         marketLaborerAmount: m.salary,
         paidCount: daily.filter((r) => r.is_paid).length,
@@ -1410,6 +1445,20 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     [rawContractPresenceMap, tradeScope]
   );
 
+  // COMPLETE set of dates that actually have attendance in the DB (whole history,
+  // not just the weeks lazily loaded into `dateSummaries`). Contract presence
+  // loads all-at-once, so without this an already-attended older day renders a
+  // stale "~₹ est" contract row until its week scrolls in. Gating on this keeps
+  // the est / unfilled / holiday-only logic honest regardless of scroll position.
+  const attendanceCoverageQuery = useAttendanceDateCoverage({
+    siteId: selectedSite?.id,
+    dateFrom,
+    dateTo,
+    isAllTime,
+    enabled: !initialData || initialDataProcessedRef.current,
+  });
+  const attendanceCoverageSet = attendanceCoverageQuery.data ?? EMPTY_DATE_SET;
+
   // Hook to invalidate attendance cache after mutations
   const invalidateAttendance = useInvalidateAttendanceData();
 
@@ -1661,6 +1710,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       date: record.date,
       laborer_id: record.laborer_id,
       subcontract_id: record.subcontract_id || null,
+      task_work_package_id: record.task_work_package_id || null,
       laborers_category_id: record.laborers?.category_id || null,
       laborer_name: record.laborers.name,
       laborer_type: record.laborers.laborer_type || "daily_wage",
@@ -1711,6 +1761,11 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         if (record.laborer_type === "contract") {
           existing.contractLaborerCount++;
           existing.contractLaborerAmount += record.daily_earnings;
+          // Subset: contract-type rows tagged to a real task-work package.
+          if (record.task_work_package_id) {
+            existing.taskWorkLaborerCount =
+              (existing.taskWorkLaborerCount ?? 0) + 1;
+          }
         } else {
           existing.dailyLaborerCount++;
           existing.dailyLaborerAmount += record.daily_earnings;
@@ -1781,6 +1836,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           marketLaborers: market?.expandedRecords || [],
           dailyLaborerCount: record.laborer_type !== "contract" ? 1 : 0,
           contractLaborerCount: record.laborer_type === "contract" ? 1 : 0,
+          taskWorkLaborerCount:
+            record.laborer_type === "contract" && record.task_work_package_id
+              ? 1
+              : 0,
           marketLaborerCount: market?.count || 0,
           totalLaborerCount: 1 + (market?.count || 0),
           firstInTime: record.in_time || market?.inTime || null,
@@ -1964,8 +2023,14 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   // Combined view: dateSummaries + holiday-only dates + weekly separators
   // This creates a merged list sorted by date descending with weekly summary strips
   const combinedDateEntries = useMemo(() => {
-    // Get set of dates that have attendance data
-    const attendanceDates = new Set(dateSummaries.map((s) => s.date));
+    // Get set of dates that have attendance data. Seed with the COMPLETE
+    // DB-backed coverage (whole history) so lazily-unloaded older weeks are still
+    // recognised as attended — otherwise their days masquerade as "~₹ est"
+    // contract rows (and flag as unfilled) until they scroll into view. The
+    // loaded `dateSummaries` are unioned on top so a just-saved day counts
+    // immediately, before the coverage query refetches.
+    const attendanceDates = new Set<string>(attendanceCoverageSet);
+    for (const s of dateSummaries) attendanceDates.add(s.date);
 
     // Weekly-summary totals must blend ALL named + market labour regardless of
     // trade scoping, so the weekly calc below reads each date's UNSCOPED named
@@ -2210,7 +2275,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     });
 
     return withWeeklySeparators;
-  }, [dateSummaries, scopedDateSummaries, scopedHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date, contractPresenceMap, tradeScope]);
+  }, [dateSummaries, scopedDateSummaries, scopedHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date, contractPresenceMap, attendanceCoverageSet, tradeScope]);
 
   // Process initialData from server on first render
   useEffect(() => {
@@ -2346,6 +2411,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     const records: AttendanceRecord[] = (rawAttendance || []).map((record: any) => ({
       id: record.id, date: record.date, laborer_id: record.laborer_id,
       subcontract_id: record.subcontract_id || null,
+      task_work_package_id: record.task_work_package_id || null,
       laborers_category_id: record.laborers?.category_id || null,
       laborer_name: record.laborers?.name || "Unknown",
       laborer_type: record.laborers?.laborer_type || "daily_wage",
@@ -2374,7 +2440,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       const existing = dateMap.get(record.date);
       if (existing) {
         existing.records.push(record);
-        if (record.laborer_type === "contract") { existing.contractLaborerCount++; existing.contractLaborerAmount += record.daily_earnings; }
+        if (record.laborer_type === "contract") { existing.contractLaborerCount++; existing.contractLaborerAmount += record.daily_earnings; if (record.task_work_package_id) existing.taskWorkLaborerCount = (existing.taskWorkLaborerCount ?? 0) + 1; }
         else { existing.dailyLaborerCount++; existing.dailyLaborerAmount += record.daily_earnings; }
         existing.totalLaborerCount = existing.dailyLaborerCount + existing.contractLaborerCount + existing.marketLaborerCount;
         existing.totalSalary += record.daily_earnings;
@@ -2402,6 +2468,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           date: record.date, records: [record], marketLaborers: market?.expandedRecords || [],
           dailyLaborerCount: record.laborer_type !== "contract" ? 1 : 0,
           contractLaborerCount: record.laborer_type === "contract" ? 1 : 0,
+          taskWorkLaborerCount: record.laborer_type === "contract" && record.task_work_package_id ? 1 : 0,
           marketLaborerCount: market?.count || 0, totalLaborerCount: 1 + (market?.count || 0),
           firstInTime: record.in_time || market?.inTime || null, lastOutTime: record.out_time || market?.outTime || null,
           totalSalary: record.daily_earnings + (market?.salary || 0),
@@ -3805,7 +3872,11 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                       color: "warning.main",
                     }}
                   >
-                    ₹{periodTotals.totalDailyAmount.toLocaleString()}
+                    ₹
+                    {(
+                      periodTotals.totalDailyAmount +
+                      periodTotals.totalMarketAmount
+                    ).toLocaleString()}
                   </Typography>
                 </Box>
                 <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
@@ -3815,7 +3886,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                     color="text.secondary"
                     sx={{ fontSize: "0.6rem" }}
                   >
-                    Contract
+                    Company
                   </Typography>
                   <Typography
                     sx={{
@@ -3825,25 +3896,6 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                     }}
                   >
                     ₹{periodTotals.totalContractAmount.toLocaleString()}
-                  </Typography>
-                </Box>
-                <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
-                <Box sx={{ flex: 1, textAlign: "center" }}>
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ fontSize: "0.6rem" }}
-                  >
-                    Market
-                  </Typography>
-                  <Typography
-                    sx={{
-                      fontSize: "0.8rem",
-                      fontWeight: 600,
-                      color: "secondary.main",
-                    }}
-                  >
-                    ₹{periodTotals.totalMarketAmount.toLocaleString()}
                   </Typography>
                 </Box>
               </Box>
@@ -3938,7 +3990,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
 
           <Divider orientation="vertical" flexItem />
 
-          {/* Group 2: Daily, Contract, Market */}
+          {/* Group 2: Daily (day-hired), Company */}
           <Box sx={{ display: "flex", flex: 1, gap: 2 }}>
             <Box sx={{ flex: 1, textAlign: "center" }}>
               <Typography
@@ -3955,7 +4007,11 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                   color: "warning.main",
                 }}
               >
-                ₹{periodTotals.totalDailyAmount.toLocaleString()}
+                ₹
+                {(
+                  periodTotals.totalDailyAmount +
+                  periodTotals.totalMarketAmount
+                ).toLocaleString()}
               </Typography>
             </Box>
             <Box sx={{ flex: 1, textAlign: "center" }}>
@@ -3964,7 +4020,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                 color="text.secondary"
                 sx={{ fontSize: "0.75rem" }}
               >
-                Contract
+                Company
               </Typography>
               <Typography
                 sx={{
@@ -3974,24 +4030,6 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                 }}
               >
                 ₹{periodTotals.totalContractAmount.toLocaleString()}
-              </Typography>
-            </Box>
-            <Box sx={{ flex: 1, textAlign: "center" }}>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ fontSize: "0.75rem" }}
-              >
-                Market
-              </Typography>
-              <Typography
-                sx={{
-                  fontSize: "1.125rem",
-                  fontWeight: 600,
-                  color: "secondary.main",
-                }}
-              >
-                ₹{periodTotals.totalMarketAmount.toLocaleString()}
               </Typography>
             </Box>
           </Box>
@@ -4239,57 +4277,63 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                         </Tooltip>
                       </Box>
                     </TableCell>
-                    <TableCell
-                      sx={{
-                        bgcolor: tradeColor.dark,
-                        color: tradeColor.contrastText,
-                        fontWeight: 700,
-                        minWidth: { xs: 30, sm: 50 },
-                        px: { xs: 0.5, sm: 1 },
-                      }}
-                      align="center"
-                    >
-                      <Box sx={{ display: { xs: "none", sm: "inline" } }}>
-                        Daily
-                      </Box>
-                      <Box sx={{ display: { xs: "inline", sm: "none" } }}>
-                        D
-                      </Box>
-                    </TableCell>
-                    <TableCell
-                      sx={{
-                        bgcolor: tradeColor.dark,
-                        color: tradeColor.contrastText,
-                        fontWeight: 700,
-                        minWidth: { xs: 30, sm: 55 },
-                        px: { xs: 0.5, sm: 1 },
-                      }}
-                      align="center"
-                    >
-                      <Box sx={{ display: { xs: "none", sm: "inline" } }}>
-                        Contract
-                      </Box>
-                      <Box sx={{ display: { xs: "inline", sm: "none" } }}>
-                        C
-                      </Box>
-                    </TableCell>
-                    <TableCell
-                      sx={{
-                        bgcolor: tradeColor.dark,
-                        color: tradeColor.contrastText,
-                        fontWeight: 700,
-                        minWidth: { xs: 30, sm: 50 },
-                        px: { xs: 0.5, sm: 1 },
-                      }}
-                      align="center"
-                    >
-                      <Box sx={{ display: { xs: "none", sm: "inline" } }}>
-                        Market
-                      </Box>
-                      <Box sx={{ display: { xs: "inline", sm: "none" } }}>
-                        M
-                      </Box>
-                    </TableCell>
+                    <Tooltip title="Day-hired labour — daily / market (naka) workers, paid directly">
+                      <TableCell
+                        sx={{
+                          bgcolor: tradeColor.dark,
+                          color: tradeColor.contrastText,
+                          fontWeight: 700,
+                          minWidth: { xs: 34, sm: 66 },
+                          px: { xs: 0.5, sm: 1 },
+                        }}
+                        align="center"
+                      >
+                        <Box sx={{ display: { xs: "none", sm: "inline" } }}>
+                          Daily
+                        </Box>
+                        <Box sx={{ display: { xs: "inline", sm: "none" } }}>
+                          D
+                        </Box>
+                      </TableCell>
+                    </Tooltip>
+                    <Tooltip title="Company crew (permanent laborers) not on a fixed-price contract">
+                      <TableCell
+                        sx={{
+                          bgcolor: tradeColor.dark,
+                          color: tradeColor.contrastText,
+                          fontWeight: 700,
+                          minWidth: { xs: 30, sm: 55 },
+                          px: { xs: 0.5, sm: 1 },
+                        }}
+                        align="center"
+                      >
+                        <Box sx={{ display: { xs: "none", sm: "inline" } }}>
+                          Company
+                        </Box>
+                        <Box sx={{ display: { xs: "inline", sm: "none" } }}>
+                          Co
+                        </Box>
+                      </TableCell>
+                    </Tooltip>
+                    <Tooltip title="Laborers on a real fixed-price task-work contract that day">
+                      <TableCell
+                        sx={{
+                          bgcolor: tradeColor.dark,
+                          color: tradeColor.contrastText,
+                          fontWeight: 700,
+                          minWidth: { xs: 34, sm: 62 },
+                          px: { xs: 0.5, sm: 1 },
+                        }}
+                        align="center"
+                      >
+                        <Box sx={{ display: { xs: "none", sm: "inline" } }}>
+                          Task-work
+                        </Box>
+                        <Box sx={{ display: { xs: "inline", sm: "none" } }}>
+                          Task
+                        </Box>
+                      </TableCell>
+                    </Tooltip>
                     <TableCell
                       sx={{
                         bgcolor: tradeColor.dark,
@@ -4704,10 +4748,15 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                   flexWrap: "wrap",
                                 }}
                               >
-                                {entry.weeklySummary.pendingDailySalary > 0 && (
+                                {entry.weeklySummary.pendingDailySalary +
+                                  entry.weeklySummary.pendingMarketSalary >
+                                  0 && (
                                   <Chip
                                     size="small"
-                                    label={`Daily: ₹${entry.weeklySummary.pendingDailySalary.toLocaleString()}`}
+                                    label={`Daily: ₹${(
+                                      entry.weeklySummary.pendingDailySalary +
+                                      entry.weeklySummary.pendingMarketSalary
+                                    ).toLocaleString()}`}
                                     color="info"
                                     variant="outlined"
                                   />
@@ -4715,16 +4764,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                 {entry.weeklySummary.pendingContractSalary > 0 && (
                                   <Chip
                                     size="small"
-                                    label={`Contract: ₹${entry.weeklySummary.pendingContractSalary.toLocaleString()}`}
+                                    label={`Company: ₹${entry.weeklySummary.pendingContractSalary.toLocaleString()}`}
                                     color="secondary"
-                                    variant="outlined"
-                                  />
-                                )}
-                                {entry.weeklySummary.pendingMarketSalary > 0 && (
-                                  <Chip
-                                    size="small"
-                                    label={`Market: ₹${entry.weeklySummary.pendingMarketSalary.toLocaleString()}`}
-                                    color="warning"
                                     variant="outlined"
                                   />
                                 )}
@@ -4840,10 +4881,21 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                               <Box
                                 sx={{
                                   display: "flex",
-                                  alignItems: "center",
-                                  gap: 0.5,
+                                  flexDirection: "column",
+                                  gap: 0.25,
                                 }}
                               >
+                                {/* Top line: status icons + date (settlement ref
+                                    inline). Contract tags drop to their own line
+                                    below so a long title can't widen the sticky
+                                    date column. */}
+                                <Box
+                                  sx={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 0.5,
+                                  }}
+                                >
                                 {entry.summary.attendanceStatus === "draft" && (
                                   <Tooltip title="Draft - not yet confirmed">
                                     <EventNote
@@ -4925,64 +4977,120 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                     />
                                   );
                                 })()}
-                                {/* Contract-work chip — day with BOTH attendance and contract work. */}
+                                </Box>
+                                {/* Contract tags — a day with BOTH attendance and
+                                    contract work. One named chip per contract (no
+                                    count — that lives in the Task-work column), so a
+                                    day with two contracts names both. Sits on its
+                                    own line under the date so a long title never
+                                    widens the sticky column; the label truncates and
+                                    the full name shows on hover. Tap toggles the
+                                    per-contract breakdown below. */}
                                 {(() => {
                                   const cp = contractPresenceMap.get(entry.summary.date);
                                   if (!cp) return null;
                                   const expanded = expandedContractDates.has(entry.summary.date);
+                                  const toggle = (e: React.MouseEvent) => {
+                                    e.stopPropagation();
+                                    setExpandedContractDates((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(entry.summary.date)) next.delete(entry.summary.date);
+                                      else next.add(entry.summary.date);
+                                      return next;
+                                    });
+                                  };
                                   return (
-                                    <Tooltip title={`Contract work: ${formatContractDayLabel(cp)} — tap for details`}>
-                                      <Chip
-                                        icon={<EngineeringIcon sx={{ fontSize: 14 }} />}
-                                        label={`Contract · ${Math.round(cp.totalUnits)}`}
-                                        size="small"
-                                        color="info"
-                                        variant={expanded ? "filled" : "outlined"}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setExpandedContractDates((prev) => {
-                                            const next = new Set(prev);
-                                            if (next.has(entry.summary.date)) next.delete(entry.summary.date);
-                                            else next.add(entry.summary.date);
-                                            return next;
-                                          });
-                                        }}
-                                        sx={{
-                                          height: 20,
-                                          fontSize: "0.65rem",
-                                          fontWeight: 600,
-                                          cursor: "pointer",
-                                          "& .MuiChip-icon": { ml: "4px" },
-                                        }}
-                                      />
-                                    </Tooltip>
+                                    <Box
+                                      sx={{
+                                        display: "flex",
+                                        flexWrap: "wrap",
+                                        gap: 0.25,
+                                      }}
+                                    >
+                                      {cp.items.map((item, i) => (
+                                        <Tooltip
+                                          key={`${item.id}-${i}`}
+                                          title={`${item.title}${item.workerSummary ? ` — ${item.workerSummary}` : ""} · tap for details`}
+                                        >
+                                          <Chip
+                                            icon={<EngineeringIcon sx={{ fontSize: 14 }} />}
+                                            label={item.title}
+                                            size="small"
+                                            color="info"
+                                            variant={expanded ? "filled" : "outlined"}
+                                            onClick={toggle}
+                                            sx={{
+                                              height: 20,
+                                              maxWidth: 88,
+                                              fontSize: "0.65rem",
+                                              fontWeight: 600,
+                                              cursor: "pointer",
+                                              "& .MuiChip-icon": { ml: "4px" },
+                                              "& .MuiChip-label": {
+                                                overflow: "hidden",
+                                                textOverflow: "ellipsis",
+                                                whiteSpace: "nowrap",
+                                              },
+                                            }}
+                                          />
+                                        </Tooltip>
+                                      ))}
+                                    </Box>
                                   );
                                 })()}
                               </Box>
                             </TableCell>
+                            {/* Daily = day-hired labour (registered daily +
+                                market/naka rows) — one combined column, since the
+                                business treats them as the same category. */}
                             <TableCell align="center">
                               <Chip
-                                label={entry.summary.dailyLaborerCount}
+                                label={
+                                  entry.summary.dailyLaborerCount +
+                                  entry.summary.marketLaborerCount
+                                }
                                 size="small"
                                 color="warning"
                                 variant="outlined"
                               />
                             </TableCell>
+                            {/* Company = contract-type crew NOT on a task-work
+                                package (task-work is split into its own column). */}
                             <TableCell align="center">
                               <Chip
-                                label={entry.summary.contractLaborerCount}
+                                label={Math.max(
+                                  0,
+                                  entry.summary.contractLaborerCount -
+                                    (entry.summary.taskWorkLaborerCount ?? 0)
+                                )}
                                 size="small"
                                 color="info"
                                 variant="outlined"
                               />
                             </TableCell>
+                            {/* Task-work = laborers on a real fixed-price
+                                contract that day. The one bold chip so it reads
+                                apart from the Company crew beside it. */}
                             <TableCell align="center">
-                              <Chip
-                                label={entry.summary.marketLaborerCount}
-                                size="small"
-                                color="secondary"
-                                variant="outlined"
-                              />
+                              {(entry.summary.taskWorkLaborerCount ?? 0) > 0 ? (
+                                <Chip
+                                  icon={
+                                    <EngineeringIcon sx={{ fontSize: 14 }} />
+                                  }
+                                  label={entry.summary.taskWorkLaborerCount}
+                                  size="small"
+                                  color="info"
+                                  variant="filled"
+                                  sx={{ fontWeight: 700 }}
+                                />
+                              ) : (
+                                <Typography
+                                  variant="body2"
+                                  color="text.disabled"
+                                >
+                                  0
+                                </Typography>
+                              )}
                             </TableCell>
                             <TableCell align="center">
                               <Typography variant="body2" fontWeight={700}>
@@ -5377,7 +5485,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                                 gap: 0.5,
                                               }}
                                             >
-                                              Contract: ₹
+                                              Company: ₹
                                               {entry.summary.contractLaborerAmount.toLocaleString()}
                                               <Box
                                                 component="span"

@@ -2943,7 +2943,7 @@ export default function AttendanceDrawer({
                                     <Chip
                                       label={
                                         laborer.laborer_type === "contract"
-                                          ? "Contract"
+                                          ? "Company"
                                           : "Daily"
                                       }
                                       size="small"
