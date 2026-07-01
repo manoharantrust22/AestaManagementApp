@@ -54,6 +54,7 @@ import { buildContractScopeHref } from "@/lib/workforce/contractScope";
 import { useMoveSubcontractNode, useUndoMove } from "@/hooks/queries/useMoveSubcontractNode";
 import { useEnsureTradeInHouseContract } from "@/hooks/queries/useTradeInHouseContract";
 import { ChangeTrackingModeDialog } from "@/components/trades/ChangeTrackingModeDialog";
+import { ConvertToPackageDialog } from "@/components/trades/ConvertToPackageDialog";
 import EditContractDialog from "./EditContractDialog";
 import DeleteContractDialog from "./DeleteContractDialog";
 import type { AddTaskWork } from "./ContractTree";
@@ -131,6 +132,7 @@ export function WorkspaceLayout({
   const [modeOpen, setModeOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [convertOpen, setConvertOpen] = useState(false);
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null);
   const [snack, setSnack] = useState<{ open: boolean; msg: string; severity: "success" | "error" }>({
     open: false,
@@ -333,6 +335,7 @@ export function WorkspaceLayout({
       onChangeMode={() => setModeOpen(true)}
       onEdit={() => setEditOpen(true)}
       onDelete={() => setDeleteOpen(true)}
+      onConvertToPackage={selectedTask ? () => setConvertOpen(true) : undefined}
       onOpenInDetails={
         selectedTask ? () => router.push(`/site/subcontracts?contractId=${selectedTask.id}`) : undefined
       }
@@ -469,6 +472,20 @@ export function WorkspaceLayout({
         siteId={siteId}
         task={selectedTask}
         onDeleted={() => setSelectedTaskId(null)}
+      />
+      {/* Standardize a fixed-price task onto the package (Day-Log) experience. On
+          success, flip the pane straight to the new package. */}
+      <ConvertToPackageDialog
+        open={convertOpen}
+        onClose={() => setConvertOpen(false)}
+        subcontractId={selectedTask.id}
+        taskTitle={selectedTask.title}
+        siteId={siteId}
+        onConverted={(pkgId) => {
+          setSelectedTaskId(null);
+          setSelectedPackageId(pkgId);
+          notify("Converted to a fixed-price package");
+        }}
       />
     </>
   ) : null;

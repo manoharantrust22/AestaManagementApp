@@ -23,6 +23,8 @@ import {
   Link as MuiLink,
 } from "@mui/material";
 import { Add as AddIcon, Close as CloseIcon } from "@mui/icons-material";
+import Handshake from "@mui/icons-material/Handshake";
+import EastRounded from "@mui/icons-material/EastRounded";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useSelectedCompany } from "@/contexts/CompanyContext/SelectedCompanyContext";
@@ -434,42 +436,98 @@ export function QuickCreateContractDialog({
             {/* The primary decision first: how will you handle this work? */}
             <FormControl>
               <FormLabel sx={{ mb: 1 }}>How will you handle this work?</FormLabel>
-              {/* "Full workspace (attendance + salary)" lives on the TRADE, not here —
-                  a contract/section/task only chooses record-payments or count-by-role. */}
-              <TrackingModeChooser value={choice} onChange={setChoice} allowDetailed={false} />
+
+              {/* Fixed-price package (Day Log) — a peer choice, promoted to the top
+                  so a lump-sum maistry job is as obvious as the daily-tracking modes.
+                  Selecting it hands off to the package setup (a separate table that
+                  carries the Day Log + Extras + Payments screen, "like Barun's"). */}
               {onCreatePackage && (
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ display: "block", mt: 1 }}
-                >
-                  Fixed-price maistry job (like Barun&apos;s)?{" "}
-                  <Box
-                    component="span"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => {
+                <Box
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    onCreatePackage();
+                    onClose();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
                       onCreatePackage();
                       onClose();
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        onCreatePackage();
-                        onClose();
-                      }
-                    }}
-                    sx={{
-                      color: "primary.main",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      "&:hover": { textDecoration: "underline" },
-                    }}
-                  >
-                    Set up a package →
+                    }
+                  }}
+                  sx={{
+                    display: "flex",
+                    gap: 1.25,
+                    p: 1.25,
+                    mb: 1,
+                    borderRadius: 2,
+                    cursor: "pointer",
+                    border: "1px solid",
+                    borderColor: "divider",
+                    bgcolor: "background.paper",
+                    transition: "border-color .12s, background-color .12s",
+                    outline: "none",
+                    "&:hover": { borderColor: "primary.main", bgcolor: "action.hover" },
+                    "&:focus-visible": { borderColor: "primary.main" },
+                  }}
+                >
+                  <Box sx={{ pt: 0.25 }}>
+                    <Handshake fontSize="small" color="primary" />
                   </Box>
-                </Typography>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Stack direction="row" alignItems="center" spacing={0.75} flexWrap="wrap">
+                      <Typography variant="body2" fontWeight={700}>
+                        Fixed-price job (maistry contract)
+                      </Typography>
+                      <Box
+                        component="span"
+                        sx={{
+                          fontSize: 10,
+                          fontWeight: 800,
+                          px: 0.7,
+                          py: 0.1,
+                          borderRadius: 999,
+                          bgcolor: "primary.main",
+                          color: "primary.contrastText",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Like Barun&apos;s
+                      </Box>
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
+                      <strong>Each day:</strong> Log the effort (worker types × count) to see labour value vs the agreed price.
+                    </Typography>
+                    <Box
+                      sx={{
+                        my: 0.5,
+                        px: 1,
+                        py: 0.5,
+                        borderRadius: 1,
+                        bgcolor: "action.hover",
+                        fontFamily: "monospace",
+                        fontSize: 11.5,
+                        color: "text.primary",
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      Mason ×2 · Helper ×2   →  ₹3,600
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                      <strong>The app tells you:</strong> Day Log, extras &amp; payments in one place — and whether you&apos;re ahead of or behind the price.
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                      <strong>Best for:</strong> A fixed lump-sum job you track by effort.
+                    </Typography>
+                  </Box>
+                  <EastRounded fontSize="small" color="action" sx={{ alignSelf: "center", flexShrink: 0 }} />
+                </Box>
               )}
+
+              {/* The two daily-tracking modes (no daily entry / count-by-role).
+                  "Full workspace (attendance + salary)" lives on the TRADE, not here. */}
+              <TrackingModeChooser value={choice} onChange={setChoice} allowDetailed={false} />
             </FormControl>
 
             <>

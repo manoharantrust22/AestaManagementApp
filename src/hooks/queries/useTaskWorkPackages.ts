@@ -191,3 +191,59 @@ export function useDeleteTaskWorkPackage() {
       invalidatePackage(queryClient, variables.siteId, variables.id),
   });
 }
+
+/**
+ * Convert a CLEAN fixed-price subcontract TASK into a task-work PACKAGE so it
+ * adopts the standardized Day-Log + Extras + Payments screen (like Barun's).
+ *
+ * Server-side (convert_subcontract_task_to_package RPC) inserts the package
+ * nested under the task's current parent and deletes the original task, all in
+ * one transaction. The RPC refuses if the task has children, attached packages,
+ * or any recorded day-entries / payments — `error.message` carries the reason.
+ *
+ * Returns the new package id, and refreshes BOTH the trade ladder (the task
+ * disappears) and the task-work caches (the package appears).
+ */
+export function useConvertTaskToPackage() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      subcontractId,
+    }: {
+      subcontractId: string;
+      siteId: string;
+    }): Promise<string> => {
+      await ensureFreshSession();
+      const supabase = createClient();
+      const { data, error } = await (supabase as any).rpc(
+        "convert_subcontract_task_to_package",
+        { p_subcontract_id: subcontractId }
+      );
+      if (error) throw error;
+      return data as string;
+    },
+    onSuccess: (_pkgId, variables) => {
+      const { siteId } = variables;
+      // Package side: new package + profitability.
+      invalidatePackage(queryClient, siteId);
+      // Trade ladder side: the converted task is gone — refresh the same keys
+      // the create/move flows use so the tree reflects it immediately.
+      queryClient.invalidateQueries({ queryKey: ["trades", "site", siteId] });
+      queryClient.invalidateQueries({
+        queryKey: ["trade-reconciliations", "site", siteId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["trade-activity", "site", siteId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["subcontracts", "site", siteId],
+      });
+      if (typeof BroadcastChannel !== "undefined") {
+        const bc = new BroadcastChannel("subcontracts-changed");
+        bc.postMessage({ siteId, at: Date.now() });
+        bc.close();
+      }
+    },
+  });
+}

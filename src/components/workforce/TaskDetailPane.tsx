@@ -21,6 +21,7 @@ import RequestQuoteRounded from "@mui/icons-material/RequestQuoteRounded";
 import MoreVert from "@mui/icons-material/MoreVert";
 import EditOutlined from "@mui/icons-material/EditOutlined";
 import DeleteOutline from "@mui/icons-material/DeleteOutline";
+import Handshake from "@mui/icons-material/Handshake";
 import type { ContractTier, WorkspaceTask } from "@/lib/workforce/workspaceModel";
 import type { ContractStatus } from "@/types/trade.types";
 import { modeMeta, tierMeta, wsColors, wsRadius, wsShadow } from "@/lib/workforce/workspaceTokens";
@@ -54,6 +55,7 @@ export function TaskDetailPane({
   onChangeMode,
   onEdit,
   onDelete,
+  onConvertToPackage,
   onOpenInDetails,
   canEdit,
   showBack = false,
@@ -68,6 +70,8 @@ export function TaskDetailPane({
   onEdit?: () => void;
   /** Opens the guarded delete dialog. */
   onDelete?: () => void;
+  /** Converts this leaf task into a fixed-price package (Day Log + Payments, like Barun's). */
+  onConvertToPackage?: () => void;
   onOpenInDetails?: () => void;
   canEdit: boolean;
   showBack?: boolean;
@@ -226,7 +230,7 @@ export function TaskDetailPane({
             <OpenInNew sx={{ fontSize: 18, color: wsColors.muted }} />
           </IconButton>
         )}
-        {canEdit && (onEdit || onDelete) && (
+        {canEdit && (onEdit || onDelete || onConvertToPackage) && (
           <>
             <IconButton size="small" onClick={(e) => setMenuAnchor(e.currentTarget)} title="More">
               <MoreVert sx={{ fontSize: 18, color: wsColors.muted }} />
@@ -243,6 +247,25 @@ export function TaskDetailPane({
                     <EditOutlined fontSize="small" />
                   </ListItemIcon>
                   <ListItemText primaryTypographyProps={{ fontSize: 14 }}>Edit details</ListItemText>
+                </MenuItem>
+              )}
+              {onConvertToPackage && (
+                <MenuItem
+                  onClick={() => {
+                    setMenuAnchor(null);
+                    onConvertToPackage();
+                  }}
+                >
+                  <ListItemIcon>
+                    <Handshake fontSize="small" sx={{ color: wsColors.primary }} />
+                  </ListItemIcon>
+                  <ListItemText
+                    primaryTypographyProps={{ fontSize: 14 }}
+                    secondaryTypographyProps={{ fontSize: 11.5 }}
+                    secondary="Day Log + payments, like Barun's"
+                  >
+                    Convert to fixed-price package
+                  </ListItemText>
                 </MenuItem>
               )}
               {onDelete && (
