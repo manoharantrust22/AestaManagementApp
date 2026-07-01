@@ -10,6 +10,9 @@ import {
   useSiteTradeWorkspaceUsage,
   useUpsertSiteTradeSetting,
 } from "@/hooks/queries/useSiteTradeSettings";
+import { useTradeContractSummaries } from "@/hooks/queries/useTradeContractSummary";
+import { QuickCreateContractDialog } from "@/components/trades/QuickCreateContractDialog";
+import { NoContractPrompt } from "./NoContractPrompt";
 
 /**
  * Per-site Trade Workspaces — turn each trade's WORKSPACE (attendance/salary/tea/
@@ -28,6 +31,11 @@ export default function SiteTradeWorkspacesManager({ siteId }: { siteId: string 
   const upsert = useUpsertSiteTradeSetting();
   const saving = upsert.isPending;
   const [error, setError] = useState("");
+
+  // Money summaries — to flag a trade whose Workspace is ON but has no detailed
+  // contract to record attendance against (and offer to create one inline).
+  const summaries = useTradeContractSummaries(siteId);
+  const [createCtx, setCreateCtx] = useState<{ tradeCategoryId: string; tradeName: string } | null>(null);
 
   // Only catalog-active trades are offered/workspaced anywhere — per-site control of a
   // retired trade is meaningless, so list the active catalog only.
@@ -65,6 +73,8 @@ export default function SiteTradeWorkspacesManager({ siteId }: { siteId: string 
     const ov = overrideMap.get(c.id);
     const effectiveWs = ov?.has_workspace ?? true;
     const effectiveOffered = ov?.is_offered ?? true;
+    const hasDetailedContract = summaries.byCategoryId.get(c.id)?.hasDetailedContract ?? false;
+    const showNoContractPrompt = effectiveWs && !hasDetailedContract;
     const usageRows = usageMap.get(c.id) ?? 0;
     const lockedOn = usageRows > 0;
     const wsDisabled = !canEdit || saving || (effectiveWs && lockedOn);
@@ -137,6 +147,10 @@ export default function SiteTradeWorkspacesManager({ siteId }: { siteId: string 
             </Tooltip>
           </Stack>
         </Stack>
+        <NoContractPrompt
+          show={showNoContractPrompt}
+          onCreate={() => setCreateCtx({ tradeCategoryId: c.id, tradeName: c.name })}
+        />
       </Card>
     );
   };
@@ -165,6 +179,19 @@ export default function SiteTradeWorkspacesManager({ siteId }: { siteId: string 
         </Typography>
       ) : (
         <Stack spacing={1}>{trades.map(renderCard)}</Stack>
+      )}
+
+      {createCtx && (
+        <QuickCreateContractDialog
+          open={!!createCtx}
+          onClose={() => setCreateCtx(null)}
+          onCreated={() => setCreateCtx(null)}
+          siteId={siteId}
+          tradeCategoryId={createCtx.tradeCategoryId}
+          tradeName={createCtx.tradeName}
+          tier="contract"
+          initialStatus="active"
+        />
       )}
     </Box>
   );
