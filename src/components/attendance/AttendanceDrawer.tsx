@@ -49,6 +49,7 @@ import {
   Info as InfoIcon,
   Settings as SettingsIcon,
   KeyboardArrowUp as CollapseIcon,
+  Engineering as EngineeringIcon,
 } from "@mui/icons-material";
 import { createClient } from "@/lib/supabase/client";
 import { ensureFreshSession } from "@/lib/auth/sessionManager";
@@ -63,6 +64,7 @@ import { useSiteGroup } from "@/hooks/queries/useSiteGroups";
 import { useGroupTeaShopAccount } from "@/hooks/queries/useGroupTeaShop";
 import { useQuery } from "@tanstack/react-query";
 import { useSubcontractMeta } from "@/hooks/queries/useSubcontractMeta";
+import { useTaskWorkPackages } from "@/hooks/queries/useTaskWorkPackages";
 import { scopedLaborerIds } from "@/lib/workforce/laborerScope";
 import AttendanceSaveConfirmDialog from "./AttendanceSaveConfirmDialog";
 import { WorkUpdatesSection } from "./work-updates";
@@ -115,6 +117,9 @@ interface SelectedLaborer {
   // Salary override
   salaryOverride: number | null;
   salaryOverrideReason: string;
+  // Optional link to the task-work package this laborer worked on that day.
+  // ATTRIBUTION ONLY — pay is unchanged; the package day-log derives from this.
+  taskWorkPackageId?: string | null;
 }
 
 // Extended to include time tracking and individual worker tracking
@@ -382,6 +387,43 @@ export default function AttendanceDrawer({
   // and excludes Civil — mirroring the attendance page's own gate.
   const tradeScopeActive =
     !!scopedContractId && !!scopeTradeId && meta.data?.trade_name !== "Civil";
+
+  // Active task-work packages for this site — power the "Working on" picker so the
+  // engineer can attribute a present laborer's day to a fixed-price contract. The
+  // package's day-log (worker-day counts + labour value) then derives from these
+  // assignments; pay is unchanged (attribution only).
+  const { data: activePackagesRaw = [] } = useTaskWorkPackages(siteId, "active");
+  const activePackages = useMemo(
+    () =>
+      (activePackagesRaw || []).map((p) => ({
+        id: p.id,
+        title: p.title,
+        laborCategoryId: p.labor_category_id ?? null,
+      })),
+    [activePackagesRaw]
+  );
+  const hasActivePackages = activePackages.length > 0;
+
+  // Bulk "assign whole crew to a package" — the dominant real-world case where one
+  // crew worked a single contract that day (per-laborer override still available).
+  const assignAllToPackage = (packageId: string | null) => {
+    setSelectedLaborers((prev) => {
+      const next = new Map(prev);
+      next.forEach((v, k) => next.set(k, { ...v, taskWorkPackageId: packageId }));
+      return next;
+    });
+  };
+
+  // Show all active packages, but float the ones matching this laborer's trade
+  // to the top so the likely choice is first.
+  const packagesForCategory = (categoryId: string | null) => {
+    if (!categoryId) return activePackages;
+    return [...activePackages].sort((a, b) => {
+      const am = a.laborCategoryId === categoryId ? 0 : 1;
+      const bm = b.laborCategoryId === categoryId ? 0 : 1;
+      return am - bm;
+    });
+  };
 
   // Historical attendees: labourers who already have attendance under this contract must
   // remain selectable even if their category_id changed — prevents silent disappearance.
@@ -702,7 +744,7 @@ export default function AttendanceDrawer({
       let attendanceQuery: any = supabase
         .from("daily_attendance")
         .select(
-          "laborer_id, work_days, daily_rate_applied, section_id, in_time, lunch_out, lunch_in, out_time, work_hours, break_hours, total_hours, day_units, entered_by, recorded_by_user_id, attendance_status, work_progress_percent, salary_override, salary_override_reason"
+          "laborer_id, work_days, daily_rate_applied, section_id, in_time, lunch_out, lunch_in, out_time, work_hours, break_hours, total_hours, day_units, entered_by, recorded_by_user_id, attendance_status, work_progress_percent, salary_override, salary_override_reason, task_work_package_id"
         )
         .eq("site_id", siteId)
         .eq("date", dateToLoad);
@@ -750,6 +792,7 @@ export default function AttendanceDrawer({
           dayUnits: record.day_units || 1,
           salaryOverride: record.salary_override ?? null,
           salaryOverrideReason: record.salary_override_reason || "",
+          taskWorkPackageId: record.task_work_package_id ?? null,
         });
         if (!loadedSectionId && record.section_id) {
           loadedSectionId = record.section_id;
@@ -1024,6 +1067,7 @@ export default function AttendanceDrawer({
           dayUnits: 1, // Default to Full Day
           salaryOverride: null,
           salaryOverrideReason: "",
+          taskWorkPackageId: null,
         });
       }
       return newMap;
@@ -1455,6 +1499,9 @@ export default function AttendanceDrawer({
             : wholeContract
             ? (scopedContractId ?? null)
             : null,
+          // Per-laborer task-work package assignment (attribution only — pay is
+          // unchanged). The package's day-log derives from this via DB trigger.
+          task_work_package_id: s.taskWorkPackageId ?? null,
           work_days: s.dayUnits,
           hours_worked: s.workHours || 0,
           daily_rate_applied: s.dailyRate,
@@ -2772,6 +2819,51 @@ export default function AttendanceDrawer({
                       </Button>
                     </Box>
 
+                    {/* Bulk assign — the fast path when the whole crew worked one
+                        contract that day. Acts as an action menu (value never
+                        sticks); per-laborer override still available on each card. */}
+                    {hasActivePackages && (
+                      <Box sx={{ mb: 1.5 }}>
+                        <FormControl size="small" fullWidth>
+                          <Select
+                            value=""
+                            displayEmpty
+                            onChange={(e) =>
+                              assignAllToPackage(
+                                e.target.value === ""
+                                  ? null
+                                  : (e.target.value as string)
+                              )
+                            }
+                            renderValue={() => (
+                              <Box
+                                sx={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 0.75,
+                                  color: "text.secondary",
+                                }}
+                              >
+                                <EngineeringIcon sx={{ fontSize: 16 }} />
+                                <Typography component="span" variant="body2">
+                                  Assign whole crew to a contract…
+                                </Typography>
+                              </Box>
+                            )}
+                          >
+                            <MenuItem value="">
+                              General site work (clear all)
+                            </MenuItem>
+                            {activePackages.map((p) => (
+                              <MenuItem key={p.id} value={p.id}>
+                                {p.title}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Box>
+                    )}
+
                     <Box
                       sx={{ display: "flex", flexDirection: "column", gap: 2 }}
                     >
@@ -2956,6 +3048,87 @@ export default function AttendanceDrawer({
                                   ))}
                                 </ToggleButtonGroup>
                               </Box>
+
+                              {/* Working on (contract) — attribute this laborer's
+                                  day to a task-work package. Attribution only:
+                                  pay is unchanged; the package day-log derives
+                                  from it. Only shown when the site has packages. */}
+                              {hasActivePackages && (
+                                <Box sx={{ mb: 1.5 }}>
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ mb: 0.5, display: "block" }}
+                                  >
+                                    WORKING ON (CONTRACT)
+                                  </Typography>
+                                  <FormControl size="small" fullWidth>
+                                    <Select
+                                      value={selection.taskWorkPackageId ?? ""}
+                                      displayEmpty
+                                      onChange={(e) =>
+                                        handleLaborerFieldChange(
+                                          selection.laborerId,
+                                          "taskWorkPackageId",
+                                          e.target.value === ""
+                                            ? null
+                                            : (e.target.value as string)
+                                        )
+                                      }
+                                      renderValue={(val) => {
+                                        if (!val)
+                                          return (
+                                            <Typography
+                                              component="span"
+                                              variant="body2"
+                                              color="text.disabled"
+                                            >
+                                              General site work
+                                            </Typography>
+                                          );
+                                        const pkg = activePackages.find(
+                                          (p) => p.id === val
+                                        );
+                                        return (
+                                          <Box
+                                            sx={{
+                                              display: "flex",
+                                              alignItems: "center",
+                                              gap: 0.75,
+                                            }}
+                                          >
+                                            <EngineeringIcon
+                                              sx={{ fontSize: 16, color: "info.main" }}
+                                            />
+                                            <Typography component="span" variant="body2">
+                                              {pkg?.title ?? "Contract"}
+                                            </Typography>
+                                          </Box>
+                                        );
+                                      }}
+                                    >
+                                      <MenuItem value="">General site work</MenuItem>
+                                      {packagesForCategory(laborer.category_id).map(
+                                        (p) => (
+                                          <MenuItem key={p.id} value={p.id}>
+                                            {p.title}
+                                          </MenuItem>
+                                        )
+                                      )}
+                                    </Select>
+                                  </FormControl>
+                                  {selection.taskWorkPackageId && (
+                                    <Typography
+                                      variant="caption"
+                                      color="text.secondary"
+                                      sx={{ mt: 0.5, display: "block" }}
+                                    >
+                                      Still paid their daily wage — this just records
+                                      their work against the contract.
+                                    </Typography>
+                                  )}
+                                </Box>
+                              )}
 
                               {/* Enable Custom Time button - Morning mode only */}
                               {mode === "morning" && (

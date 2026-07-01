@@ -11,7 +11,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { cacheTTL } from "@/lib/cache/keys";
-import { summarizeLines } from "@/lib/taskWork/dayLogCost";
+import { summarizeLines, dayLogValue } from "@/lib/taskWork/dayLogCost";
 import type { DayWorkerLine } from "@/types/taskWork.types";
 import type { ContractPresenceItem } from "@/lib/utils/contractPresenceUtils";
 
@@ -82,6 +82,7 @@ export function useContractPresenceForSites({
           units: num(r.man_days) || num(r.worker_count),
           workerSummary: summarizeLines(lines),
           tradeCategoryId: r.task_work_packages?.labor_category_id ?? null,
+          labourValue: dayLogValue({ worker_lines: lines }),
         });
       }
 
@@ -112,6 +113,7 @@ export function useContractPresenceForSites({
           units: agg.units,
           workerSummary: "",
           tradeCategoryId: agg.tradeCategoryId,
+          labourValue: 0,
         });
       }
 

@@ -118,7 +118,6 @@ import dayjs from "dayjs";
 import { useContractPresence } from "@/hooks/queries/useContractPresence";
 import { useSiteTrades } from "@/hooks/queries/useTrades";
 import {
-  formatContractWorkerCount,
   contractItemHref,
   filterContractPresenceToActivated,
   type ContractPresenceDay,
@@ -1368,69 +1367,166 @@ export default function TeaShopPage() {
 
                       if (item.type === "contract_no_tea") {
                         const cp = item.presence;
+                        const only = cp.items.length === 1 ? cp.items[0] : null;
+                        const itemsLabel = cp.items
+                          .map((it) => `${it.title} · ${Math.round(it.units)}`)
+                          .join("  •  ");
+                        // Rendered as a REGULAR-shaped row (same columns) with a
+                        // "Contract" differentiation + info left border, so the grid
+                        // stays one readable column set. No-tea is handled inline in
+                        // the amount cell (Add Tea), exactly like a regular no-tea day.
                         return (
-                          <TableRow key={`contract-no-tea-${item.date}`} sx={{ bgcolor: "info.50" }}>
+                          <TableRow
+                            key={`contract-no-tea-${item.date}`}
+                            sx={{ bgcolor: "info.50" }}
+                          >
+                            {/* Date + Contract tag */}
                             <TableCell
-                              colSpan={isInGroup ? 7 : 6}
                               sx={{
-                                py: 1.5,
+                                position: "sticky",
+                                left: 0,
+                                bgcolor: "info.50",
+                                zIndex: 1,
                                 borderLeft: 4,
                                 borderLeftColor: "info.main",
                               }}
                             >
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-                                <EngineeringIcon sx={{ color: "info.main", fontSize: 24 }} />
-                                <Typography variant="body2" fontWeight={600}>
+                              <Box>
+                                <Typography
+                                  variant="body2"
+                                  fontWeight={600}
+                                  sx={{ fontSize: { xs: "0.7rem", sm: "0.875rem" } }}
+                                >
                                   {dayjs(item.date).format("DD MMM")}
                                 </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {dayjs(item.date).format("dddd")}
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                  sx={{ display: { xs: "none", sm: "block" } }}
+                                >
+                                  {dayjs(item.date).format("ddd")}
                                 </Typography>
-                                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                                  Contract · {formatContractWorkerCount(cp.totalUnits)}
-                                </Typography>
-                                {/* One chip per contract/trade that worked the day — each
-                                    clickable through to its contract (no more "+N more"). */}
-                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
-                                  {cp.items.map((it) => (
-                                    <Tooltip
-                                      key={`${it.kind}-${it.id}`}
-                                      title={it.workerSummary ? `${it.title} · ${it.workerSummary}` : it.title}
-                                    >
-                                      <Chip
-                                        label={`${it.title} · ${Math.round(it.units)}`}
-                                        size="small"
-                                        color="info"
-                                        variant="outlined"
-                                        onClick={() => router.push(contractItemHref(it))}
-                                        sx={{
-                                          fontWeight: 600,
-                                          cursor: "pointer",
-                                          maxWidth: 260,
-                                          "& .MuiChip-label": { overflow: "hidden", textOverflow: "ellipsis" },
-                                        }}
-                                      />
-                                    </Tooltip>
-                                  ))}
-                                </Box>
                                 <Chip
-                                  label="No tea logged"
+                                  icon={<EngineeringIcon sx={{ fontSize: "13px !important" }} />}
+                                  label="Contract"
                                   size="small"
+                                  color="info"
                                   variant="outlined"
-                                  color="warning"
-                                  sx={{ fontWeight: 600 }}
+                                  sx={{ height: 18, fontSize: "0.6rem", mt: 0.25, fontWeight: 600 }}
                                 />
-                                {canEdit && (
-                                  <Button
+                              </Box>
+                            </TableCell>
+
+                            {/* Site (group mode) */}
+                            {isInGroup && (
+                              <TableCell>
+                                {selectedSite?.name && (
+                                  <Chip
+                                    label={
+                                      selectedSite.name.length > 12
+                                        ? selectedSite.name.slice(0, 10) + "..."
+                                        : selectedSite.name
+                                    }
                                     size="small"
-                                    variant="contained"
-                                    startIcon={<AddIcon />}
-                                    onClick={() => openAddEntry(item.date)}
-                                    sx={{ ml: "auto" }}
-                                  >
-                                    Add Tea
-                                  </Button>
+                                    variant="outlined"
+                                    sx={{ fontSize: "0.65rem", height: 20 }}
+                                  />
                                 )}
+                              </TableCell>
+                            )}
+
+                            {/* Att — Contract · N (clickable when single) */}
+                            <TableCell align="center">
+                              <Tooltip title={itemsLabel || "Contract work"}>
+                                <Chip
+                                  icon={<EngineeringIcon sx={{ fontSize: 16 }} />}
+                                  label={`Contract · ${Math.round(cp.totalUnits)}`}
+                                  size="small"
+                                  color="info"
+                                  variant="outlined"
+                                  onClick={
+                                    only
+                                      ? () => router.push(contractItemHref(only))
+                                      : undefined
+                                  }
+                                  sx={only ? { cursor: "pointer" } : undefined}
+                                />
+                              </Tooltip>
+                            </TableCell>
+
+                            {/* T&S amount — inline Add Tea (the no-tea state) */}
+                            <TableCell align="right">
+                              {canEdit ? (
+                                <Button
+                                  size="small"
+                                  variant="text"
+                                  startIcon={<AddIcon />}
+                                  onClick={() => openAddEntry(item.date)}
+                                  sx={{ minWidth: 0, px: 0.75, whiteSpace: "nowrap" }}
+                                >
+                                  Add Tea
+                                </Button>
+                              ) : (
+                                <Typography variant="caption" color="text.secondary">
+                                  No tea
+                                </Typography>
+                              )}
+                            </TableCell>
+
+                            {/* Paid */}
+                            <TableCell align="center">
+                              <Typography variant="caption" color="text.disabled">
+                                –
+                              </Typography>
+                            </TableCell>
+
+                            {/* By (md+ only) */}
+                            <TableCell
+                              align="center"
+                              sx={{ display: { xs: "none", md: "table-cell" } }}
+                            >
+                              <Typography variant="caption" color="text.disabled">
+                                –
+                              </Typography>
+                            </TableCell>
+
+                            {/* Actions — the contract(s) as clickable deep-links (view-only) */}
+                            <TableCell align="center">
+                              <Box
+                                sx={{
+                                  display: "flex",
+                                  gap: 0.5,
+                                  flexWrap: "wrap",
+                                  justifyContent: "center",
+                                }}
+                              >
+                                {cp.items.map((it) => (
+                                  <Tooltip
+                                    key={`${it.kind}-${it.id}`}
+                                    title={
+                                      it.workerSummary
+                                        ? `${it.title} · ${it.workerSummary}`
+                                        : it.title
+                                    }
+                                  >
+                                    <Chip
+                                      label={`${it.title} · ${Math.round(it.units)}`}
+                                      size="small"
+                                      color="info"
+                                      variant="outlined"
+                                      onClick={() => router.push(contractItemHref(it))}
+                                      sx={{
+                                        fontWeight: 600,
+                                        cursor: "pointer",
+                                        maxWidth: 180,
+                                        "& .MuiChip-label": {
+                                          overflow: "hidden",
+                                          textOverflow: "ellipsis",
+                                        },
+                                      }}
+                                    />
+                                  </Tooltip>
+                                ))}
                               </Box>
                             </TableCell>
                           </TableRow>

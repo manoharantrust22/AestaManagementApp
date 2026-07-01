@@ -173,10 +173,13 @@ import { useContractPresence } from "@/hooks/queries/useContractPresence";
 import {
   formatContractWorkerCount,
   formatContractDayLabel,
+  formatContractDayValue,
   contractItemHref,
   scopeContractPresence,
   type ContractPresenceDay,
+  type ContractPresenceItem,
 } from "@/lib/utils/contractPresenceUtils";
+import ContractDayActions from "@/components/attendance/ContractDayActions";
 
 type LaborerType = string;
 type DailyWorkSummary = Database["public"]["Tables"]["daily_work_summary"]["Row"];
@@ -241,49 +244,270 @@ function ContractPresenceList({ presence }: { presence: ContractPresenceDay }) {
   );
 }
 
-function ContractWorkRow({ presence }: { presence: ContractPresenceDay }) {
-  const theme = useTheme();
+// A muted em-dash for the columns a contract-only day doesn't populate
+// (Daily / Market / In / Out), so the grid still lines up with regular rows.
+function DashCell() {
   return (
-    <TableRow
-      sx={{
-        bgcolor: alpha(theme.palette.info.main, 0.06),
-        "&:hover": { bgcolor: alpha(theme.palette.info.main, 0.12) },
-      }}
-    >
-      <TableCell
-        colSpan={13}
-        sx={{ py: 1.25, borderLeft: 4, borderLeftColor: "info.main" }}
-      >
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-            <Typography variant="body2" fontWeight={700} sx={{ lineHeight: 1.2 }}>
-              {dayjs(presence.date).format("DD MMM")}
-              <Typography
-                component="span"
-                variant="caption"
-                color="text.secondary"
-                sx={{ ml: 1 }}
-              >
-                {dayjs(presence.date).format("ddd")}
+    <Typography variant="body2" color="text.disabled" component="span">
+      –
+    </Typography>
+  );
+}
+
+/** One clickable "Title · N" chip that deep-links to the contract. */
+function ContractWorkChip({
+  item,
+  onOpen,
+}: {
+  item: ContractPresenceItem;
+  onOpen: (item: ContractPresenceItem) => void;
+}) {
+  return (
+    <Tooltip title={item.workerSummary || item.title}>
+      <Chip
+        label={`${item.title} · ${Math.round(item.units)}`}
+        size="small"
+        color="info"
+        variant="outlined"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpen(item);
+        }}
+        sx={{
+          fontWeight: 600,
+          height: 22,
+          maxWidth: 240,
+          cursor: "pointer",
+        }}
+      />
+    </Tooltip>
+  );
+}
+
+/**
+ * A contract-only day rendered as a FULL grid row (same columns as a regular
+ * attendance row) so the sheet still shows the per-day money: worker count,
+ * estimated labour spend ("~₹ est"), tea, expense, and the work logged. A day
+ * with 2+ contracts is expandable to one sub-row per contract, mirroring how a
+ * regular row expands to per-laborer detail.
+ *
+ * Estimates are ROW-ONLY — they never feed the period-total strip.
+ */
+function ContractDayRow({
+  presence,
+  canEdit,
+  onOpenTea,
+}: {
+  presence: ContractPresenceDay;
+  canEdit: boolean;
+  onOpenTea: (date: string) => void;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const multi = presence.items.length > 1;
+
+  const openContract = (item: ContractPresenceItem) =>
+    router.push(contractItemHref(item));
+
+  const stickyBg = "info.50";
+  const rowSx = { bgcolor: "info.50" as const };
+  const tabular = { fontVariantNumeric: "tabular-nums" as const };
+
+  return (
+    <>
+      {/* Main (aggregate) row */}
+      <TableRow sx={rowSx}>
+        {/* 1. Expand — chevron only when there are multiple contracts */}
+        <TableCell
+          sx={{
+            width: 40,
+            minWidth: 40,
+            position: "sticky",
+            left: 0,
+            zIndex: 2,
+            bgcolor: stickyBg,
+            borderLeft: 4,
+            borderLeftColor: "info.main",
+          }}
+        >
+          {multi && (
+            <IconButton size="small" onClick={() => setOpen((v) => !v)}>
+              {open ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+            </IconButton>
+          )}
+        </TableCell>
+
+        {/* 2. Date + "Contract" tag */}
+        <TableCell
+          sx={{
+            position: "sticky",
+            left: 40,
+            zIndex: 2,
+            bgcolor: stickyBg,
+            minWidth: { xs: 80, sm: 120 },
+          }}
+        >
+          <Typography variant="body2" fontWeight={700} sx={{ lineHeight: 1.2 }}>
+            {dayjs(presence.date).format("DD MMM")}
+            <Typography
+              component="span"
+              variant="caption"
+              color="text.secondary"
+              sx={{ ml: 1 }}
+            >
+              {dayjs(presence.date).format("ddd")}
+            </Typography>
+          </Typography>
+          <Chip
+            icon={<EngineeringIcon sx={{ fontSize: "13px !important" }} />}
+            label="Contract"
+            size="small"
+            color="info"
+            variant="outlined"
+            sx={{ height: 18, fontSize: "0.62rem", mt: 0.25, fontWeight: 600 }}
+          />
+        </TableCell>
+
+        {/* 3. Daily */}
+        <TableCell align="center">
+          <DashCell />
+        </TableCell>
+        {/* 4. Contract count */}
+        <TableCell align="center">
+          <Chip
+            label={Math.round(presence.totalUnits)}
+            size="small"
+            color="info"
+            sx={{ height: 20, fontWeight: 700 }}
+          />
+        </TableCell>
+        {/* 5. Market */}
+        <TableCell align="center">
+          <DashCell />
+        </TableCell>
+        {/* 6. Total */}
+        <TableCell align="center">
+          <Typography variant="body2" fontWeight={700} sx={tabular}>
+            {Math.round(presence.totalUnits)}
+          </Typography>
+        </TableCell>
+        {/* 7. In */}
+        <TableCell align="center" sx={{ display: { xs: "none", md: "table-cell" } }}>
+          <DashCell />
+        </TableCell>
+        {/* 8. Out */}
+        <TableCell align="center" sx={{ display: { xs: "none", md: "table-cell" } }}>
+          <DashCell />
+        </TableCell>
+        {/* 9. Salary (estimated labour value) */}
+        <TableCell align="right">
+          <Tooltip title="Estimated labour value (Σ count × rate). Task work is fixed-price — this is an estimate, not a payment.">
+            <Typography variant="body2" color="text.secondary" sx={tabular}>
+              {formatContractDayValue(presence.totalValue)}
+            </Typography>
+          </Tooltip>
+        </TableCell>
+        {/* 10. Tea Shop — same "add" affordance as a regular no-tea day */}
+        <TableCell align="center">
+          {canEdit ? (
+            <Button
+              size="small"
+              variant="text"
+              startIcon={<AddIcon />}
+              onClick={() => onOpenTea(presence.date)}
+              sx={{ minWidth: 0, px: 0.75 }}
+            >
+              Tea
+            </Button>
+          ) : (
+            <DashCell />
+          )}
+        </TableCell>
+        {/* 11. Expense (est. = labour value; tea added when logged) */}
+        <TableCell align="right">
+          <Typography variant="body2" color="text.secondary" sx={tabular}>
+            {formatContractDayValue(presence.totalValue)}
+          </Typography>
+        </TableCell>
+        {/* 12. Work — the contract(s) logged */}
+        <TableCell sx={{ display: { xs: "none", md: "table-cell" } }}>
+          <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+            {presence.items.map((item, i) => (
+              <ContractWorkChip key={`${item.id}-${i}`} item={item} onOpen={openContract} />
+            ))}
+          </Box>
+        </TableCell>
+        {/* 13. Actions — single contract acts inline; multi acts per sub-row */}
+        <TableCell>
+          {!multi && presence.items[0] && (
+            <ContractDayActions item={presence.items[0]} canEdit={canEdit} />
+          )}
+        </TableCell>
+      </TableRow>
+
+      {/* Per-contract sub-rows when a day had multiple contracts */}
+      {multi &&
+        open &&
+        presence.items.map((item, i) => (
+          <TableRow key={`sub-${item.id}-${i}`} sx={{ bgcolor: "info.50", opacity: 0.96 }}>
+            <TableCell sx={{ position: "sticky", left: 0, zIndex: 2, bgcolor: stickyBg }} />
+            <TableCell sx={{ position: "sticky", left: 40, zIndex: 2, bgcolor: stickyBg, pl: 3 }}>
+              <Typography variant="caption" color="text.secondary">
+                {item.title}
               </Typography>
-            </Typography>
-            <Typography variant="caption" color="info.main" fontWeight={600}>
-              Contract work
-            </Typography>
-            {presence.items.length > 1 && (
+            </TableCell>
+            <TableCell align="center">
+              <DashCell />
+            </TableCell>
+            <TableCell align="center">
               <Chip
-                label={`${presence.items.length} contracts · ${formatContractWorkerCount(presence.totalUnits)}`}
+                label={Math.round(item.units)}
                 size="small"
                 color="info"
                 variant="outlined"
-                sx={{ fontWeight: 600, height: 20, fontSize: "0.7rem" }}
+                sx={{ height: 20, fontWeight: 700 }}
               />
-            )}
-          </Box>
-          <ContractPresenceList presence={presence} />
-        </Box>
-      </TableCell>
-    </TableRow>
+            </TableCell>
+            <TableCell align="center">
+              <DashCell />
+            </TableCell>
+            <TableCell align="center">
+              <Typography variant="body2" sx={tabular}>
+                {Math.round(item.units)}
+              </Typography>
+            </TableCell>
+            <TableCell align="center" sx={{ display: { xs: "none", md: "table-cell" } }}>
+              <DashCell />
+            </TableCell>
+            <TableCell align="center" sx={{ display: { xs: "none", md: "table-cell" } }}>
+              <DashCell />
+            </TableCell>
+            <TableCell align="right">
+              <Typography variant="body2" color="text.secondary" sx={tabular}>
+                {formatContractDayValue(item.labourValue)}
+              </Typography>
+            </TableCell>
+            <TableCell align="center">
+              <DashCell />
+            </TableCell>
+            <TableCell align="right">
+              <Typography variant="body2" color="text.secondary" sx={tabular}>
+                {formatContractDayValue(item.labourValue)}
+              </Typography>
+            </TableCell>
+            <TableCell sx={{ display: { xs: "none", md: "table-cell" } }}>
+              {item.workerSummary && (
+                <Typography variant="caption" color="text.secondary">
+                  {item.workerSummary}
+                </Typography>
+              )}
+            </TableCell>
+            <TableCell>
+              <ContractDayActions item={item} canEdit={canEdit} />
+            </TableCell>
+          </TableRow>
+        ))}
+    </>
   );
 }
 import dayjs from "dayjs";
@@ -4418,7 +4642,11 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
 
                       {/* Contract / task-work day (no attendance marked) */}
                       {entry.type === "contract_work" && (
-                        <ContractWorkRow presence={entry.presence} />
+                        <ContractDayRow
+                          presence={entry.presence}
+                          canEdit={canEdit}
+                          onOpenTea={handleOpenTeaShopDialog}
+                        />
                       )}
 
                       {/* Weekly separator strip */}

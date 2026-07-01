@@ -10,6 +10,8 @@
  * loaded by `useContractPresence`; the attendance sheet consumes both.
  */
 
+import type { TaskWorkDayLog } from "@/types/taskWork.types";
+
 export type ContractPresenceKind = "package" | "subcontract";
 
 export interface ContractPresenceItem {
@@ -24,6 +26,19 @@ export interface ContractPresenceItem {
   workerSummary: string;
   /** labor_categories.id of the package/subcontract's trade; null if unset. */
   tradeCategoryId: string | null;
+  /**
+   * Estimated labour VALUE for this contract on this date = Σ(count × rate) from
+   * the package day-log's worker_lines. 0 for headcount subcontracts / legacy
+   * logs with no per-type rates. Display-only (an estimate, never a payment).
+   */
+  labourValue: number;
+  /** site_id — needed to open/delete the package day-log. Package items only. */
+  siteId?: string;
+  /**
+   * The underlying package Day Log, so the attendance/tea rows can open the
+   * shared TaskWorkDayLogDialog in edit mode. Present for `kind: "package"` only.
+   */
+  dayLog?: TaskWorkDayLog | null;
 }
 
 export interface ContractPresenceDay {
@@ -31,6 +46,8 @@ export interface ContractPresenceDay {
   date: string;
   /** Σ units across the day's contracts (drives the "N workers" chip). */
   totalUnits: number;
+  /** Σ labourValue across the day's contracts (drives the est. Salary cell). */
+  totalValue: number;
   items: ContractPresenceItem[];
 }
 
@@ -55,7 +72,8 @@ export function scopeContractPresence(
     );
     if (items.length === 0) continue;
     const totalUnits = items.reduce((sum, i) => sum + i.units, 0);
-    out.set(date, { date: day.date, totalUnits, items });
+    const totalValue = items.reduce((sum, i) => sum + (i.labourValue || 0), 0);
+    out.set(date, { date: day.date, totalUnits, totalValue, items });
   }
   return out;
 }
@@ -89,7 +107,8 @@ export function filterContractPresenceToActivated(
     );
     if (items.length === 0) continue;
     const totalUnits = items.reduce((sum, i) => sum + i.units, 0);
-    out.set(date, { date: day.date, totalUnits, items });
+    const totalValue = items.reduce((sum, i) => sum + (i.labourValue || 0), 0);
+    out.set(date, { date: day.date, totalUnits, totalValue, items });
   }
   return out;
 }
@@ -120,4 +139,14 @@ export function formatContractWorkerSummary(day: ContractPresenceDay): string {
 export function contractItemHref(item: ContractPresenceItem): string {
   const param = item.kind === "package" ? "package" : "contract";
   return `/site/trades?${param}=${item.id}`;
+}
+
+/**
+ * Estimated labour value for a contract day, e.g. "~₹8,000 est".
+ * Returns "–" when there's no value (headcount subcontracts / legacy logs), so
+ * the Salary/Expense cells stay honest — this is an estimate, not a payment.
+ */
+export function formatContractDayValue(value: number): string {
+  if (!value || value <= 0) return "–";
+  return `~₹${Math.round(value).toLocaleString("en-IN")} est`;
 }

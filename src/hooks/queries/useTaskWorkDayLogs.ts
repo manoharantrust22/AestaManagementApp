@@ -50,6 +50,10 @@ function invalidate(
       queryKey: queryKeys.taskWork.profitabilityBySite(siteId),
     });
   }
+  // Contract "presence" powers the contract rows on /site/attendance and
+  // /site/tea-shop. Refresh it so a day-log edit here reflects there (and, via
+  // the attendance derivation trigger, the reverse path keeps them in sync too).
+  queryClient.invalidateQueries({ queryKey: ["contract-presence"] });
 }
 
 /**
@@ -77,6 +81,9 @@ export function useUpsertTaskWorkDayLog() {
             worker_note: input.worker_note ?? null,
             man_days,
             worker_lines: input.worker_lines,
+            // Hand-entered via the Log-a-day dialog: take manual control of this
+            // (package, date) so attendance derivation never overwrites it.
+            is_manual_override: true,
             recorded_by: userProfile?.id ?? null,
           },
           { onConflict: "package_id,log_date" }

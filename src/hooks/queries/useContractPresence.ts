@@ -16,8 +16,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { cacheTTL } from "@/lib/cache/keys";
-import { summarizeLines } from "@/lib/taskWork/dayLogCost";
-import type { DayWorkerLine } from "@/types/taskWork.types";
+import { summarizeLines, dayLogValue } from "@/lib/taskWork/dayLogCost";
+import type { DayWorkerLine, TaskWorkDayLog } from "@/types/taskWork.types";
 import type {
   ContractPresenceDay,
   ContractPresenceItem,
@@ -60,7 +60,7 @@ export function useContractPresence({
       // .from() on a cast client (same pattern as useTaskWorkDayLogs).
       let pkgQuery = (supabase.from("task_work_day_logs" as any) as any)
         .select(
-          "log_date, man_days, worker_count, worker_lines, package_id, task_work_packages!inner(title, labor_category_id)"
+          "id, log_date, man_days, worker_count, worker_lines, worker_note, is_manual_override, recorded_by, created_at, package_id, site_id, task_work_packages!inner(title, labor_category_id)"
         )
         .eq("site_id", siteId);
       if (from) pkgQuery = pkgQuery.gte("log_date", from);
@@ -87,9 +87,11 @@ export function useContractPresence({
 
       const addItem = (date: string, item: ContractPresenceItem) => {
         if (!date || item.units <= 0) return;
-        const day = byDate.get(date) ?? { date, totalUnits: 0, items: [] };
+        const day =
+          byDate.get(date) ?? { date, totalUnits: 0, totalValue: 0, items: [] };
         day.items.push(item);
         day.totalUnits += item.units;
+        day.totalValue += item.labourValue || 0;
         byDate.set(date, day);
       };
 
@@ -97,6 +99,21 @@ export function useContractPresence({
       for (const r of (pkgRes.data || []) as any[]) {
         const lines = (r.worker_lines as DayWorkerLine[] | null) ?? null;
         const units = num(r.man_days) || num(r.worker_count);
+        // Reconstruct the day-log so the attendance/tea rows can open the shared
+        // edit dialog without a second fetch.
+        const dayLog: TaskWorkDayLog = {
+          id: r.id,
+          package_id: r.package_id,
+          site_id: r.site_id,
+          log_date: r.log_date,
+          worker_count: num(r.worker_count),
+          worker_note: r.worker_note ?? null,
+          man_days: num(r.man_days),
+          worker_lines: lines,
+          is_manual_override: r.is_manual_override ?? true,
+          recorded_by: r.recorded_by ?? null,
+          created_at: r.created_at,
+        };
         addItem(r.log_date, {
           kind: "package",
           id: r.package_id,
@@ -104,6 +121,9 @@ export function useContractPresence({
           units,
           workerSummary: summarizeLines(lines),
           tradeCategoryId: r.task_work_packages?.labor_category_id ?? null,
+          labourValue: dayLogValue({ worker_lines: lines }),
+          siteId: r.site_id,
+          dayLog,
         });
       }
 
@@ -139,6 +159,8 @@ export function useContractPresence({
           units: agg.units,
           workerSummary: "",
           tradeCategoryId: agg.tradeCategoryId,
+          // Headcount subcontracts carry no per-type rates → no labour value.
+          labourValue: 0,
         });
       }
 

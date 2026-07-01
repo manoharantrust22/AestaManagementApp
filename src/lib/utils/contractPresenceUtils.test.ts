@@ -15,12 +15,14 @@ const pkg = (over: Partial<ContractPresenceItem> = {}): ContractPresenceItem => 
   units: 3,
   workerSummary: "Mason ×2 · Helper ×1",
   tradeCategoryId: null,
+  labourValue: 0,
   ...over,
 });
 
 const day = (items: ContractPresenceItem[]): ContractPresenceDay => ({
   date: "2026-06-19",
   totalUnits: items.reduce((s, i) => s + i.units, 0),
+  totalValue: items.reduce((s, i) => s + i.labourValue, 0),
   items,
 });
 
@@ -54,7 +56,7 @@ describe("contractPresenceUtils", () => {
     it("joins per-package breakdowns and skips blanks", () => {
       const d = day([
         pkg(),
-        { kind: "subcontract", id: "sc-1", title: "RCC", units: 2, workerSummary: "", tradeCategoryId: null },
+        { kind: "subcontract", id: "sc-1", title: "RCC", units: 2, workerSummary: "", tradeCategoryId: null, labourValue: 0 },
       ]);
       expect(formatContractWorkerSummary(d)).toBe("Mason ×2 · Helper ×1");
     });
@@ -71,6 +73,7 @@ describe("contractPresenceUtils", () => {
           units: 1,
           workerSummary: "",
           tradeCategoryId: null,
+          labourValue: 0,
         })
       ).toBe("/site/trades?contract=sc-9");
     });

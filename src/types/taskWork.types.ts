@@ -118,6 +118,9 @@ export interface TaskWorkDayLog {
   man_days: number;
   // Per-type breakdown. NULL/absent on legacy headcount-only rows.
   worker_lines: DayWorkerLine[] | null;
+  // true = hand-entered/edited (protected from attendance derivation);
+  // false = auto-derived from attendance task_work_package_id assignments.
+  is_manual_override: boolean;
   recorded_by: string | null;
   created_at: string;
 }

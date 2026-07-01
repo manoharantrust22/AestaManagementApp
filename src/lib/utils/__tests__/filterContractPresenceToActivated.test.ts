@@ -12,6 +12,7 @@ const item = (
   id: "id",
   title: "Contract",
   workerSummary: "",
+  labourValue: 0,
   ...over,
 });
 
@@ -21,6 +22,7 @@ function fixture(): Map<string, ContractPresenceDay> {
   m.set("2026-06-01", {
     date: "2026-06-01",
     totalUnits: 5,
+    totalValue: 0,
     items: [
       item({ id: "a1", tradeCategoryId: "t1", units: 3 }),
       item({ id: "a2", tradeCategoryId: "t2", units: 2 }),
@@ -30,12 +32,14 @@ function fixture(): Map<string, ContractPresenceDay> {
   m.set("2026-06-02", {
     date: "2026-06-02",
     totalUnits: 4,
+    totalValue: 0,
     items: [item({ id: "b1", tradeCategoryId: "t2", units: 4 })],
   });
   // Day C: an uncategorised (null trade) item (units 1).
   m.set("2026-06-03", {
     date: "2026-06-03",
     totalUnits: 1,
+    totalValue: 0,
     items: [item({ id: "c1", tradeCategoryId: null, units: 1 })],
   });
   return m;
