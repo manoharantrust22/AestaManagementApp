@@ -85,21 +85,31 @@ export function humanizeVendorType(type?: string | null): string | null {
 // Source → DirectoryEntry mapping
 // ---------------------------------------------------------------------------
 
-/** Map a technician row to a directory entry (also used live, post-mutation). */
+/**
+ * Map a `technicians` row to a directory entry (also used live, post-mutation).
+ *
+ * The same table backs both individual technicians and lightweight brand /
+ * manufacturer quick-contacts, discriminated by `contact_kind`. Brand rows map
+ * to their own `brand` source (own filter chip + card tag) and drop the
+ * technician-only fields (area, worked_with, secondary specialties) so a
+ * technician→brand switch doesn't surface stale data.
+ */
 export function technicianToEntry(t: TechnicianRow): DirectoryEntry {
+  const isBrand = t.contact_kind === "brand";
   return {
-    source: "technician",
-    id: `tech:${t.id}`,
+    source: isBrand ? "brand" : "technician",
+    id: isBrand ? `brand:${t.id}` : `tech:${t.id}`,
     name: t.name,
     phone: t.phone,
     whatsapp: t.whatsapp_number,
     email: t.email,
     trade: t.trade,
-    secondaryTrades: t.specialties ?? [],
-    area: t.area,
+    secondaryTrades: isBrand ? [] : t.specialties ?? [],
+    area: isBrand ? null : t.area,
     photoUrl: t.photo_url,
-    workedWith: t.worked_with,
+    workedWith: isBrand ? false : t.worked_with,
     notes: t.notes,
+    website: t.website ?? null,
     profileHref: null,
     rawTechnician: t,
   };
@@ -275,6 +285,7 @@ export function sourceCountsOf(
 ): Record<DirectorySource, number> {
   const counts: Record<DirectorySource, number> = {
     technician: 0,
+    brand: 0,
     laborer: 0,
     vendor: 0,
     mestri: 0,
@@ -296,6 +307,9 @@ export function tradeChipsOf(
 ): Array<{ key: string; label: string; count: number }> {
   const map = new Map<string, { label: string; count: number }>();
   for (const e of entries) {
+    // Brand contacts carry a product category, not a construction trade —
+    // keep them out of the trade rail (they have their own "Brands" chip).
+    if (e.source === "brand") continue;
     const labels = [e.trade, ...e.secondaryTrades].filter(Boolean) as string[];
     const seenForEntry = new Set<string>();
     for (const lab of labels) {

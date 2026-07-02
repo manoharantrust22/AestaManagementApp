@@ -688,7 +688,8 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3001/)",
       "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:3000\" -UseBasicParsing -TimeoutSec 5; \"UP: $\\($r.StatusCode\\)\" } catch { \"DOWN: $\\($_.Exception.Message\\)\" })",
       "PowerShell(\"started dev:cloud detached\")",
-      "Bash(git commit -m 'feat\\(attendance\\): exclude task-work laborers from the daily salary settlement *)"
+      "Bash(git commit -m 'feat\\(attendance\\): exclude task-work laborers from the daily salary settlement *)",
+      "Bash(git commit -m 'feat\\(directory\\): technicians contact_kind \\(brand quick-contacts\\) + website *)"
     ],
     "deny": [],
     "ask": [],

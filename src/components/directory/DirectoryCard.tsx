@@ -11,6 +11,7 @@ import {
   Groups as GroupsIcon,
   CheckCircle as CheckCircleIcon,
   Place as PlaceIcon,
+  Sell as SellIcon,
 } from "@mui/icons-material";
 import { ListRow } from "@/components/common/ListRow";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
@@ -19,6 +20,7 @@ import { SOURCE_META, type DirectoryEntry } from "@/types/directory.types";
 
 const SOURCE_ICON: Record<DirectoryEntry["source"], React.ReactNode> = {
   technician: <HandymanIcon />,
+  brand: <SellIcon />,
   laborer: <EngineeringIcon />,
   vendor: <StorefrontIcon />,
   mestri: <GroupsIcon />,

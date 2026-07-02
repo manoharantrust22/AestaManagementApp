@@ -26,6 +26,8 @@ function tech(partial: Partial<TechnicianRow> & { id: string; name: string }): T
     worked_with: partial.worked_with ?? false,
     photo_url: partial.photo_url ?? null,
     notes: partial.notes ?? null,
+    contact_kind: partial.contact_kind ?? "technician",
+    website: partial.website ?? null,
     is_active: partial.is_active ?? true,
     created_at: "2026-06-06T00:00:00Z",
     updated_at: "2026-06-06T00:00:00Z",
@@ -193,6 +195,41 @@ describe("normalizeDirectory dedupe", () => {
     });
     expect(out).toHaveLength(0);
   });
+
+  it("maps a brand contact to the brand source (own id, website, no technician-only fields)", () => {
+    const out = normalizeDirectory({
+      technicians: [
+        tech({
+          id: "b1",
+          name: "Asian Paints Customer Care",
+          contact_kind: "brand",
+          trade: "Paint",
+          website: "asianpaints.com",
+          // technician-only fields set on the row must NOT surface on a brand entry
+          specialties: ["ignored"],
+          area: "ignored",
+          worked_with: true,
+        }),
+      ],
+      laborers: [],
+      vendors: [],
+      teams: [],
+      categoryNameById,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      source: "brand",
+      id: "brand:b1",
+      trade: "Paint",
+      website: "asianpaints.com",
+      secondaryTrades: [],
+      area: null,
+      workedWith: false,
+      profileHref: null,
+    });
+    // still a technicians-table row → edit/delete hydrate from rawTechnician
+    expect(out[0].rawTechnician?.id).toBe("b1");
+  });
 });
 
 describe("sourceCountsOf + tradeChipsOf", () => {
@@ -224,5 +261,25 @@ describe("sourceCountsOf + tradeChipsOf", () => {
     const chips = tradeChipsOf(out);
     const elec = chips.find((c) => c.key === canonicalTrade("Electrician"));
     expect(elec?.count).toBe(2); // technician + laborer collapse into one chip
+  });
+
+  it("counts brand contacts and keeps their category out of the trade rail", () => {
+    const out = normalizeDirectory({
+      technicians: [
+        tech({ id: "t1", name: "A", trade: "Painter" }),
+        tech({ id: "b1", name: "Asian Paints", contact_kind: "brand", trade: "Paint" }),
+      ],
+      laborers: [],
+      vendors: [],
+      teams: [],
+      categoryNameById,
+    });
+    const counts = sourceCountsOf(out);
+    expect(counts.technician).toBe(1);
+    expect(counts.brand).toBe(1);
+    // "Paint" (brand product category) must not become a trade chip; "Painter" (technician) stays.
+    const chips = tradeChipsOf(out);
+    expect(chips.some((c) => c.key === canonicalTrade("Paint"))).toBe(false);
+    expect(chips.some((c) => c.key === canonicalTrade("Painter"))).toBe(true);
   });
 });

@@ -26,6 +26,8 @@ import {
   Engineering as EngineeringIcon,
   Storefront as StorefrontIcon,
   Groups as GroupsIcon,
+  Sell as SellIcon,
+  Language as LanguageIcon,
 } from "@mui/icons-material";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
 import { telHref, whatsappHref, mailtoHref } from "@/lib/utils/contact";
@@ -35,10 +37,19 @@ const WA_GREEN = "#25D366";
 
 const SOURCE_ICON: Record<DirectoryEntry["source"], React.ReactNode> = {
   technician: <HandymanIcon />,
+  brand: <SellIcon />,
   laborer: <EngineeringIcon />,
   vendor: <StorefrontIcon />,
   mestri: <GroupsIcon />,
 };
+
+/** Normalize a pasted website into an absolute, openable URL. */
+function websiteHref(url?: string | null): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
 
 interface ContactDetailDrawerProps {
   entry: DirectoryEntry | null;
@@ -175,6 +186,22 @@ export default function ContactDetailDrawer({
               {entry.area ? (
                 <DetailRow icon={<PlaceIcon fontSize="small" />} label="Area" value={entry.area} />
               ) : null}
+              {entry.website ? (
+                <DetailRow
+                  icon={<LanguageIcon fontSize="small" />}
+                  label="Website"
+                  value={
+                    <a
+                      href={websiteHref(entry.website) ?? undefined}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "inherit" }}
+                    >
+                      {entry.website}
+                    </a>
+                  }
+                />
+              ) : null}
 
               {entry.secondaryTrades.length > 0 ? (
                 <Box>
@@ -206,7 +233,7 @@ export default function ContactDetailDrawer({
 
           {/* Footer actions */}
           <Box sx={{ p: 2 }}>
-            {entry.source === "technician" ? (
+            {entry.source === "technician" || entry.source === "brand" ? (
               <Stack direction="row" spacing={1}>
                 <Button
                   fullWidth

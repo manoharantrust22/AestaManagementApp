@@ -13,14 +13,24 @@ import {
   Stack,
   Switch,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
 } from "@mui/material";
+import {
+  Handyman as HandymanIcon,
+  Storefront as StorefrontIcon,
+} from "@mui/icons-material";
 import { createClient } from "@/lib/supabase/client";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   useCreateTechnician,
   useUpdateTechnician,
 } from "@/hooks/queries/useTechnicians";
-import type { TechnicianFormData, TechnicianRow } from "@/types/directory.types";
+import type {
+  ContactKind,
+  TechnicianFormData,
+  TechnicianRow,
+} from "@/types/directory.types";
 import TechnicianPhotoField from "./TechnicianPhotoField";
 import { TradeAutocomplete, SpecialtiesAutocomplete } from "./TradeAutocomplete";
 
@@ -29,7 +39,9 @@ interface TechnicianFormDialogProps {
   onClose: () => void;
   editing: TechnicianRow | null;
   tradeOptions: string[];
-  onSaved?: () => void;
+  /** Kind to preselect when adding a new contact (ignored when editing). */
+  defaultKind?: ContactKind;
+  onSaved?: (kind: ContactKind) => void;
 }
 
 const EMPTY: TechnicianFormData = {
@@ -43,6 +55,8 @@ const EMPTY: TechnicianFormData = {
   worked_with: false,
   photo_url: null,
   notes: "",
+  contact_kind: "technician",
+  website: "",
 };
 
 export default function TechnicianFormDialog({
@@ -50,6 +64,7 @@ export default function TechnicianFormDialog({
   onClose,
   editing,
   tradeOptions,
+  defaultKind = "technician",
   onSaved,
 }: TechnicianFormDialogProps) {
   const isMobile = useIsMobile();
@@ -73,31 +88,44 @@ export default function TechnicianFormDialog({
         worked_with: editing.worked_with,
         photo_url: editing.photo_url,
         notes: editing.notes ?? "",
+        contact_kind: editing.contact_kind ?? "technician",
+        website: editing.website ?? "",
       });
     } else {
-      setForm(EMPTY);
+      setForm({ ...EMPTY, contact_kind: defaultKind });
     }
     setError("");
-  }, [open, editing]);
+  }, [open, editing, defaultKind]);
 
   const set = <K extends keyof TechnicianFormData>(
     key: K,
     value: TechnicianFormData[K]
   ) => setForm((f) => ({ ...f, [key]: value }));
 
+  const isBrand = form.contact_kind === "brand";
+  const noun = isBrand ? "brand contact" : "technician";
   const saving = createMut.isPending || updateMut.isPending;
 
   const handleSave = async () => {
     setError("");
     if (!form.name.trim()) {
-      setError("Name is required.");
+      setError(isBrand ? "Brand / company name is required." : "Name is required.");
       return;
     }
-    if (!form.phone?.trim() && !form.whatsapp_number?.trim()) {
+    const hasPhone = !!form.phone?.trim();
+    const hasWhatsapp = !!form.whatsapp_number?.trim();
+    const hasWebsite = !!form.website?.trim();
+    if (isBrand) {
+      if (!hasPhone && !hasWhatsapp && !hasWebsite) {
+        setError("Add a phone, WhatsApp, or website so you can reach this brand.");
+        return;
+      }
+    } else if (!hasPhone && !hasWhatsapp) {
       setError("Add a phone or WhatsApp number so you can reach them.");
       return;
     }
-    // Normalize empty strings to null for nullable columns.
+    // Normalize empty strings to null for nullable columns. For brand contacts,
+    // clear technician-only fields so a technician→brand switch leaves no stale data.
     const payload: TechnicianFormData = {
       ...form,
       name: form.name.trim(),
@@ -105,8 +133,11 @@ export default function TechnicianFormDialog({
       whatsapp_number: form.whatsapp_number?.trim() || null,
       email: form.email?.trim() || null,
       trade: form.trade?.trim() || null,
-      area: form.area?.trim() || null,
+      area: isBrand ? null : form.area?.trim() || null,
       notes: form.notes?.trim() || null,
+      website: form.website?.trim() || null,
+      specialties: isBrand ? [] : form.specialties,
+      worked_with: isBrand ? false : form.worked_with,
     };
     try {
       if (editing) {
@@ -114,10 +145,10 @@ export default function TechnicianFormDialog({
       } else {
         await createMut.mutateAsync(payload);
       }
-      onSaved?.();
+      onSaved?.(form.contact_kind);
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save technician.");
+      setError(e instanceof Error ? e.message : `Failed to save ${noun}.`);
     }
   };
 
@@ -129,14 +160,35 @@ export default function TechnicianFormDialog({
       fullWidth
       maxWidth="sm"
     >
-      <DialogTitle>{editing ? "Edit technician" : "Add technician"}</DialogTitle>
+      <DialogTitle>{editing ? `Edit ${noun}` : `Add ${noun}`}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2} sx={{ pt: 0.5 }}>
           {error ? <Alert severity="error">{error}</Alert> : null}
 
+          <ToggleButtonGroup
+            exclusive
+            fullWidth
+            size="small"
+            color="primary"
+            value={form.contact_kind}
+            onChange={(_, v) => {
+              if (v) set("contact_kind", v as ContactKind);
+            }}
+            aria-label="Contact kind"
+          >
+            <ToggleButton value="technician">
+              <HandymanIcon fontSize="small" sx={{ mr: 0.75 }} />
+              Technician
+            </ToggleButton>
+            <ToggleButton value="brand">
+              <StorefrontIcon fontSize="small" sx={{ mr: 0.75 }} />
+              Brand / company
+            </ToggleButton>
+          </ToggleButtonGroup>
+
           <TechnicianPhotoField
             currentPhotoUrl={form.photo_url}
-            name={form.name || "New technician"}
+            name={form.name || (isBrand ? "New brand" : "New technician")}
             technicianId={editing?.id}
             onPhotoChange={(url) => set("photo_url", url)}
             onError={(msg) => setError(msg)}
@@ -144,18 +196,19 @@ export default function TechnicianFormDialog({
           />
 
           <TextField
-            label="Name"
+            label={isBrand ? "Brand / company" : "Name"}
             required
             size="small"
             value={form.name}
             onChange={(e) => set("name", e.target.value)}
             autoFocus
             fullWidth
+            placeholder={isBrand ? "e.g. Asian Paints Customer Care" : undefined}
           />
 
           <Box sx={{ display: "flex", gap: 1.5, flexDirection: { xs: "column", sm: "row" } }}>
             <TextField
-              label="Phone"
+              label={isBrand ? "Enquiry / care number" : "Phone"}
               size="small"
               value={form.phone ?? ""}
               onChange={(e) => set("phone", e.target.value)}
@@ -176,25 +229,49 @@ export default function TechnicianFormDialog({
             value={form.trade}
             onChange={(v) => set("trade", v)}
             options={tradeOptions}
-            required
-            helperText="Not listed? Type it and tap “Add …” — it’s saved to your trades."
+            label={isBrand ? "Products / category" : "Trade"}
+            placeholder={
+              isBrand
+                ? "e.g. Paint, Cement, Tiles…"
+                : "e.g. Electrician, CCTV, Carpenter…"
+            }
+            required={!isBrand}
+            helperText={
+              isBrand
+                ? "What this brand supplies (optional)."
+                : "Not listed? Type it and tap “Add …” — it’s saved to your trades."
+            }
           />
 
-          <SpecialtiesAutocomplete
-            value={form.specialties}
-            onChange={(v) => set("specialties", v)}
-            options={tradeOptions}
-          />
+          {!isBrand ? (
+            <SpecialtiesAutocomplete
+              value={form.specialties}
+              onChange={(v) => set("specialties", v)}
+              options={tradeOptions}
+            />
+          ) : null}
 
           <Box sx={{ display: "flex", gap: 1.5, flexDirection: { xs: "column", sm: "row" } }}>
-            <TextField
-              label="Area / location served"
-              size="small"
-              value={form.area ?? ""}
-              onChange={(e) => set("area", e.target.value)}
-              fullWidth
-              placeholder="e.g. Velachery, Whole Chennai"
-            />
+            {isBrand ? (
+              <TextField
+                label="Website / order page"
+                size="small"
+                value={form.website ?? ""}
+                onChange={(e) => set("website", e.target.value)}
+                fullWidth
+                inputProps={{ inputMode: "url" }}
+                placeholder="e.g. asianpaints.com"
+              />
+            ) : (
+              <TextField
+                label="Area / location served"
+                size="small"
+                value={form.area ?? ""}
+                onChange={(e) => set("area", e.target.value)}
+                fullWidth
+                placeholder="e.g. Velachery, Whole Chennai"
+              />
+            )}
             <TextField
               label="Email (optional)"
               size="small"
@@ -213,18 +290,24 @@ export default function TechnicianFormDialog({
             fullWidth
             multiline
             minRows={2}
-            placeholder="Rate, quality, who referred them…"
+            placeholder={
+              isBrand
+                ? "Contact person, best time to call, product lines…"
+                : "Rate, quality, who referred them…"
+            }
           />
 
-          <FormControlLabel
-            control={
-              <Switch
-                checked={form.worked_with}
-                onChange={(e) => set("worked_with", e.target.checked)}
-              />
-            }
-            label="We've worked with them before"
-          />
+          {!isBrand ? (
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={form.worked_with}
+                  onChange={(e) => set("worked_with", e.target.checked)}
+                />
+              }
+              label="We've worked with them before"
+            />
+          ) : null}
         </Stack>
       </DialogContent>
       <DialogActions>
@@ -232,7 +315,7 @@ export default function TechnicianFormDialog({
           Cancel
         </Button>
         <Button variant="contained" onClick={handleSave} disabled={saving}>
-          {saving ? "Saving…" : editing ? "Save changes" : "Add technician"}
+          {saving ? "Saving…" : editing ? "Save changes" : `Add ${noun}`}
         </Button>
       </DialogActions>
     </Dialog>

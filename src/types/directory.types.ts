@@ -18,6 +18,9 @@
  * for `laborer_skills`), so the feature doesn't block on a types regen.
  */
 
+/** Contact kind stored on a `technicians` row. */
+export type ContactKind = "technician" | "brand";
+
 /** A row of the `technicians` table. */
 export interface TechnicianRow {
   id: string;
@@ -32,6 +35,10 @@ export interface TechnicianRow {
   worked_with: boolean;
   photo_url: string | null;
   notes: string | null;
+  /** technician (default) | brand (manufacturer/brand quick-contact). */
+  contact_kind: ContactKind;
+  /** Optional brand portal / support URL (mainly for brand contacts). */
+  website: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -50,9 +57,16 @@ export interface TechnicianFormData {
   worked_with: boolean;
   photo_url: string | null;
   notes: string | null;
+  contact_kind: ContactKind;
+  website: string | null;
 }
 
-export type DirectorySource = "technician" | "laborer" | "vendor" | "mestri";
+export type DirectorySource =
+  | "technician"
+  | "brand"
+  | "laborer"
+  | "vendor"
+  | "mestri";
 
 /** A normalized contact, regardless of its underlying source table. */
 export interface DirectoryEntry {
@@ -71,11 +85,13 @@ export interface DirectoryEntry {
   photoUrl: string | null;
   workedWith: boolean;
   notes: string | null;
-  /** Deep link to the source's own page; null for editable technicians. */
+  /** Brand portal / support URL (brand contacts only). */
+  website?: string | null;
+  /** Deep link to the source's own page; null for editable technicians/brands. */
   profileHref: string | null;
   /** A laborer who is also a team leader (counts as both laborer & mestri). */
   alsoMestri?: boolean;
-  /** Present only for `source === "technician"`, to hydrate the edit form. */
+  /** Present for `technicians`-table rows (`technician` & `brand`), to hydrate edit. */
   rawTechnician?: TechnicianRow;
 }
 
@@ -122,9 +138,14 @@ export const TECHNICIAN_TRADES: string[] = [
 /** Per-source display metadata (chip label + MUI color). */
 export const SOURCE_META: Record<
   DirectorySource,
-  { label: string; plural: string; color: "primary" | "info" | "secondary" | "warning" }
+  {
+    label: string;
+    plural: string;
+    color: "primary" | "info" | "secondary" | "warning" | "success";
+  }
 > = {
   technician: { label: "Technician", plural: "Technicians", color: "primary" },
+  brand: { label: "Brand", plural: "Brands", color: "success" },
   laborer: { label: "Laborer", plural: "Laborers", color: "info" },
   vendor: { label: "Vendor", plural: "Vendors", color: "secondary" },
   mestri: { label: "Mestri", plural: "Mestris", color: "warning" },

@@ -115,8 +115,12 @@ export async function getDirectoryPageData(): Promise<DirectoryPageData> {
     categoryNameById,
   });
 
-  // Technicians are served live via React Query; keep only the others here.
-  const entries = allEntries.filter((e) => e.source !== "technician");
+  // Technician & brand rows (both from the `technicians` table) are served live
+  // via React Query; keep only the read-only sources in the server entries so
+  // they don't render twice.
+  const entries = allEntries.filter(
+    (e) => e.source !== "technician" && e.source !== "brand"
+  );
 
   return {
     entries,

@@ -12,11 +12,19 @@ import {
   DialogContentText,
   DialogTitle,
   Fab,
+  ListItemIcon,
+  ListItemText,
+  Menu,
+  MenuItem,
   Snackbar,
   Stack,
   Typography,
 } from "@mui/material";
-import { Add as AddIcon } from "@mui/icons-material";
+import {
+  Add as AddIcon,
+  Handyman as HandymanIcon,
+  Storefront as StorefrontIcon,
+} from "@mui/icons-material";
 import PageHeader from "@/components/layout/PageHeader";
 import { FilterBar, type FilterChipDef } from "@/components/common/FilterBar";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -34,6 +42,7 @@ import {
 } from "@/lib/utils/directory";
 import {
   SOURCE_META,
+  type ContactKind,
   type DirectoryEntry,
   type DirectorySource,
   type DirectoryPageData,
@@ -44,6 +53,7 @@ import TechnicianFormDialog from "@/components/directory/TechnicianFormDialog";
 
 const SOURCE_ORDER: DirectorySource[] = [
   "technician",
+  "brand",
   "laborer",
   "mestri",
   "vendor",
@@ -72,13 +82,15 @@ export default function DirectoryContent({ initialData }: DirectoryContentProps)
   const [selectedTrades, setSelectedTrades] = useState<Set<string>>(new Set());
   const [sourceFilters, setSourceFilters] = useState<
     Record<DirectorySource, boolean>
-  >({ technician: true, laborer: true, vendor: true, mestri: true });
+  >({ technician: true, brand: true, laborer: true, vendor: true, mestri: true });
   const [workedWithOnly, setWorkedWithOnly] = useState(false);
   const [sort, setSort] = useState("name");
 
   const [detailEntry, setDetailEntry] = useState<DirectoryEntry | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<DirectoryEntry | null>(null);
+  const [addKind, setAddKind] = useState<ContactKind>("technician");
+  const [addMenuAnchor, setAddMenuAnchor] = useState<HTMLElement | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DirectoryEntry | null>(null);
   const [snack, setSnack] = useState("");
 
@@ -195,8 +207,10 @@ export default function DirectoryContent({ initialData }: DirectoryContentProps)
     });
   };
 
-  const openAdd = () => {
+  const openAdd = (kind: ContactKind) => {
     setEditing(null);
+    setAddKind(kind);
+    setAddMenuAnchor(null);
     setFormOpen(true);
   };
   const openEdit = (entry: DirectoryEntry) => {
@@ -221,11 +235,15 @@ export default function DirectoryContent({ initialData }: DirectoryContentProps)
     <Box sx={{ pb: { xs: 9, sm: 2 } }}>
       <PageHeader
         title="Directory"
-        subtitle="Find a trade and call — technicians, laborers, vendors & mestris."
+        subtitle="Find a trade and call — technicians, brands, laborers, vendors & mestris."
         actions={
           canEdit && !isMobile ? (
-            <Button variant="contained" startIcon={<AddIcon />} onClick={openAdd}>
-              Add technician
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={(e) => setAddMenuAnchor(e.currentTarget)}
+            >
+              Add contact
             </Button>
           ) : undefined
         }
@@ -303,13 +321,39 @@ export default function DirectoryContent({ initialData }: DirectoryContentProps)
       {canEdit && isMobile ? (
         <Fab
           color="primary"
-          onClick={openAdd}
+          onClick={(e) => setAddMenuAnchor(e.currentTarget)}
           sx={{ position: "fixed", bottom: 16, right: 16, zIndex: 1200 }}
-          aria-label="Add technician"
+          aria-label="Add contact"
         >
           <AddIcon />
         </Fab>
       ) : null}
+
+      {/* Add menu — technician vs brand contact */}
+      <Menu
+        anchorEl={addMenuAnchor}
+        open={!!addMenuAnchor}
+        onClose={() => setAddMenuAnchor(null)}
+      >
+        <MenuItem onClick={() => openAdd("technician")}>
+          <ListItemIcon>
+            <HandymanIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText
+            primary="Add technician"
+            secondary="A person you call for work"
+          />
+        </MenuItem>
+        <MenuItem onClick={() => openAdd("brand")}>
+          <ListItemIcon>
+            <StorefrontIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText
+            primary="Add brand contact"
+            secondary="A brand's enquiry / care line"
+          />
+        </MenuItem>
+      </Menu>
 
       <ContactDetailDrawer
         entry={detailEntry}
@@ -326,11 +370,24 @@ export default function DirectoryContent({ initialData }: DirectoryContentProps)
         onClose={() => setFormOpen(false)}
         editing={editing?.rawTechnician ?? null}
         tradeOptions={formTradeOptions}
-        onSaved={() => setSnack(editing ? "Saved changes" : "Technician added")}
+        defaultKind={addKind}
+        onSaved={(kind) =>
+          setSnack(
+            editing
+              ? "Saved changes"
+              : kind === "brand"
+                ? "Brand contact added"
+                : "Technician added"
+          )
+        }
       />
 
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
-        <DialogTitle>Remove technician?</DialogTitle>
+        <DialogTitle>
+          {deleteTarget?.source === "brand"
+            ? "Remove brand contact?"
+            : "Remove technician?"}
+        </DialogTitle>
         <DialogContent>
           <DialogContentText>
             {deleteTarget?.name} will be removed from the directory. This can be
