@@ -689,7 +689,8 @@
       "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:3000\" -UseBasicParsing -TimeoutSec 5; \"UP: $\\($r.StatusCode\\)\" } catch { \"DOWN: $\\($_.Exception.Message\\)\" })",
       "PowerShell(\"started dev:cloud detached\")",
       "Bash(git commit -m 'feat\\(attendance\\): exclude task-work laborers from the daily salary settlement *)",
-      "Bash(git commit -m 'feat\\(directory\\): technicians contact_kind \\(brand quick-contacts\\) + website *)"
+      "Bash(git commit -m 'feat\\(directory\\): technicians contact_kind \\(brand quick-contacts\\) + website *)",
+      "PowerShell($p = Get-NetTCP_Connection 2>$null; foreach \\($port in 3000,3001\\) { $r = Test-NetConnection -ComputerName 127.0.0.1 -Port $port -WarningAction SilentlyContinue -InformationLevel Quiet; \"port $port listening: $r\" })"
     ],
     "deny": [],
     "ask": [],

@@ -1533,6 +1533,40 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     weeksQuery.data?.pages,
   ]);
 
+  // Once the eager auto-paginate above has done its ~3 weeks, older worked weeks
+  // only load on demand. `combinedDateEntries` surfaces a single "Load earlier
+  // attendance" row at the boundary (attended dates the coverage RPC knows about
+  // but whose week hasn't been fetched); this handler pulls the next batch on
+  // click, walking past holiday-only weeks until it lands ones that actually
+  // carry attendance (or pages run out).
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const loadEarlierAttendance = useCallback(async () => {
+    if (loadingEarlier) return;
+    setLoadingEarlier(true);
+    try {
+      // Up to 8 weeks per click, stopping early once 4 of them had attendance —
+      // enough to visibly advance the sheet without an unbounded request burst.
+      let pagesTried = 0;
+      let weeksWithAttendance = 0;
+      while (pagesTried < 8 && weeksWithAttendance < 4) {
+        const result = await weeksQuery.fetchNextPage();
+        pagesTried += 1;
+        const pages = result.data?.pages ?? [];
+        const last = pages[pages.length - 1];
+        if (
+          last &&
+          (last.data.dailyAttendance.length > 0 ||
+            last.data.marketAttendance.length > 0)
+        ) {
+          weeksWithAttendance += 1;
+        }
+        if (!result.hasNextPage) break;
+      }
+    } finally {
+      setLoadingEarlier(false);
+    }
+  }, [weeksQuery, loadingEarlier]);
+
   // Track previous site ID to detect site changes and clear stale data
   const previousSiteIdRef = useRef<string | null>(null);
 
@@ -2116,6 +2150,37 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         presence: day,
       }));
 
+    // Attended days the DB knows about (coverage RPC, whole history) whose week
+    // hasn't lazily loaded yet. These would otherwise be INVISIBLE on the sheet:
+    // no attendance row (week not fetched) AND no unfilled/contract placeholder
+    // (coverage marks them attended, so those are suppressed above). Surface a
+    // single "Load earlier attendance" affordance at the boundary so they can be
+    // pulled in. Only meaningful when the loader still has pages to fetch.
+    const loadedAttendedDates = new Set(dateSummaries.map((s) => s.date));
+    let hiddenAttendedCount = 0;
+    let newestHiddenAttendedDate: string | null = null;
+    if (weeksQuery.hasNextPage) {
+      for (const d of attendanceCoverageSet) {
+        if (loadedAttendedDates.has(d)) continue;
+        if (effectiveStart && d < effectiveStart) continue;
+        if (effectiveEnd && d > effectiveEnd) continue;
+        hiddenAttendedCount += 1;
+        if (!newestHiddenAttendedDate || d > newestHiddenAttendedDate) {
+          newestHiddenAttendedDate = d;
+        }
+      }
+    }
+    const loadEarlierEntries =
+      hiddenAttendedCount > 0 && newestHiddenAttendedDate
+        ? [
+            {
+              type: "load_earlier" as const,
+              date: newestHiddenAttendedDate,
+              count: hiddenAttendedCount,
+            },
+          ]
+        : [];
+
     // Group consecutive unfilled dates
     const unfilledGroups = groupUnfilledDates(unfilledDates);
 
@@ -2159,7 +2224,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       );
 
     // Combine and sort by date descending
-    const combined = [...attendanceEntries, ...holidayGroupEntries, ...unfilledGroupEntries, ...contractWorkEntries].sort(
+    const combined = [...attendanceEntries, ...holidayGroupEntries, ...unfilledGroupEntries, ...contractWorkEntries, ...loadEarlierEntries].sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
 
@@ -2171,6 +2236,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       | { type: "holiday_group"; date: string; endDate: string; group: HolidayGroup }
       | { type: "unfilled_group"; date: string; endDate: string; group: UnfilledGroup }
       | { type: "contract_work"; date: string; presence: ContractPresenceDay }
+      | { type: "load_earlier"; date: string; count: number }
       | { type: "weekly_separator"; date: string; weeklySummary: WeeklySummary };
 
     const withWeeklySeparators: CombinedEntry[] = [];
@@ -2287,7 +2353,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     });
 
     return withWeeklySeparators;
-  }, [dateSummaries, scopedDateSummaries, scopedHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date, contractPresenceMap, attendanceCoverageSet, tradeScope]);
+  }, [dateSummaries, scopedDateSummaries, scopedHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date, contractPresenceMap, attendanceCoverageSet, tradeScope, weeksQuery.hasNextPage]);
 
   // Process initialData from server on first render
   useEffect(() => {
@@ -4533,6 +4599,94 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                   }}
                                 >
                                   {entry.group.reason}
+                                </Typography>
+                              )}
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      )}
+
+                      {/* "Load earlier attendance" — older worked weeks that
+                          haven't lazily loaded yet. Without this, those days are
+                          invisible (see combinedDateEntries). */}
+                      {entry.type === "load_earlier" && (
+                        <TableRow
+                          onClick={loadingEarlier ? undefined : loadEarlierAttendance}
+                          sx={{
+                            bgcolor: alpha(theme.palette.info.main, 0.06),
+                            "&:hover": {
+                              bgcolor: alpha(theme.palette.info.main, 0.12),
+                            },
+                            cursor: loadingEarlier ? "default" : "pointer",
+                          }}
+                        >
+                          <TableCell
+                            colSpan={13}
+                            sx={{
+                              py: 1.5,
+                              borderLeft: 4,
+                              borderLeftColor: "info.main",
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: { xs: 1, sm: 1.5 },
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              {loadingEarlier ? (
+                                <CircularProgress
+                                  size={20}
+                                  sx={{ color: "info.main" }}
+                                />
+                              ) : (
+                                <ExpandMore
+                                  sx={{
+                                    color: "info.main",
+                                    fontSize: { xs: 20, sm: 24 },
+                                  }}
+                                />
+                              )}
+                              <EventNote
+                                sx={{
+                                  color: "info.main",
+                                  fontSize: { xs: 20, sm: 24 },
+                                }}
+                              />
+                              <Typography
+                                variant="body2"
+                                fontWeight={600}
+                                sx={{ lineHeight: 1.2 }}
+                              >
+                                {loadingEarlier
+                                  ? "Loading earlier days…"
+                                  : "Earlier days with attendance"}
+                              </Typography>
+                              <Chip
+                                label={`${entry.count} ${
+                                  entry.count === 1 ? "day" : "days"
+                                }`}
+                                size="small"
+                                color="info"
+                                variant="outlined"
+                                sx={{
+                                  fontWeight: 600,
+                                  height: 22,
+                                  fontSize: "0.7rem",
+                                }}
+                              />
+                              {!loadingEarlier && (
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                  sx={{
+                                    ml: "auto",
+                                    display: { xs: "none", sm: "block" },
+                                  }}
+                                >
+                                  Click to load
                                 </Typography>
                               )}
                             </Box>
