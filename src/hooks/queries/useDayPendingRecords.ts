@@ -13,13 +13,14 @@
  * cannot feed the settlement payload — see `settlementAdapters.ts` for the
  * historical context.
  *
- * Contract-typed laborers are excluded from the `daily_attendance` slice to
- * mirror the `pending_da` CTE in `get_payments_ledger` (it filters on
- * `l.laborer_type <> 'contract'`). They settle via the Contract Settlement
- * waterfall flow, not the per-date Daily+Market dialog — letting them leak
- * in here causes the dialog total to diverge from the ledger row total and
- * trips the `daily_attendance` defensive trigger added 2026-05-20 when the
- * user confirms.
+ * Contract-typed laborers AND task-work-package rows (`task_work_package_id`
+ * IS NOT NULL) are excluded from the `daily_attendance` slice to mirror the
+ * `pending_da` CTE in `get_payments_ledger` (it filters on
+ * `l.laborer_type <> 'contract' AND d.task_work_package_id IS NULL`). Both
+ * settle via the Contract Settlement / contract page, not the per-date
+ * Daily+Market dialog — letting them leak in here causes the dialog total to
+ * diverge from the ledger row total and trips the `daily_attendance`
+ * defensive trigger added 2026-05-20 when the user confirms.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -115,7 +116,10 @@ export function useDayPendingRecords(
         .eq("site_id", siteId!)
         .eq("date", date!)
         .eq("is_paid", false)
-        .neq("laborers.laborer_type", "contract");
+        .neq("laborers.laborer_type", "contract")
+        // Task-work / contract-package laborers settle on the contract page, not
+        // the daily salary settlement — keep them out of the settleable set.
+        .is("task_work_package_id", null);
 
       const fetchMarket = laborerType === "daily" ? null : (
         supabase.from("market_laborer_attendance") as any

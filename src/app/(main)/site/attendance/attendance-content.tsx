@@ -931,10 +931,12 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         taskWorkLaborerCount: contract.filter((r) => r.task_work_package_id).length,
         marketLaborerCount: m.count,
         marketLaborerAmount: m.salary,
-        paidCount: daily.filter((r) => r.is_paid).length,
-        paidAmount: daily.filter((r) => r.is_paid).reduce((a, r) => a + r.daily_earnings, 0),
-        pendingCount: daily.filter((r) => !r.is_paid).length,
-        pendingAmount: daily.filter((r) => !r.is_paid).reduce((a, r) => a + r.daily_earnings, 0),
+        // Salary-settlement fields exclude task-work-package rows (they settle on
+        // the contract page); the breakdown amounts above still count everyone.
+        paidCount: daily.filter((r) => r.is_paid && !r.task_work_package_id).length,
+        paidAmount: daily.filter((r) => r.is_paid && !r.task_work_package_id).reduce((a, r) => a + r.daily_earnings, 0),
+        pendingCount: daily.filter((r) => !r.is_paid && !r.task_work_package_id).length,
+        pendingAmount: daily.filter((r) => !r.is_paid && !r.task_work_package_id).reduce((a, r) => a + r.daily_earnings, 0),
         // Tea scoped to the active trade's pool share from v_trade_tea_share.
         teaShop: (() => {
           const share = teaShareByDate?.get(s.date) ?? 0;
@@ -1272,9 +1274,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   // UnifiedSettlementConfig identical to the legacy inline IconButton path.
   const openDailySettlementDialog = useCallback((summary: DateSummary) => {
     const records: SettlementRecord[] = [
-      // Daily records
+      // Daily records — task-work-package rows settle on the contract page, so
+      // they are never part of the salary settlement set.
       ...summary.records
-        .filter((r) => !r.is_paid)
+        .filter((r) => !r.is_paid && !r.task_work_package_id)
         .map((r) => ({
           id: `daily-${r.id}`,
           sourceType: "daily" as const,
@@ -1308,10 +1311,16 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     ];
 
     const dailyLaborPending = summary.records
-      .filter((r) => !r.is_paid && r.laborer_type !== "contract")
+      .filter(
+        (r) =>
+          !r.is_paid && r.laborer_type !== "contract" && !r.task_work_package_id
+      )
       .reduce((sum, r) => sum + r.daily_earnings, 0);
     const contractLaborPending = summary.records
-      .filter((r) => !r.is_paid && r.laborer_type === "contract")
+      .filter(
+        (r) =>
+          !r.is_paid && r.laborer_type === "contract" && !r.task_work_package_id
+      )
       .reduce((sum, r) => sum + r.daily_earnings, 0);
     const marketLaborPending = summary.marketLaborers
       .filter((m) => !m.isPaid)
@@ -1777,7 +1786,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         existing.totalSalary += record.daily_earnings;
         existing.totalSnacks += record.snacks_amount || 0;
         existing.totalExpense = existing.totalSalary + existing.totalSnacks;
-        if (record.laborer_type !== "contract") {
+        // Salary-settlement scope: exclude contract-type AND task-work-package
+        // laborers (they settle on the contract page). Overview totals above
+        // still count everyone.
+        if (record.laborer_type !== "contract" && !record.task_work_package_id) {
           if (record.is_paid) {
             existing.paidCount++;
             existing.paidAmount += record.daily_earnings;
@@ -1817,18 +1829,16 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           amount: record.daily_earnings,
         };
 
-        const initialPaidCount =
-          record.laborer_type !== "contract" && record.is_paid ? 1 : 0;
-        const initialPendingCount =
-          record.laborer_type !== "contract" && !record.is_paid ? 1 : 0;
+        // Salary-settlement scope: exclude contract-type AND task-work-package
+        // laborers (they settle on the contract page).
+        const isSalarySettleable =
+          record.laborer_type !== "contract" && !record.task_work_package_id;
+        const initialPaidCount = isSalarySettleable && record.is_paid ? 1 : 0;
+        const initialPendingCount = isSalarySettleable && !record.is_paid ? 1 : 0;
         const initialPaidAmount =
-          record.laborer_type !== "contract" && record.is_paid
-            ? record.daily_earnings
-            : 0;
+          isSalarySettleable && record.is_paid ? record.daily_earnings : 0;
         const initialPendingAmount =
-          record.laborer_type !== "contract" && !record.is_paid
-            ? record.daily_earnings
-            : 0;
+          isSalarySettleable && !record.is_paid ? record.daily_earnings : 0;
 
         dateMap.set(record.date, {
           date: record.date,
@@ -2209,7 +2219,9 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           // Civil blends ALL named labour (unscoped); a trade scope reads only the
           // scoped named records so the weekly strip totals the trade, not the site.
           (tradeScope ? e.summary.records : (unscopedRecordsByDate.get(e.date) ?? e.summary.records)).forEach((r) => {
-            if (!r.is_paid) {
+            if (!r.is_paid && !r.task_work_package_id) {
+              // Task-work-package rows settle on the contract page — never in the
+              // weekly salary strip (daily or contract bucket).
               if (r.laborer_type === "contract") {
                 if (!isCurrentWeek) {
                   pendingContractSalary += r.daily_earnings;
@@ -2446,7 +2458,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         existing.totalSalary += record.daily_earnings;
         existing.totalSnacks += record.snacks_amount || 0;
         existing.totalExpense = existing.totalSalary + existing.totalSnacks;
-        if (record.laborer_type !== "contract") {
+        if (record.laborer_type !== "contract" && !record.task_work_package_id) {
           if (record.is_paid) { existing.paidCount++; existing.paidAmount += record.daily_earnings; }
           else { existing.pendingCount++; existing.pendingAmount += record.daily_earnings; }
         }
@@ -2462,8 +2474,9 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         const teaShop = teaShopMap.get(record.date);
         const categoryBreakdown: { [key: string]: { count: number; amount: number } } = {};
         categoryBreakdown[record.category_name] = { count: 1, amount: record.daily_earnings };
-        const initialPaidCount = record.laborer_type !== "contract" && record.is_paid ? 1 : 0;
-        const initialPendingCount = record.laborer_type !== "contract" && !record.is_paid ? 1 : 0;
+        const isSalarySettleable = record.laborer_type !== "contract" && !record.task_work_package_id;
+        const initialPaidCount = isSalarySettleable && record.is_paid ? 1 : 0;
+        const initialPendingCount = isSalarySettleable && !record.is_paid ? 1 : 0;
         dateMap.set(record.date, {
           date: record.date, records: [record], marketLaborers: market?.expandedRecords || [],
           dailyLaborerCount: record.laborer_type !== "contract" ? 1 : 0,
@@ -2478,8 +2491,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           contractLaborerAmount: record.laborer_type === "contract" ? record.daily_earnings : 0,
           marketLaborerAmount: market?.salary || 0,
           paidCount: initialPaidCount, pendingCount: initialPendingCount,
-          paidAmount: record.laborer_type !== "contract" && record.is_paid ? record.daily_earnings : 0,
-          pendingAmount: record.laborer_type !== "contract" && !record.is_paid ? record.daily_earnings : 0,
+          paidAmount: isSalarySettleable && record.is_paid ? record.daily_earnings : 0,
+          pendingAmount: isSalarySettleable && !record.is_paid ? record.daily_earnings : 0,
           workDescription: workSummary?.work_description || null, workStatus: workSummary?.work_status || null,
           comments: workSummary?.comments || null,
           workUpdates: ((workSummary as DailyWorkSummary & { work_updates?: unknown })?.work_updates as unknown as WorkUpdates) || null,
