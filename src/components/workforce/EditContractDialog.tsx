@@ -102,9 +102,19 @@ export default function EditContractDialog({ open, onClose, siteId, task, onSave
     };
   }, [open, task.id, supabase]);
 
+  // A crew-less plan can't be activated here — the crew is required at handover.
+  // (The DB's contract_party_check enforces this too; this is the friendly guard.)
+  const crewless = !task.isInHouse && !task.teamId && !task.laborerId;
+
   const handleSave = async () => {
     if (!title.trim()) {
       setError("Give the contract a title.");
+      return;
+    }
+    if (crewless && status !== "draft" && status !== "cancelled") {
+      setError(
+        'This plan has no crew yet — use "Hand to crew" on the contract page to pick one and activate it.'
+      );
       return;
     }
     setSaving(true);
@@ -139,7 +149,13 @@ export default function EditContractDialog({ open, onClose, siteId, task, onSave
       onSaved?.();
       onClose();
     } catch (e: any) {
-      setError(e?.message ?? "Failed to save the contract.");
+      if (e?.code === "23514") {
+        setError(
+          'This plan has no crew yet — use "Hand to crew" on the contract page to pick one and activate it.'
+        );
+      } else {
+        setError(e?.message ?? "Failed to save the contract.");
+      }
     } finally {
       setSaving(false);
     }

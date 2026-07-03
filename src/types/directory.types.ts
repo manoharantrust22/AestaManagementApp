@@ -89,6 +89,8 @@ export interface DirectoryEntry {
   notes: string | null;
   /** Brand portal / support URL (brand contacts only). */
   website?: string | null;
+  /** vendors.vendor_type — present for vendor entries (drives convert-to-laborer copy). */
+  vendorType?: string | null;
   /** Deep link to the source's own page; null for editable technicians/brands. */
   profileHref: string | null;
   /** A laborer who is also a team leader (counts as both laborer & mestri). */

@@ -276,6 +276,9 @@ export default function VendorDialog({
     }
   }, [open, vendor]);
 
+  // A person (helper, small-job worker) — business-only sections don't apply.
+  const isIndividual = formData.vendor_type === "individual";
+
   const handleChange = (field: keyof VendorFormData, value: unknown) => {
     updateField(field, value as VendorFormData[typeof field]);
     setError("");
@@ -713,6 +716,7 @@ export default function VendorDialog({
               onChange={(e) => handleChange("email", e.target.value)}
             />
           </Grid>
+          {!isIndividual && (
           <Grid size={12}>
             <TextField
               fullWidth
@@ -762,6 +766,7 @@ export default function VendorDialog({
               }}
             />
           </Grid>
+          )}
         </Grid>
 
         {/* ---------------- Location (always visible) ---------------- */}
@@ -987,8 +992,8 @@ export default function VendorDialog({
             </Accordion>
           )}
 
-          {/* Services & delivery — hidden for rental vendors */}
-          {formData.vendor_type !== "rental_store" && (
+          {/* Services & delivery — hidden for rental vendors and individuals */}
+          {formData.vendor_type !== "rental_store" && !isIndividual && (
             <Accordion
               expanded={servicesExpanded}
               onChange={(_, v) => setServicesExpanded(v)}
@@ -1093,7 +1098,8 @@ export default function VendorDialog({
             </Accordion>
           )}
 
-          {/* Tax & payment */}
+          {/* Tax & payment — hidden for individuals (no GST/credit for a person) */}
+          {!isIndividual && (
           <Accordion
             expanded={taxDetailsExpanded}
             onChange={(_, v) => setTaxDetailsExpanded(v)}
@@ -1211,6 +1217,7 @@ export default function VendorDialog({
               </Grid>
             </AccordionDetails>
           </Accordion>
+          )}
 
           {/* Bank & UPI */}
           <Accordion

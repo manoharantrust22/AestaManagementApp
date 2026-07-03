@@ -24,7 +24,8 @@ interface ChangeTrackingModeDialogProps {
   contractId: string;
   contractTitle: string;
   currentMode: Mode;
-  tradeCategoryId: string;
+  /** Kept for caller compatibility — no longer used (headcount seeding removed). */
+  tradeCategoryId?: string;
   /** Trade name — lets the chooser hide the Civil-only "detailed" card elsewhere. */
   tradeName?: string;
 }
@@ -37,14 +38,13 @@ interface Counts {
 }
 
 /**
- * Lets an admin change a contract's labor_tracking_mode after creation.
+ * One-way exit to payments-only: lets an admin move a grandfathered
+ * headcount/mid/detailed contract to "Just record payments". Switching INTO
+ * headcount is no longer offered (daily labour lives on /site/attendance).
  *
  * Safety: blocks the switch if entries already exist for the OLD mode that
  * would lose meaning under the NEW mode (e.g., headcount entries don't
- * apply in detailed mode). User must delete those entries first.
- *
- * Side-effect: switching INTO headcount mode seeds default role rates from
- * labor_roles.default_daily_rate (matches QuickCreateContractDialog).
+ * apply in payments-only mode). User must delete those entries first.
  */
 export function ChangeTrackingModeDialog({
   open,
@@ -52,7 +52,6 @@ export function ChangeTrackingModeDialog({
   contractId,
   contractTitle,
   currentMode,
-  tradeCategoryId,
 }: ChangeTrackingModeDialogProps) {
   const queryClient = useQueryClient();
   const supabase = createClient();
@@ -128,39 +127,13 @@ export function ChangeTrackingModeDialog({
     try {
       const sb = supabase as any;
 
-      // 1. Update labor_tracking_mode
+      // Headcount/mid are no longer offered as targets (one-way exit to
+      // payments-only), so this is just the mode update — no rate seeding.
       const { error: e1 } = await sb
         .from("subcontracts")
         .update({ labor_tracking_mode: target })
         .eq("id", contractId);
       if (e1) throw e1;
-
-      // 2. If switching INTO headcount, seed role rates from labor_roles
-      //    (skip if rates already exist — re-entering headcount preserves
-      //    previously edited rates).
-      if (target === "headcount") {
-        const { data: existing } = await sb
-          .from("subcontract_role_rates")
-          .select("role_id")
-          .eq("subcontract_id", contractId);
-        if (!existing || existing.length === 0) {
-          const { data: roles } = await sb
-            .from("labor_roles")
-            .select("id, default_daily_rate")
-            .eq("trade_category_id", tradeCategoryId);
-          if (roles && roles.length > 0) {
-            const seed = roles.map((r: any) => ({
-              subcontract_id: contractId,
-              role_id: r.id,
-              daily_rate: r.default_daily_rate ?? 0,
-            }));
-            const { error: e2 } = await sb
-              .from("subcontract_role_rates")
-              .insert(seed);
-            if (e2) throw e2;
-          }
-        }
-      }
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["trades"] }),
@@ -221,9 +194,7 @@ export function ChangeTrackingModeDialog({
 
         {!blockedReason && target !== currentMode && counts && (
           <Alert severity="info" sx={{ mt: 2 }}>
-            {target === "headcount"
-              ? "Default role rates will be seeded from the trade's role catalog. You can edit them right after."
-              : "Changing modes preserves existing payment ledger entries."}
+            Changing modes preserves existing payment ledger entries.
           </Alert>
         )}
 

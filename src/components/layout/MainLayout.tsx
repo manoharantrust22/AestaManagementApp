@@ -79,6 +79,7 @@ import {
   SmartToy as SmartToyIcon,
   CalculateRounded as CalculateRoundedIcon,
   FactCheck as FactCheckIcon,
+  SquareFoot as SquareFootIcon,
 } from "@mui/icons-material";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
@@ -206,6 +207,7 @@ const siteNavCategories: NavCategory[] = [
     emoji: "🏗️",
     items: [
       { text: "Daily Checklist", icon: <FactCheckIcon />, path: "/site/checklist" },
+      { text: "Spaces", icon: <SquareFootIcon />, path: "/site/spaces" },
       { text: "Daily Work Log", icon: <NotesIcon />, path: "/site/work-log" },
       { text: "Site Reports", icon: <AssessmentIcon />, path: "/site/reports" },
     ],

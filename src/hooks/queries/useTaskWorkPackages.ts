@@ -210,15 +210,32 @@ export function useConvertTaskToPackage() {
   return useMutation({
     mutationFn: async ({
       subcontractId,
+      maistryLaborerId,
+      maistryName,
+      status,
+      totalValue,
     }: {
       subcontractId: string;
       siteId: string;
+      /** Handover: the maistry who takes the package (else keep the task's laborer). */
+      maistryLaborerId?: string | null;
+      maistryName?: string | null;
+      /** Handover: set 'active' to activate on conversion (else keep the task's status). */
+      status?: "draft" | "active" | "on_hold" | "completed" | "cancelled";
+      /** Handover: the bargained total (else keep the task's total_value). */
+      totalValue?: number | null;
     }): Promise<string> => {
       await ensureFreshSession();
       const supabase = createClient();
       const { data, error } = await (supabase as any).rpc(
         "convert_subcontract_task_to_package",
-        { p_subcontract_id: subcontractId }
+        {
+          p_subcontract_id: subcontractId,
+          p_maistry_laborer_id: maistryLaborerId ?? null,
+          p_maistry_name: maistryName ?? null,
+          p_status: status ?? null,
+          p_total_value: totalValue ?? null,
+        }
       );
       if (error) throw error;
       return data as string;

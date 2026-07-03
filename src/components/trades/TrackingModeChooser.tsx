@@ -3,13 +3,15 @@
 import { Box, Stack, Typography, Radio } from "@mui/material";
 import type { SvgIconComponent } from "@mui/icons-material";
 import Payments from "@mui/icons-material/Payments";
-import Groups from "@mui/icons-material/Groups";
 import FactCheck from "@mui/icons-material/FactCheck";
 import type { LaborTrackingMode } from "@/types/trade.types";
 
 /**
- * A labour-tracking mode. Three clear choices, in order of how much daily work they ask of you.
- * (Fixed-price maistry packages are created through their own handoff, not as a mode here.)
+ * A labour-tracking mode. New contracts/sections/tasks are always payments-only
+ * ("mesthri_only") — daily labour is logged on /site/attendance, not per-node.
+ * `headcount`/`mid` remain valid DB values on grandfathered rows, but are no
+ * longer offered as targets here, so the chooser is effectively a one-way exit
+ * out of those modes.
  */
 export type TrackingChoice = LaborTrackingMode;
 
@@ -29,9 +31,6 @@ interface OptionDef {
   bestFor: string;
 }
 
-// The three ways to handle a job, lightest → fullest. Available for every trade —
-// not just Civil — so Electrical / Painting / Tiling / Fabrication can run the same
-// machinery when they need it.
 const OPTIONS: OptionDef[] = [
   {
     key: "mesthri_only",
@@ -41,16 +40,6 @@ const OPTIONS: OptionDef[] = [
     sample: "Paid ₹20,000 · advance · 12 Jun",
     tells: "Quoted vs Paid only (won't flag if the price was unfair).",
     bestFor: "A fixed price you trust.",
-  },
-  {
-    key: "headcount",
-    icon: Groups,
-    badge: "Most used",
-    title: "Count labourers by role",
-    daily: "Tap how many came, by role.",
-    sample: "Mason ×3    Helper ×2",
-    tells: "“Today ≈ ₹4,100 of work” → at the end: over- or under-paid?",
-    bestFor: "You pay per head, with set roles.",
   },
   {
     key: "detailed",

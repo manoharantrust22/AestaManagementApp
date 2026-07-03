@@ -102,9 +102,9 @@ export default function VendorDetailsPage() {
     }
   };
 
-  // Service badges
+  // Service badges — not applicable to individuals (a person, not a business)
   const serviceBadges = useMemo(() => {
-    if (!vendor) return [];
+    if (!vendor || vendor.vendor_type === "individual") return [];
     const badges = [];
     if (vendor.provides_transport) badges.push({ label: "Transport", icon: <ShippingIcon fontSize="small" /> });
     if (vendor.provides_loading) badges.push({ label: "Loading", icon: <CheckIcon fontSize="small" /> });
@@ -382,7 +382,7 @@ export default function VendorDetailsPage() {
                 </Box>
               )}
 
-              {vendor.gst_number && (
+              {vendor.gst_number && vendor.vendor_type !== "individual" && (
                 <Typography variant="body2">
                   <strong>GST:</strong> {vendor.gst_number}
                 </Typography>
@@ -415,7 +415,8 @@ export default function VendorDetailsPage() {
       {/* Tab Panels */}
       <TabPanel value={tabValue} index={0}>
         <Grid container spacing={2}>
-          {/* Payment Info */}
+          {/* Payment Info — terms/credit don't apply to an individual person */}
+          {vendor.vendor_type !== "individual" && (
           <Grid size={{ xs: 12, md: 6 }}>
             <Paper variant="outlined" sx={{ p: 2 }}>
               <Typography variant="subtitle2" gutterBottom>
@@ -476,6 +477,7 @@ export default function VendorDetailsPage() {
               </Stack>
             </Paper>
           </Grid>
+          )}
 
           {/* Bank Details */}
           {vendor.bank_name && (

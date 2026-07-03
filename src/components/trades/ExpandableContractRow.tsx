@@ -254,17 +254,21 @@ export function ExpandableContractRow({
         onClose={() => setMenuAnchor(null)}
         onClick={(e) => e.stopPropagation()}
       >
-        <MenuItem
-          onClick={() => {
-            setMenuAnchor(null);
-            setChangeModeOpen(true);
-          }}
-        >
-          <ListItemIcon>
-            <TuneIcon fontSize="small" color="primary" />
-          </ListItemIcon>
-          <ListItemText>Change tracking mode</ListItemText>
-        </MenuItem>
+        {/* Only an exit from grandfathered modes — payments-only rows have
+            nowhere to switch to (headcount is no longer offered). */}
+        {contract.laborTrackingMode !== "mesthri_only" && (
+          <MenuItem
+            onClick={() => {
+              setMenuAnchor(null);
+              setChangeModeOpen(true);
+            }}
+          >
+            <ListItemIcon>
+              <TuneIcon fontSize="small" color="primary" />
+            </ListItemIcon>
+            <ListItemText>Change tracking mode</ListItemText>
+          </MenuItem>
+        )}
         {contract.laborTrackingMode === "headcount" && (
           <MenuItem
             onClick={() => {
@@ -367,17 +371,19 @@ export function ExpandableContractRow({
                   {MODE_LABEL[contract.laborTrackingMode] ?? contract.laborTrackingMode}
                 </Typography>
               </Box>
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<TuneIcon />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setChangeModeOpen(true);
-                }}
-              >
-                Change mode
-              </Button>
+              {contract.laborTrackingMode !== "mesthri_only" && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<TuneIcon />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setChangeModeOpen(true);
+                  }}
+                >
+                  Change mode
+                </Button>
+              )}
             </Stack>
 
             {contract.laborTrackingMode === "headcount" && (

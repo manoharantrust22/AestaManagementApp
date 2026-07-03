@@ -94,12 +94,10 @@ export default function TradesPage() {
   } | null>(null);
 
   // Fixed-price packages now open IN-PANE (PackageDetailPane via WorkspaceLayout);
-  // the page only owns the create/edit dialog.
+  // the page only owns the EDIT dialog. New packages come from converting a
+  // payments-only task ("hand to crew") or the Task Work module.
   const [editingPkg, setEditingPkg] = useState<TaskWorkPackage | null>(null);
   const [pkgDialogOpen, setPkgDialogOpen] = useState(false);
-  // When a package is created from a row's "+", the originating parent so it
-  // auto-nests (the dialog hides its picker). Null = opened from the top "Add".
-  const [pkgParentId, setPkgParentId] = useState<string | null>(null);
 
   // Cross-page sync: refresh when /site/subcontracts (or any writer) broadcasts.
   useEffect(() => {
@@ -170,26 +168,15 @@ export default function TradesPage() {
           parentSubcontractId={createCtx.parentSubcontractId}
           tier={createCtx.tier}
           initialStatus={createCtx.initialStatus}
-          onCreatePackage={() => {
-            // Carry the originating parent so the package nests under it (the
-            // dialog hides its picker). Capture before clearing createCtx.
-            setPkgParentId(createCtx.parentSubcontractId);
-            setCreateCtx(null);
-            setEditingPkg(null);
-            setPkgDialogOpen(true);
-          }}
         />
       )}
 
       <TaskWorkPackageDialog
         open={pkgDialogOpen}
-        onClose={() => {
-          setPkgDialogOpen(false);
-          setPkgParentId(null);
-        }}
+        onClose={() => setPkgDialogOpen(false)}
         siteId={siteId}
         editing={editingPkg}
-        parentSubcontractId={editingPkg ? null : pkgParentId}
+        parentSubcontractId={null}
       />
     </>
   );

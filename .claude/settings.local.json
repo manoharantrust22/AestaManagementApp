@@ -697,7 +697,17 @@
       "PowerShell(Copy-Item \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\d796e8da-3216-46cf-aa13-c8164d0cc289\\\\scratchpad\\\\asian-paints-square.jpg\" \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\.playwright-mcp\\\\asian-paints-square.jpg\")",
       "PowerShell(npm run test)",
       "Bash(grep -E \"Tests\" \"/c/Users/Haribabu/.claude/projects/c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp/d796e8da-3216-46cf-aa13-c8164d0cc289/tool-results/blc8n0wvm.txt\" | tail -3)",
-      "Read(//c/Users/Haribabu/.claude/projects/c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp/d796e8da-3216-46cf-aa13-c8164d0cc289/tool-results/**)"
+      "Read(//c/Users/Haribabu/.claude/projects/c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp/d796e8da-3216-46cf-aa13-c8164d0cc289/tool-results/**)",
+      "PowerShell(vercel ls --yes 2>$null)",
+      "PowerShell(vercel ls)",
+      "PowerShell(npx playwright test tests/trades-create-dialog.spec.ts --reporter=line)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3000,3001 -State Listen -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Process node -ErrorAction SilentlyContinue | Select-Object Id, StartTime, @{N='CPU';E={[math]::Round\\($_.CPU,1\\)}}, @{N='Cmd';E={\\($_.Path\\)}} | Format-Table -AutoSize; Get-NetTCPConnection -LocalPort 3000,3001 -State Listen -ErrorAction SilentlyContinue | Select-Object LocalPort, OwningProcess)",
+      "PowerShell(npm run test -- run src/lib/spaces/measurements.test.ts)",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'next|vitest|playwright|build' } | Select-Object ProcessId, CreationDate, @{N='Cmd';E={$_.CommandLine.Substring\\(0,[Math]::Min\\(140,$_.CommandLine.Length\\)\\)}} | Format-List)",
+      "PowerShell(npm run test -- run src/lib/spaces/measurements.test.ts 2>$null)",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'AestaManagementApp' -and $_.CommandLine -match 'next|vitest|playwright' } | Select-Object ProcessId, CreationDate, @{N='Cmd';E={$_.CommandLine.Substring\\(0,[Math]::Min\\(120,$_.CommandLine.Length\\)\\)}} | Format-List; git -C \"c:/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp\" log --oneline -2; git -C \"c:/Users/Haribabu/Documents/AppsCopilot/AestaManagementApp\" status --porcelain | head -30)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Out-File -Encoding utf8 \"$env:TEMP\\\\tsc-out.txt\"; Get-Content \"$env:TEMP\\\\tsc-out.txt\" | Select-String \"error\" | Select-Object -First 40)"
     ],
     "deny": [],
     "ask": [],

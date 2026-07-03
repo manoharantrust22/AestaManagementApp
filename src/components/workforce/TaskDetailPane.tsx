@@ -56,6 +56,7 @@ export function TaskDetailPane({
   onEdit,
   onDelete,
   onConvertToPackage,
+  onHandToCrew,
   onOpenInDetails,
   canEdit,
   showBack = false,
@@ -72,6 +73,8 @@ export function TaskDetailPane({
   onDelete?: () => void;
   /** Converts this leaf task into a fixed-price package (Day Log + Payments, like Barun's). */
   onConvertToPackage?: () => void;
+  /** Hand a Future plan (draft) to a crew — activate as contract or convert to a package. */
+  onHandToCrew?: () => void;
   onOpenInDetails?: () => void;
   canEdit: boolean;
   showBack?: boolean;
@@ -146,8 +149,20 @@ export function TaskDetailPane({
   const ModeIcon = modeMeta[task.mode].icon;
   const paidPctOfValue = task.quoted > 0 ? Math.round((task.paid / task.quoted) * 100) : 0;
 
-  // Mode = the trade's workspace machinery; a workspace-off trade has nothing to switch.
-  const canChangeMode = canEdit && !!onChangeMode && !!task.tradeCategoryId && task.hasWorkspace;
+  // A Future plan (draft): the primary action is "Hand to crew", not "Record" —
+  // there's nothing to pay against until it's live.
+  const isPlan = task.status === "draft";
+  const showHandToCrew = isPlan && canEdit && !!onHandToCrew;
+
+  // Mode = the trade's workspace machinery; a workspace-off trade has nothing to
+  // switch. Payments-only rows also have nowhere to go — the mode dialog is now
+  // only an exit from grandfathered headcount/mid/detailed rows.
+  const canChangeMode =
+    canEdit &&
+    !!onChangeMode &&
+    !!task.tradeCategoryId &&
+    task.hasWorkspace &&
+    task.mode !== "mesthri_only";
 
   // Mode banner: full workspace (green) / count-by-role (blue) / lump (grey).
   const wsBanner =
@@ -209,8 +224,8 @@ export function TaskDetailPane({
           <Box sx={{ display: { xs: "none", sm: "flex" }, gap: 1 }}>
             <Button
               variant="contained"
-              startIcon={<PaymentsRounded />}
-              onClick={onRecord}
+              startIcon={showHandToCrew ? <Handshake /> : <PaymentsRounded />}
+              onClick={showHandToCrew ? onHandToCrew : onRecord}
               disableElevation
               sx={{
                 textTransform: "none",
@@ -221,7 +236,7 @@ export function TaskDetailPane({
                 "&:hover": { bgcolor: "#2a60d6" },
               }}
             >
-              Record
+              {showHandToCrew ? "Hand to crew" : "Record"}
             </Button>
           </Box>
         )}
@@ -230,12 +245,31 @@ export function TaskDetailPane({
             <OpenInNew sx={{ fontSize: 18, color: wsColors.muted }} />
           </IconButton>
         )}
-        {canEdit && (onEdit || onDelete || onConvertToPackage) && (
+        {canEdit && (onEdit || onDelete || onConvertToPackage || showHandToCrew) && (
           <>
             <IconButton size="small" onClick={(e) => setMenuAnchor(e.currentTarget)} title="More">
               <MoreVert sx={{ fontSize: 18, color: wsColors.muted }} />
             </IconButton>
             <Menu anchorEl={menuAnchor} open={!!menuAnchor} onClose={() => setMenuAnchor(null)}>
+              {showHandToCrew && (
+                <MenuItem
+                  onClick={() => {
+                    setMenuAnchor(null);
+                    onHandToCrew?.();
+                  }}
+                >
+                  <ListItemIcon>
+                    <Handshake fontSize="small" sx={{ color: wsColors.primary }} />
+                  </ListItemIcon>
+                  <ListItemText
+                    primaryTypographyProps={{ fontSize: 14 }}
+                    secondaryTypographyProps={{ fontSize: 11.5 }}
+                    secondary="Activate as a contract or a package"
+                  >
+                    Hand to crew…
+                  </ListItemText>
+                </MenuItem>
+              )}
               {onEdit && (
                 <MenuItem
                   onClick={() => {
@@ -334,6 +368,29 @@ export function TaskDetailPane({
             {pill.label}
           </Box>
         </Box>
+
+        {/* Future plan hint: point the user at the scope sheet + the handover. */}
+        {isPlan && (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              px: 1.25,
+              py: 0.85,
+              borderRadius: `${wsRadius.input}px`,
+              bgcolor: wsColors.primaryTint,
+              border: `1px solid #d3e0fb`,
+            }}
+          >
+            <Handshake sx={{ fontSize: 18, color: wsColors.primary }} />
+            <Typography sx={{ fontSize: 11.5, color: wsColors.ink2, flex: 1, minWidth: 0 }}>
+              Future plan — list the left-out works with photos &amp; values under{" "}
+              <strong>Scope &amp; photos</strong>; the value updates automatically. Hand it to a
+              crew when work begins.
+            </Typography>
+          </Box>
+        )}
 
         {/* Mode banner: how this contract is handled (Full workspace / Count by role / Just payments). */}
         <Box

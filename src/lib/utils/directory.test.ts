@@ -187,6 +187,8 @@ describe("normalizeDirectory dedupe", () => {
       sourceRowId: "V1",
       trade: "CCTV",
       area: "Chennai",
+      // raw vendor_type carried through (drives the convert-to-laborer dialog copy)
+      vendorType: "dealer",
       // per-id deep link (the /company/vendors/[id] page) — used by the drawer
       profileHref: "/company/vendors/V1",
     });

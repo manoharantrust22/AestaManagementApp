@@ -276,6 +276,7 @@ export function normalizeDirectory({
       photoUrl: v.shop_photo_url,
       workedWith: true,
       notes: v.contact_person ? `Contact: ${v.contact_person}` : null,
+      vendorType: v.vendor_type,
       profileHref: `/company/vendors/${v.id}`,
     });
   }

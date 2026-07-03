@@ -125,6 +125,13 @@ export const queryKeys = {
     rateBook: () => ['task-work', 'rate-book'] as const,
   },
 
+  spaces: {
+    all: ['spaces'] as const,
+    bySite: (siteId: string) => ['spaces', 'site', siteId] as const,
+    byId: (id: string) => ['spaces', id] as const,
+    floorPlans: (siteId: string) => ['spaces', 'site', siteId, 'floor-plans'] as const,
+  },
+
   // ==================== TRANSACTIONAL DATA (5min cache) ====================
   // Frequently updated, needs regular refresh
 

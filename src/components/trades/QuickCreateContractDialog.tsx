@@ -7,7 +7,6 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  Box,
   Stack,
   TextField,
   ToggleButton,
@@ -19,13 +18,9 @@ import {
   CircularProgress,
   InputAdornment,
 } from "@mui/material";
-import Handshake from "@mui/icons-material/Handshake";
-import EastRounded from "@mui/icons-material/EastRounded";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
-import type { LaborTrackingMode } from "@/types/trade.types";
 import type { ContractTier } from "@/lib/workforce/workspaceModel";
-import { TrackingModeChooser, type TrackingChoice } from "./TrackingModeChooser";
 import { CrewPicker, emptyCrewSelection, type CrewSelection } from "./CrewPicker";
 
 interface QuickCreateContractDialogProps {
@@ -39,8 +34,6 @@ interface QuickCreateContractDialogProps {
   parentSubcontractId?: string | null;
   /** Which tier we're creating — drives the copy, defaults, and the parent link. */
   tier?: ContractTier;
-  /** Switch to creating a fixed-price package (retention / man-day profitability) instead. */
-  onCreatePackage?: () => void;
   /** Initial lifecycle status. "draft" lands the contract in the Future (planning) tab. */
   initialStatus?: "draft" | "active";
 }
@@ -54,7 +47,6 @@ export function QuickCreateContractDialog({
   tradeName,
   parentSubcontractId = null,
   tier = "contract",
-  onCreatePackage,
   initialStatus = "active",
 }: QuickCreateContractDialogProps) {
   const supabase = createClient();
@@ -104,9 +96,6 @@ export function QuickCreateContractDialog({
   const [sqft, setSqft] = useState<string>("");
   const [ratePerSqft, setRatePerSqft] = useState<string>("");
   const [status, setStatus] = useState<"draft" | "active">(initialStatus);
-  // "How will you handle this work?" — one of the three tracking modes.
-  const [choice, setChoice] = useState<TrackingChoice>("mesthri_only");
-  const laborTrackingMode: LaborTrackingMode = choice;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,7 +112,6 @@ export function QuickCreateContractDialog({
     setSqft("");
     setRatePerSqft("");
     setStatus(initialStatus);
-    setChoice("mesthri_only");
     setError(null);
   }, [open, tier, initialStatus]);
 
@@ -178,7 +166,9 @@ export function QuickCreateContractDialog({
         parent_subcontract_id: parentSubcontractId ?? null,
         contract_type: crew.contractType,
         title: title.trim(),
-        labor_tracking_mode: laborTrackingMode,
+        // Always payments-only. Daily labour is logged on /site/attendance
+        // (package assignment), never per-section here.
+        labor_tracking_mode: "mesthri_only",
         is_in_house: false,
         status,
         ...pricing,
@@ -200,30 +190,6 @@ export function QuickCreateContractDialog({
         .single();
       if (insertRes.error) throw insertRes.error;
       const newId: string = insertRes.data.id;
-
-      // Seed subcontract_role_rates for headcount mode using labor_roles defaults
-      if (laborTrackingMode === "headcount") {
-        const rolesRes = await sb
-          .from("labor_roles")
-          .select("id, default_daily_rate")
-          .eq("category_id", tradeCategoryId)
-          .eq("is_active", true);
-        if (rolesRes.error) throw rolesRes.error;
-        const rateRows = ((rolesRes.data ?? []) as Array<{
-          id: string;
-          default_daily_rate: number | string;
-        }>).map((r) => ({
-          subcontract_id: newId,
-          role_id: r.id,
-          daily_rate: Number(r.default_daily_rate ?? 0),
-        }));
-        if (rateRows.length > 0) {
-          const seedRes = await sb
-            .from("subcontract_role_rates")
-            .insert(rateRows);
-          if (seedRes.error) throw seedRes.error;
-        }
-      }
 
       // Invalidate React Query caches and broadcast to other tabs/pages
       await Promise.all([
@@ -263,102 +229,12 @@ export function QuickCreateContractDialog({
       </DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2.5}>
-          {/* The primary decision first: how will you handle this work? */}
-          <FormControl>
-            <FormLabel sx={{ mb: 1 }}>How will you handle this work?</FormLabel>
-
-            {/* Fixed-price package (Day Log) — a peer choice, promoted to the top
-                so a lump-sum maistry job is as obvious as the daily-tracking modes.
-                Selecting it hands off to the package setup (a separate table that
-                carries the Day Log + Extras + Payments screen, "like Barun's"). */}
-            {onCreatePackage && (
-              <Box
-                role="button"
-                tabIndex={0}
-                onClick={() => {
-                  onCreatePackage();
-                  onClose();
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onCreatePackage();
-                    onClose();
-                  }
-                }}
-                sx={{
-                  display: "flex",
-                  gap: 1.25,
-                  p: 1.25,
-                  mb: 1,
-                  borderRadius: 2,
-                  cursor: "pointer",
-                  border: "1px solid",
-                  borderColor: "divider",
-                  bgcolor: "background.paper",
-                  transition: "border-color .12s, background-color .12s",
-                  outline: "none",
-                  "&:hover": { borderColor: "primary.main", bgcolor: "action.hover" },
-                  "&:focus-visible": { borderColor: "primary.main" },
-                }}
-              >
-                <Box sx={{ pt: 0.25 }}>
-                  <Handshake fontSize="small" color="primary" />
-                </Box>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Stack direction="row" alignItems="center" spacing={0.75} flexWrap="wrap">
-                    <Typography variant="body2" fontWeight={700}>
-                      Fixed-price job (maistry contract)
-                    </Typography>
-                    <Box
-                      component="span"
-                      sx={{
-                        fontSize: 10,
-                        fontWeight: 800,
-                        px: 0.7,
-                        py: 0.1,
-                        borderRadius: 999,
-                        bgcolor: "primary.main",
-                        color: "primary.contrastText",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      Like Barun&apos;s
-                    </Box>
-                  </Stack>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
-                    <strong>Each day:</strong> Log the effort (worker types × count) to see labour value vs the agreed price.
-                  </Typography>
-                  <Box
-                    sx={{
-                      my: 0.5,
-                      px: 1,
-                      py: 0.5,
-                      borderRadius: 1,
-                      bgcolor: "action.hover",
-                      fontFamily: "monospace",
-                      fontSize: 11.5,
-                      color: "text.primary",
-                      whiteSpace: "pre-wrap",
-                    }}
-                  >
-                    Mason ×2 · Helper ×2   →  ₹3,600
-                  </Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                    <strong>The app tells you:</strong> Day Log, extras &amp; payments in one place — and whether you&apos;re ahead of or behind the price.
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                    <strong>Best for:</strong> A fixed lump-sum job you track by effort.
-                  </Typography>
-                </Box>
-                <EastRounded fontSize="small" color="action" sx={{ alignSelf: "center", flexShrink: 0 }} />
-              </Box>
-            )}
-
-            {/* The two daily-tracking modes (no daily entry / count-by-role).
-                "Full workspace (attendance + salary)" lives on the TRADE, not here. */}
-            <TrackingModeChooser value={choice} onChange={setChoice} allowDetailed={false} />
-          </FormControl>
+          {/* Money-only record: payments are logged here (quoted vs paid);
+              daily labour is always logged on /site/attendance. */}
+          <Typography variant="caption" color="text.secondary">
+            Payments are recorded here (quoted vs paid). Daily labour is logged on the{" "}
+            <strong>Attendance</strong> page.
+          </Typography>
 
           <CrewPicker
             value={crew}

@@ -23,6 +23,7 @@ import {
   Place as PlaceIcon,
   CheckCircle as CheckCircleIcon,
   Language as LanguageIcon,
+  Engineering as EngineeringIcon,
 } from "@mui/icons-material";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
 import { telHref, whatsappHref, mailtoHref } from "@/lib/utils/contact";
@@ -43,6 +44,8 @@ interface ContactDetailDrawerProps {
   onClose: () => void;
   onEdit: (entry: DirectoryEntry) => void;
   onDelete: (entry: DirectoryEntry) => void;
+  /** Vendor-only: convert a person mistakenly saved as a vendor into a laborer. */
+  onMoveToLaborers?: (entry: DirectoryEntry) => void;
   canEdit: boolean;
   isMobile: boolean;
 }
@@ -53,6 +56,7 @@ export default function ContactDetailDrawer({
   onClose,
   onEdit,
   onDelete,
+  onMoveToLaborers,
   canEdit,
   isMobile,
 }: ContactDetailDrawerProps) {
@@ -245,6 +249,17 @@ export default function ContactDetailDrawer({
                     Delete
                   </Button>
                 </Stack>
+              ) : null}
+              {entry.source === "vendor" && onMoveToLaborers ? (
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={<EngineeringIcon />}
+                  onClick={() => onMoveToLaborers(entry)}
+                  disabled={!canEdit}
+                >
+                  Move to laborers
+                </Button>
               ) : null}
               {entry.profileHref ? (
                 <Button

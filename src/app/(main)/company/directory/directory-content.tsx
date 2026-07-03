@@ -29,6 +29,7 @@ import {
   Edit as EditIcon,
   DeleteOutline as DeleteIcon,
   OpenInNew as OpenInNewIcon,
+  Engineering as EngineeringIcon,
 } from "@mui/icons-material";
 import PageHeader from "@/components/layout/PageHeader";
 import { FilterBar, type FilterChipDef } from "@/components/common/FilterBar";
@@ -60,6 +61,7 @@ import { DirectoryGridCard } from "@/components/directory/DirectoryGridCard";
 import ContactDetailDrawer from "@/components/directory/ContactDetailDrawer";
 import TechnicianFormDialog from "@/components/directory/TechnicianFormDialog";
 import VendorDialog from "@/components/materials/VendorDialog";
+import ConvertVendorToLaborerDialog from "@/components/directory/ConvertVendorToLaborerDialog";
 
 const SOURCE_ORDER: DirectorySource[] = [
   "technician",
@@ -135,6 +137,10 @@ export default function DirectoryContent({ initialData }: DirectoryContentProps)
   const { data: vendorToEdit } = useVendor(vendorEditId ?? undefined);
   const [vendorDeleteTarget, setVendorDeleteTarget] =
     useState<DirectoryEntry | null>(null);
+  // "Move to laborers" — fixes a person mistakenly added as a vendor.
+  const [convertTarget, setConvertTarget] = useState<DirectoryEntry | null>(
+    null
+  );
 
   // All entries = live technicians + the read-only server-rendered rest.
   const allEntries = useMemo<DirectoryEntry[]>(() => {
@@ -483,6 +489,25 @@ export default function DirectoryContent({ initialData }: DirectoryContentProps)
                 </ListItemIcon>
                 <ListItemText primary="Edit" />
               </MenuItem>,
+              ...(entryMenu.entry.source === "vendor"
+                ? [
+                    <MenuItem
+                      key="move-to-laborers"
+                      onClick={closeMenuThen(() => {
+                        setDetailEntry(null);
+                        setConvertTarget(entryMenu.entry);
+                      })}
+                    >
+                      <ListItemIcon>
+                        <EngineeringIcon fontSize="small" />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary="Move to laborers"
+                        secondary="Added as a vendor by mistake"
+                      />
+                    </MenuItem>,
+                  ]
+                : []),
               <MenuItem
                 key="delete"
                 onClick={closeMenuThen(() => handleDeleteRequest(entryMenu.entry))}
@@ -527,6 +552,10 @@ export default function DirectoryContent({ initialData }: DirectoryContentProps)
         onClose={() => setDetailEntry(null)}
         onEdit={handleEdit}
         onDelete={handleDeleteRequest}
+        onMoveToLaborers={(entry) => {
+          setDetailEntry(null);
+          setConvertTarget(entry);
+        }}
         canEdit={canEdit}
         isMobile={isMobile}
       />
@@ -557,6 +586,19 @@ export default function DirectoryContent({ initialData }: DirectoryContentProps)
         onSaved={() => {
           setSnack("Vendor updated");
           router.refresh(); // vendor entries are server-loaded — refetch them
+        }}
+      />
+
+      {/* Vendor → laborer conversion (creates an active laborer, deactivates
+          the vendor). Both sides need a refetch: vendor entries are
+          server-loaded, so router.refresh(). */}
+      <ConvertVendorToLaborerDialog
+        open={!!convertTarget}
+        entry={convertTarget}
+        onClose={() => setConvertTarget(null)}
+        onConverted={(laborerName) => {
+          setSnack(`${laborerName} moved to laborers`);
+          router.refresh();
         }}
       />
 

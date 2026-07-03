@@ -26,6 +26,7 @@ import AccessTime from "@mui/icons-material/AccessTime";
 import PaymentsRounded from "@mui/icons-material/PaymentsRounded";
 import MoreHoriz from "@mui/icons-material/MoreHoriz";
 import TuneRounded from "@mui/icons-material/TuneRounded";
+import Handshake from "@mui/icons-material/Handshake";
 import type {
   ContractActivity,
   ContractReconciliation,
@@ -55,6 +56,7 @@ import { useMoveSubcontractNode, useUndoMove } from "@/hooks/queries/useMoveSubc
 import { useEnsureTradeInHouseContract } from "@/hooks/queries/useTradeInHouseContract";
 import { ChangeTrackingModeDialog } from "@/components/trades/ChangeTrackingModeDialog";
 import { ConvertToPackageDialog } from "@/components/trades/ConvertToPackageDialog";
+import { HandToCrewDialog } from "./HandToCrewDialog";
 import EditContractDialog from "./EditContractDialog";
 import DeleteContractDialog from "./DeleteContractDialog";
 import type { AddTaskWork } from "./ContractTree";
@@ -133,6 +135,7 @@ export function WorkspaceLayout({
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
+  const [handOpen, setHandOpen] = useState(false);
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null);
   const [snack, setSnack] = useState<{ open: boolean; msg: string; severity: "success" | "error" }>({
     open: false,
@@ -336,6 +339,9 @@ export function WorkspaceLayout({
       onEdit={() => setEditOpen(true)}
       onDelete={() => setDeleteOpen(true)}
       onConvertToPackage={selectedTask ? () => setConvertOpen(true) : undefined}
+      onHandToCrew={
+        selectedTask?.status === "draft" ? () => setHandOpen(true) : undefined
+      }
       onOpenInDetails={
         selectedTask ? () => router.push(`/site/subcontracts?contractId=${selectedTask.id}`) : undefined
       }
@@ -487,6 +493,27 @@ export function WorkspaceLayout({
           notify("Converted to a fixed-price package");
         }}
       />
+      {/* Hand a Future plan (draft) to a crew: activate as a contract, or convert
+          to a fixed-price package. */}
+      <HandToCrewDialog
+        open={handOpen}
+        onClose={() => setHandOpen(false)}
+        siteId={siteId}
+        task={selectedTask}
+        onHandedOver={(r) => {
+          setHandOpen(false);
+          if (r.kind === "package") {
+            setSelectedTaskId(null);
+            setSelectedPackageId(r.packageId);
+            notify("Handed over as a fixed-price package");
+          } else {
+            // The plan is now Active — keep it selected but move the list to the
+            // Active tab so the row doesn't vanish from the Future-filtered list.
+            setActiveTab("active");
+            notify("Handed to crew — contract is now active");
+          }
+        }}
+      />
     </>
   ) : null;
 
@@ -554,11 +581,13 @@ export function WorkspaceLayout({
                     fullWidth
                     variant="contained"
                     disableElevation
-                    startIcon={<PaymentsRounded />}
-                    onClick={() => setRecordOpen(true)}
+                    startIcon={selectedTask.status === "draft" ? <Handshake /> : <PaymentsRounded />}
+                    onClick={() =>
+                      selectedTask.status === "draft" ? setHandOpen(true) : setRecordOpen(true)
+                    }
                     sx={{ textTransform: "none", fontWeight: 700, borderRadius: `${wsRadius.input}px`, bgcolor: wsColors.primary, "&:hover": { bgcolor: "#2a60d6" } }}
                   >
-                    Record
+                    {selectedTask.status === "draft" ? "Hand to crew" : "Record"}
                   </Button>
                 </Paper>
               )}
