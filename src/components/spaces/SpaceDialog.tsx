@@ -145,7 +145,11 @@ export default function SpaceDialog({
       }
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save space");
+      // Supabase throws PostgrestError objects (not Error instances) — read
+      // .message off either shape so the real cause reaches the user.
+      const message =
+        (e as { message?: string } | null)?.message || "Failed to save space";
+      setError(message);
     }
   };
 

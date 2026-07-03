@@ -75,8 +75,11 @@ export default function SpacesPage() {
     return map;
   }, [floorPlans]);
 
-  // Floors in sequence order, plus an Unassigned group when needed. Floors
-  // with no spaces still render so their plan can be attached up front.
+  // Floors in sequence order, plus an Unassigned group when needed.
+  // building_sections doubles as a work-phase list on some sites (Plinth,
+  // Plastering, Electrical…), so only sections that actually hold a space
+  // or a floor plan render as groups — every section stays reachable via
+  // the floor picker in the Add-space dialog.
   const groups = useMemo(() => {
     const bySection = new Map<string, Space[]>();
     for (const space of spaces) {
@@ -85,11 +88,13 @@ export default function SpacesPage() {
       arr.push(space);
       bySection.set(key, arr);
     }
-    const result = sections.map((s) => ({
-      sectionId: s.id as string | null,
-      name: s.name,
-      spaces: bySection.get(s.id) ?? [],
-    }));
+    const result = sections
+      .filter((s) => bySection.has(s.id) || plansBySection.has(s.id))
+      .map((s) => ({
+        sectionId: s.id as string | null,
+        name: s.name,
+        spaces: bySection.get(s.id) ?? [],
+      }));
     if (bySection.has(UNASSIGNED)) {
       result.push({
         sectionId: null,
@@ -98,7 +103,7 @@ export default function SpacesPage() {
       });
     }
     return result;
-  }, [sections, spaces]);
+  }, [sections, spaces, plansBySection]);
 
   const sheetSpace = spaces.find((s) => s.id === sheetSpaceId) ?? null;
 
@@ -196,6 +201,12 @@ export default function SpacesPage() {
         <Alert severity="info" sx={{ mt: 2 }}>
           No floors defined yet. Add building sections (Ground Floor, First
           Floor…) in Site Settings, then add each room here.
+        </Alert>
+      ) : groups.length === 0 ? (
+        <Alert severity="info" sx={{ mt: 2 }}>
+          No spaces yet. Tap <strong>Add space</strong> and enter each room
+          from the drawing — floor tile, skirting, wall tile and granite
+          quantities compute automatically.
         </Alert>
       ) : (
         <Stack spacing={2} sx={{ mt: 2 }}>

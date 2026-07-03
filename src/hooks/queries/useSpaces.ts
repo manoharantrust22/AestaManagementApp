@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient, ensureFreshSession } from "@/lib/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { queryKeys } from "@/lib/cache/keys";
 import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
@@ -116,16 +117,16 @@ function useInvalidateSpaces() {
 export function useCreateSpace() {
   const supabase = createClient() as SupabaseAny;
   const invalidate = useInvalidateSpaces();
+  // created_by references public.users(id), NOT auth.users — the auth uid
+  // maps via public.users.auth_id, so always stamp with userProfile.id.
+  const { userProfile } = useAuth();
 
   return useMutation({
     mutationFn: async (input: SpaceInsert) => {
       await ensureFreshSession();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
       const { data, error } = await supabase
         .from("spaces")
-        .insert({ ...input, created_by: user?.id ?? null })
+        .insert({ ...input, created_by: userProfile?.id ?? null })
         .select()
         .single();
       if (error) throw error;
@@ -184,6 +185,7 @@ export function useDeleteSpace() {
 export function useVerifySpaceDimensions() {
   const supabase = createClient() as SupabaseAny;
   const invalidate = useInvalidateSpaces();
+  const { userProfile } = useAuth();
 
   return useMutation({
     mutationFn: async ({
@@ -200,9 +202,6 @@ export function useVerifySpaceDimensions() {
       heightIn: number | null;
     }) => {
       await ensureFreshSession();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
       const cleared =
         lengthIn === null && widthIn === null && heightIn === null;
       const { data, error } = await supabase
@@ -211,7 +210,7 @@ export function useVerifySpaceDimensions() {
           verified_length_in: lengthIn,
           verified_width_in: widthIn,
           verified_height_in: heightIn,
-          verified_by: cleared ? null : user?.id ?? null,
+          verified_by: cleared ? null : userProfile?.id ?? null,
           verified_at: cleared ? null : new Date().toISOString(),
         })
         .eq("id", id)
@@ -228,6 +227,7 @@ export function useVerifySpaceDimensions() {
 export function useSetFloorPlan() {
   const supabase = createClient() as SupabaseAny;
   const queryClient = useQueryClient();
+  const { userProfile } = useAuth();
 
   return useMutation({
     mutationFn: async ({
@@ -240,9 +240,6 @@ export function useSetFloorPlan() {
       plan: ScopePhotoRef;
     }) => {
       await ensureFreshSession();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
       const { data, error } = await supabase
         .from("space_floor_plans")
         .upsert(
@@ -250,7 +247,7 @@ export function useSetFloorPlan() {
             site_id: siteId,
             section_id: sectionId,
             plan,
-            created_by: user?.id ?? null,
+            created_by: userProfile?.id ?? null,
           },
           { onConflict: "section_id" }
         )
