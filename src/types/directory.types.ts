@@ -73,6 +73,8 @@ export interface DirectoryEntry {
   source: DirectorySource;
   /** Namespaced id, unique across sources: `tech:<uuid>`, `lab:<uuid>`, etc. */
   id: string;
+  /** Raw uuid of the underlying row (technicians/laborers/vendors/teams id). */
+  sourceRowId: string;
   name: string;
   phone: string | null;
   whatsapp: string | null;

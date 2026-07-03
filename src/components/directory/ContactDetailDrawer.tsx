@@ -22,26 +22,12 @@ import {
   OpenInNew as OpenInNewIcon,
   Place as PlaceIcon,
   CheckCircle as CheckCircleIcon,
-  Handyman as HandymanIcon,
-  Engineering as EngineeringIcon,
-  Storefront as StorefrontIcon,
-  Groups as GroupsIcon,
-  Sell as SellIcon,
   Language as LanguageIcon,
 } from "@mui/icons-material";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
 import { telHref, whatsappHref, mailtoHref } from "@/lib/utils/contact";
 import { SOURCE_META, type DirectoryEntry } from "@/types/directory.types";
-
-const WA_GREEN = "#25D366";
-
-const SOURCE_ICON: Record<DirectoryEntry["source"], React.ReactNode> = {
-  technician: <HandymanIcon />,
-  brand: <SellIcon />,
-  laborer: <EngineeringIcon />,
-  vendor: <StorefrontIcon />,
-  mestri: <GroupsIcon />,
-};
+import { SOURCE_ICON, WA_GREEN } from "./sourceIcons";
 
 /** Normalize a pasted website into an absolute, openable URL. */
 function websiteHref(url?: string | null): string | null {
@@ -231,41 +217,47 @@ export default function ContactDetailDrawer({
 
           <Divider />
 
-          {/* Footer actions */}
+          {/* Footer actions — technicians/brands/vendors edit in place;
+              laborers/mestris only deep-link (their forms live on their pages). */}
           <Box sx={{ p: 2 }}>
-            {entry.source === "technician" || entry.source === "brand" ? (
-              <Stack direction="row" spacing={1}>
+            <Stack spacing={1}>
+              {entry.source === "technician" ||
+              entry.source === "brand" ||
+              entry.source === "vendor" ? (
+                <Stack direction="row" spacing={1}>
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    startIcon={<EditIcon />}
+                    onClick={() => onEdit(entry)}
+                    disabled={!canEdit}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    fullWidth
+                    variant="outlined"
+                    color="error"
+                    startIcon={<DeleteIcon />}
+                    onClick={() => onDelete(entry)}
+                    disabled={!canEdit}
+                  >
+                    Delete
+                  </Button>
+                </Stack>
+              ) : null}
+              {entry.profileHref ? (
                 <Button
                   fullWidth
                   variant="outlined"
-                  startIcon={<EditIcon />}
-                  onClick={() => onEdit(entry)}
-                  disabled={!canEdit}
+                  endIcon={<OpenInNewIcon />}
+                  component={NextLink}
+                  href={entry.profileHref}
                 >
-                  Edit
+                  View full profile
                 </Button>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  color="error"
-                  startIcon={<DeleteIcon />}
-                  onClick={() => onDelete(entry)}
-                  disabled={!canEdit}
-                >
-                  Delete
-                </Button>
-              </Stack>
-            ) : entry.profileHref ? (
-              <Button
-                fullWidth
-                variant="outlined"
-                endIcon={<OpenInNewIcon />}
-                component={NextLink}
-                href={entry.profileHref}
-              >
-                View full profile
-              </Button>
-            ) : null}
+              ) : null}
+            </Stack>
           </Box>
         </Box>
       ) : null}

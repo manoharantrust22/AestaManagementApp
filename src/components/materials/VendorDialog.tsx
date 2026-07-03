@@ -73,6 +73,8 @@ interface VendorDialogProps {
   categories?: MaterialCategory[]; // Optional - CategoryAutocomplete fetches its own data
   /** Called with the newly created vendor after a successful create (not on edit). */
   onCreated?: (vendor: Vendor) => void;
+  /** Called after a successful edit save (not on create). */
+  onSaved?: () => void;
   /** Seed fields when creating a new vendor (e.g. a name carried over from quick-add). */
   prefill?: Partial<VendorFormData>;
 }
@@ -111,6 +113,7 @@ export default function VendorDialog({
   onClose,
   vendor,
   onCreated,
+  onSaved,
   prefill,
 }: VendorDialogProps) {
   const isMobile = useIsMobile();
@@ -449,6 +452,7 @@ export default function VendorDialog({
         });
         clearDraft(); // Clear draft on successful save
         onClose();
+        onSaved?.();
       } else {
         const created = await createVendor.mutateAsync(formData);
         clearDraft(); // Clear draft on successful save

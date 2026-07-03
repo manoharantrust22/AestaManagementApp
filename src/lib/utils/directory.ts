@@ -99,6 +99,7 @@ export function technicianToEntry(t: TechnicianRow): DirectoryEntry {
   return {
     source: isBrand ? "brand" : "technician",
     id: isBrand ? `brand:${t.id}` : `tech:${t.id}`,
+    sourceRowId: t.id,
     name: t.name,
     phone: t.phone,
     whatsapp: t.whatsapp_number,
@@ -211,6 +212,7 @@ export function normalizeDirectory({
     entries.push({
       source: "laborer",
       id: `lab:${l.id}`,
+      sourceRowId: l.id,
       name: l.name,
       phone: l.phone,
       whatsapp: null,
@@ -241,6 +243,7 @@ export function normalizeDirectory({
     entries.push({
       source: "mestri",
       id: `mes:${t.id}`,
+      sourceRowId: t.id,
       name: t.leader_name as string,
       phone: t.leader_phone,
       whatsapp: null,
@@ -262,6 +265,7 @@ export function normalizeDirectory({
     entries.push({
       source: "vendor",
       id: `ven:${v.id}`,
+      sourceRowId: v.id,
       name: v.name,
       phone: v.phone,
       whatsapp: v.whatsapp_number,
@@ -272,7 +276,7 @@ export function normalizeDirectory({
       photoUrl: v.shop_photo_url,
       workedWith: true,
       notes: v.contact_person ? `Contact: ${v.contact_person}` : null,
-      profileHref: "/company/vendors",
+      profileHref: `/company/vendors/${v.id}`,
     });
   }
 

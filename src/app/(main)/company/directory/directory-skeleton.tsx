@@ -1,6 +1,6 @@
 "use client";
 
-import { Box, Skeleton, Stack } from "@mui/material";
+import { Box, Skeleton } from "@mui/material";
 
 export default function DirectorySkeleton() {
   return (
@@ -28,12 +28,23 @@ export default function DirectorySkeleton() {
         ))}
       </Box>
 
-      {/* Cards */}
-      <Stack spacing={1}>
-        {Array.from({ length: 8 }).map((_, i) => (
-          <Skeleton key={i} variant="rounded" width="100%" height={76} />
+      {/* Cards — mirrors the default grid view (avoids a list→grid flash) */}
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: {
+            xs: "repeat(2, 1fr)",
+            sm: "repeat(3, 1fr)",
+            md: "repeat(4, 1fr)",
+            lg: "repeat(5, 1fr)",
+          },
+          gap: 1.25,
+        }}
+      >
+        {Array.from({ length: 10 }).map((_, i) => (
+          <Skeleton key={i} variant="rounded" width="100%" height={210} />
         ))}
-      </Stack>
+      </Box>
     </Box>
   );
 }

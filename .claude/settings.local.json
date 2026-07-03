@@ -690,7 +690,14 @@
       "PowerShell(\"started dev:cloud detached\")",
       "Bash(git commit -m 'feat\\(attendance\\): exclude task-work laborers from the daily salary settlement *)",
       "Bash(git commit -m 'feat\\(directory\\): technicians contact_kind \\(brand quick-contacts\\) + website *)",
-      "PowerShell($p = Get-NetTCP_Connection 2>$null; foreach \\($port in 3000,3001\\) { $r = Test-NetConnection -ComputerName 127.0.0.1 -Port $port -WarningAction SilentlyContinue -InformationLevel Quiet; \"port $port listening: $r\" })"
+      "PowerShell($p = Get-NetTCP_Connection 2>$null; foreach \\($port in 3000,3001\\) { $r = Test-NetConnection -ComputerName 127.0.0.1 -Port $port -WarningAction SilentlyContinue -InformationLevel Quiet; \"port $port listening: $r\" })",
+      "PowerShell($conn = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($conn\\) { \"PORT 3000 LISTENING \\(pid $\\($conn[0].OwningProcess\\)\\)\" } else { \"PORT 3000 FREE\" })",
+      "Bash(curl -sL -A \"Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36\" -o asian-paints-logo.png \"https://commons.wikimedia.org/wiki/Special:FilePath/Asian_Paints_Logo.svg?width=600\")",
+      "Bash(file asian-paints-logo.png)",
+      "PowerShell(Copy-Item \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\d796e8da-3216-46cf-aa13-c8164d0cc289\\\\scratchpad\\\\asian-paints-square.jpg\" \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\\\\.playwright-mcp\\\\asian-paints-square.jpg\")",
+      "PowerShell(npm run test)",
+      "Bash(grep -E \"Tests\" \"/c/Users/Haribabu/.claude/projects/c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp/d796e8da-3216-46cf-aa13-c8164d0cc289/tool-results/blc8n0wvm.txt\" | tail -3)",
+      "Read(//c/Users/Haribabu/.claude/projects/c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp/d796e8da-3216-46cf-aa13-c8164d0cc289/tool-results/**)"
     ],
     "deny": [],
     "ask": [],

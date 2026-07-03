@@ -5,35 +5,24 @@ import { Box, Chip, IconButton, Tooltip, Typography } from "@mui/material";
 import {
   Phone as PhoneIcon,
   WhatsApp as WhatsAppIcon,
-  Handyman as HandymanIcon,
-  Engineering as EngineeringIcon,
-  Storefront as StorefrontIcon,
-  Groups as GroupsIcon,
   CheckCircle as CheckCircleIcon,
   Place as PlaceIcon,
-  Sell as SellIcon,
+  MoreVert as MoreVertIcon,
 } from "@mui/icons-material";
 import { ListRow } from "@/components/common/ListRow";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
 import { telHref, whatsappHref } from "@/lib/utils/contact";
 import { SOURCE_META, type DirectoryEntry } from "@/types/directory.types";
-
-const SOURCE_ICON: Record<DirectoryEntry["source"], React.ReactNode> = {
-  technician: <HandymanIcon />,
-  brand: <SellIcon />,
-  laborer: <EngineeringIcon />,
-  vendor: <StorefrontIcon />,
-  mestri: <GroupsIcon />,
-};
-
-const WA_GREEN = "#25D366";
+import { SOURCE_ICON, WA_GREEN } from "./sourceIcons";
 
 interface DirectoryCardProps {
   entry: DirectoryEntry;
   onOpen: (entry: DirectoryEntry) => void;
+  /** When set, shows a ⋮ actions button (page passes it only for editors). */
+  onMenuOpen?: (anchorEl: HTMLElement, entry: DirectoryEntry) => void;
 }
 
-export function DirectoryCard({ entry, onOpen }: DirectoryCardProps) {
+export function DirectoryCard({ entry, onOpen, onMenuOpen }: DirectoryCardProps) {
   const meta = SOURCE_META[entry.source];
   const tel = telHref(entry.phone);
   const wa = whatsappHref(entry.whatsapp || entry.phone);
@@ -171,6 +160,17 @@ export function DirectoryCard({ entry, onOpen }: DirectoryCardProps) {
             </span>
           </Tooltip>
         </Box>
+      }
+      actionsMenu={
+        onMenuOpen ? (
+          <IconButton
+            size="small"
+            aria-label="More actions"
+            onClick={(e) => onMenuOpen(e.currentTarget, entry)}
+          >
+            <MoreVertIcon fontSize="small" />
+          </IconButton>
+        ) : undefined
       }
     />
   );

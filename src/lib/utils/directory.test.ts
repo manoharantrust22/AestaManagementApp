@@ -92,6 +92,7 @@ describe("normalizeDirectory dedupe", () => {
     expect(out[0]).toMatchObject({
       source: "technician",
       id: "tech:t1",
+      sourceRowId: "t1",
       trade: "CCTV",
       secondaryTrades: ["Networking"],
       profileHref: null,
@@ -111,6 +112,7 @@ describe("normalizeDirectory dedupe", () => {
     });
     const laborerEntry = out.find((e) => e.id === "lab:L1");
     expect(laborerEntry?.alsoMestri).toBe(true);
+    expect(laborerEntry?.sourceRowId).toBe("L1");
     expect(out.some((e) => e.source === "mestri")).toBe(false);
   });
 
@@ -180,7 +182,14 @@ describe("normalizeDirectory dedupe", () => {
       categoryNameById,
     });
     const v = out.find((e) => e.id === "ven:V1");
-    expect(v).toMatchObject({ source: "vendor", trade: "CCTV", area: "Chennai" });
+    expect(v).toMatchObject({
+      source: "vendor",
+      sourceRowId: "V1",
+      trade: "CCTV",
+      area: "Chennai",
+      // per-id deep link (the /company/vendors/[id] page) — used by the drawer
+      profileHref: "/company/vendors/V1",
+    });
     expect(v?.secondaryTrades).toEqual(["Networking"]);
     expect(v?.notes).toContain("Mani");
   });
@@ -220,6 +229,7 @@ describe("normalizeDirectory dedupe", () => {
     expect(out[0]).toMatchObject({
       source: "brand",
       id: "brand:b1",
+      sourceRowId: "b1",
       trade: "Paint",
       website: "asianpaints.com",
       secondaryTrades: [],
