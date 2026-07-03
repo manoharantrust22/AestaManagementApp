@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { wrapQueryFn } from "@/lib/utils/timeout";
-import type { ScopeItem } from "@/types/scopeSheet.types";
+import { sumScopeValues, type ScopeItem } from "@/types/scopeSheet.types";
 
 /**
  * Read the agreed scope sheet (work items + before/after photos) for a subcontract.
@@ -37,12 +37,21 @@ interface SaveScopeSheetInput {
   userId?: string;
 }
 
-/** Upsert the whole items array (one row per subcontract). */
+/**
+ * Upsert the whole items array (one row per subcontract).
+ *
+ * Auto-sum rule: while the contract is a DRAFT lump-sum (a Future plan), its
+ * total_value tracks Σ point values so the Planned-value tile and all money
+ * rollups stay live without any extra plumbing. Sync stops forever once the
+ * plan is handed to a crew (status leaves 'draft').
+ */
 export function useSaveSubcontractScopeSheet() {
   const supabase = createClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: SaveScopeSheetInput) => {
+    mutationFn: async (
+      input: SaveScopeSheetInput
+    ): Promise<{ siteId?: string; synced: boolean }> => {
       const sb = supabase as any;
       const { error } = await sb.from("subcontract_scope_sheet").upsert(
         {
@@ -54,9 +63,43 @@ export function useSaveSubcontractScopeSheet() {
         { onConflict: "subcontract_id" }
       );
       if (error) throw error;
+
+      const { data: sc, error: scError } = await sb
+        .from("subcontracts")
+        .select("site_id, status, is_rate_based")
+        .eq("id", input.subcontractId)
+        .single();
+      if (scError) throw scError;
+
+      let synced = false;
+      if (sc?.status === "draft" && sc.is_rate_based === false) {
+        const { error: syncError } = await sb
+          .from("subcontracts")
+          .update({
+            total_value: sumScopeValues(input.items),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", input.subcontractId)
+          // Re-guard against a handover racing this save.
+          .eq("status", "draft");
+        if (syncError) throw syncError;
+        synced = true;
+      }
+      return { siteId: sc?.site_id as string | undefined, synced };
     },
-    onSuccess: (_, input) => {
+    onSuccess: (result, input) => {
       queryClient.invalidateQueries({ queryKey: ["scope-sheet", input.subcontractId] });
+      if (result.synced && result.siteId) {
+        const siteId = result.siteId;
+        queryClient.invalidateQueries({ queryKey: ["trades", "site", siteId] });
+        queryClient.invalidateQueries({ queryKey: ["trade-reconciliations", "site", siteId] });
+        queryClient.invalidateQueries({ queryKey: ["subcontracts", "site", siteId] });
+        if (typeof BroadcastChannel !== "undefined") {
+          const bc = new BroadcastChannel("subcontracts-changed");
+          bc.postMessage({ siteId, at: Date.now() });
+          bc.close();
+        }
+      }
     },
   });
 }

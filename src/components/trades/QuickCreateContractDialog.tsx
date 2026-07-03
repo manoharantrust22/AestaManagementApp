@@ -12,35 +12,21 @@ import {
   TextField,
   ToggleButton,
   ToggleButtonGroup,
-  Autocomplete,
   FormControl,
   FormLabel,
   Typography,
   Alert,
   CircularProgress,
   InputAdornment,
-  Collapse,
-  Link as MuiLink,
 } from "@mui/material";
-import { Add as AddIcon, Close as CloseIcon } from "@mui/icons-material";
 import Handshake from "@mui/icons-material/Handshake";
 import EastRounded from "@mui/icons-material/EastRounded";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
-import { useSelectedCompany } from "@/contexts/CompanyContext/SelectedCompanyContext";
 import type { LaborTrackingMode } from "@/types/trade.types";
 import type { ContractTier } from "@/lib/workforce/workspaceModel";
 import { TrackingModeChooser, type TrackingChoice } from "./TrackingModeChooser";
-
-interface TeamOption {
-  id: string;
-  name: string;
-  leaderName: string | null;
-}
-interface LaborerOption {
-  id: string;
-  name: string;
-}
+import { CrewPicker, emptyCrewSelection, type CrewSelection } from "./CrewPicker";
 
 interface QuickCreateContractDialogProps {
   open: boolean;
@@ -73,42 +59,43 @@ export function QuickCreateContractDialog({
 }: QuickCreateContractDialogProps) {
   const supabase = createClient();
   const queryClient = useQueryClient();
-  const { selectedCompany } = useSelectedCompany();
 
   // Tier-aware copy so the dialog reads as "Add a section / task" vs "New contract".
-  const tierCopy = {
-    contract: {
-      title: `New ${tradeName} contract`,
-      sub: `The whole ${tradeName} deal with one contractor. Add sections (floors / scopes) under it next.`,
-      titleLabel: "Contract title",
-      titleHelper: `e.g. "Civil — Jithin"`,
-      submit: "Create contract",
-    },
-    section: {
-      title: "Add a section",
-      sub: "A floor or scope (usually priced by square feet) that holds the task works under it.",
-      titleLabel: "Section name",
-      titleHelper: `e.g. "Ground Floor" or "External plastering — all floors"`,
-      submit: "Add section",
-    },
-    task: {
-      title: "Add a task",
-      sub: "A single job you hand a labourer at a cost, inside this section.",
-      titleLabel: "Task name",
-      titleHelper: `e.g. "Footing grid"`,
-      submit: "Add task",
-    },
-  }[tier];
+  // A top-level contract opened from the Future tab reads as planning instead.
+  const tierCopy =
+    tier === "contract" && initialStatus === "draft"
+      ? {
+          title: `Plan future ${tradeName} work`,
+          sub: "List the left-out works with photos and values after creating — hand it to a crew later.",
+          titleLabel: "Plan title",
+          titleHelper: `e.g. "Left-out works — Ground floor"`,
+          submit: "Create plan",
+        }
+      : {
+          contract: {
+            title: `New ${tradeName} contract`,
+            sub: `The whole ${tradeName} deal with one contractor. Add sections (floors / scopes) under it next.`,
+            titleLabel: "Contract title",
+            titleHelper: `e.g. "Civil — Jithin"`,
+            submit: "Create contract",
+          },
+          section: {
+            title: "Add a section",
+            sub: "A floor or scope (usually priced by square feet) that holds the task works under it.",
+            titleLabel: "Section name",
+            titleHelper: `e.g. "Ground Floor" or "External plastering — all floors"`,
+            submit: "Add section",
+          },
+          task: {
+            title: "Add a task",
+            sub: "A single job you hand a labourer at a cost, inside this section.",
+            titleLabel: "Task name",
+            titleHelper: `e.g. "Footing grid"`,
+            submit: "Add task",
+          },
+        }[tier];
 
-  const [contractType, setContractType] = useState<"mesthri" | "specialist">(
-    "mesthri"
-  );
-  const [teams, setTeams] = useState<TeamOption[]>([]);
-  const [laborers, setLaborers] = useState<LaborerOption[]>([]);
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-  const [selectedLaborerId, setSelectedLaborerId] = useState<string | null>(
-    null
-  );
+  const [crew, setCrew] = useState<CrewSelection>(emptyCrewSelection());
   const [title, setTitle] = useState("");
   const [totalValue, setTotalValue] = useState<string>("");
   // Area-based pricing: when on, total = area × rate and we store sqft + rate so the
@@ -122,26 +109,14 @@ export function QuickCreateContractDialog({
   const laborTrackingMode: LaborTrackingMode = choice;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [optionsLoading, setOptionsLoading] = useState(false);
 
-  // Inline-create state for team and laborer
-  const [showNewTeam, setShowNewTeam] = useState(false);
-  const [newTeamLeader, setNewTeamLeader] = useState("");
-  const [newTeamName, setNewTeamName] = useState("");
-  const [newTeamPhone, setNewTeamPhone] = useState("");
-  const [creatingTeam, setCreatingTeam] = useState(false);
-
-  const [showNewLaborer, setShowNewLaborer] = useState(false);
-  const [newLaborerName, setNewLaborerName] = useState("");
-  const [newLaborerPhone, setNewLaborerPhone] = useState("");
-  const [creatingLaborer, setCreatingLaborer] = useState(false);
+  // A Future plan can be created without a crew — it's picked at handover.
+  const crewRequired = status === "active";
 
   // Reset state every time dialog opens
   useEffect(() => {
     if (!open) return;
-    setContractType("mesthri");
-    setSelectedTeamId(null);
-    setSelectedLaborerId(null);
+    setCrew(emptyCrewSelection());
     setTitle("");
     setTotalValue("");
     setPricedBySqft(tier === "section");
@@ -150,48 +125,7 @@ export function QuickCreateContractDialog({
     setStatus(initialStatus);
     setChoice("mesthri_only");
     setError(null);
-    setShowNewTeam(false);
-    setNewTeamLeader("");
-    setNewTeamName("");
-    setNewTeamPhone("");
-    setShowNewLaborer(false);
-    setNewLaborerName("");
-    setNewLaborerPhone("");
-
-    setOptionsLoading(true);
-    Promise.all([
-      supabase
-        .from("teams")
-        .select("id, name, leader_name")
-        .eq("status", "active")
-        .order("name"),
-      supabase
-        .from("laborers")
-        .select("id, name")
-        .eq("status", "active")
-        .order("name"),
-    ])
-      .then(([teamsRes, laborersRes]) => {
-        setTeams(
-          ((teamsRes.data ?? []) as Array<{
-            id: string;
-            name: string;
-            leader_name: string | null;
-          }>).map((t) => ({
-            id: t.id,
-            name: t.name,
-            leaderName: t.leader_name,
-          }))
-        );
-        setLaborers(
-          ((laborersRes.data ?? []) as Array<{ id: string; name: string }>).map(
-            (l) => ({ id: l.id, name: l.name })
-          )
-        );
-      })
-      .catch((e) => setError(`Failed to load options: ${e.message}`))
-      .finally(() => setOptionsLoading(false));
-  }, [open, supabase, tier, initialStatus]);
+  }, [open, tier, initialStatus]);
 
   // Area-based pricing math (₹ total = area × rate). Lump-sum uses `totalValue`.
   const sqftNum = sqft ? Number(sqft) : 0;
@@ -200,123 +134,20 @@ export function QuickCreateContractDialog({
 
   // Default the title to a sensible auto-fill once a team or laborer is picked.
   // Only for a top-level Contract — Sections/Tasks want a floor / job name, typed.
-  useEffect(() => {
-    if (tier !== "contract") return;
-    if (title) return; // user already typed something
-    if (contractType === "mesthri" && selectedTeamId) {
-      const t = teams.find((x) => x.id === selectedTeamId);
-      if (t) setTitle(`${tradeName} — ${t.leaderName ?? t.name}`);
-    } else if (contractType === "specialist" && selectedLaborerId) {
-      const l = laborers.find((x) => x.id === selectedLaborerId);
-      if (l) setTitle(`${tradeName} — ${l.name}`);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contractType, selectedTeamId, selectedLaborerId]);
-
-  const handleCreateTeam = async () => {
-    setError(null);
-    if (!newTeamLeader.trim()) {
-      setError("Leader name is required to create a team");
-      return;
-    }
-    if (!selectedCompany?.id) {
-      setError("No active company selected");
-      return;
-    }
-    setCreatingTeam(true);
-    try {
-      const sb = supabase as any;
-      const teamName =
-        newTeamName.trim() || `${newTeamLeader.trim()} ${tradeName} Team`;
-      const insertRes = await sb
-        .from("teams")
-        .insert({
-          name: teamName,
-          leader_name: newTeamLeader.trim(),
-          leader_phone: newTeamPhone.trim() || null,
-          status: "active",
-          company_id: selectedCompany.id,
-        })
-        .select("id, name, leader_name")
-        .single();
-      if (insertRes.error) throw insertRes.error;
-      const created = insertRes.data as {
-        id: string;
-        name: string;
-        leader_name: string | null;
-      };
-      // Add to local options + auto-select + auto-fill title
-      setTeams((prev) => [
-        ...prev,
-        {
-          id: created.id,
-          name: created.name,
-          leaderName: created.leader_name,
-        },
-      ]);
-      setSelectedTeamId(created.id);
-      if (!title) {
-        setTitle(`${tradeName} — ${created.leader_name ?? created.name}`);
-      }
-      setShowNewTeam(false);
-      setNewTeamLeader("");
-      setNewTeamName("");
-      setNewTeamPhone("");
-    } catch (e: any) {
-      setError(`Failed to create team: ${e.message ?? String(e)}`);
-    } finally {
-      setCreatingTeam(false);
-    }
-  };
-
-  const handleCreateLaborer = async () => {
-    setError(null);
-    if (!newLaborerName.trim()) {
-      setError("Specialist name is required");
-      return;
-    }
-    if (!selectedCompany?.id) {
-      setError("No active company selected");
-      return;
-    }
-    setCreatingLaborer(true);
-    try {
-      const sb = supabase as any;
-      const insertRes = await sb
-        .from("laborers")
-        .insert({
-          name: newLaborerName.trim(),
-          phone: newLaborerPhone.trim() || null,
-          status: "active",
-          employment_type: "specialist",
-          laborer_type: "contract",
-          category_id: tradeCategoryId,
-          company_id: selectedCompany.id,
-        })
-        .select("id, name")
-        .single();
-      if (insertRes.error) throw insertRes.error;
-      const created = insertRes.data as { id: string; name: string };
-      setLaborers((prev) => [...prev, { id: created.id, name: created.name }]);
-      setSelectedLaborerId(created.id);
-      if (!title) setTitle(`${tradeName} — ${created.name}`);
-      setShowNewLaborer(false);
-      setNewLaborerName("");
-      setNewLaborerPhone("");
-    } catch (e: any) {
-      setError(`Failed to create specialist: ${e.message ?? String(e)}`);
-    } finally {
-      setCreatingLaborer(false);
+  const handleCrewChange = (v: CrewSelection, meta?: { displayName?: string }) => {
+    setCrew(v);
+    if (tier === "contract" && !title && meta?.displayName) {
+      setTitle(`${tradeName} — ${meta.displayName}`);
     }
   };
 
   const canSubmit = useMemo(() => {
     if (submitting) return false;
     if (!title.trim()) return false;
-    if (contractType === "mesthri" && !selectedTeamId) return false;
-    if (contractType === "specialist" && !selectedLaborerId) return false;
+    if (crewRequired && crew.contractType === "mesthri" && !crew.teamId) return false;
+    if (crewRequired && crew.contractType === "specialist" && !crew.laborerId) return false;
     return true;
-  }, [submitting, title, contractType, selectedTeamId, selectedLaborerId]);
+  }, [submitting, title, crewRequired, crew]);
 
   const handleSubmit = async () => {
     setError(null);
@@ -345,15 +176,19 @@ export function QuickCreateContractDialog({
         // Nest under the chosen Contract/Section (null = a top-level Contract). This is
         // what makes the new row land in the right place instead of "Ungrouped".
         parent_subcontract_id: parentSubcontractId ?? null,
-        contract_type: contractType,
+        contract_type: crew.contractType,
         title: title.trim(),
         labor_tracking_mode: laborTrackingMode,
         is_in_house: false,
         status,
         ...pricing,
       };
-      if (contractType === "mesthri") payload.team_id = selectedTeamId;
-      else payload.laborer_id = selectedLaborerId;
+      // Crew is optional on a draft (Future plan) — attach only when picked.
+      if (crew.contractType === "mesthri" && crew.teamId) {
+        payload.team_id = crew.teamId;
+      } else if (crew.contractType === "specialist" && crew.laborerId) {
+        payload.laborer_id = crew.laborerId;
+      }
 
       // Cast to any once — the Supabase types haven't been regenerated for the
       // new schema yet (waiting on a separate fix for src/types/database.types.ts).
@@ -427,395 +262,205 @@ export function QuickCreateContractDialog({
         </Typography>
       </DialogTitle>
       <DialogContent dividers>
-        {optionsLoading ? (
-          <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
-            <CircularProgress size={24} />
-          </Box>
-        ) : (
-          <Stack spacing={2.5}>
-            {/* The primary decision first: how will you handle this work? */}
-            <FormControl>
-              <FormLabel sx={{ mb: 1 }}>How will you handle this work?</FormLabel>
+        <Stack spacing={2.5}>
+          {/* The primary decision first: how will you handle this work? */}
+          <FormControl>
+            <FormLabel sx={{ mb: 1 }}>How will you handle this work?</FormLabel>
 
-              {/* Fixed-price package (Day Log) — a peer choice, promoted to the top
-                  so a lump-sum maistry job is as obvious as the daily-tracking modes.
-                  Selecting it hands off to the package setup (a separate table that
-                  carries the Day Log + Extras + Payments screen, "like Barun's"). */}
-              {onCreatePackage && (
-                <Box
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => {
+            {/* Fixed-price package (Day Log) — a peer choice, promoted to the top
+                so a lump-sum maistry job is as obvious as the daily-tracking modes.
+                Selecting it hands off to the package setup (a separate table that
+                carries the Day Log + Extras + Payments screen, "like Barun's"). */}
+            {onCreatePackage && (
+              <Box
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  onCreatePackage();
+                  onClose();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
                     onCreatePackage();
                     onClose();
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onCreatePackage();
-                      onClose();
-                    }
-                  }}
-                  sx={{
-                    display: "flex",
-                    gap: 1.25,
-                    p: 1.25,
-                    mb: 1,
-                    borderRadius: 2,
-                    cursor: "pointer",
-                    border: "1px solid",
-                    borderColor: "divider",
-                    bgcolor: "background.paper",
-                    transition: "border-color .12s, background-color .12s",
-                    outline: "none",
-                    "&:hover": { borderColor: "primary.main", bgcolor: "action.hover" },
-                    "&:focus-visible": { borderColor: "primary.main" },
-                  }}
-                >
-                  <Box sx={{ pt: 0.25 }}>
-                    <Handshake fontSize="small" color="primary" />
-                  </Box>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Stack direction="row" alignItems="center" spacing={0.75} flexWrap="wrap">
-                      <Typography variant="body2" fontWeight={700}>
-                        Fixed-price job (maistry contract)
-                      </Typography>
-                      <Box
-                        component="span"
-                        sx={{
-                          fontSize: 10,
-                          fontWeight: 800,
-                          px: 0.7,
-                          py: 0.1,
-                          borderRadius: 999,
-                          bgcolor: "primary.main",
-                          color: "primary.contrastText",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        Like Barun&apos;s
-                      </Box>
-                    </Stack>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
-                      <strong>Each day:</strong> Log the effort (worker types × count) to see labour value vs the agreed price.
+                  }
+                }}
+                sx={{
+                  display: "flex",
+                  gap: 1.25,
+                  p: 1.25,
+                  mb: 1,
+                  borderRadius: 2,
+                  cursor: "pointer",
+                  border: "1px solid",
+                  borderColor: "divider",
+                  bgcolor: "background.paper",
+                  transition: "border-color .12s, background-color .12s",
+                  outline: "none",
+                  "&:hover": { borderColor: "primary.main", bgcolor: "action.hover" },
+                  "&:focus-visible": { borderColor: "primary.main" },
+                }}
+              >
+                <Box sx={{ pt: 0.25 }}>
+                  <Handshake fontSize="small" color="primary" />
+                </Box>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Stack direction="row" alignItems="center" spacing={0.75} flexWrap="wrap">
+                    <Typography variant="body2" fontWeight={700}>
+                      Fixed-price job (maistry contract)
                     </Typography>
                     <Box
+                      component="span"
                       sx={{
-                        my: 0.5,
-                        px: 1,
-                        py: 0.5,
-                        borderRadius: 1,
-                        bgcolor: "action.hover",
-                        fontFamily: "monospace",
-                        fontSize: 11.5,
-                        color: "text.primary",
-                        whiteSpace: "pre-wrap",
+                        fontSize: 10,
+                        fontWeight: 800,
+                        px: 0.7,
+                        py: 0.1,
+                        borderRadius: 999,
+                        bgcolor: "primary.main",
+                        color: "primary.contrastText",
+                        whiteSpace: "nowrap",
                       }}
                     >
-                      Mason ×2 · Helper ×2   →  ₹3,600
+                      Like Barun&apos;s
                     </Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                      <strong>The app tells you:</strong> Day Log, extras &amp; payments in one place — and whether you&apos;re ahead of or behind the price.
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                      <strong>Best for:</strong> A fixed lump-sum job you track by effort.
-                    </Typography>
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
+                    <strong>Each day:</strong> Log the effort (worker types × count) to see labour value vs the agreed price.
+                  </Typography>
+                  <Box
+                    sx={{
+                      my: 0.5,
+                      px: 1,
+                      py: 0.5,
+                      borderRadius: 1,
+                      bgcolor: "action.hover",
+                      fontFamily: "monospace",
+                      fontSize: 11.5,
+                      color: "text.primary",
+                      whiteSpace: "pre-wrap",
+                    }}
+                  >
+                    Mason ×2 · Helper ×2   →  ₹3,600
                   </Box>
-                  <EastRounded fontSize="small" color="action" sx={{ alignSelf: "center", flexShrink: 0 }} />
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                    <strong>The app tells you:</strong> Day Log, extras &amp; payments in one place — and whether you&apos;re ahead of or behind the price.
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                    <strong>Best for:</strong> A fixed lump-sum job you track by effort.
+                  </Typography>
                 </Box>
-              )}
-
-              {/* The two daily-tracking modes (no daily entry / count-by-role).
-                  "Full workspace (attendance + salary)" lives on the TRADE, not here. */}
-              <TrackingModeChooser value={choice} onChange={setChoice} allowDetailed={false} />
-            </FormControl>
-
-            <>
-            <FormControl>
-              <FormLabel>Contractor type</FormLabel>
-              <ToggleButtonGroup
-                value={contractType}
-                exclusive
-                onChange={(_, v) => v && setContractType(v)}
-                size="small"
-                sx={{ mt: 1 }}
-              >
-                <ToggleButton value="mesthri">Mesthri (team)</ToggleButton>
-                <ToggleButton value="specialist">Specialist (individual)</ToggleButton>
-              </ToggleButtonGroup>
-            </FormControl>
-
-            {contractType === "mesthri" ? (
-              <Box>
-                <Autocomplete
-                  options={teams}
-                  getOptionLabel={(t) => t.leaderName ?? t.name}
-                  value={teams.find((t) => t.id === selectedTeamId) ?? null}
-                  onChange={(_, v) => setSelectedTeamId(v?.id ?? null)}
-                  renderInput={(params) => (
-                    <TextField {...params} label="Mesthri team" required />
-                  )}
-                  slotProps={{ popper: { disablePortal: false } }}
-                  noOptionsText={
-                    <MuiLink
-                      component="button"
-                      type="button"
-                      onClick={() => setShowNewTeam(true)}
-                      sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}
-                    >
-                      <AddIcon fontSize="small" /> Create new team
-                    </MuiLink>
-                  }
-                />
-                {!showNewTeam && (
-                  <Button
-                    size="small"
-                    startIcon={<AddIcon />}
-                    onClick={() => setShowNewTeam(true)}
-                    sx={{ mt: 0.5 }}
-                  >
-                    Mesthri not in the list? Add a new team
-                  </Button>
-                )}
-                <Collapse in={showNewTeam}>
-                  <Box
-                    sx={{
-                      mt: 1,
-                      p: 1.5,
-                      border: "1px dashed",
-                      borderColor: "divider",
-                      borderRadius: 1.5,
-                    }}
-                  >
-                    <Stack
-                      direction="row"
-                      alignItems="center"
-                      justifyContent="space-between"
-                      sx={{ mb: 1 }}
-                    >
-                      <Typography variant="subtitle2">New mesthri team</Typography>
-                      <Button
-                        size="small"
-                        startIcon={<CloseIcon fontSize="small" />}
-                        onClick={() => setShowNewTeam(false)}
-                        disabled={creatingTeam}
-                      >
-                        Cancel
-                      </Button>
-                    </Stack>
-                    <Stack spacing={1.5}>
-                      <TextField
-                        label="Mesthri (leader) name"
-                        value={newTeamLeader}
-                        onChange={(e) => setNewTeamLeader(e.target.value)}
-                        size="small"
-                        required
-                        autoFocus
-                        helperText='e.g. "Asis"'
-                      />
-                      <TextField
-                        label="Team name (optional)"
-                        value={newTeamName}
-                        onChange={(e) => setNewTeamName(e.target.value)}
-                        size="small"
-                        helperText={`Defaults to "${newTeamLeader || "<leader>"} ${tradeName} Team"`}
-                      />
-                      <TextField
-                        label="Leader phone (optional)"
-                        value={newTeamPhone}
-                        onChange={(e) =>
-                          setNewTeamPhone(e.target.value.replace(/[^0-9+\- ]/g, ""))
-                        }
-                        size="small"
-                      />
-                      <Button
-                        variant="outlined"
-                        onClick={handleCreateTeam}
-                        disabled={creatingTeam || !newTeamLeader.trim()}
-                        startIcon={creatingTeam ? <CircularProgress size={14} /> : <AddIcon />}
-                      >
-                        {creatingTeam ? "Creating…" : "Create team"}
-                      </Button>
-                    </Stack>
-                  </Box>
-                </Collapse>
-              </Box>
-            ) : (
-              <Box>
-                <Autocomplete
-                  options={laborers}
-                  getOptionLabel={(l) => l.name}
-                  value={laborers.find((l) => l.id === selectedLaborerId) ?? null}
-                  onChange={(_, v) => setSelectedLaborerId(v?.id ?? null)}
-                  renderInput={(params) => (
-                    <TextField {...params} label="Specialist" required />
-                  )}
-                  slotProps={{ popper: { disablePortal: false } }}
-                  noOptionsText={
-                    <MuiLink
-                      component="button"
-                      type="button"
-                      onClick={() => setShowNewLaborer(true)}
-                      sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}
-                    >
-                      <AddIcon fontSize="small" /> Create new specialist
-                    </MuiLink>
-                  }
-                />
-                {!showNewLaborer && (
-                  <Button
-                    size="small"
-                    startIcon={<AddIcon />}
-                    onClick={() => setShowNewLaborer(true)}
-                    sx={{ mt: 0.5 }}
-                  >
-                    Specialist not in the list? Add a new one
-                  </Button>
-                )}
-                <Collapse in={showNewLaborer}>
-                  <Box
-                    sx={{
-                      mt: 1,
-                      p: 1.5,
-                      border: "1px dashed",
-                      borderColor: "divider",
-                      borderRadius: 1.5,
-                    }}
-                  >
-                    <Stack
-                      direction="row"
-                      alignItems="center"
-                      justifyContent="space-between"
-                      sx={{ mb: 1 }}
-                    >
-                      <Typography variant="subtitle2">New {tradeName.toLowerCase()} specialist</Typography>
-                      <Button
-                        size="small"
-                        startIcon={<CloseIcon fontSize="small" />}
-                        onClick={() => setShowNewLaborer(false)}
-                        disabled={creatingLaborer}
-                      >
-                        Cancel
-                      </Button>
-                    </Stack>
-                    <Stack spacing={1.5}>
-                      <TextField
-                        label="Specialist name"
-                        value={newLaborerName}
-                        onChange={(e) => setNewLaborerName(e.target.value)}
-                        size="small"
-                        required
-                        autoFocus
-                      />
-                      <TextField
-                        label="Phone (optional)"
-                        value={newLaborerPhone}
-                        onChange={(e) =>
-                          setNewLaborerPhone(e.target.value.replace(/[^0-9+\- ]/g, ""))
-                        }
-                        size="small"
-                      />
-                      <Button
-                        variant="outlined"
-                        onClick={handleCreateLaborer}
-                        disabled={creatingLaborer || !newLaborerName.trim()}
-                        startIcon={creatingLaborer ? <CircularProgress size={14} /> : <AddIcon />}
-                      >
-                        {creatingLaborer ? "Creating…" : "Create specialist"}
-                      </Button>
-                    </Stack>
-                  </Box>
-                </Collapse>
+                <EastRounded fontSize="small" color="action" sx={{ alignSelf: "center", flexShrink: 0 }} />
               </Box>
             )}
 
-            <TextField
-              label={tierCopy.titleLabel}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-              fullWidth
-              helperText={tierCopy.titleHelper}
-            />
+            {/* The two daily-tracking modes (no daily entry / count-by-role).
+                "Full workspace (attendance + salary)" lives on the TRADE, not here. */}
+            <TrackingModeChooser value={choice} onChange={setChoice} allowDetailed={false} />
+          </FormControl>
 
-            <FormControl>
-              <FormLabel>Pricing</FormLabel>
-              <ToggleButtonGroup
-                value={pricedBySqft ? "sqft" : "lump"}
-                exclusive
-                onChange={(_, v) => v && setPricedBySqft(v === "sqft")}
-                size="small"
-                sx={{ mt: 1 }}
-              >
-                <ToggleButton value="lump">Lump sum</ToggleButton>
-                <ToggleButton value="sqft">By area (sq ft)</ToggleButton>
-              </ToggleButtonGroup>
-            </FormControl>
+          <CrewPicker
+            value={crew}
+            onChange={handleCrewChange}
+            tradeCategoryId={tradeCategoryId}
+            tradeName={tradeName}
+            required={crewRequired}
+            helperText={
+              crewRequired ? undefined : "Optional for a plan — pick the crew at handover"
+            }
+            onError={setError}
+          />
 
-            {pricedBySqft ? (
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems="flex-start">
-                <TextField
-                  label="Total area"
-                  value={sqft}
-                  onChange={(e) => setSqft(e.target.value.replace(/[^0-9.]/g, ""))}
-                  fullWidth
-                  InputProps={{
-                    endAdornment: <InputAdornment position="end">sq ft</InputAdornment>,
-                  }}
-                  helperText="Built-up area for this building / scope."
-                />
-                <TextField
-                  label="Rate"
-                  value={ratePerSqft}
-                  onChange={(e) => setRatePerSqft(e.target.value.replace(/[^0-9.]/g, ""))}
-                  fullWidth
-                  InputProps={{
-                    startAdornment: <InputAdornment position="start">₹</InputAdornment>,
-                    endAdornment: <InputAdornment position="end">/sq ft</InputAdornment>,
-                  }}
-                  helperText={
-                    sqftTotal > 0
-                      ? `= ₹${sqftTotal.toLocaleString("en-IN")}`
-                      : "Agreed rate per sq ft."
-                  }
-                />
-              </Stack>
-            ) : (
+          <TextField
+            label={tierCopy.titleLabel}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+            fullWidth
+            helperText={tierCopy.titleHelper}
+          />
+
+          <FormControl>
+            <FormLabel>Pricing</FormLabel>
+            <ToggleButtonGroup
+              value={pricedBySqft ? "sqft" : "lump"}
+              exclusive
+              onChange={(_, v) => v && setPricedBySqft(v === "sqft")}
+              size="small"
+              sx={{ mt: 1 }}
+            >
+              <ToggleButton value="lump">Lump sum</ToggleButton>
+              <ToggleButton value="sqft">By area (sq ft)</ToggleButton>
+            </ToggleButtonGroup>
+          </FormControl>
+
+          {pricedBySqft ? (
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems="flex-start">
               <TextField
-                label="Quoted total (lump sum)"
-                value={totalValue}
-                onChange={(e) => setTotalValue(e.target.value.replace(/[^0-9.]/g, ""))}
+                label="Total area"
+                value={sqft}
+                onChange={(e) => setSqft(e.target.value.replace(/[^0-9.]/g, ""))}
+                fullWidth
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">sq ft</InputAdornment>,
+                }}
+                helperText="Built-up area for this building / scope."
+              />
+              <TextField
+                label="Rate"
+                value={ratePerSqft}
+                onChange={(e) => setRatePerSqft(e.target.value.replace(/[^0-9.]/g, ""))}
                 fullWidth
                 InputProps={{
                   startAdornment: <InputAdornment position="start">₹</InputAdornment>,
+                  endAdornment: <InputAdornment position="end">/sq ft</InputAdornment>,
                 }}
-                helperText="Leave 0 if no fixed quote yet (e.g. daily-rate only)."
+                helperText={
+                  sqftTotal > 0
+                    ? `= ₹${sqftTotal.toLocaleString("en-IN")}`
+                    : "Agreed rate per sq ft."
+                }
               />
-            )}
+            </Stack>
+          ) : (
+            <TextField
+              label="Quoted total (lump sum)"
+              value={totalValue}
+              onChange={(e) => setTotalValue(e.target.value.replace(/[^0-9.]/g, ""))}
+              fullWidth
+              InputProps={{
+                startAdornment: <InputAdornment position="start">₹</InputAdornment>,
+              }}
+              helperText={
+                status === "draft"
+                  ? "Leave 0 — a plan's value comes from its points (Scope & photos)."
+                  : "Leave 0 if no fixed quote yet (e.g. daily-rate only)."
+              }
+            />
+          )}
 
-            <FormControl>
-              <FormLabel>Start as</FormLabel>
-              <ToggleButtonGroup
-                value={status}
-                exclusive
-                onChange={(_, v) => v && setStatus(v)}
-                size="small"
-                sx={{ mt: 1 }}
-              >
-                <ToggleButton value="active">Active (work starting)</ToggleButton>
-                <ToggleButton value="draft">Planned (Future)</ToggleButton>
-              </ToggleButtonGroup>
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                {status === "draft"
-                  ? "Saved under the Future tab — move it to Active when work begins."
-                  : "Shows in the Active workspace right away."}
-              </Typography>
-            </FormControl>
-            </>
+          <FormControl>
+            <FormLabel>Start as</FormLabel>
+            <ToggleButtonGroup
+              value={status}
+              exclusive
+              onChange={(_, v) => v && setStatus(v)}
+              size="small"
+              sx={{ mt: 1 }}
+            >
+              <ToggleButton value="active">Active (work starting)</ToggleButton>
+              <ToggleButton value="draft">Planned (Future)</ToggleButton>
+            </ToggleButtonGroup>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+              {status === "draft"
+                ? "Saved under the Future tab — hand it to a crew when work begins."
+                : "Shows in the Active workspace right away."}
+            </Typography>
+          </FormControl>
 
-            {error && <Alert severity="error">{error}</Alert>}
-          </Stack>
-        )}
+          {error && <Alert severity="error">{error}</Alert>}
+        </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={submitting}>

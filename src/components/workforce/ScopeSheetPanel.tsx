@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Box, Typography, Collapse, IconButton, Button, TextField, Stack } from "@mui/material";
+import {
+  Box,
+  Typography,
+  Collapse,
+  IconButton,
+  Button,
+  TextField,
+  Stack,
+  InputAdornment,
+} from "@mui/material";
 import ChevronRight from "@mui/icons-material/ChevronRight";
 import Add from "@mui/icons-material/Add";
 import DeleteOutline from "@mui/icons-material/DeleteOutline";
@@ -12,7 +21,7 @@ import {
   useSubcontractScopeSheet,
   useSaveSubcontractScopeSheet,
 } from "@/hooks/queries/useSubcontractScopeSheet";
-import { isMissingAfter, type ScopeItem } from "@/types/scopeSheet.types";
+import { isMissingAfter, sumScopeValues, type ScopeItem } from "@/types/scopeSheet.types";
 import { wsColors, wsRadius } from "@/lib/workforce/workspaceTokens";
 
 const newItem = (): ScopeItem => ({
@@ -66,6 +75,13 @@ export function ScopeSheetPanel({
   const setText = (id: string, field: "label" | "note", val: string) =>
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, [field]: val } : i)));
 
+  // Whole rupees only — the estimate per point, summed into the plan's value.
+  const setValue = (id: string, raw: string) => {
+    const digits = raw.replace(/[^0-9]/g, "");
+    const num = digits ? Number(digits) : undefined;
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, value: num } : i)));
+  };
+
   const setPhoto = (id: string, which: "before" | "after", v: ReceiptCaptureValue | null) =>
     persist(
       items.map((i) =>
@@ -76,12 +92,13 @@ export function ScopeSheetPanel({
     );
 
   const missingAfter = items.filter(isMissingAfter).length;
+  const plannedTotal = sumScopeValues(items);
   const headerSub =
     items.length === 0
       ? "agree the works + before photos"
       : `${items.length} work${items.length === 1 ? "" : "s"}${
-          missingAfter > 0 ? ` · ${missingAfter} need ‘after’` : ""
-        }`;
+          plannedTotal > 0 ? ` · ₹${plannedTotal.toLocaleString("en-IN")}` : ""
+        }${missingAfter > 0 ? ` · ${missingAfter} need ‘after’` : ""}`;
 
   return (
     <Box
@@ -129,8 +146,9 @@ export function ScopeSheetPanel({
       <Collapse in={open} unmountOnExit>
         <Box sx={{ px: 1.5, pb: 1.5, pt: 0.5, display: "flex", flexDirection: "column", gap: 1.25 }}>
           <Typography sx={{ fontSize: 11, color: wsColors.muted }}>
-            List the works you agreed, with a <strong>before</strong> photo. Take the{" "}
-            <strong>same-angle</strong> photo when each is done — your proof of what was included.
+            List the works you agreed, with a <strong>before</strong> photo and an estimated{" "}
+            <strong>₹ value</strong> each. Take the <strong>same-angle</strong> photo when each is
+            done — your proof of what was included.
           </Typography>
 
           {items.length === 0 && !canEdit && (
@@ -155,15 +173,33 @@ export function ScopeSheetPanel({
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   {canEdit ? (
                     <>
-                      <TextField
-                        value={it.label}
-                        onChange={(e) => setText(it.id, "label", e.target.value)}
-                        onBlur={persistCurrent}
-                        placeholder="Work to be done (e.g. Wall plastering — 2 coats)"
-                        size="small"
-                        fullWidth
-                        variant="standard"
-                      />
+                      <Stack direction="row" spacing={1} alignItems="flex-end">
+                        <TextField
+                          value={it.label}
+                          onChange={(e) => setText(it.id, "label", e.target.value)}
+                          onBlur={persistCurrent}
+                          placeholder="Work to be done (e.g. Wall plastering — 2 coats)"
+                          size="small"
+                          fullWidth
+                          variant="standard"
+                          sx={{ flex: 1, minWidth: 0 }}
+                        />
+                        <TextField
+                          value={it.value ?? ""}
+                          onChange={(e) => setValue(it.id, e.target.value)}
+                          onBlur={persistCurrent}
+                          placeholder="0"
+                          size="small"
+                          variant="standard"
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">₹</InputAdornment>
+                            ),
+                          }}
+                          inputProps={{ inputMode: "numeric", "aria-label": "Estimated value" }}
+                          sx={{ width: 96, flexShrink: 0 }}
+                        />
+                      </Stack>
                       <TextField
                         value={it.note ?? ""}
                         onChange={(e) => setText(it.id, "note", e.target.value)}
@@ -177,9 +213,20 @@ export function ScopeSheetPanel({
                     </>
                   ) : (
                     <>
-                      <Typography sx={{ fontSize: 13, fontWeight: 700, color: wsColors.ink }}>
-                        {it.label || "(untitled work)"}
-                      </Typography>
+                      <Stack direction="row" spacing={1} alignItems="baseline">
+                        <Typography
+                          sx={{ fontSize: 13, fontWeight: 700, color: wsColors.ink, flex: 1, minWidth: 0 }}
+                        >
+                          {it.label || "(untitled work)"}
+                        </Typography>
+                        {typeof it.value === "number" && it.value > 0 && (
+                          <Typography
+                            sx={{ fontSize: 12.5, fontWeight: 800, color: wsColors.ink, flexShrink: 0 }}
+                          >
+                            ₹{it.value.toLocaleString("en-IN")}
+                          </Typography>
+                        )}
+                      </Stack>
                       {it.note && (
                         <Typography sx={{ fontSize: 11.5, color: wsColors.muted }}>{it.note}</Typography>
                       )}
@@ -253,6 +300,22 @@ export function ScopeSheetPanel({
             >
               Add work item
             </Button>
+          )}
+
+          {plannedTotal > 0 && (
+            <Stack
+              direction="row"
+              justifyContent="space-between"
+              alignItems="baseline"
+              sx={{ borderTop: `1px solid ${wsColors.hairline}`, pt: 1 }}
+            >
+              <Typography sx={{ fontSize: 11.5, color: wsColors.muted, fontWeight: 700 }}>
+                Planned total ({items.length} point{items.length === 1 ? "" : "s"})
+              </Typography>
+              <Typography sx={{ fontSize: 14, fontWeight: 800, color: wsColors.ink }}>
+                ₹{plannedTotal.toLocaleString("en-IN")}
+              </Typography>
+            </Stack>
           )}
         </Box>
       </Collapse>
