@@ -718,7 +718,9 @@
       "mcp__plugin_playwright_playwright__browser_press_key",
       "PowerShell($conn = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if \\($conn\\) { Stop-Process -Id $conn.OwningProcess -Force; Write-Output \"dev server stopped \\(pid $\\($conn.OwningProcess\\)\\)\" } else { Write-Output \"no listener on 3000\" })",
       "PowerShell($f = \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\1b3aa619-cfbf-44ed-b6ca-505df2c97901\\\\tasks\\\\brm5n3pns.output\"; $deadline = \\(Get-Date\\).AddSeconds\\(540\\); do { Start-Sleep -Seconds 15; $txt = Get-Content $f -Raw -ErrorAction SilentlyContinue } while \\(\\(Get-Date\\) -lt $deadline -and $txt -notmatch \"Compiled successfully|Failed to compile|error|First Load JS\"\\); Write-Output \\($txt -split \"`n\" | Select-Object -Last 25\\))",
-      "PowerShell(git fetch origin)"
+      "PowerShell(git fetch origin)",
+      "Bash(curl -s -o /dev/null -w \"http=%{http_code}\\\\n\" http://localhost:3000/)",
+      "Bash(git commit *)"
     ],
     "deny": [],
     "ask": [],

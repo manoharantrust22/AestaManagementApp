@@ -144,6 +144,10 @@ interface MarketLaborerEntry {
   // Salary override
   salaryOverridePerPerson: number | null;
   salaryOverrideReason: string;
+  // Optional link to the task-work package this crew worked on that day.
+  // ATTRIBUTION ONLY — pay is unchanged; the package day-log derives from this
+  // and the day leaves the daily salary settlement. Mirrors SelectedLaborer.
+  taskWorkPackageId?: string | null;
 }
 
 interface LaborRole {
@@ -814,7 +818,7 @@ export default function AttendanceDrawer({
         supabase.from("market_laborer_attendance") as any
       )
         .select(
-          "id, role_id, worker_index, count, work_days, rate_per_person, in_time, lunch_out, lunch_in, out_time, work_hours, break_hours, total_hours, day_units, salary_override_per_person, salary_override_reason, labor_roles(name, category_id)"
+          "id, role_id, worker_index, count, work_days, rate_per_person, in_time, lunch_out, lunch_in, out_time, work_hours, break_hours, total_hours, day_units, salary_override_per_person, salary_override_reason, task_work_package_id, labor_roles(name, category_id)"
         )
         .eq("site_id", siteId)
         .eq("date", dateToLoad)
@@ -848,6 +852,7 @@ export default function AttendanceDrawer({
             dayUnits: m.day_units || 1,
             salaryOverridePerPerson: m.salary_override_per_person ?? null,
             salaryOverrideReason: m.salary_override_reason || "",
+            taskWorkPackageId: m.task_work_package_id ?? null,
           })
         );
         setMarketLaborers(existingMarket);
@@ -1114,6 +1119,7 @@ export default function AttendanceDrawer({
         dayUnits: 1, // Default to Full Day
         salaryOverridePerPerson: null,
         salaryOverrideReason: "",
+        taskWorkPackageId: null,
       },
     ]);
   };
@@ -1188,6 +1194,15 @@ export default function AttendanceDrawer({
 
         return updated;
       })
+    );
+  };
+
+  // Attribute a market crew's day to a task-work package (or clear it). Kept
+  // separate from handleMarketLaborerChange so null is type-clean. Mirrors the
+  // company-laborer "WORKING ON (CONTRACT)" picker.
+  const handleMarketPackageChange = (id: string, packageId: string | null) => {
+    setMarketLaborers((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, taskWorkPackageId: packageId } : m))
     );
   };
 
@@ -1688,6 +1703,9 @@ export default function AttendanceDrawer({
             work_days: m.dayUnits,
             rate_per_person: m.ratePerPerson,
             total_cost: effectiveRate * m.count * m.dayUnits, // count * rate * days
+            // Attribute this crew's day to a task-work package (attribution only:
+            // feeds the package day-log, leaves the daily salary settlement).
+            task_work_package_id: m.taskWorkPackageId ?? null,
             // Salary override fields
             salary_override_per_person: m.salaryOverridePerPerson,
             salary_override_reason: m.salaryOverrideReason || null,
@@ -3765,6 +3783,84 @@ export default function AttendanceDrawer({
                             ))}
                           </ToggleButtonGroup>
                         </Box>
+
+                      {/* Working on (contract) — attribute this market crew's day
+                          to a task-work package. Attribution only: pay unchanged;
+                          the package day-log derives from it and the day leaves the
+                          daily salary settlement. Mirrors the company-laborer picker. */}
+                      {hasActivePackages && (
+                        <Box sx={{ mb: 1.5 }}>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ mb: 0.5, display: "block" }}
+                          >
+                            WORKING ON (CONTRACT)
+                          </Typography>
+                          <FormControl size="small" fullWidth>
+                            <Select
+                              value={entry.taskWorkPackageId ?? ""}
+                              displayEmpty
+                              onChange={(e) =>
+                                handleMarketPackageChange(
+                                  entry.id,
+                                  e.target.value === ""
+                                    ? null
+                                    : (e.target.value as string)
+                                )
+                              }
+                              renderValue={(val) => {
+                                if (!val)
+                                  return (
+                                    <Typography
+                                      component="span"
+                                      variant="body2"
+                                      color="text.disabled"
+                                    >
+                                      General site work
+                                    </Typography>
+                                  );
+                                const pkg = activePackages.find(
+                                  (p) => p.id === val
+                                );
+                                return (
+                                  <Box
+                                    sx={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 0.75,
+                                    }}
+                                  >
+                                    <EngineeringIcon
+                                      sx={{ fontSize: 16, color: "info.main" }}
+                                    />
+                                    <Typography component="span" variant="body2">
+                                      {pkg?.title ?? "Contract"}
+                                    </Typography>
+                                  </Box>
+                                );
+                              }}
+                            >
+                              <MenuItem value="">General site work</MenuItem>
+                              {activePackages.map((p) => (
+                                <MenuItem key={p.id} value={p.id}>
+                                  {p.title}
+                                </MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                          {entry.taskWorkPackageId && (
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ mt: 0.5, display: "block" }}
+                            >
+                              Counted on the contract, not the daily settlement —
+                              this records their work against the contract.
+                            </Typography>
+                          )}
+                        </Box>
+                      )}
 
                       {/* Settings button for custom times - Now visible in all modes */}
                       <Box

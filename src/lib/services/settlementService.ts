@@ -638,7 +638,9 @@ export async function processWeeklySettlement(
         .gte("date", config.dateFrom)
         .lte("date", config.dateTo)
         .eq("is_paid", false)
-        .neq("laborers.laborer_type", "contract");
+        .neq("laborers.laborer_type", "contract")
+        // Task-work-assigned days are settled on the contract, not per-day.
+        .is("task_work_package_id", null);
       laborerCount += count || 0;
     }
 
@@ -661,7 +663,9 @@ export async function processWeeklySettlement(
         .eq("site_id", config.siteId)
         .gte("date", config.dateFrom)
         .lte("date", config.dateTo)
-        .eq("is_paid", false);
+        .eq("is_paid", false)
+        // Task-work-assigned crews are settled on the contract, not per-day.
+        .is("task_work_package_id", null);
       laborerCount += (marketData || []).reduce((sum, r) => sum + (r.count || 1), 0);
     }
 
@@ -828,7 +832,9 @@ export async function processWeeklySettlement(
           .gte("date", config.dateFrom)
           .lte("date", config.dateTo)
           .eq("is_paid", false)
-          .neq("laborers.laborer_type", "contract");
+          .neq("laborers.laborer_type", "contract")
+          // Task-work-assigned days are settled on the contract, not per-day.
+          .is("task_work_package_id", null);
         if (dailyQueryError) throw dailyQueryError;
         const dailyIds = (dailyRows ?? []).map((r: any) => r.id);
         if (dailyIds.length > 0) {
@@ -869,7 +875,9 @@ export async function processWeeklySettlement(
           .eq("site_id", config.siteId)
           .gte("date", config.dateFrom)
           .lte("date", config.dateTo)
-          .eq("is_paid", false);
+          .eq("is_paid", false)
+          // Task-work-assigned crews are settled on the contract, not per-day.
+          .is("task_work_package_id", null);
 
         if (marketError) throw marketError;
         recordsUpdated += count || 0;
