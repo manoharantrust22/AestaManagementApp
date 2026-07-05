@@ -2,6 +2,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import dayjs from "dayjs";
 import { createSalaryExpense } from "./notificationService";
 import { weekStartStr, weekEndStr } from "@/lib/utils/weekUtils";
+import { fetchNonCivilTradeSubcontractIds } from "@/lib/workforce/nonCivilTradeSubcontracts";
 
 // Construction-payroll convention: a week runs Sunday → Saturday. The Postgres
 // RPCs (get_salary_waterfall, get_payments_ledger, get_salary_slice_summary)
@@ -624,6 +625,22 @@ export async function processWeeklySettlement(
     let settlementGroupId: string | undefined;
     let settlementReference: string | undefined;
 
+    // Non-Civil trade days (e.g. Painting) settle in that trade's own workspace,
+    // NOT in the company/Civil week — mirror get_salary_waterfall's exclusion here
+    // on the write path so those days are never marked is_paid under a Civil/company
+    // settlement (which would block the trade workspace from settling them, and let
+    // the same day be paid twice). Untagged + Civil days stay eligible.
+    const nonCivilTradeSubcontractIds = await fetchNonCivilTradeSubcontractIds(
+      supabase,
+      config.siteId,
+    );
+    const isCompanyWeekEligible = (subcontractId: string | null | undefined) =>
+      // Only the company-wide settle (no subcontract scope) drops non-Civil trade
+      // days; a scoped settle keeps its own contract's days — mirrors the RPC gate
+      // `p_subcontract_id IS NOT NULL OR NOT EXISTS(non-Civil trade)`.
+      Boolean(config.subcontractId) ||
+      !nonCivilTradeSubcontractIds.has(subcontractId ?? "");
+
     // 1. Count records that will be settled FIRST
     let laborerCount = 0;
 
@@ -645,15 +662,21 @@ export async function processWeeklySettlement(
     }
 
     if (config.settlementType === "contract" || config.settlementType === "all") {
-      const { count } = await supabase
+      // Fetch rows (not a head-count) so we can drop non-Civil trade days client-
+      // side — PostgREST NOT-IN would also drop the untagged (NULL) rows we must keep.
+      const { data: contractCountRows } = await supabase
         .from("daily_attendance")
-        .select("*, laborers!inner(laborer_type)", { count: "exact", head: true })
+        .select("id, subcontract_id, laborers!inner(laborer_type)")
         .eq("site_id", config.siteId)
         .gte("date", config.dateFrom)
         .lte("date", config.dateTo)
         .eq("is_paid", false)
-        .eq("laborers.laborer_type", "contract");
-      laborerCount += count || 0;
+        .eq("laborers.laborer_type", "contract")
+        // Task-work-assigned days settle on the package, not the company week.
+        .is("task_work_package_id", null);
+      laborerCount += (contractCountRows ?? []).filter((r: any) =>
+        isCompanyWeekEligible(r.subcontract_id),
+      ).length;
     }
 
     if (config.settlementType === "market" || config.settlementType === "all") {
@@ -850,14 +873,20 @@ export async function processWeeklySettlement(
       if (config.settlementType === "contract" || config.settlementType === "all") {
         const { data: contractRows, error: contractQueryError } = await supabase
           .from("daily_attendance")
-          .select("id, laborers!inner(laborer_type)")
+          .select("id, subcontract_id, laborers!inner(laborer_type)")
           .eq("site_id", config.siteId)
           .gte("date", config.dateFrom)
           .lte("date", config.dateTo)
           .eq("is_paid", false)
-          .eq("laborers.laborer_type", "contract");
+          .eq("laborers.laborer_type", "contract")
+          // Task-work-assigned days settle on the package, not the company week.
+          .is("task_work_package_id", null);
         if (contractQueryError) throw contractQueryError;
-        const contractIds = (contractRows ?? []).map((r: any) => r.id);
+        // Drop non-Civil trade days — they settle in that trade's own workspace, so
+        // marking them is_paid here would double-pay (see nonCivilTradeSubcontractIds).
+        const contractIds = (contractRows ?? [])
+          .filter((r: any) => isCompanyWeekEligible(r.subcontract_id))
+          .map((r: any) => r.id);
         if (contractIds.length > 0) {
           const { error: contractError, count } = await supabase
             .from("daily_attendance")

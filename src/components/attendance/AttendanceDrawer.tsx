@@ -471,17 +471,21 @@ export default function AttendanceDrawer({
         .eq("status", "active")
         .not("laborer_id", "is", null);
       if (error) throw error;
-      const m = new Map<string, string>();
+      // Only auto-default when a laborer is the named mesthri of EXACTLY ONE active
+      // non-Civil trade contract at this site — if they map to several trades the
+      // day is ambiguous, so leave it untagged rather than guess.
+      const counts = new Map<string, number>();
+      const firstId = new Map<string, string>();
       for (const r of (data ?? []) as any[]) {
         const tradeName = r.labor_categories?.name ?? null;
-        if (
-          r.laborer_id &&
-          tradeName &&
-          tradeName !== "Civil" &&
-          !m.has(r.laborer_id)
-        ) {
-          m.set(String(r.laborer_id), String(r.id));
-        }
+        if (!r.laborer_id || !tradeName || tradeName === "Civil") continue;
+        const lid = String(r.laborer_id);
+        counts.set(lid, (counts.get(lid) ?? 0) + 1);
+        if (!firstId.has(lid)) firstId.set(lid, String(r.id));
+      }
+      const m = new Map<string, string>();
+      for (const [lid, id] of firstId) {
+        if (counts.get(lid) === 1) m.set(lid, id);
       }
       return m;
     },
