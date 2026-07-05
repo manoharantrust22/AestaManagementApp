@@ -453,6 +453,39 @@ export default function AttendanceDrawer({
   });
   const attendedIds: string[] = attendedIdsData ?? [];
 
+  // In-house NON-Civil trade contracts for this site, keyed by their mesthri
+  // laborer_id. Used to auto-attribute a laborer's day to their own trade
+  // contract when no contract was explicitly chosen at entry (see save payload).
+  const { data: mesthriHomeContractByLaborer } = useQuery<Map<string, string>>({
+    queryKey: ["mesthri-home-contract", siteId],
+    enabled: Boolean(siteId),
+    staleTime: 60_000,
+    queryFn: async () => {
+      const supabaseQ: any = createClient();
+      const { data, error } = await supabaseQ
+        .from("subcontracts")
+        .select("id, laborer_id, trade_category_id, labor_categories(name)")
+        .eq("site_id", siteId)
+        .eq("is_in_house", true)
+        .eq("status", "active")
+        .not("laborer_id", "is", null);
+      if (error) throw error;
+      const m = new Map<string, string>();
+      for (const r of (data ?? []) as any[]) {
+        const tradeName = r.labor_categories?.name ?? null;
+        if (
+          r.laborer_id &&
+          tradeName &&
+          tradeName !== "Civil" &&
+          !m.has(r.laborer_id)
+        ) {
+          m.set(String(r.laborer_id), String(r.id));
+        }
+      }
+      return m;
+    },
+  });
+
   // Default ON only for a fresh entry deep-linked from a contract; for editing an
   // existing day we reflect that record's own floor (set in the load effect below).
   const [wholeContract, setWholeContract] = useState<boolean>(
@@ -1509,11 +1542,20 @@ export default function AttendanceDrawer({
           // user came from; floor-specific attendance stays unlinked until settlement.
           // In a trade workspace always tag the contract, so the scoped save-delete
           // (keyed on subcontract_id) always matches exactly what we insert.
-          subcontract_id: tradeScopeActive
-            ? scopedContractId
-            : wholeContract
-            ? (scopedContractId ?? null)
-            : null,
+          subcontract_id: (() => {
+            const explicit = tradeScopeActive
+              ? scopedContractId
+              : wholeContract
+              ? (scopedContractId ?? null)
+              : null;
+            if (explicit) return explicit;
+            // No contract chosen: if this laborer is the in-house mesthri of a
+            // non-Civil trade contract (e.g. Asis → Painting), default to it so
+            // their day settles in that trade's workspace, not the Civil pool.
+            // Recording a genuine Civil day means picking Civil explicitly (which
+            // sets tradeScopeActive/wholeContract above).
+            return mesthriHomeContractByLaborer?.get(s.laborerId) ?? null;
+          })(),
           // Per-laborer task-work package assignment (attribution only — pay is
           // unchanged). The package's day-log derives from this via DB trigger.
           task_work_package_id: s.taskWorkPackageId ?? null,
@@ -1579,6 +1621,8 @@ export default function AttendanceDrawer({
         .delete()
         .eq("site_id", siteId)
         .eq("date", selectedDate);
+      // Note: the auto-default (save payload) only fires when NOT trade-scoped,
+      // so it never collides with this scoped delete.
       if (tradeScopeActive) {
         deleteBuilder = deleteBuilder.eq("subcontract_id", scopedContractId);
       }
