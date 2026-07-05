@@ -453,9 +453,11 @@ export default function AttendanceDrawer({
   });
   const attendedIds: string[] = attendedIdsData ?? [];
 
-  // In-house NON-Civil trade contracts for this site, keyed by their mesthri
-  // laborer_id. Used to auto-attribute a laborer's day to their own trade
-  // contract when no contract was explicitly chosen at entry (see save payload).
+  // Active NON-Civil trade contracts for this site (in-house OR named), keyed by
+  // their mesthri/named laborer_id. Used to auto-attribute a laborer's day to
+  // their own trade contract when no contract was explicitly chosen at entry
+  // (see save payload). Covers both "Painting — In-house" (in-house) and named
+  // "Painting — Asis" contracts across sites.
   const { data: mesthriHomeContractByLaborer } = useQuery<Map<string, string>>({
     queryKey: ["mesthri-home-contract", siteId],
     enabled: Boolean(siteId),
@@ -466,7 +468,6 @@ export default function AttendanceDrawer({
         .from("subcontracts")
         .select("id, laborer_id, trade_category_id, labor_categories(name)")
         .eq("site_id", siteId)
-        .eq("is_in_house", true)
         .eq("status", "active")
         .not("laborer_id", "is", null);
       if (error) throw error;
@@ -1549,9 +1550,10 @@ export default function AttendanceDrawer({
               ? (scopedContractId ?? null)
               : null;
             if (explicit) return explicit;
-            // No contract chosen: if this laborer is the in-house mesthri of a
-            // non-Civil trade contract (e.g. Asis → Painting), default to it so
-            // their day settles in that trade's workspace, not the Civil pool.
+            // No contract chosen: if this laborer is the named mesthri of a
+            // non-Civil trade contract (e.g. Asis → Painting, either site),
+            // default to it so their day settles in that trade's workspace,
+            // not the Civil pool.
             // Recording a genuine Civil day means picking Civil explicitly (which
             // sets tradeScopeActive/wholeContract above).
             return mesthriHomeContractByLaborer?.get(s.laborerId) ?? null;
