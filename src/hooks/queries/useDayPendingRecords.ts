@@ -16,11 +16,12 @@
  * Contract-typed laborers AND task-work-package rows (`task_work_package_id`
  * IS NOT NULL) are excluded from the `daily_attendance` slice to mirror the
  * `pending_da` CTE in `get_payments_ledger` (it filters on
- * `l.laborer_type <> 'contract' AND d.task_work_package_id IS NULL`). Both
- * settle via the Contract Settlement / contract page, not the per-date
- * Daily+Market dialog — letting them leak in here causes the dialog total to
- * diverge from the ledger row total and trips the `daily_attendance`
- * defensive trigger added 2026-05-20 when the user confirms.
+ * `l.laborer_type <> 'contract' AND d.task_work_package_id IS NULL`); the
+ * `market_laborer_attendance` slice likewise excludes task-work rows to mirror
+ * `pending_ma`. Both settle via the Contract Settlement / contract page, not
+ * the per-date Daily+Market dialog — letting them leak in here causes the
+ * dialog total to diverge from the ledger row total and trips the
+ * `daily_attendance` defensive trigger added 2026-05-20 when the user confirms.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -129,7 +130,11 @@ export function useDayPendingRecords(
         )
         .eq("site_id", siteId!)
         .eq("date", date!)
-        .eq("is_paid", false);
+        .eq("is_paid", false)
+        // Task-work-tagged market crews settle on the contract page, not the
+        // per-date Daily+Market dialog — mirror the daily slice above and
+        // get_payments_ledger.pending_ma (which excludes them since 20260704100200).
+        .is("task_work_package_id", null);
 
       const [dailyResult, marketResult] = await Promise.all([
         fetchDaily ?? Promise.resolve({ data: [] as any[], error: null }),

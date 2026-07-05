@@ -55,6 +55,10 @@ export function useDailyMarketWeekAggregate(
         )
         .eq("site_id", siteId!)
         .eq("is_deleted", false)
+        // Task-work-tagged rows settle on the contract page, not Daily+Market —
+        // keep them out of the day-strip so it matches the corrected settlement
+        // and the expanded per-day "Paid via contract" section.
+        .is("task_work_package_id", null)
         .gte("date", weekStart!)
         .lte("date", weekEnd!);
 
@@ -63,6 +67,7 @@ export function useDailyMarketWeekAggregate(
         .from("market_laborer_attendance")
         .select("id, date, count, total_cost")
         .eq("site_id", siteId!)
+        .is("task_work_package_id", null)
         .gte("date", weekStart!)
         .lte("date", weekEnd!);
 

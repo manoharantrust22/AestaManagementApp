@@ -39,12 +39,22 @@ export function useWeekAggregateAttendance(
     enabled: Boolean(siteId && weekStart && weekEnd),
     staleTime: 60_000,
     queryFn: async ({ signal }) => {
-      let attendanceQ = supabase
+      // `any`: the nested embed subcontracts(labor_categories(name)) isn't in the
+      // generated types; we only read trade_name off it to mirror the RPC's
+      // non-Civil-trade exclusion below.
+      const supabaseQ: any = supabase;
+      let attendanceQ = supabaseQ
         .from("daily_attendance")
-        .select("date, laborer_id, daily_earnings, laborers!inner(laborer_type)")
+        .select(
+          "date, laborer_id, daily_earnings, subcontract_id, laborers!inner(laborer_type), subcontracts(labor_categories(name))"
+        )
         .eq("site_id", siteId!)
         .eq("is_deleted", false)
         .eq("laborers.laborer_type", "contract")
+        // Task-work-tagged days are paid via the package, not the mesthri
+        // waterfall — keep them out of this per-day panel so its count/amounts
+        // match get_salary_waterfall (which now excludes them too).
+        .is("task_work_package_id", null)
         .gte("date", weekStart!)
         .lte("date", weekEnd!);
       if (subcontractId) attendanceQ = attendanceQ.eq("subcontract_id", subcontractId);
@@ -79,7 +89,14 @@ export function useWeekAggregateAttendance(
         date: string;
         laborer_id: string;
         daily_earnings: number | string | null;
+        subcontracts?: { labor_categories?: { name?: string | null } | null } | null;
       }>) {
+        // Company-wide view (no subcontract scope): drop non-Civil trade days —
+        // they settle in that trade's own workspace, so the strip's count/amount
+        // stays in step with get_salary_waterfall and the greyed "Trade contract"
+        // section in the per-day detail.
+        const tradeName = r.subcontracts?.labor_categories?.name ?? null;
+        if (!subcontractId && tradeName && tradeName !== "Civil") continue;
         const e = byDate.get(r.date) ?? { laborers: new Set(), earnings: 0 };
         e.laborers.add(r.laborer_id);
         const amt = Number(r.daily_earnings || 0);

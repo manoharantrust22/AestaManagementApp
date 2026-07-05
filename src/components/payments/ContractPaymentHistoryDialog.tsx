@@ -834,7 +834,7 @@ export default function ContractPaymentHistoryDialog({
             </Avatar>
             <Box>
               <Typography variant="h6" component="span" fontWeight={600}>
-                Contract Settlement History
+                Company Settlement History
               </Typography>
               <Typography variant="caption" color="text.secondary">
                 {summaryStats.count} settlements • Total: ₹{summaryStats.totalAmount.toLocaleString("en-IN")}

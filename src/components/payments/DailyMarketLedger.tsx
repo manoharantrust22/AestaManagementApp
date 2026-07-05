@@ -467,7 +467,10 @@ function LaborerTooltipBody({
   }
 
   if (kind === "market") {
-    const list = data.marketLaborers;
+    // Untagged market crews only — task-work-tagged crews settle on the contract
+    // page and are excluded from the Daily+Market ledger total (get_payments_ledger).
+    const list = data.marketLaborersByType?.market ?? data.marketLaborers;
+    const marketTotal = list.reduce((s, m) => s + m.amount, 0);
     return (
       <Box sx={{ p: 1.25, minWidth: 240 }}>
         <Typography
@@ -497,7 +500,7 @@ function LaborerTooltipBody({
         <Box sx={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 700 }}>
           <span>Total</span>
           <span style={{ fontVariantNumeric: "tabular-nums" }}>
-            ₹{data.marketTotal.toLocaleString("en-IN")}
+            ₹{marketTotal.toLocaleString("en-IN")}
           </span>
         </Box>
       </Box>

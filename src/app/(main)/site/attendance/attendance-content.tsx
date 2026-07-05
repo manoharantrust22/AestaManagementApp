@@ -159,6 +159,8 @@ import {
 } from "@/components/attendance/TradeChipFilter";
 import { ContractMoneyStrip } from "@/components/attendance/ContractMoneyStrip";
 import { useTradeContractSummaries } from "@/hooks/queries/useTradeContractSummary";
+import { useTaskWorkPackages } from "@/hooks/queries/useTaskWorkPackages";
+import { useNonCivilTradeSubcontractIds } from "@/hooks/queries/useNonCivilTradeSubcontractIds";
 import { TradeAttendanceView } from "@/components/attendance/trade-view/TradeAttendanceView";
 import { getTradeColor } from "@/theme/tradeColors";
 import { ThemeProvider } from "@mui/material/styles";
@@ -845,6 +847,31 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
 
   // Money summaries (agreed/spent/left + "no agreed amount" flags) for this site.
   const moneySummaries = useTradeContractSummaries(selectedSite?.id);
+
+  // Task-work packages (all statuses) → id→title map, so the day-detail grid can
+  // tag a laborer with the specific contract they worked on that day.
+  const { data: allTaskWorkPackages } = useTaskWorkPackages(
+    selectedSite?.id,
+    "all"
+  );
+  // Subcontract ids whose trade is non-Civil (Painting, …). In the default/Civil
+  // view these settle in their own trade workspace, so their days are kept OUT of
+  // the weekly contract-pending total (matching get_salary_waterfall and the
+  // weekly-settle write path). In a trade scope we show the scoped trade's own data.
+  const { data: nonCivilTradeSubcontractIds } =
+    useNonCivilTradeSubcontractIds(selectedSite?.id);
+  const packageTitleById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of allTaskWorkPackages ?? []) {
+      const label =
+        (p as { title?: string | null }).title ||
+        (p as { parent_subcontract_title?: string | null })
+          .parent_subcontract_title ||
+        "Task-work contract";
+      m.set((p as { id: string }).id, label);
+    }
+    return m;
+  }, [allTaskWorkPackages]);
   const scopedMoneySummary = tradeScope?.contractId
     ? moneySummaries.byContractId.get(tradeScope.contractId) ?? null
     : null;
@@ -2289,11 +2316,23 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
               // Task-work-package rows settle on the contract page — never in the
               // weekly salary strip (daily or contract bucket).
               if (r.laborer_type === "contract") {
-                if (!isCurrentWeek) {
-                  pendingContractSalary += r.daily_earnings;
-                }
-                if (!contractLaborerIds.includes(r.laborer_id)) {
-                  contractLaborerIds.push(r.laborer_id);
+                // In the default/Civil view, a day tagged to a non-Civil trade
+                // contract (e.g. Painting) settles in that trade's own workspace —
+                // keep it out of the company contract-pending total so the strip and
+                // its (locked) settle amount match get_salary_waterfall and the
+                // weekly-settle write path. In a trade scope the records are already
+                // the scoped trade's own, so don't drop them.
+                const isNonCivilTradeDay =
+                  !tradeScope &&
+                  !!r.subcontract_id &&
+                  (nonCivilTradeSubcontractIds?.has(r.subcontract_id) ?? false);
+                if (!isNonCivilTradeDay) {
+                  if (!isCurrentWeek) {
+                    pendingContractSalary += r.daily_earnings;
+                  }
+                  if (!contractLaborerIds.includes(r.laborer_id)) {
+                    contractLaborerIds.push(r.laborer_id);
+                  }
                 }
               } else {
                 if (!skipToday) {
@@ -2353,7 +2392,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     });
 
     return withWeeklySeparators;
-  }, [dateSummaries, scopedDateSummaries, scopedHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date, contractPresenceMap, attendanceCoverageSet, tradeScope, weeksQuery.hasNextPage]);
+  }, [dateSummaries, scopedDateSummaries, scopedHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date, contractPresenceMap, attendanceCoverageSet, tradeScope, weeksQuery.hasNextPage, nonCivilTradeSubcontractIds]);
 
   // Process initialData from server on first render
   useEffect(() => {
@@ -3601,10 +3640,29 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         Cell: ({ cell, row }) => {
           const isPaid = cell.getValue<boolean>();
           const isContract = row.original.laborer_type === "contract";
+          const packageId = row.original.task_work_package_id;
+          // Tagged to a task-work package → paid via that contract, not here.
+          // Show the specific contract name so the day reads completely and the
+          // engineer never pays this row twice (no clickable Pay affordance).
+          if (packageId) {
+            const label = packageTitleById.get(packageId) ?? "Task-work contract";
+            return (
+              <Tooltip title={`Paid via task-work contract: ${label}`}>
+                <Chip
+                  icon={<EngineeringIcon sx={{ fontSize: "14px !important" }} />}
+                  label={label}
+                  size="small"
+                  color="secondary"
+                  variant="outlined"
+                  sx={{ maxWidth: 160, "& .MuiChip-label": { textOverflow: "ellipsis" } }}
+                />
+              </Tooltip>
+            );
+          }
           if (isContract) {
             return (
               <Chip
-                label="In Contract"
+                label="Company"
                 size="small"
                 color="info"
                 variant="outlined"
@@ -3641,6 +3699,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           <Box sx={{ display: "flex", gap: 0.5 }}>
             {row.original.laborer_type !== "contract" &&
               !row.original.is_paid &&
+              !row.original.task_work_package_id &&
               canEdit && (
                 <Button
                   size="small"
@@ -3693,6 +3752,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       handleDelete,
       handleOpenEditDialog,
       handleOpenPaymentDialog,
+      packageTitleById,
     ]
   );
 
@@ -6057,10 +6117,36 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                                 : "-"}
                                             </TableCell>
                                             <TableCell align="center">
-                                              {record.laborer_type ===
-                                              "contract" ? (
+                                              {record.task_work_package_id ? (
+                                                <Tooltip
+                                                  title={`Paid via task-work contract: ${
+                                                    packageTitleById.get(
+                                                      record.task_work_package_id
+                                                    ) ?? "Task-work contract"
+                                                  }`}
+                                                  arrow
+                                                >
+                                                  <Chip
+                                                    icon={
+                                                      <EngineeringIcon
+                                                        sx={{ fontSize: "14px !important" }}
+                                                      />
+                                                    }
+                                                    label={
+                                                      packageTitleById.get(
+                                                        record.task_work_package_id
+                                                      ) ?? "Task-work contract"
+                                                    }
+                                                    size="small"
+                                                    color="secondary"
+                                                    variant="outlined"
+                                                    sx={{ maxWidth: 150 }}
+                                                  />
+                                                </Tooltip>
+                                              ) : record.laborer_type ===
+                                                "contract" ? (
                                                 <Chip
-                                                  label="In Contract"
+                                                  label="Company"
                                                   size="small"
                                                   color="info"
                                                   variant="outlined"
@@ -6107,10 +6193,13 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                                   justifyContent: "center",
                                                 }}
                                               >
-                                                {/* Record Payment button for pending daily laborers */}
+                                                {/* Record Payment button for pending daily laborers
+                                                    (task-work-tagged rows are paid via the
+                                                    contract, so no Pay affordance here) */}
                                                 {record.laborer_type !==
                                                   "contract" &&
                                                   !record.is_paid &&
+                                                  !record.task_work_package_id &&
                                                   canEdit && (
                                                     <Button
                                                       size="small"

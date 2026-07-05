@@ -13,7 +13,11 @@ import {
 } from "@mui/material";
 import dayjs from "dayjs";
 import type { InspectEntity } from "./types";
-import { useAttendanceForDate } from "@/hooks/queries/useAttendanceForDate";
+import {
+  useAttendanceForDate,
+  type AttendanceLaborerRow,
+  type AttendanceMarketRow,
+} from "@/hooks/queries/useAttendanceForDate";
 import {
   useLaborerWeek,
   type LaborerWeekDay,
@@ -79,6 +83,260 @@ const SECTION_LABEL_SX = {
   fontWeight: 600,
 } as const;
 
+// Informational section for laborers assigned to a task-work package. They are
+// paid via the package on /site/trades and are excluded from BOTH the
+// Daily+Market and Contract salary settlements — shown greyed with the contract
+// name so the day still reads completely, without double-counting the wage.
+function TaskWorkPaidSection({
+  dailyRows,
+  marketRows,
+}: {
+  dailyRows: AttendanceLaborerRow[];
+  marketRows: AttendanceMarketRow[];
+}) {
+  const theme = useTheme();
+  const total =
+    dailyRows.reduce((s, l) => s + l.amount, 0) +
+    marketRows.reduce((s, m) => s + m.amount, 0);
+  const count = dailyRows.length + marketRows.length;
+  if (count === 0) return null;
+
+  return (
+    <Box sx={{ mt: 1.5, opacity: 0.7 }}>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          mb: 0.5,
+        }}
+      >
+        <Typography variant="caption" color="text.secondary" sx={SECTION_LABEL_SX}>
+          Paid via contract ({count})
+        </Typography>
+        <Typography
+          variant="caption"
+          sx={{
+            fontSize: 10,
+            fontWeight: 600,
+            color: "text.secondary",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          ₹{total.toLocaleString("en-IN")}
+        </Typography>
+      </Box>
+      <Box
+        sx={{
+          display: "block",
+          mb: 0.5,
+          px: 0.5,
+          fontSize: 10,
+          fontStyle: "italic",
+          color: "text.secondary",
+        }}
+      >
+        Not included in this settlement&apos;s calculation — settled separately
+        under the task-work contract.
+      </Box>
+      <Stack spacing={0.5}>
+        {dailyRows.map((lab) => (
+          <Box
+            key={lab.id}
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              p: 0.5,
+              px: 1.25,
+              bgcolor: theme.palette.background.default,
+              border: `1px dashed ${theme.palette.divider}`,
+              borderRadius: 1,
+            }}
+          >
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography variant="body2" fontWeight={500} sx={{ fontSize: 12.5 }}>
+                {lab.name}
+              </Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ fontSize: 10.5 }}
+              >
+                {lab.role} · {lab.taskWorkTitle ?? "Task-work contract"}
+              </Typography>
+            </Box>
+            <Typography
+              variant="caption"
+              fontWeight={600}
+              color="text.secondary"
+              sx={{ fontSize: 12, fontVariantNumeric: "tabular-nums" }}
+            >
+              ₹{lab.amount.toLocaleString("en-IN")}
+            </Typography>
+          </Box>
+        ))}
+        {marketRows.map((mkt) => (
+          <Box
+            key={mkt.id}
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              p: 0.5,
+              px: 1.25,
+              bgcolor: theme.palette.background.default,
+              border: `1px dashed ${theme.palette.divider}`,
+              borderRadius: 1,
+            }}
+          >
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography variant="body2" fontWeight={500} sx={{ fontSize: 12.5 }}>
+                {mkt.role} · {mkt.count} {mkt.count === 1 ? "person" : "people"}
+              </Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ fontSize: 10.5 }}
+              >
+                {mkt.taskWorkTitle ?? "Task-work contract"}
+              </Typography>
+            </Box>
+            <Typography
+              variant="caption"
+              fontWeight={600}
+              color="text.secondary"
+              sx={{ fontSize: 12, fontVariantNumeric: "tabular-nums" }}
+            >
+              ₹{mkt.amount.toLocaleString("en-IN")}
+            </Typography>
+          </Box>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
+// Informational section for company laborers assigned to a NON-Civil trade
+// contract (e.g. Painting). They are paid via that trade's own workspace on
+// /site/trades and are excluded from the settleable total here — shown greyed
+// with the trade name so the day still reads completely, without
+// double-counting the wage.
+function TradeContractPaidSection({ rows }: { rows: AttendanceLaborerRow[] }) {
+  const theme = useTheme();
+  if (rows.length === 0) return null;
+  const total = rows.reduce((s, r) => s + r.amount, 0);
+  return (
+    <Box sx={{ mt: 1.5, opacity: 0.7 }}>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          mb: 0.5,
+        }}
+      >
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{
+            fontSize: 9,
+            textTransform: "uppercase",
+            letterSpacing: 0.4,
+            fontWeight: 600,
+          }}
+        >
+          Trade contract ({rows.length})
+        </Typography>
+        <Typography
+          variant="caption"
+          sx={{
+            fontSize: 10,
+            fontWeight: 600,
+            color: "text.secondary",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          ₹{total.toLocaleString("en-IN")}
+        </Typography>
+      </Box>
+      <Box
+        sx={{
+          display: "block",
+          mb: 0.5,
+          px: 0.5,
+          fontSize: 10,
+          fontStyle: "italic",
+          color: "text.secondary",
+        }}
+      >
+        Not included in this settlement&apos;s calculation — settled
+        separately under the trade&apos;s own workspace.
+      </Box>
+      <Stack spacing={0.5}>
+        {rows.map((lab) => (
+          <Box
+            key={lab.id}
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              p: 0.5,
+              px: 1.25,
+              bgcolor: theme.palette.background.default,
+              border: `1px dashed ${theme.palette.divider}`,
+              borderRadius: 1,
+            }}
+          >
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.75,
+                  flexWrap: "wrap",
+                }}
+              >
+                <Typography variant="body2" fontWeight={500} sx={{ fontSize: 12.5 }}>
+                  {lab.name}
+                </Typography>
+                <Chip
+                  size="small"
+                  label={lab.tradeName ?? "Trade"}
+                  variant="outlined"
+                  sx={{
+                    height: 18,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    "& .MuiChip-label": { px: 0.75 },
+                  }}
+                />
+              </Box>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ fontSize: 10.5 }}
+              >
+                {lab.subcontractTitle
+                  ? `${lab.role} · ${lab.subcontractTitle}`
+                  : lab.role}
+              </Typography>
+            </Box>
+            <Typography
+              variant="caption"
+              fontWeight={600}
+              color="text.secondary"
+              sx={{ fontSize: 12, fontVariantNumeric: "tabular-nums" }}
+            >
+              ₹{lab.amount.toLocaleString("en-IN")}
+            </Typography>
+          </Box>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
 // ----------------------------------------------------------------
 // Daily-shape: one date × all laborers
 // ----------------------------------------------------------------
@@ -116,9 +374,12 @@ function DailyShape({
   // only — split it out so the "DAILY" tile reflects daily-only earnings.
   const dailyOnlyList = data?.dailyLaborersByType?.daily ?? [];
   const contractList = data?.dailyLaborersByType?.contract ?? [];
+  const taskWorkDaily = data?.dailyLaborersByType?.taskWork ?? [];
   const dailyTotal = dailyOnlyList.reduce((s, l) => s + l.amount, 0);
-  const marketTotal = data?.marketTotal ?? 0;
-  const marketLaborers = data?.marketLaborers ?? [];
+  const marketLaborers = data?.marketLaborersByType?.market ?? [];
+  const taskWorkMarket = data?.marketLaborersByType?.taskWork ?? [];
+  const marketTotal = marketLaborers.reduce((s, m) => s + m.amount, 0);
+  const tradeContractRows = data?.dailyLaborersByType?.tradeContract ?? [];
 
   return (
     <Box sx={{ p: 2 }}>
@@ -261,7 +522,7 @@ function DailyShape({
             }}
           >
             Not included in this settlement&apos;s calculation — settled
-            separately under Contract Settlement.
+            separately under Company Settlement.
           </Box>
           <Stack spacing={0.5}>
             {contractList.slice(0, 4).map((lab) => (
@@ -319,6 +580,10 @@ function DailyShape({
           </Stack>
         </Box>
       )}
+
+      <TradeContractPaidSection rows={tradeContractRows} />
+
+      <TaskWorkPaidSection dailyRows={taskWorkDaily} marketRows={taskWorkMarket} />
 
       {/* Inline Work Updates for this date — morning vs evening side by side.
           Mirrors the inline section already shown on Contract Settlement's
@@ -653,7 +918,7 @@ function WeeklyAggregateShape({
         color="text.secondary"
         sx={SECTION_LABEL_SX}
       >
-        Per-day attendance · {data?.totalLaborers ?? 0} contract laborers worked · tap a day for details
+        Per-day attendance · {data?.totalLaborers ?? 0} company laborers worked · tap a day for details
       </Typography>
 
       <Box
@@ -1097,27 +1362,50 @@ function DayDetailExpansion({
     date,
   );
 
-  // contract-primary uses the legacy commingled list; daily-market-primary
-  // splits daily vs contract and demotes the contract bucket.
+  // Each tab settles exactly ONE kind of named laborer; the other kind is shown
+  // greyed/informational so the headcount stays complete but the settleable
+  // label never lies about who is being paid here:
+  //   - daily-market-primary (Daily + Market)  → DAILY (named) laborers settle here
+  //   - contract-primary (Company Settlement)   → COMPANY laborers settle here
+  // Task-work-tagged days are excluded from both (they settle on the package) and
+  // surface under "Paid via contract".
   const isDailyMarketPrimary = mode === "daily-market-primary";
   const dailyOnlyList = data?.dailyLaborersByType?.daily ?? [];
   const contractList = data?.dailyLaborersByType?.contract ?? [];
-  const dailyCount = isDailyMarketPrimary
-    ? dailyOnlyList.length
-    : data?.dailyLaborers?.length ?? 0;
-  const marketCount = data?.marketLaborers?.length ?? 0;
-  const contractCount = contractList.length;
-  const dailyTotal = isDailyMarketPrimary
-    ? dailyOnlyList.reduce((s, l) => s + l.amount, 0)
-    : (data?.dailyLaborers ?? []).reduce((s, l) => s + l.amount, 0);
-  const marketTotal = (data?.marketLaborers ?? []).reduce(
-    (s, l) => s + l.amount,
-    0
-  );
-  const contractTotal = contractList.reduce((s, l) => s + l.amount, 0);
-  const primaryRows = isDailyMarketPrimary
-    ? dailyOnlyList
-    : (data?.dailyLaborers ?? []);
+  const taskWorkDaily = data?.dailyLaborersByType?.taskWork ?? [];
+  const marketList = data?.marketLaborersByType?.market ?? [];
+  const taskWorkMarket = data?.marketLaborersByType?.taskWork ?? [];
+  const taskWorkCount = taskWorkDaily.length + taskWorkMarket.length;
+  const tradeContractRows = data?.dailyLaborersByType?.tradeContract ?? [];
+
+  // Primary (settleable) bucket for this tab.
+  const primaryRows = isDailyMarketPrimary ? dailyOnlyList : contractList;
+  const primaryCount = primaryRows.length;
+  const primaryTotal = primaryRows.reduce((s, l) => s + l.amount, 0);
+  const primaryLabel = isDailyMarketPrimary
+    ? "Daily Laborers"
+    : "Company Laborers";
+
+  // Market laborers (unnamed crews) — settleable under Daily + Market only.
+  const marketCount = marketList.length;
+  const marketTotal = marketList.reduce((s, l) => s + l.amount, 0);
+
+  // The OTHER tab's named laborers who worked this day — informational (greyed).
+  const infoList = isDailyMarketPrimary ? contractList : dailyOnlyList;
+  const infoCount = infoList.length;
+  const infoTotal = infoList.reduce((s, l) => s + l.amount, 0);
+  const infoLabel = isDailyMarketPrimary ? "Company Laborers" : "Daily Laborers";
+  const infoUnderTab = isDailyMarketPrimary
+    ? "Company Settlement"
+    : "Daily + Market";
+
+  // Everyone who worked this day, regardless of which tab settles them.
+  const totalWorked =
+    dailyOnlyList.length +
+    contractList.length +
+    marketList.length +
+    tradeContractRows.length +
+    taskWorkCount;
 
   return (
     <Box
@@ -1150,24 +1438,17 @@ function DayDetailExpansion({
           {dayjs(date).format("dddd, DD MMM")}
           {holiday && " · Holiday"}
         </Typography>
-        {!isLoading &&
-          dailyCount +
-            marketCount +
-            (isDailyMarketPrimary ? contractCount : 0) >
-            0 && (
-            <Typography
-              variant="caption"
-              sx={{
-                fontSize: 11,
-                color: "text.secondary",
-              }}
-            >
-              {dailyCount +
-                marketCount +
-                (isDailyMarketPrimary ? contractCount : 0)}{" "}
-              worked on this day
-            </Typography>
-          )}
+        {!isLoading && totalWorked > 0 && (
+          <Typography
+            variant="caption"
+            sx={{
+              fontSize: 11,
+              color: "text.secondary",
+            }}
+          >
+            {totalWorked} worked on this day
+          </Typography>
+        )}
       </Box>
 
       {holiday && (
@@ -1190,15 +1471,13 @@ function DayDetailExpansion({
         <Skeleton variant="rounded" height={64} />
       ) : (
         <>
-          {dailyCount === 0 &&
-          marketCount === 0 &&
-          (!isDailyMarketPrimary || contractCount === 0) ? (
+          {totalWorked === 0 ? (
             <Typography variant="caption" color="text.disabled">
               No attendance recorded on this day.
             </Typography>
           ) : (
             <>
-              {dailyCount > 0 && (
+              {primaryCount > 0 && (
                 <>
                   <Box
                     sx={{
@@ -1219,9 +1498,7 @@ function DayDetailExpansion({
                         fontWeight: 600,
                       }}
                     >
-                      {isDailyMarketPrimary
-                        ? `Daily Laborers (${dailyCount})`
-                        : `Company / Daily Laborers (${dailyCount})`}
+                      {primaryLabel} ({primaryCount})
                     </Typography>
                     <Typography
                       variant="caption"
@@ -1232,7 +1509,7 @@ function DayDetailExpansion({
                         fontVariantNumeric: "tabular-nums",
                       }}
                     >
-                      ₹{dailyTotal.toLocaleString("en-IN")}
+                      ₹{primaryTotal.toLocaleString("en-IN")}
                     </Typography>
                   </Box>
                   <Stack spacing={0.5}>
@@ -1366,7 +1643,7 @@ function DayDetailExpansion({
                     </Box>
                   )}
                   <Stack spacing={0.5}>
-                    {data!.marketLaborers.map((mkt) => (
+                    {marketList.map((mkt) => (
                       <Box
                         key={mkt.id}
                         sx={{
@@ -1414,8 +1691,9 @@ function DayDetailExpansion({
                 </>
               )}
 
-              {/* Contract laborers — informational only in daily-market mode */}
-              {isDailyMarketPrimary && contractCount > 0 && (
+              {/* The OTHER tab's named laborers who worked this day —
+                  informational only (settled under that tab, not here). */}
+              {infoCount > 0 && (
                 <Box sx={{ mt: 1.5, opacity: 0.7 }}>
                   <Box
                     sx={{
@@ -1435,7 +1713,7 @@ function DayDetailExpansion({
                         fontWeight: 600,
                       }}
                     >
-                      Company Laborers ({contractCount})
+                      {infoLabel} ({infoCount})
                     </Typography>
                     <Typography
                       variant="caption"
@@ -1446,7 +1724,7 @@ function DayDetailExpansion({
                         fontVariantNumeric: "tabular-nums",
                       }}
                     >
-                      ₹{contractTotal.toLocaleString("en-IN")}
+                      ₹{infoTotal.toLocaleString("en-IN")}
                     </Typography>
                   </Box>
                   <Box
@@ -1460,10 +1738,10 @@ function DayDetailExpansion({
                     }}
                   >
                     Not included in this settlement&apos;s calculation —
-                    settled separately under Contract Settlement.
+                    settled separately under {infoUnderTab}.
                   </Box>
                   <Stack spacing={0.5}>
-                    {contractList.map((lab) => (
+                    {infoList.map((lab) => (
                       <Box
                         key={lab.id}
                         sx={{
@@ -1510,6 +1788,13 @@ function DayDetailExpansion({
                   </Stack>
                 </Box>
               )}
+
+              <TradeContractPaidSection rows={tradeContractRows} />
+
+              <TaskWorkPaidSection
+                dailyRows={taskWorkDaily}
+                marketRows={taskWorkMarket}
+              />
             </>
           )}
         </>

@@ -910,7 +910,7 @@ export default function PaymentsContent() {
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
                 <span>💼</span>
                 <Box sx={{ display: { xs: "none", sm: "inline" } }}>
-                  Contract Settlement
+                  Company Settlement
                 </Box>
                 <Chip
                   size="small"
