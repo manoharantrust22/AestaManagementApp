@@ -10,6 +10,8 @@ import type {
   Space,
   SpaceFloorPlan,
   SpaceInsert,
+  SpaceTileOption,
+  SpaceTileOptionInsert,
   SpaceUpdate,
 } from "@/types/spaces.types";
 
@@ -136,6 +138,35 @@ export function useCreateSpace() {
   });
 }
 
+/** Bulk insert for "Import from plan" — one call, all-or-nothing. */
+export function useCreateSpacesBulk() {
+  const supabase = createClient() as SupabaseAny;
+  const invalidate = useInvalidateSpaces();
+  // created_by references public.users(id), NOT auth.users — see useCreateSpace.
+  const { userProfile } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      siteId,
+      inputs,
+    }: {
+      siteId: string;
+      inputs: SpaceInsert[];
+    }) => {
+      await ensureFreshSession();
+      const { data, error } = await supabase
+        .from("spaces")
+        .insert(
+          inputs.map((i) => ({ ...i, created_by: userProfile?.id ?? null }))
+        )
+        .select();
+      if (error) throw error;
+      return (data ?? []) as Space[];
+    },
+    onSuccess: (_, { siteId }) => invalidate(siteId),
+  });
+}
+
 export function useUpdateSpace() {
   const supabase = createClient() as SupabaseAny;
   const invalidate = useInvalidateSpaces();
@@ -223,8 +254,12 @@ export function useVerifySpaceDimensions() {
   });
 }
 
-/** Upsert the floor-plan image for a building_section. */
-export function useSetFloorPlan() {
+/**
+ * Upsert per-floor metadata (plan image and/or built-up sqft) for a
+ * building_section. Only the provided fields are written — an existing
+ * plan survives a built-area-only update and vice versa.
+ */
+export function useUpsertFloorMeta() {
   const supabase = createClient() as SupabaseAny;
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
@@ -234,10 +269,12 @@ export function useSetFloorPlan() {
       siteId,
       sectionId,
       plan,
+      builtAreaSqft,
     }: {
       siteId: string;
       sectionId: string;
-      plan: ScopePhotoRef;
+      plan?: ScopePhotoRef | null;
+      builtAreaSqft?: number | null;
     }) => {
       await ensureFreshSession();
       const { data, error } = await supabase
@@ -246,7 +283,10 @@ export function useSetFloorPlan() {
           {
             site_id: siteId,
             section_id: sectionId,
-            plan,
+            ...(plan !== undefined && { plan }),
+            ...(builtAreaSqft !== undefined && {
+              built_area_sqft: builtAreaSqft,
+            }),
             created_by: userProfile?.id ?? null,
           },
           { onConflict: "section_id" }
@@ -260,5 +300,110 @@ export function useSetFloorPlan() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.spaces.floorPlans(siteId),
       }),
+  });
+}
+
+// ============================================
+// TILE OPTIONS
+// ============================================
+
+export function useTileOptions(siteId: string | undefined) {
+  const supabase = createClient() as SupabaseAny;
+
+  return useQuery({
+    queryKey: siteId
+      ? queryKeys.spaces.tileOptions(siteId)
+      : (["spaces", "tile-options"] as const),
+    queryFn: wrapQueryFn(
+      async () => {
+        if (!siteId) return [] as SpaceTileOption[];
+        const { data, error } = await supabase
+          .from("space_tile_options")
+          .select("*")
+          .eq("site_id", siteId)
+          .order("created_at");
+        if (error) throw error;
+        return (data ?? []) as SpaceTileOption[];
+      },
+      { operationName: "fetchTileOptions" }
+    ),
+    enabled: !!siteId,
+  });
+}
+
+function useInvalidateTileOptions() {
+  const queryClient = useQueryClient();
+  return (siteId: string) =>
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.spaces.tileOptions(siteId),
+    });
+}
+
+export function useCreateTileOption() {
+  const supabase = createClient() as SupabaseAny;
+  const invalidate = useInvalidateTileOptions();
+  const { userProfile } = useAuth();
+
+  return useMutation({
+    mutationFn: async (input: SpaceTileOptionInsert) => {
+      await ensureFreshSession();
+      const { data, error } = await supabase
+        .from("space_tile_options")
+        .insert({ ...input, created_by: userProfile?.id ?? null })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as SpaceTileOption;
+    },
+    onSuccess: (opt) => invalidate(opt.site_id),
+  });
+}
+
+export function useUpdateTileOption() {
+  const supabase = createClient() as SupabaseAny;
+  const invalidate = useInvalidateTileOptions();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      updates,
+    }: {
+      id: string;
+      siteId: string;
+      updates: Partial<Omit<SpaceTileOption, "id" | "site_id" | "created_at">>;
+    }) => {
+      await ensureFreshSession();
+      const { data, error } = await supabase
+        .from("space_tile_options")
+        .update(updates)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as SpaceTileOption;
+    },
+    onSuccess: (_, { siteId }) => invalidate(siteId),
+  });
+}
+
+export function useDeleteTileOption() {
+  const supabase = createClient() as SupabaseAny;
+  const invalidateTiles = useInvalidateTileOptions();
+  const invalidateSpaces = useInvalidateSpaces();
+
+  return useMutation({
+    mutationFn: async ({ id }: { id: string; siteId: string }) => {
+      await ensureFreshSession();
+      const { error } = await supabase
+        .from("space_tile_options")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: (_, { siteId }) => {
+      invalidateTiles(siteId);
+      // spaces referencing it go tile_option_id = null via ON DELETE SET NULL
+      invalidateSpaces(siteId);
+    },
   });
 }

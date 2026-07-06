@@ -3,6 +3,7 @@
 import React from "react";
 import {
   Box,
+  Chip,
   Collapse,
   Divider,
   Stack,
@@ -61,9 +62,19 @@ export default function SpaceRow({
         }}
       >
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
-            {space.name}
-          </Typography>
+          <Stack direction="row" alignItems="center" spacing={0.75}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+              {space.name}
+            </Typography>
+            {space.mirrored_section_ids.length > 0 && (
+              <Chip
+                size="small"
+                variant="outlined"
+                label={`Typical ×${space.mirrored_section_ids.length + 1}`}
+                sx={{ height: 18, fontSize: 11 }}
+              />
+            )}
+          </Stack>
           <Typography
             variant="caption"
             color="text.secondary"

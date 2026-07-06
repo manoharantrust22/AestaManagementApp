@@ -15,10 +15,12 @@ import {
   ExpandLess as CollapseIcon,
   ExpandMore as ExpandIcon,
   MapOutlined as PlanIcon,
+  PictureAsPdf as PdfIcon,
 } from "@mui/icons-material";
 
 import type { ScopePhotoRef } from "@/types/spaces.types";
 import type { SpaceQuantities } from "@/types/spaces.types";
+import { isPdfRef } from "@/lib/spaces/floors";
 import FloorPlanViewer from "./FloorPlanViewer";
 
 interface FloorGroupProps {
@@ -32,6 +34,9 @@ interface FloorGroupProps {
   canEdit: boolean;
   onAddSpace: (sectionId: string | null) => void;
   onSetPlan: (sectionId: string, plan: ScopePhotoRef) => void;
+  /** Manually-entered built-up sqft (incl. walls) for this floor. */
+  builtAreaSqft?: number | null;
+  onSetBuiltArea?: (sectionId: string, sqft: number | null) => void;
   children: React.ReactNode;
 }
 
@@ -46,6 +51,8 @@ export default function FloorGroup({
   canEdit,
   onAddSpace,
   onSetPlan,
+  builtAreaSqft = null,
+  onSetBuiltArea,
   children,
 }: FloorGroupProps) {
   const [expanded, setExpanded] = useState(true);
@@ -79,7 +86,7 @@ export default function FloorGroup({
             }}
             sx={{ p: plan ? 0.25 : undefined }}
           >
-            {plan ? (
+            {plan && !isPdfRef(plan) ? (
               <Box
                 component="img"
                 src={plan.url}
@@ -93,6 +100,8 @@ export default function FloorGroup({
                   borderColor: "divider",
                 }}
               />
+            ) : plan ? (
+              <PdfIcon fontSize="small" color="error" />
             ) : (
               <PlanIcon fontSize="small" color={canEdit ? "action" : "disabled"} />
             )}
@@ -118,6 +127,7 @@ export default function FloorGroup({
             {subtotals.floorTileSqft} sqft · {subtotals.skirtingRft} rft
             {subtotals.wallTileSqft > 0 && <> · wall {subtotals.wallTileSqft} sqft</>}
             {subtotals.graniteSqft > 0 && <> · granite {subtotals.graniteSqft} sqft</>}
+            {builtAreaSqft !== null && <> · built-up {builtAreaSqft} sqft</>}
           </Typography>
         )}
 
@@ -149,6 +159,10 @@ export default function FloorGroup({
           plan={plan}
           canEdit={canEdit}
           onSetPlan={(p) => onSetPlan(sectionId, p)}
+          builtAreaSqft={builtAreaSqft}
+          onSetBuiltArea={
+            onSetBuiltArea ? (v) => onSetBuiltArea(sectionId, v) : undefined
+          }
         />
       )}
     </Paper>

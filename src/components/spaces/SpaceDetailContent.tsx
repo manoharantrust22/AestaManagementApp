@@ -12,11 +12,14 @@ import type {
   ScopePhotoRef,
   Space,
   SpaceOverrides,
+  SpaceTileOption,
+  SpaceUpdate,
 } from "@/types/spaces.types";
 import { SPACE_TYPE_LABELS } from "@/types/spaces.types";
 import { formatFeetInches } from "@/lib/spaces/measurements";
 import ComputedQuantitiesPanel from "./ComputedQuantitiesPanel";
 import SpacePhotosSection from "./SpacePhotosSection";
+import SpaceTilePanel from "./SpaceTilePanel";
 import VerifyDimensionsPanel from "./VerifyDimensionsPanel";
 
 interface SpaceDetailContentProps {
@@ -24,10 +27,13 @@ interface SpaceDetailContentProps {
   mode: MeasureMode;
   canEdit: boolean;
   saving?: boolean;
+  tileOptions: SpaceTileOption[];
   onEdit: () => void;
   onDelete: () => void;
   onSaveOverrides: (overrides: SpaceOverrides) => void;
   onSavePhotos: (photos: ScopePhotoRef[]) => void;
+  onUpdate: (updates: SpaceUpdate) => void;
+  onManageTileOptions: () => void;
   onVerify: (dims: {
     lengthIn: number | null;
     widthIn: number | null;
@@ -44,10 +50,13 @@ export default function SpaceDetailContent({
   mode,
   canEdit,
   saving = false,
+  tileOptions,
   onEdit,
   onDelete,
   onSaveOverrides,
   onSavePhotos,
+  onUpdate,
+  onManageTileOptions,
   onVerify,
 }: SpaceDetailContentProps) {
   return (
@@ -90,6 +99,17 @@ export default function SpaceDetailContent({
         mode={mode}
         canEdit={canEdit}
         onSaveOverrides={onSaveOverrides}
+      />
+
+      <Divider />
+
+      <SpaceTilePanel
+        space={space}
+        mode={mode}
+        canEdit={canEdit}
+        tileOptions={tileOptions}
+        onUpdate={onUpdate}
+        onManageTileOptions={onManageTileOptions}
       />
 
       <Divider />

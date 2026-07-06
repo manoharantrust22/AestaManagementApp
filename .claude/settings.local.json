@@ -720,7 +720,16 @@
       "PowerShell($f = \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\1b3aa619-cfbf-44ed-b6ca-505df2c97901\\\\tasks\\\\brm5n3pns.output\"; $deadline = \\(Get-Date\\).AddSeconds\\(540\\); do { Start-Sleep -Seconds 15; $txt = Get-Content $f -Raw -ErrorAction SilentlyContinue } while \\(\\(Get-Date\\) -lt $deadline -and $txt -notmatch \"Compiled successfully|Failed to compile|error|First Load JS\"\\); Write-Output \\($txt -split \"`n\" | Select-Object -Last 25\\))",
       "PowerShell(git fetch origin)",
       "Bash(curl -s -o /dev/null -w \"http=%{http_code}\\\\n\" http://localhost:3000/)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(cd \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\" && npx tsc --noEmit 2>&1 | grep -E \"error TS\" | grep -vE \"\\\\.test\\\\.tsx\" > /tmp/tsc_nontest.txt 2>&1; echo \"non-test error count:\"; wc -l < /tmp/tsc_nontest.txt; echo \"--- errors ---\"; cat /tmp/tsc_nontest.txt | head -40)",
+      "Bash(cd \"c:\\\\Users\\\\Haribabu\\\\Documents\\\\AppsCopilot\\\\AestaManagementApp\" && npx tsc --noEmit 2>&1 | grep -E \"error TS\" | grep -vE \"\\\\.test\\\\.tsx\" > /tmp/tsc2.txt 2>&1; echo \"non-test error count:\"; wc -l < /tmp/tsc2.txt; echo \"--- errors ---\"; cat /tmp/tsc2.txt | head -40)",
+      "PowerShell($p = Get-NetTCPConnection -State Listen -LocalPort 3000,3001 -ErrorAction SilentlyContinue; if \\($p\\) { \"DEV SERVER LISTENING on: \" + \\($p.LocalPort -join ','\\) } else { \"No listener on 3000/3001\" })",
+      "PowerShell(npx playwright test spaces-import --project=chromium --reporter=list -g \"floor picker\" 2>&1)",
+      "PowerShell($conn = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($conn\\) { Write-Output \"dev server already running \\(PID $\\($conn.OwningProcess\\)\\)\" } else { Write-Output \"port 3000 free — will restart dev:cloud\" })",
+      "Bash(echo \"dev:cloud starting in background \\(pid $!\\)\")",
+      "PowerShell($conn = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($conn\\) { Write-Output \"dev server LISTENING on 3000 \\(PID $\\($conn.OwningProcess\\)\\)\" } else { Write-Output \"port 3000 NOT listening\" })",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:3000/site/spaces\" -UseBasicParsing -TimeoutSec 20 -MaximumRedirection 5; Write-Output \"HTTP $\\($r.StatusCode\\) from :3000\" } catch { Write-Output \"3000 responded: $\\($_.Exception.Message\\)\" }; $c3001 = Get-NetTCPConnection -LocalPort 3001 -State Listen -ErrorAction SilentlyContinue; Write-Output \\(\"port 3001 listening: \" + [bool]$c3001\\))",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:3000/\" -UseBasicParsing -TimeoutSec 60 -MaximumRedirection 0 -ErrorAction Stop; Write-Output \"HTTP $\\($r.StatusCode\\) from :3000 /\" } catch { $code = $_.Exception.Response.StatusCode.value__; if \\($code\\) { Write-Output \"HTTP $code from :3000 / \\(redirect/auth = server is serving\\)\" } else { Write-Output \"no response: $\\($_.Exception.Message\\)\" } })"
     ],
     "deny": [],
     "ask": [],

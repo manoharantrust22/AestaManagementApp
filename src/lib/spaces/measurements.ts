@@ -16,6 +16,9 @@ import type {
 /** Field value differing from drawing by more than this is a variance. */
 export const VARIANCE_TOLERANCE_IN = 1;
 
+/** Typical residential ceiling height — pre-filled for new spaces. */
+export const DEFAULT_CEILING_HEIGHT_IN = 120;
+
 // ==================== feet-inches parse / format ====================
 
 /**
@@ -24,11 +27,12 @@ export const VARIANCE_TOLERANCE_IN = 1;
  * `14`, `6"` (inches only). Returns null when unparseable/negative.
  */
 export function parseFeetInches(input: string): number | null {
-  // Normalize curly quotes ("" '') from mobile keyboards to straight ones.
+  // Normalize curly quotes ("" '') from mobile keyboards and Unicode
+  // primes (′ ″) from AI output to straight quote characters.
   const raw = input
     .trim()
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'");
+    .replace(/[“”″]/g, '"')
+    .replace(/[‘’′]/g, "'");
   if (!raw) return null;
 
   // Inches only: 6"
@@ -250,34 +254,53 @@ export interface SpacesTotals {
   bySection: Map<string | null, SpaceQuantities>;
 }
 
-export function rollupTotals(spaces: Space[], mode: MeasureMode): SpacesTotals {
+const addQuantities = (acc: SpaceQuantities, q: SpaceQuantities): void => {
+  acc.floorTileSqft = round2(acc.floorTileSqft + q.floorTileSqft);
+  acc.skirtingRft = round2(acc.skirtingRft + q.skirtingRft);
+  acc.wallTileSqft = round2(acc.wallTileSqft + q.wallTileSqft);
+  acc.graniteSqft = round2(acc.graniteSqft + q.graniteSqft);
+};
+
+/**
+ * Sum quantities per floor and grand. A space contributes once per floor
+ * it appears on: its primary floor plus each mirrored ("typical") floor.
+ * Pass `knownSectionIds` to drop mirrors pointing at deleted sections
+ * (the uuid[] column has no FK).
+ */
+export function rollupTotals(
+  spaces: Space[],
+  mode: MeasureMode,
+  knownSectionIds?: ReadonlySet<string>
+): SpacesTotals {
   const grand: SpaceQuantities = { ...EMPTY };
   const bySection = new Map<string | null, SpaceQuantities>();
 
   for (const space of spaces) {
     const q = computeQuantities(space, mode);
-    const key = space.section_id;
-    const acc = bySection.get(key) ?? { ...EMPTY };
-    acc.floorTileSqft = round2(acc.floorTileSqft + q.floorTileSqft);
-    acc.skirtingRft = round2(acc.skirtingRft + q.skirtingRft);
-    acc.wallTileSqft = round2(acc.wallTileSqft + q.wallTileSqft);
-    acc.graniteSqft = round2(acc.graniteSqft + q.graniteSqft);
-    bySection.set(key, acc);
-
-    grand.floorTileSqft = round2(grand.floorTileSqft + q.floorTileSqft);
-    grand.skirtingRft = round2(grand.skirtingRft + q.skirtingRft);
-    grand.wallTileSqft = round2(grand.wallTileSqft + q.wallTileSqft);
-    grand.graniteSqft = round2(grand.graniteSqft + q.graniteSqft);
+    const mirrors = [...new Set(space.mirrored_section_ids ?? [])].filter(
+      (id) => id !== space.section_id && (knownSectionIds?.has(id) ?? true)
+    );
+    for (const key of [space.section_id, ...mirrors]) {
+      const acc = bySection.get(key) ?? { ...EMPTY };
+      addQuantities(acc, q);
+      bySection.set(key, acc);
+      addQuantities(grand, q);
+    }
   }
   return { grand, bySection };
 }
 
-/** Plain-text totals block for sharing (WhatsApp / vendor message). */
+/**
+ * Plain-text totals block for sharing (WhatsApp / vendor message).
+ * `builtUpBySection` — manually-entered built-up sqft per floor (includes
+ * walls; basis for civil/electrical per-sqft contracts).
+ */
 export function formatTotalsForWhatsApp(
   totals: SpacesTotals,
   siteName: string,
   mode: MeasureMode,
-  sectionNames?: Map<string | null, string>
+  sectionNames?: Map<string | null, string>,
+  builtUpBySection?: Map<string, number>
 ): string {
   const modeLabel = mode === "drawing" ? "as per drawing" : "field-verified";
   const lines: string[] = [
@@ -288,14 +311,22 @@ export function formatTotalsForWhatsApp(
     `Wall tile: ${totals.grand.wallTileSqft} sq.ft`,
     `Granite: ${totals.grand.graniteSqft} sq.ft`,
   ];
+  const builtUpTotal = builtUpBySection
+    ? round2([...builtUpBySection.values()].reduce((s, v) => s + v, 0))
+    : 0;
+  if (builtUpTotal > 0) {
+    lines.push(`Built-up area: ${builtUpTotal} sq.ft (incl. walls)`);
+  }
   if (sectionNames && totals.bySection.size > 1) {
     lines.push("");
     for (const [key, q] of totals.bySection) {
       const name = sectionNames.get(key) ?? "Unassigned";
+      const builtUp = key !== null ? builtUpBySection?.get(key) : undefined;
       lines.push(
         `_${name}_: floor ${q.floorTileSqft} sqft · skirting ${q.skirtingRft} rft` +
           (q.wallTileSqft ? ` · wall ${q.wallTileSqft} sqft` : "") +
-          (q.graniteSqft ? ` · granite ${q.graniteSqft} sqft` : "")
+          (q.graniteSqft ? ` · granite ${q.graniteSqft} sqft` : "") +
+          (builtUp ? ` · built-up ${builtUp} sqft` : "")
       );
     }
   }

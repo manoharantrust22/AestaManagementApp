@@ -26,6 +26,8 @@ interface SpacesTotalsStripProps {
   onModeChange: (mode: MeasureMode) => void;
   siteName: string;
   sectionNames: Map<string | null, string>;
+  /** Manually-entered built-up sqft per floor (section_id → sqft). */
+  builtUpBySection?: Map<string, number>;
 }
 
 const TILES: Array<{
@@ -50,13 +52,26 @@ export default function SpacesTotalsStrip({
   onModeChange,
   siteName,
   sectionNames,
+  builtUpBySection,
 }: SpacesTotalsStripProps) {
   const [copied, setCopied] = useState(false);
+
+  const builtUpTotal = builtUpBySection
+    ? Math.round(
+        [...builtUpBySection.values()].reduce((s, v) => s + v, 0) * 100
+      ) / 100
+    : 0;
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(
-        formatTotalsForWhatsApp(totals, siteName, mode, sectionNames)
+        formatTotalsForWhatsApp(
+          totals,
+          siteName,
+          mode,
+          sectionNames,
+          builtUpBySection
+        )
       );
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -98,6 +113,22 @@ export default function SpacesTotalsStrip({
             </Typography>
           </Box>
         ))}
+        {builtUpTotal > 0 && (
+          <Box sx={{ minWidth: 76 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+              Built-up
+            </Typography>
+            <Typography
+              variant="h6"
+              sx={{ fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}
+            >
+              {builtUpTotal}
+              <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                sq.ft
+              </Typography>
+            </Typography>
+          </Box>
+        )}
 
         <Box sx={{ flex: 1 }} />
 

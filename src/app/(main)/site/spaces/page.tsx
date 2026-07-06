@@ -6,34 +6,46 @@ import {
   Box,
   Button,
   CircularProgress,
+  IconButton,
   Stack,
   Typography,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { Add as AddIcon, SquareFoot as SpacesIcon } from "@mui/icons-material";
+import {
+  Add as AddIcon,
+  AutoAwesome as ImportIcon,
+  GridOn as TilesIcon,
+  MapOutlined as PlansIcon,
+  SquareFoot as SpacesIcon,
+} from "@mui/icons-material";
 
 import { useSelectedSite } from "@/contexts/SiteContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { hasEditPermission } from "@/lib/permissions";
 import {
   useDeleteSpace,
-  useSetFloorPlan,
   useSpaceFloorPlans,
   useSpaces,
   useSpaceSections,
+  useTileOptions,
   useUpdateSpace,
+  useUpsertFloorMeta,
   useVerifySpaceDimensions,
 } from "@/hooks/queries/useSpaces";
 import { rollupTotals } from "@/lib/spaces/measurements";
+import { pickDefaultFloorSectionId } from "@/lib/spaces/floors";
 import type { MeasureMode, Space } from "@/types/spaces.types";
 
 import FloorGroup from "@/components/spaces/FloorGroup";
+import FloorPlansDialog from "@/components/spaces/FloorPlansDialog";
 import SpaceDetailContent from "@/components/spaces/SpaceDetailContent";
 import SpaceDetailSheet from "@/components/spaces/SpaceDetailSheet";
 import SpaceDialog from "@/components/spaces/SpaceDialog";
 import SpaceRow from "@/components/spaces/SpaceRow";
+import SpacesImportDialog from "@/components/spaces/SpacesImportDialog";
 import SpacesTotalsStrip from "@/components/spaces/SpacesTotalsStrip";
+import TileOptionsManager from "@/components/spaces/TileOptionsManager";
 
 const UNASSIGNED = "__unassigned__";
 
@@ -48,10 +60,11 @@ export default function SpacesPage() {
   const { data: spaces = [], isLoading } = useSpaces(siteId);
   const { data: sections = [] } = useSpaceSections(siteId);
   const { data: floorPlans = [] } = useSpaceFloorPlans(siteId);
+  const { data: tileOptions = [] } = useTileOptions(siteId);
   const updateSpace = useUpdateSpace();
   const deleteSpace = useDeleteSpace();
   const verifyDimensions = useVerifySpaceDimensions();
-  const setFloorPlan = useSetFloorPlan();
+  const upsertFloorMeta = useUpsertFloorMeta();
 
   const [mode, setMode] = useState<MeasureMode>("drawing");
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -59,8 +72,19 @@ export default function SpacesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogSectionId, setDialogSectionId] = useState<string | null>(null);
   const [editingSpace, setEditingSpace] = useState<Space | null>(null);
+  const [floorPlansOpen, setFloorPlansOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [tilesOpen, setTilesOpen] = useState(false);
 
-  const totals = useMemo(() => rollupTotals(spaces, mode), [spaces, mode]);
+  const knownSectionIds = useMemo(
+    () => new Set(sections.map((s) => s.id)),
+    [sections]
+  );
+
+  const totals = useMemo(
+    () => rollupTotals(spaces, mode, knownSectionIds),
+    [spaces, mode, knownSectionIds]
+  );
 
   const sectionNames = useMemo(() => {
     const map = new Map<string | null, string>();
@@ -75,18 +99,34 @@ export default function SpacesPage() {
     return map;
   }, [floorPlans]);
 
+  const builtUpBySection = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of floorPlans) {
+      if (p.built_area_sqft) map.set(p.section_id, p.built_area_sqft);
+    }
+    return map;
+  }, [floorPlans]);
+
   // Floors in sequence order, plus an Unassigned group when needed.
   // building_sections doubles as a work-phase list on some sites (Plinth,
   // Plastering, Electrical…), so only sections that actually hold a space
   // or a floor plan render as groups — every section stays reachable via
-  // the floor picker in the Add-space dialog.
+  // the floor picker in the Add-space dialog. A "typical" space renders
+  // under its primary floor AND every mirrored floor.
   const groups = useMemo(() => {
     const bySection = new Map<string, Space[]>();
-    for (const space of spaces) {
-      const key = space.section_id ?? UNASSIGNED;
+    const push = (key: string, space: Space) => {
       const arr = bySection.get(key) ?? [];
       arr.push(space);
       bySection.set(key, arr);
+    };
+    for (const space of spaces) {
+      push(space.section_id ?? UNASSIGNED, space);
+      for (const mid of new Set(space.mirrored_section_ids ?? [])) {
+        if (mid !== space.section_id && knownSectionIds.has(mid)) {
+          push(mid, space);
+        }
+      }
     }
     const result = sections
       .filter((s) => bySection.has(s.id) || plansBySection.has(s.id))
@@ -103,7 +143,7 @@ export default function SpacesPage() {
       });
     }
     return result;
-  }, [sections, spaces, plansBySection]);
+  }, [sections, spaces, plansBySection, knownSectionIds]);
 
   const sheetSpace = spaces.find((s) => s.id === sheetSpaceId) ?? null;
 
@@ -147,6 +187,7 @@ export default function SpacesPage() {
       mode={mode}
       canEdit={canEdit}
       saving={updateSpace.isPending || verifyDimensions.isPending}
+      tileOptions={tileOptions}
       onEdit={() => openEdit(space)}
       onDelete={() => handleDelete(space)}
       onSaveOverrides={(overrides) =>
@@ -155,6 +196,10 @@ export default function SpacesPage() {
       onSavePhotos={(photos) =>
         updateSpace.mutate({ id: space.id, siteId, updates: { photos } })
       }
+      onUpdate={(updates) =>
+        updateSpace.mutate({ id: space.id, siteId, updates })
+      }
+      onManageTileOptions={() => setTilesOpen(true)}
       onVerify={(dims) =>
         verifyDimensions.mutate({ id: space.id, siteId, ...dims })
       }
@@ -174,11 +219,63 @@ export default function SpacesPage() {
             against the drawing.
           </Typography>
         </Box>
+        {isMobile ? (
+          <>
+            {canEdit && (
+              <IconButton
+                aria-label="import from plan"
+                onClick={() => setImportOpen(true)}
+              >
+                <ImportIcon />
+              </IconButton>
+            )}
+            <IconButton
+              aria-label="tile options"
+              onClick={() => setTilesOpen(true)}
+            >
+              <TilesIcon />
+            </IconButton>
+            <IconButton
+              aria-label="floor plans"
+              onClick={() => setFloorPlansOpen(true)}
+            >
+              <PlansIcon />
+            </IconButton>
+          </>
+        ) : (
+          <>
+            {canEdit && (
+              <Button
+                variant="outlined"
+                startIcon={<ImportIcon />}
+                onClick={() => setImportOpen(true)}
+              >
+                Import from plan
+              </Button>
+            )}
+            <Button
+              variant="outlined"
+              startIcon={<TilesIcon />}
+              onClick={() => setTilesOpen(true)}
+            >
+              Tiles
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<PlansIcon />}
+              onClick={() => setFloorPlansOpen(true)}
+            >
+              Floor plans
+            </Button>
+          </>
+        )}
         {canEdit && (
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => openCreate(sections[0]?.id ?? null)}
+            onClick={() =>
+              openCreate(pickDefaultFloorSectionId(sections, spaces))
+            }
           >
             Add space
           </Button>
@@ -191,6 +288,7 @@ export default function SpacesPage() {
         onModeChange={setMode}
         siteName={selectedSite.name}
         sectionNames={sectionNames}
+        builtUpBySection={builtUpBySection}
       />
 
       {isLoading ? (
@@ -204,9 +302,11 @@ export default function SpacesPage() {
         </Alert>
       ) : groups.length === 0 ? (
         <Alert severity="info" sx={{ mt: 2 }}>
-          No spaces yet. Tap <strong>Add space</strong> and enter each room
-          from the drawing — floor tile, skirting, wall tile and granite
-          quantities compute automatically.
+          No spaces yet. Tap <strong>Add space</strong> to enter rooms one by
+          one, or <strong>Import from plan</strong> to bulk-add every room
+          from the drawing via AI. Attach drawings under{" "}
+          <strong>Floor plans</strong>. Tile, skirting and granite quantities
+          compute automatically.
         </Alert>
       ) : (
         <Stack spacing={2} sx={{ mt: 2 }}>
@@ -226,7 +326,22 @@ export default function SpacesPage() {
               canEdit={canEdit}
               onAddSpace={openCreate}
               onSetPlan={(sectionId, plan) =>
-                setFloorPlan.mutate({ siteId, sectionId, plan })
+                upsertFloorMeta.mutate({ siteId, sectionId, plan })
+              }
+              builtAreaSqft={
+                group.sectionId
+                  ? plansBySection.get(group.sectionId)?.built_area_sqft ?? null
+                  : null
+              }
+              onSetBuiltArea={
+                canEdit
+                  ? (sectionId, sqft) =>
+                      upsertFloorMeta.mutate({
+                        siteId,
+                        sectionId,
+                        builtAreaSqft: sqft,
+                      })
+                  : undefined
               }
             >
               {group.spaces.length === 0 ? (
@@ -273,6 +388,27 @@ export default function SpacesPage() {
         siteId={siteId}
         defaultSectionId={dialogSectionId}
         editing={editingSpace}
+        existingSpaces={spaces}
+      />
+
+      <FloorPlansDialog
+        open={floorPlansOpen}
+        onClose={() => setFloorPlansOpen(false)}
+        siteId={siteId}
+        canEdit={canEdit}
+      />
+
+      <SpacesImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        siteId={siteId}
+      />
+
+      <TileOptionsManager
+        open={tilesOpen}
+        onClose={() => setTilesOpen(false)}
+        siteId={siteId}
+        canEdit={canEdit}
       />
     </Box>
   );

@@ -23,6 +23,7 @@ function makeSpace(partial: Partial<Space> = {}): Space {
     id: "s1",
     site_id: "site1",
     section_id: null,
+    mirrored_section_ids: [],
     name: "Test Room",
     space_type: "bedroom",
     drawing_length_in: null,
@@ -39,6 +40,8 @@ function makeSpace(partial: Partial<Space> = {}): Space {
     granite_lines: [],
     overrides: {},
     photos: [],
+    tile_option_id: null,
+    tile_layout: {},
     notes: null,
     sort_order: 0,
     created_by: null,
@@ -90,6 +93,12 @@ describe("parseFeetInches", () => {
 
   it("handles curly quotes from mobile keyboards", () => {
     expect(parseFeetInches("14’ 6”")).toBe(174);
+  });
+
+  it("handles Unicode primes from AI output", () => {
+    expect(parseFeetInches("9′4″")).toBe(112);
+    expect(parseFeetInches("7″")).toBe(7);
+    expect(parseFeetInches("12′")).toBe(144);
   });
 
   it("rejects garbage and >=12 inch components", () => {
@@ -319,5 +328,52 @@ describe("rollupTotals", () => {
     expect(text).toContain("Srinivasan");
     expect(text).toContain("Floor tile: 220 sq.ft");
     expect(text).toContain("Ground Floor");
+  });
+
+  it("mirrored (typical) spaces count once per floor and multiply the grand total", () => {
+    const typical = makeSpace({
+      id: "t",
+      section_id: "ff",
+      mirrored_section_ids: ["sf", "tf"],
+      drawing_length_in: ft(10),
+      drawing_width_in: ft(10),
+    });
+    const t = rollupTotals([typical], "drawing");
+    expect(t.grand.floorTileSqft).toBe(300); // 100 × 3 floors
+    expect(t.bySection.get("ff")!.floorTileSqft).toBe(100);
+    expect(t.bySection.get("sf")!.floorTileSqft).toBe(100);
+    expect(t.bySection.get("tf")!.floorTileSqft).toBe(100);
+  });
+
+  it("drops stale/duplicate mirrors when known sections are provided", () => {
+    const typical = makeSpace({
+      id: "t",
+      section_id: "ff",
+      mirrored_section_ids: ["ff", "sf", "deleted", "sf"],
+      drawing_length_in: ft(10),
+      drawing_width_in: ft(10),
+    });
+    const t = rollupTotals([typical], "drawing", new Set(["ff", "sf"]));
+    expect(t.grand.floorTileSqft).toBe(200); // ff + sf only
+    expect(t.bySection.has("deleted")).toBe(false);
+  });
+
+  it("includes built-up areas in the shared text when provided", () => {
+    const t = rollupTotals([roomA, roomB], "drawing");
+    const text = formatTotalsForWhatsApp(
+      t,
+      "Srinivasan",
+      "drawing",
+      new Map([
+        ["gf", "Ground Floor"],
+        ["ff", "First Floor"],
+      ]),
+      new Map([
+        ["gf", 1450],
+        ["ff", 1300],
+      ])
+    );
+    expect(text).toContain("Built-up area: 2750 sq.ft (incl. walls)");
+    expect(text).toContain("built-up 1450 sqft");
   });
 });

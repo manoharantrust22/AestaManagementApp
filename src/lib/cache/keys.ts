@@ -130,6 +130,7 @@ export const queryKeys = {
     bySite: (siteId: string) => ['spaces', 'site', siteId] as const,
     byId: (id: string) => ['spaces', id] as const,
     floorPlans: (siteId: string) => ['spaces', 'site', siteId, 'floor-plans'] as const,
+    tileOptions: (siteId: string) => ['spaces', 'site', siteId, 'tile-options'] as const,
   },
 
   // ==================== TRANSACTIONAL DATA (5min cache) ====================

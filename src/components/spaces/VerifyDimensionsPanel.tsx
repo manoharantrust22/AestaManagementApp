@@ -11,6 +11,7 @@ import {
 import { StraightenOutlined as TapeIcon } from "@mui/icons-material";
 
 import type { Space } from "@/types/spaces.types";
+import { DIMENSION_LABELS } from "@/types/spaces.types";
 import {
   dimensionVariance,
   formatFeetInches,
@@ -63,9 +64,9 @@ export default function VerifyDimensionsPanel({
     set: (v: number | null) => void;
     varianceIn: number | null;
   }> = [
-    { label: "Length", drawing: space.drawing_length_in, value: lengthIn, set: setLengthIn, varianceIn: variance.length },
-    { label: "Width", drawing: space.drawing_width_in, value: widthIn, set: setWidthIn, varianceIn: variance.width },
-    { label: "Height", drawing: space.drawing_height_in, value: heightIn, set: setHeightIn, varianceIn: variance.height },
+    { label: DIMENSION_LABELS.x, drawing: space.drawing_length_in, value: lengthIn, set: setLengthIn, varianceIn: variance.length },
+    { label: DIMENSION_LABELS.y, drawing: space.drawing_width_in, value: widthIn, set: setWidthIn, varianceIn: variance.width },
+    { label: DIMENSION_LABELS.h, drawing: space.drawing_height_in, value: heightIn, set: setHeightIn, varianceIn: variance.height },
   ];
 
   const anyVariance = rows.some(
@@ -83,7 +84,7 @@ export default function VerifyDimensionsPanel({
             r.varianceIn !== null && r.varianceIn > VARIANCE_TOLERANCE_IN;
           return (
             <Stack key={r.label} direction="row" spacing={1.5} alignItems="center">
-              <Box sx={{ width: 88 }}>
+              <Box sx={{ width: 110 }}>
                 <Typography variant="caption" color="text.secondary">
                   {r.label}
                 </Typography>
