@@ -106,7 +106,7 @@ export function useDayPendingRecords(
         .select(
           `
               id, date, laborer_id, daily_earnings, is_paid, payment_notes, subcontract_id,
-              laborers!inner(
+              laborers!daily_attendance_laborer_id_fkey!inner(
                 name, laborer_type,
                 labor_categories(name),
                 labor_roles(name)

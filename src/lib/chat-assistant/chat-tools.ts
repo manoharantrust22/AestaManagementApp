@@ -662,7 +662,7 @@ async function execGetAttendanceList(args: Record<string, unknown>, supabase: Db
   const { site_id, date_from, date_to } = args as Record<string, string>;
   const { data, error } = await supabase
     .from("daily_attendance")
-    .select("date, day_units, daily_earnings, laborer_id, laborers(name)")
+    .select("date, day_units, daily_earnings, laborer_id, laborers!daily_attendance_laborer_id_fkey(name)")
     .eq("is_deleted", false)
     .eq("site_id", site_id)
     .gte("date", date_from)
@@ -757,7 +757,7 @@ async function execGetTopEarners(args: Record<string, unknown>, supabase: DbClie
   const { site_id, date_from, date_to, limit = 5 } = args as Record<string, unknown>;
   const { data, error } = await supabase
     .from("daily_attendance")
-    .select("laborer_id, daily_earnings, laborers(name)")
+    .select("laborer_id, daily_earnings, laborers!daily_attendance_laborer_id_fkey(name)")
     .eq("is_deleted", false)
     .eq("site_id", site_id as string)
     .gte("date", date_from as string)

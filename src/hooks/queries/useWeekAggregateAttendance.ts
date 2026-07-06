@@ -46,7 +46,7 @@ export function useWeekAggregateAttendance(
       let attendanceQ = supabaseQ
         .from("daily_attendance")
         .select(
-          "date, laborer_id, daily_earnings, subcontract_id, laborers!inner(laborer_type), subcontracts(labor_categories(name))"
+          "date, laborer_id, daily_earnings, subcontract_id, laborers!daily_attendance_laborer_id_fkey!inner(laborer_type), subcontracts(labor_categories(name))"
         )
         .eq("site_id", siteId!)
         .eq("is_deleted", false)

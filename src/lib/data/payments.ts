@@ -50,7 +50,7 @@ export async function getPaymentPageData(
       id, date, laborer_id, daily_earnings, is_paid, paid_via, payment_date, payment_mode,
       engineer_transaction_id, payment_proof_url, payment_notes, subcontract_id, expense_id,
       payer_source, payer_name, settlement_group_id,
-      laborers!inner(
+      laborers!daily_attendance_laborer_id_fkey!inner(
         id, name, laborer_type,
         labor_categories(name),
         labor_roles(name)

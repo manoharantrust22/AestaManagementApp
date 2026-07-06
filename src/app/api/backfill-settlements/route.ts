@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     // Note: laborer_type is on the laborers table, so we need to join
     const { data: dailyRecords, error: dailyError } = await supabase
       .from("daily_attendance")
-      .select("id, site_id, date, daily_earnings, payer_source, payer_name, payment_mode, laborers!inner(laborer_type)")
+      .select("id, site_id, date, daily_earnings, payer_source, payer_name, payment_mode, laborers!daily_attendance_laborer_id_fkey!inner(laborer_type)")
       .eq("is_paid", true)
       .is("settlement_group_id", null)
       .neq("laborers.laborer_type", "contract");
@@ -197,7 +197,7 @@ export async function GET() {
     // Count daily attendance records needing backfill (excluding contract laborers)
     const { count: dailyCount } = await supabase
       .from("daily_attendance")
-      .select("*, laborers!inner(laborer_type)", { count: "exact", head: true })
+      .select("*, laborers!daily_attendance_laborer_id_fkey!inner(laborer_type)", { count: "exact", head: true })
       .eq("is_paid", true)
       .is("settlement_group_id", null)
       .neq("laborers.laborer_type", "contract");

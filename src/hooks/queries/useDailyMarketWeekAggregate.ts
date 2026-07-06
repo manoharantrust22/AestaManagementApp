@@ -51,7 +51,7 @@ export function useDailyMarketWeekAggregate(
       const dailyQ = supabase
         .from("daily_attendance")
         .select(
-          "date, laborer_id, daily_earnings, laborers!inner(laborer_type)"
+          "date, laborer_id, daily_earnings, laborers!daily_attendance_laborer_id_fkey!inner(laborer_type)"
         )
         .eq("site_id", siteId!)
         .eq("is_deleted", false)

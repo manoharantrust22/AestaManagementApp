@@ -79,7 +79,7 @@ async function fetchAttendanceWeek(
       attendance_status, work_progress_percent,
       engineer_transaction_id, expense_id, paid_via,
       entered_by, recorded_by, recorded_by_user_id, updated_by, updated_by_user_id, created_at, updated_at,
-      laborers!inner(name, team_id, category_id, role_id, laborer_type, team:teams!laborers_team_id_fkey(name), labor_categories(name), labor_roles(name)),
+      laborers!daily_attendance_laborer_id_fkey!inner(name, team_id, category_id, role_id, laborer_type, team:teams!laborers_team_id_fkey(name), labor_categories(name), labor_roles(name)),
       building_sections(name),
       subcontracts(title),
       recorded_by_user:users!daily_attendance_recorded_by_user_id_fkey(avatar_url),

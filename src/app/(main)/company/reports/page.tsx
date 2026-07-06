@@ -128,7 +128,7 @@ export default function CompanyReportsPage() {
         .select(
           `
           *,
-          laborers(name, category),
+          laborers!daily_attendance_laborer_id_fkey(name, category),
           sites(name)
         `
         )

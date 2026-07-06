@@ -26,7 +26,7 @@ export function useWeekContractSubcontracts(
     queryFn: wrapQueryFn(async () => {
       const { data, error } = await (supabase as any)
         .from("daily_attendance")
-        .select("subcontract_id, laborer:laborers!inner(laborer_type)")
+        .select("subcontract_id, laborer:laborers!daily_attendance_laborer_id_fkey!inner(laborer_type)")
         .eq("site_id", siteId)
         .gte("date", weekStart)
         .lte("date", weekEnd)

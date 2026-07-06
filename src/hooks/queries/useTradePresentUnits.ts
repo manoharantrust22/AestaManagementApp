@@ -19,7 +19,7 @@ export function useTradePresentUnits(siteIds: string[], date: string | null | un
       // named labourers: daily_attendance.day_units, laborer -> category_id
       const { data: named, error: e1 } = await supabase
         .from("daily_attendance")
-        .select("site_id, day_units, is_deleted, laborers(category_id)")
+        .select("site_id, day_units, is_deleted, laborers!daily_attendance_laborer_id_fkey(category_id)")
         .in("site_id", ids)
         .eq("date", date);
       if (e1) throw e1;

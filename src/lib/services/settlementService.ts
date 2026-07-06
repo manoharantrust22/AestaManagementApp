@@ -638,7 +638,7 @@ export async function processWeeklySettlement(
       // joined column.
       const { count } = await supabase
         .from("daily_attendance")
-        .select("*, laborers!inner(laborer_type)", { count: "exact", head: true })
+        .select("*, laborers!daily_attendance_laborer_id_fkey!inner(laborer_type)", { count: "exact", head: true })
         .eq("site_id", config.siteId)
         .gte("date", config.dateFrom)
         .lte("date", config.dateTo)
@@ -835,7 +835,7 @@ export async function processWeeklySettlement(
         // that catches the bug class.
         const { data: dailyRows, error: dailyQueryError } = await supabase
           .from("daily_attendance")
-          .select("id, laborers!inner(laborer_type)")
+          .select("id, laborers!daily_attendance_laborer_id_fkey!inner(laborer_type)")
           .eq("site_id", config.siteId)
           .gte("date", config.dateFrom)
           .lte("date", config.dateTo)
@@ -2538,7 +2538,7 @@ export async function processDateWiseContractSettlement(
         laborer_id,
         daily_earnings,
         is_paid,
-        laborers!inner(id, name, labor_roles(name))
+        laborers!daily_attendance_laborer_id_fkey!inner(id, name, labor_roles(name))
       `)
       .eq("site_id", config.siteId)
       .eq("laborer_type", "contract")

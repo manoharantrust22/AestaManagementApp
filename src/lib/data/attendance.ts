@@ -57,7 +57,7 @@ export async function getAttendancePageData(
         in_time, lunch_out, lunch_in, out_time, work_hours, break_hours, total_hours, day_units, snacks_amount,
         attendance_status, work_progress_percent,
         entered_by, recorded_by, recorded_by_user_id, updated_by, updated_by_user_id, created_at, updated_at,
-        laborers!inner(name, team_id, category_id, role_id, laborer_type, team:teams!laborers_team_id_fkey(name), labor_categories(name), labor_roles(name)),
+        laborers!daily_attendance_laborer_id_fkey!inner(name, team_id, category_id, role_id, laborer_type, team:teams!laborers_team_id_fkey(name), labor_categories(name), labor_roles(name)),
         building_sections(name),
         subcontracts(title),
         recorded_by_user:users!daily_attendance_recorded_by_user_id_fkey(avatar_url),

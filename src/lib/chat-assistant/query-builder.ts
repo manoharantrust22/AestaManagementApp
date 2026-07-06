@@ -761,7 +761,7 @@ async function queryLaborerEarnings(filters: IntentFilters): Promise<QueryResult
 
   let query = supabase
     .from("daily_attendance")
-    .select("laborer_id, daily_earnings, laborers(name)")
+    .select("laborer_id, daily_earnings, laborers!daily_attendance_laborer_id_fkey(name)")
     .eq("is_deleted", false);
 
   if (filters.site_id) {
@@ -1043,7 +1043,7 @@ async function queryWorkDaysSummary(filters: IntentFilters): Promise<QueryResult
 
   let query = supabase
     .from("daily_attendance")
-    .select("date, work_days, daily_earnings, laborers(name)")
+    .select("date, work_days, daily_earnings, laborers!daily_attendance_laborer_id_fkey(name)")
     .eq("is_deleted", false)
     .gt("work_days", 1); // Overtime: more than 1 day
 
