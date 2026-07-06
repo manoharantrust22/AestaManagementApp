@@ -161,6 +161,7 @@ import { ContractMoneyStrip } from "@/components/attendance/ContractMoneyStrip";
 import { useTradeContractSummaries } from "@/hooks/queries/useTradeContractSummary";
 import { useTaskWorkPackages } from "@/hooks/queries/useTaskWorkPackages";
 import { useNonCivilTradeSubcontractIds } from "@/hooks/queries/useNonCivilTradeSubcontractIds";
+import { useAttendanceCommissionMap } from "@/hooks/queries/useAttendanceCommissionMap";
 import { TradeAttendanceView } from "@/components/attendance/trade-view/TradeAttendanceView";
 import { getTradeColor } from "@/theme/tradeColors";
 import { ThemeProvider } from "@mui/material/styles";
@@ -860,6 +861,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   // weekly-settle write path). In a trade scope we show the scoped trade's own data.
   const { data: nonCivilTradeSubcontractIds } =
     useNonCivilTradeSubcontractIds(selectedSite?.id);
+  // Commission overlay: daily_attendance.id → ₹ commission, only for enabled-contract
+  // crew/own days. Presence = pay this company day directly in the company week at NET.
+  const { data: commissionByAttendanceId } =
+    useAttendanceCommissionMap(selectedSite?.id);
   const packageTitleById = useMemo(() => {
     const m = new Map<string, string>();
     for (const p of allTaskWorkPackages ?? []) {
@@ -2312,32 +2317,42 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           // Civil blends ALL named labour (unscoped); a trade scope reads only the
           // scoped named records so the weekly strip totals the trade, not the site.
           (tradeScope ? e.summary.records : (unscopedRecordsByDate.get(e.date) ?? e.summary.records)).forEach((r) => {
-            if (!r.is_paid && !r.task_work_package_id) {
-              // Task-work-package rows settle on the contract page — never in the
-              // weekly salary strip (daily or contract bucket).
-              if (r.laborer_type === "contract") {
-                // In the default/Civil view, a day tagged to a non-Civil trade
-                // contract (e.g. Painting) settles in that trade's own workspace —
-                // keep it out of the company contract-pending total so the strip and
-                // its (locked) settle amount match get_salary_waterfall and the
-                // weekly-settle write path. In a trade scope the records are already
-                // the scoped trade's own, so don't drop them.
-                const isNonCivilTradeDay =
-                  !tradeScope &&
-                  !!r.subcontract_id &&
-                  (nonCivilTradeSubcontractIds?.has(r.subcontract_id) ?? false);
-                if (!isNonCivilTradeDay) {
-                  if (!isCurrentWeek) {
-                    pendingContractSalary += r.daily_earnings;
-                  }
-                  if (!contractLaborerIds.includes(r.laborer_id)) {
-                    contractLaborerIds.push(r.laborer_id);
-                  }
+            if (r.is_paid) return;
+            // Commission overlay (present only for enabled-contract crew/own days,
+            // post-cutover). Presence flips the settle model: this company day is paid
+            // DIRECTLY in the company week at NET (gross − commission), instead of being
+            // excluded as task-work / non-Civil. Mirrors get_salary_waterfall + the
+            // settle_company_week_contract write path.
+            const commission = commissionByAttendanceId?.get(r.id);
+            const isCommissionDay = commission !== undefined;
+            if (r.laborer_type === "contract") {
+              // A day tagged to a non-Civil trade (e.g. Painting) settles in that trade's
+              // own workspace — kept out of the company total UNLESS commission is on,
+              // in which case the company pays it directly at net.
+              const isNonCivilTradeDay =
+                !tradeScope &&
+                !!r.subcontract_id &&
+                (nonCivilTradeSubcontractIds?.has(r.subcontract_id) ?? false);
+              const normalCompanyDay = !r.task_work_package_id && !isNonCivilTradeDay;
+              // Unscoped/Civil view: include normal company days OR any commission day
+              // (net). Trade scope: the scoped records are the trade's own, but a
+              // commission day is now company-paid, so drop it from the trade total.
+              const includeInCompany = tradeScope
+                ? !r.task_work_package_id && !isCommissionDay
+                : normalCompanyDay || isCommissionDay;
+              if (includeInCompany) {
+                if (!isCurrentWeek) {
+                  pendingContractSalary += r.daily_earnings - (commission ?? 0);
                 }
-              } else {
-                if (!skipToday) {
-                  pendingDailySalary += r.daily_earnings;
+                if (!contractLaborerIds.includes(r.laborer_id)) {
+                  contractLaborerIds.push(r.laborer_id);
                 }
+              }
+            } else if (!r.task_work_package_id) {
+              // Daily/market laborers never carry commission; task-work days settle on
+              // the package, not the weekly strip.
+              if (!skipToday) {
+                pendingDailySalary += r.daily_earnings;
               }
             }
           });
@@ -2392,7 +2407,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     });
 
     return withWeeklySeparators;
-  }, [dateSummaries, scopedDateSummaries, scopedHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date, contractPresenceMap, attendanceCoverageSet, tradeScope, weeksQuery.hasNextPage, nonCivilTradeSubcontractIds]);
+  }, [dateSummaries, scopedDateSummaries, scopedHolidays, dateFrom, dateTo, showHolidays, selectedSite?.start_date, contractPresenceMap, attendanceCoverageSet, tradeScope, weeksQuery.hasNextPage, nonCivilTradeSubcontractIds, commissionByAttendanceId]);
 
   // Process initialData from server on first render
   useEffect(() => {

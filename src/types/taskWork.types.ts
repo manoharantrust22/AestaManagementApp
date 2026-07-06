@@ -76,6 +76,11 @@ export interface TaskWorkPackage {
   retention_percent: number;
   status: TaskWorkStatus;
   parent_subcontract_id: string | null;
+  // Mesthri commission: when enabled, this package's company laborers are paid
+  // directly by the week (net of commission) and the maistry collects the per-day
+  // commission. effective_from is the cutover Sunday (see migration 20260705120000).
+  mesthri_commission_enabled: boolean;
+  mesthri_commission_effective_from: string | null;
   notes: string | null;
   completion_reason: string | null;
   balance_waived: boolean;
@@ -241,6 +246,8 @@ export interface TaskWorkPackageInput {
   retention_percent?: number;
   status?: TaskWorkStatus;
   parent_subcontract_id?: string | null;
+  mesthri_commission_enabled?: boolean;
+  mesthri_commission_effective_from?: string | null;
   notes?: string | null;
   completion_reason?: string | null;
   balance_waived?: boolean;

@@ -33,6 +33,7 @@ import { WorkPhotosCard } from "./WorkPhotosCard";
 import { GoodDealCard } from "./GoodDealCard";
 import { PaymentsHistoryCard } from "./PaymentsHistoryCard";
 import { ScopeSheetPanel } from "./ScopeSheetPanel";
+import ContractLaborLedger from "./ContractLaborLedger";
 
 const STATUS_PILL: Record<ContractStatus, { label: string; color: string; bg: string }> = {
   active: { label: "Active", color: wsColors.green, bg: wsColors.greenBg },
@@ -503,6 +504,22 @@ export function TaskDetailPane({
 
         {/* Hero balance meter */}
         <BalanceMeter exposure={task.exposure} />
+
+        {/* Per-company-laborer earnings + mesthri commission (attendance-tracked or
+            commission-enabled contracts only — payments-only/plan rows have no per-laborer data). */}
+        {!isPlan && (task.mode === "detailed" || task.mesthriCommissionEnabled) && (
+          <Box>
+            <Typography sx={{ fontSize: 11, fontWeight: 700, color: wsColors.muted, textTransform: "uppercase", letterSpacing: ".04em", mb: 0.75 }}>
+              Crew earnings &amp; commission
+            </Typography>
+            <ContractLaborLedger
+              kind="subcontract"
+              refId={task.id}
+              commissionEnabled={Boolean(task.mesthriCommissionEnabled)}
+              onEnableCommission={canEdit && onEdit ? onEdit : undefined}
+            />
+          </Box>
+        )}
 
         {/* Recent work-update photos + the day's % done (visual progress). */}
         <WorkPhotosCard contractId={task.id} />

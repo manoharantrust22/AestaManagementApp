@@ -24,6 +24,7 @@ import {
   type CompletionChoice,
 } from "@/lib/taskWork/completion";
 import TaskWorkEffortPanel from "@/components/task-work/TaskWorkEffortPanel";
+import ContractLaborLedger from "@/components/workforce/ContractLaborLedger";
 import TaskWorkPaymentsPanel from "@/components/task-work/TaskWorkPaymentsPanel";
 import TaskWorkVariationsSection from "@/components/task-work/TaskWorkVariationsSection";
 import TaskWorkCompleteDialog from "@/components/task-work/TaskWorkCompleteDialog";
@@ -300,6 +301,17 @@ export function PackageDetailPane({
 
         <SectionTitle>Day log</SectionTitle>
         <TaskWorkEffortPanel packageId={pkg.id} siteId={pkg.site_id} laborCategoryId={pkg.labor_category_id} canEdit={canEdit} />
+
+        <SectionTitle>Crew earnings &amp; commission</SectionTitle>
+        <ContractLaborLedger
+          kind="task_work"
+          refId={pkg.id}
+          commissionEnabled={Boolean(pkg.mesthri_commission_enabled)}
+          onEnableCommission={canEdit ? () => onEdit(pkg) : undefined}
+          siteId={pkg.site_id}
+          mesthriLaborerId={pkg.maistry_laborer_id}
+          mesthriName={pkg.maistry_name}
+        />
 
         <SectionTitle>Payments</SectionTitle>
         <TaskWorkPaymentsPanel pkg={pkg} canEdit={canEdit} />

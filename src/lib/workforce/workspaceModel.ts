@@ -45,6 +45,8 @@ export interface WorkspaceTask {
   isInHouse: boolean;
   teamId: string | null;
   laborerId: string | null;
+  /** When true, company laborers on this contract are paid directly (net of commission) and the mesthri collects the commission. */
+  mesthriCommissionEnabled: boolean;
   /** Set when this row is a CHILD of another subcontract (its parent in the ladder). Null = top-level Contract. */
   parentSubcontractId: string | null;
   /** Stable key used to cluster a contractor's task works (team › laborer › name › in-house). */
@@ -291,6 +293,7 @@ export function buildWorkspaceModel({
         isInHouse: c.isInHouse,
         teamId: c.teamId,
         laborerId: c.laborerId,
+        mesthriCommissionEnabled: Boolean(c.mesthriCommissionEnabled),
         parentSubcontractId: c.parentSubcontractId,
         contractorKey,
         quoted,

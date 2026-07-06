@@ -12,11 +12,13 @@ import {
   DialogTitle,
   Divider,
   FormControl,
+  FormControlLabel,
   Grid,
   InputLabel,
   MenuItem,
   Paper,
   Select,
+  Switch,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
@@ -96,6 +98,8 @@ interface FormState {
   retention_percent: number;
   status: TaskWorkStatus;
   parent_subcontract_id: string;
+  mesthri_commission_enabled: boolean;
+  mesthri_commission_effective_from: string;
   notes: string;
 }
 
@@ -118,8 +122,18 @@ const EMPTY: FormState = {
   retention_percent: 0,
   status: "active",
   parent_subcontract_id: "",
+  mesthri_commission_enabled: false,
+  mesthri_commission_effective_from: "",
   notes: "",
 };
+
+/** The coming Sunday (company week bucket) — the safe default cutover date. */
+function comingSunday(): string {
+  const d = dayjs();
+  // day()=0 on Sunday; if today is Sunday use today, else the next Sunday.
+  const add = d.day() === 0 ? 0 : 7 - d.day();
+  return d.add(add, "day").format("YYYY-MM-DD");
+}
 
 export default function TaskWorkPackageDialog({
   open,
@@ -196,6 +210,8 @@ export default function TaskWorkPackageDialog({
         retention_percent: editing.retention_percent ?? 0,
         status: editing.status,
         parent_subcontract_id: editing.parent_subcontract_id ?? "",
+        mesthri_commission_enabled: Boolean(editing.mesthri_commission_enabled),
+        mesthri_commission_effective_from: editing.mesthri_commission_effective_from ?? "",
         notes: editing.notes ?? "",
       });
     } else {
@@ -291,6 +307,11 @@ export default function TaskWorkPackageDialog({
       retention_percent: form.retention_percent || 0,
       status: form.status,
       parent_subcontract_id: form.parent_subcontract_id || null,
+      mesthri_commission_enabled: form.mesthri_commission_enabled,
+      // When enabled, a cutover date is required (default to the coming Sunday).
+      mesthri_commission_effective_from: form.mesthri_commission_enabled
+        ? form.mesthri_commission_effective_from || comingSunday()
+        : null,
       notes: form.notes.trim() || null,
     };
 
@@ -448,6 +469,62 @@ export default function TaskWorkPackageDialog({
               </FormControl>
             </Grid>
           </Grid>
+
+          <Divider />
+
+          {/* Mesthri commission — pay company laborers directly (net) and let the
+              maistry collect the per-day cut. Rate is per-laborer (commission_per_day). */}
+          <Box
+            sx={{
+              p: 1.5,
+              borderRadius: 1.5,
+              border: (t) => `1px solid ${t.palette.divider}`,
+              bgcolor: "action.hover",
+            }}
+          >
+            <FormControlLabel
+              sx={{ alignItems: "flex-start", m: 0 }}
+              control={
+                <Switch
+                  checked={form.mesthri_commission_enabled}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setForm((p) => ({
+                      ...p,
+                      mesthri_commission_enabled: on,
+                      mesthri_commission_effective_from:
+                        on && !p.mesthri_commission_effective_from
+                          ? comingSunday()
+                          : p.mesthri_commission_effective_from,
+                    }));
+                  }}
+                />
+              }
+              label={
+                <Box component="span" sx={{ display: "block", pt: 0.75 }}>
+                  <Typography variant="body2" fontWeight={700}>
+                    Commission to the maistry
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" component="span" sx={{ display: "block" }}>
+                    Company laborers on this package are paid directly each week (net of the
+                    per-day commission, ₹50 default per laborer); the maistry collects the
+                    commission + own wages. Off = paid via the fixed-price package.
+                  </Typography>
+                </Box>
+              }
+            />
+            {form.mesthri_commission_enabled && (
+              <TextField
+                label="Direct-pay from (cutover)"
+                type="date"
+                value={form.mesthri_commission_effective_from}
+                onChange={(e) => set("mesthri_commission_effective_from", e.target.value)}
+                slotProps={{ inputLabel: { shrink: true } }}
+                helperText="Days before this stay paid via the package. Use a Sunday (week start)."
+                sx={{ mt: 1.5, maxWidth: 280 }}
+              />
+            )}
+          </Box>
 
           <Divider />
 

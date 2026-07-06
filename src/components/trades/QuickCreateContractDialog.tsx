@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  Box,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -12,12 +13,15 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   FormControl,
+  FormControlLabel,
   FormLabel,
+  Switch,
   Typography,
   Alert,
   CircularProgress,
   InputAdornment,
 } from "@mui/material";
+import dayjs from "dayjs";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import type { ContractTier } from "@/lib/workforce/workspaceModel";
@@ -96,6 +100,9 @@ export function QuickCreateContractDialog({
   const [sqft, setSqft] = useState<string>("");
   const [ratePerSqft, setRatePerSqft] = useState<string>("");
   const [status, setStatus] = useState<"draft" | "active">(initialStatus);
+  // When on, company laborers on this contract are paid directly (net of the per-day
+  // mesthri commission) once daily attendance is tracked; the mesthri collects the cut.
+  const [commissionOn, setCommissionOn] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -112,6 +119,7 @@ export function QuickCreateContractDialog({
     setSqft("");
     setRatePerSqft("");
     setStatus(initialStatus);
+    setCommissionOn(false);
     setError(null);
   }, [open, tier, initialStatus]);
 
@@ -171,6 +179,14 @@ export function QuickCreateContractDialog({
         labor_tracking_mode: "mesthri_only",
         is_in_house: false,
         status,
+        mesthri_commission_enabled: commissionOn,
+        // Cutover = the coming Sunday (company week bucket) when enabled.
+        mesthri_commission_effective_from: commissionOn
+          ? (() => {
+              const d = dayjs();
+              return d.add(d.day() === 0 ? 0 : 7 - d.day(), "day").format("YYYY-MM-DD");
+            })()
+          : null,
         ...pricing,
       };
       // Crew is optional on a draft (Future plan) — attach only when picked.
@@ -334,6 +350,25 @@ export function QuickCreateContractDialog({
                 : "Shows in the Active workspace right away."}
             </Typography>
           </FormControl>
+
+          <FormControlLabel
+            sx={{ alignItems: "flex-start", m: 0 }}
+            control={
+              <Switch checked={commissionOn} onChange={(e) => setCommissionOn(e.target.checked)} />
+            }
+            label={
+              <Box component="span" sx={{ display: "block", pt: 0.75 }}>
+                <Typography variant="body2" fontWeight={700}>
+                  Commission to the mesthri
+                </Typography>
+                <Typography variant="caption" color="text.secondary" component="span" sx={{ display: "block" }}>
+                  Once daily attendance is tracked for this contract, its company laborers are
+                  paid directly (net of the per-day commission, ₹50 default per laborer) and the
+                  mesthri collects the commission. Off = settled the usual way.
+                </Typography>
+              </Box>
+            }
+          />
 
           {error && <Alert severity="error">{error}</Alert>}
         </Stack>

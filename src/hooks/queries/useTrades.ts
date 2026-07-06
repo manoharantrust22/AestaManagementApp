@@ -101,6 +101,7 @@ interface RawContractRow {
   laborer_id: string | null;
   contractor_name: string | null;
   parent_subcontract_id: string | null;
+  mesthri_commission_enabled: boolean | null;
   team: { leader_name: string | null } | null;
   laborer: { name: string | null } | null;
 }
@@ -127,7 +128,7 @@ export function useSiteTrades(siteId: string | undefined) {
             labor_tracking_mode, is_in_house, contract_type, status, total_value,
             measurement_unit, rate_per_unit, total_units,
             work_progress_percent, created_at, team_id, laborer_id, contractor_name,
-            parent_subcontract_id,
+            parent_subcontract_id, mesthri_commission_enabled,
             team:teams(leader_name),
             laborer:laborers(name)
           `
@@ -196,6 +197,7 @@ export function useSiteTrades(siteId: string | undefined) {
           mesthriOrSpecialistName:
             r.team?.leader_name ?? r.laborer?.name ?? r.contractor_name ?? null,
           parentSubcontractId: r.parent_subcontract_id,
+          mesthriCommissionEnabled: Boolean(r.mesthri_commission_enabled),
           createdAt: r.created_at,
         })
       );

@@ -2,7 +2,6 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import dayjs from "dayjs";
 import { createSalaryExpense } from "./notificationService";
 import { weekStartStr, weekEndStr } from "@/lib/utils/weekUtils";
-import { fetchNonCivilTradeSubcontractIds } from "@/lib/workforce/nonCivilTradeSubcontracts";
 
 // Construction-payroll convention: a week runs Sunday → Saturday. The Postgres
 // RPCs (get_salary_waterfall, get_payments_ledger, get_salary_slice_summary)
@@ -625,21 +624,10 @@ export async function processWeeklySettlement(
     let settlementGroupId: string | undefined;
     let settlementReference: string | undefined;
 
-    // Non-Civil trade days (e.g. Painting) settle in that trade's own workspace,
-    // NOT in the company/Civil week — mirror get_salary_waterfall's exclusion here
-    // on the write path so those days are never marked is_paid under a Civil/company
-    // settlement (which would block the trade workspace from settling them, and let
-    // the same day be paid twice). Untagged + Civil days stay eligible.
-    const nonCivilTradeSubcontractIds = await fetchNonCivilTradeSubcontractIds(
-      supabase,
-      config.siteId,
-    );
-    const isCompanyWeekEligible = (subcontractId: string | null | undefined) =>
-      // Only the company-wide settle (no subcontract scope) drops non-Civil trade
-      // days; a scoped settle keeps its own contract's days — mirrors the RPC gate
-      // `p_subcontract_id IS NOT NULL OR NOT EXISTS(non-Civil trade)`.
-      Boolean(config.subcontractId) ||
-      !nonCivilTradeSubcontractIds.has(subcontractId ?? "");
+    // The company-laborer (contract) count + settle now go through server RPCs
+    // (company_week_contract_net / settle_company_week_contract), which apply the full
+    // predicate — task-work + non-Civil exclusions AND the commission net inclusion —
+    // in one place shared with get_salary_waterfall. No client-side non-Civil filter here.
 
     // 1. Count records that will be settled FIRST
     let laborerCount = 0;
@@ -662,21 +650,18 @@ export async function processWeeklySettlement(
     }
 
     if (config.settlementType === "contract" || config.settlementType === "all") {
-      // Fetch rows (not a head-count) so we can drop non-Civil trade days client-
-      // side — PostgREST NOT-IN would also drop the untagged (NULL) rows we must keep.
-      const { data: contractCountRows } = await supabase
-        .from("daily_attendance")
-        .select("id, subcontract_id, laborers!inner(laborer_type)")
-        .eq("site_id", config.siteId)
-        .gte("date", config.dateFrom)
-        .lte("date", config.dateTo)
-        .eq("is_paid", false)
-        .eq("laborers.laborer_type", "contract")
-        // Task-work-assigned days settle on the package, not the company week.
-        .is("task_work_package_id", null);
-      laborerCount += (contractCountRows ?? []).filter((r: any) =>
-        isCompanyWeekEligible(r.subcontract_id),
-      ).length;
+      // Server-authoritative count of the eligible unpaid company-laborer days for the
+      // week (same predicate as settle_company_week_contract / get_salary_waterfall):
+      // task-work + non-Civil days are excluded UNLESS commission is enabled, in which
+      // case those crew days are paid directly here at net.
+      const { data: netRows } = await supabase.rpc("company_week_contract_net", {
+        p_site_id: config.siteId,
+        p_date_from: config.dateFrom,
+        p_date_to: config.dateTo,
+        p_subcontract_id: config.subcontractId || null,
+      });
+      const netRow = Array.isArray(netRows) ? netRows[0] : netRows;
+      laborerCount += Number(netRow?.cnt ?? 0);
     }
 
     if (config.settlementType === "market" || config.settlementType === "all") {
@@ -871,30 +856,32 @@ export async function processWeeklySettlement(
       }
 
       if (config.settlementType === "contract" || config.settlementType === "all") {
-        const { data: contractRows, error: contractQueryError } = await supabase
-          .from("daily_attendance")
-          .select("id, subcontract_id, laborers!inner(laborer_type)")
-          .eq("site_id", config.siteId)
-          .gte("date", config.dateFrom)
-          .lte("date", config.dateTo)
-          .eq("is_paid", false)
-          .eq("laborers.laborer_type", "contract")
-          // Task-work-assigned days settle on the package, not the company week.
-          .is("task_work_package_id", null);
-        if (contractQueryError) throw contractQueryError;
-        // Drop non-Civil trade days — they settle in that trade's own workspace, so
-        // marking them is_paid here would double-pay (see nonCivilTradeSubcontractIds).
-        const contractIds = (contractRows ?? [])
-          .filter((r: any) => isCompanyWeekEligible(r.subcontract_id))
-          .map((r: any) => r.id);
-        if (contractIds.length > 0) {
-          const { error: contractError, count } = await supabase
-            .from("daily_attendance")
-            .update(updateData)
-            .in("id", contractIds);
-          if (contractError) throw contractError;
-          recordsUpdated += count || 0;
-        }
+        // Server-authoritative settle: marks the eligible unpaid company-laborer days
+        // paid (commission crew days at NET with a locked snapshot, normal/own days at
+        // GROSS), writing the same payment fields as updateData. The predicate matches
+        // get_salary_waterfall + calculateWeeklySummary, so read == write by construction.
+        const { data: settleRes, error: settleError } = await supabase.rpc(
+          "settle_company_week_contract",
+          {
+            p_site_id: config.siteId,
+            p_date_from: config.dateFrom,
+            p_date_to: config.dateTo,
+            p_subcontract_id: config.subcontractId || null,
+            p_settlement_group_id: settlementGroupId,
+            p_is_paid: updateData.is_paid,
+            p_payment_date: paymentDate,
+            p_payment_mode: config.paymentMode,
+            p_paid_via: updateData.paid_via,
+            p_engineer_transaction_id: engineerTransactionId,
+            p_payment_proof_url: config.proofUrl || null,
+            p_payment_notes: config.notes || null,
+            p_payer_source: config.payerSource,
+            p_payer_name: config.payerSource === "custom" ? config.customPayerName : null,
+          },
+        );
+        if (settleError) throw settleError;
+        const settleRow = Array.isArray(settleRes) ? settleRes[0] : settleRes;
+        recordsUpdated += Number(settleRow?.rows_settled ?? 0);
       }
 
       if (config.settlementType === "market" || config.settlementType === "all") {
@@ -947,6 +934,135 @@ export async function processWeeklySettlement(
       success: false,
       error: err.message || "Failed to process weekly settlement",
     };
+  }
+}
+
+/**
+ * Pay a mesthri his accrued commission (the per-day cut passed up by the company
+ * laborers on his commission-enabled contracts). A standalone payout — no attendance
+ * rows to mark — recorded as a settlement_group with payment_type='commission' so it
+ * stays OUT of the salary waterfalls but appears in the ledger / v_all_expenses and
+ * reverses like any settlement. Amount should be ≤ get_mesthri_commission_payable.
+ */
+export async function payMesthriCommission(
+  supabase: SupabaseClient,
+  config: {
+    siteId: string;
+    collectorLaborerId: string;
+    collectorName?: string;
+    amount: number;
+    settlementDate?: string;
+    paymentMode: PaymentMode;
+    paymentChannel: PaymentChannel;
+    payerSource: PayerSource;
+    customPayerName?: string;
+    engineerId?: string;
+    engineerReference?: string;
+    proofUrl?: string;
+    notes?: string;
+    userId: string;
+    userName: string;
+  },
+): Promise<SettlementResult> {
+  try {
+    const paymentDate = config.settlementDate || dayjs().format("YYYY-MM-DD");
+    let engineerTransactionId: string | null = null;
+
+    const idempotencyKey = await deterministicSettlementKey({
+      siteId: config.siteId,
+      recordIds: [],
+      amount: config.amount,
+      paymentChannel: config.paymentChannel,
+      date: paymentDate,
+      extra: `commission:${config.collectorLaborerId}:${paymentDate}`,
+    });
+
+    const { data: groupResult, error: groupError } = await supabase.rpc(
+      "create_settlement_group",
+      {
+        p_site_id: config.siteId,
+        p_settlement_date: paymentDate,
+        p_total_amount: config.amount,
+        p_laborer_count: 1,
+        p_payment_channel: config.paymentChannel,
+        p_payment_mode: config.paymentMode,
+        p_payer_source: config.payerSource,
+        p_payer_name: requiresPayerName(config.payerSource) ? config.customPayerName : null,
+        p_proof_url: config.proofUrl || null,
+        p_notes: config.notes
+          ? `Mesthri commission: ${config.notes}`
+          : `Mesthri commission payout${config.collectorName ? ` to ${config.collectorName}` : ""}`,
+        p_subcontract_id: null,
+        p_engineer_transaction_id: null,
+        p_created_by: config.userId,
+        p_created_by_name: config.userName,
+        p_payment_type: "commission",
+        p_idempotency_key: idempotencyKey,
+      },
+    );
+    if (groupError) throw groupError;
+    const groupData = Array.isArray(groupResult) ? groupResult[0] : groupResult;
+    if (!groupData?.id) throw new Error("Failed to create commission settlement group");
+    const settlementGroupId = groupData.id as string;
+    const settlementReference = groupData.settlement_reference as string;
+
+    // create_settlement_group doesn't know the commission collector column — set it now.
+    await supabase
+      .from("settlement_groups")
+      .update({ commission_collector_laborer_id: config.collectorLaborerId })
+      .eq("id", settlementGroupId);
+
+    // Engineer-wallet debit (mirrors processWeeklySettlement's wallet path).
+    if (config.paymentChannel === "engineer_wallet" && config.engineerId) {
+      const walletPaymentMode: "cash" | "upi" | "bank_transfer" =
+        config.paymentMode === "upi"
+          ? "upi"
+          : config.paymentMode === "net_banking"
+            ? "bank_transfer"
+            : "cash";
+      try {
+        const { id: txId } = await recordSpend(supabase, {
+          engineer_id: config.engineerId,
+          site_id: config.siteId,
+          amount: config.amount,
+          transaction_date: paymentDate,
+          payment_mode: walletPaymentMode,
+          proof_url: config.proofUrl || null,
+          notes: config.notes || null,
+          recorded_by: config.userName,
+          recorded_by_user_id: config.userId,
+          description: config.engineerReference || `Mesthri commission ${settlementReference}`,
+          settlement_group_id: settlementGroupId,
+        });
+        engineerTransactionId = txId;
+        await supabase
+          .from("settlement_groups")
+          .update({ engineer_transaction_id: engineerTransactionId })
+          .eq("id", settlementGroupId);
+      } catch (walletErr: any) {
+        await supabase
+          .from("settlement_groups")
+          .update({
+            is_cancelled: true,
+            cancelled_at: new Date().toISOString(),
+            cancelled_by: config.userName,
+            cancelled_by_user_id: config.userId,
+            cancellation_reason: `Engineer wallet debit failed: ${walletErr?.message ?? walletErr}`,
+          })
+          .eq("id", settlementGroupId);
+        throw walletErr;
+      }
+    }
+
+    return {
+      success: true,
+      settlementReference,
+      settlementGroupId,
+      engineerTransactionId: engineerTransactionId || undefined,
+    };
+  } catch (err: any) {
+    console.error("Mesthri commission payout error:", err);
+    return { success: false, error: err.message || "Failed to pay mesthri commission" };
   }
 }
 

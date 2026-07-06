@@ -42,6 +42,9 @@ export interface TradeContract {
   contractType: "mesthri" | "specialist";
   status: ContractStatus;
   totalValue: number;
+  /** When true, company laborers on this contract are paid directly (net of the
+   * mesthri commission) and the contract mesthri collects the commission. */
+  mesthriCommissionEnabled?: boolean;
   /**
    * Area-based pricing (optional — the hook always populates them, but they're
    * optional on the projection so older callers/tests need not supply them).
