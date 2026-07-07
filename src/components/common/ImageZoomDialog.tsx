@@ -1,27 +1,17 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import {
   Dialog,
   DialogTitle,
   DialogContent,
-  Box,
   IconButton,
   Typography,
   useTheme,
   useMediaQuery,
-  alpha,
-  Fade,
-  Button,
-  CircularProgress,
 } from "@mui/material";
-import {
-  Close as CloseIcon,
-  ZoomIn as ZoomInIcon,
-  ZoomOut as ZoomOutIcon,
-  FitScreen as FitScreenIcon,
-} from "@mui/icons-material";
-import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
+import { Close as CloseIcon } from "@mui/icons-material";
+import ZoomableImage from "./ZoomableImage";
 
 export interface ImageZoomDialogProps {
   open: boolean;
@@ -44,15 +34,6 @@ export default function ImageZoomDialog({
 }: ImageZoomDialogProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setLoading(true);
-      setError(false);
-    }
-  }, [open, src]);
 
   useEffect(() => {
     if (!open) return;
@@ -62,10 +43,6 @@ export default function ImageZoomDialog({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
-
-  const handleOpenInNewTab = useCallback(() => {
-    if (src) window.open(src, "_blank");
-  }, [src]);
 
   if (!src) return null;
 
@@ -116,114 +93,7 @@ export default function ImageZoomDialog({
           bgcolor: theme.palette.mode === "dark" ? "grey.900" : "grey.200",
         }}
       >
-        {loading && !error && (
-          <Box sx={{ position: "absolute", zIndex: 5 }}>
-            <CircularProgress size={40} />
-          </Box>
-        )}
-
-        {error ? (
-          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, p: 4 }}>
-            <Typography color="error">Failed to load image</Typography>
-            <Button variant="outlined" onClick={handleOpenInNewTab}>
-              Open in new tab
-            </Button>
-          </Box>
-        ) : (
-          <TransformWrapper
-            initialScale={1}
-            minScale={0.5}
-            maxScale={4}
-            centerOnInit
-            wheel={{ step: 0.1 }}
-            pinch={{ step: 5 }}
-            doubleClick={{ mode: "reset" }}
-          >
-            {({ zoomIn, zoomOut, resetTransform }) => (
-              <>
-                {!isMobile && (
-                  <Box
-                    sx={{
-                      position: "absolute",
-                      bottom: 16,
-                      left: "50%",
-                      transform: "translateX(-50%)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 1,
-                      bgcolor: alpha(theme.palette.common.black, 0.7),
-                      borderRadius: 2,
-                      px: 2,
-                      py: 1,
-                      zIndex: 10,
-                    }}
-                  >
-                    <IconButton onClick={() => zoomOut()} size="small" sx={{ color: "white" }} aria-label="Zoom out">
-                      <ZoomOutIcon />
-                    </IconButton>
-                    <IconButton onClick={() => resetTransform()} size="small" sx={{ color: "white" }} aria-label="Reset zoom">
-                      <FitScreenIcon />
-                    </IconButton>
-                    <IconButton onClick={() => zoomIn()} size="small" sx={{ color: "white" }} aria-label="Zoom in">
-                      <ZoomInIcon />
-                    </IconButton>
-                  </Box>
-                )}
-
-                {isMobile && !loading && (
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      position: "absolute",
-                      bottom: 8,
-                      left: "50%",
-                      transform: "translateX(-50%)",
-                      bgcolor: alpha(theme.palette.common.black, 0.6),
-                      color: "white",
-                      px: 2,
-                      py: 0.5,
-                      borderRadius: 1,
-                      zIndex: 10,
-                    }}
-                  >
-                    Pinch to zoom • double-tap to reset
-                  </Typography>
-                )}
-
-                <TransformComponent
-                  wrapperStyle={{ width: "100%", height: "100%" }}
-                  contentStyle={{
-                    width: "100%",
-                    height: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Fade in={!loading} timeout={300}>
-                    <Box
-                      component="img"
-                      src={src}
-                      alt={label}
-                      onLoad={() => setLoading(false)}
-                      onError={() => {
-                        setLoading(false);
-                        setError(true);
-                      }}
-                      sx={{
-                        maxWidth: "100%",
-                        maxHeight: "100%",
-                        objectFit: "contain",
-                        borderRadius: 1,
-                        boxShadow: theme.shadows[8],
-                      }}
-                    />
-                  </Fade>
-                </TransformComponent>
-              </>
-            )}
-          </TransformWrapper>
-        )}
+        <ZoomableImage src={src} alt={label} showButtons={!isMobile} showHint={isMobile} />
       </DialogContent>
     </Dialog>
   );
