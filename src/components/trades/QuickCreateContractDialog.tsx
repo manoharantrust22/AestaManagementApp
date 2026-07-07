@@ -180,12 +180,11 @@ export function QuickCreateContractDialog({
         is_in_house: false,
         status,
         mesthri_commission_enabled: commissionOn,
-        // Cutover = the coming Sunday (company week bucket) when enabled.
+        // Start commission from today (contract start). A brand-new contract has no
+        // prior work; if days are backdated later, the edit dialog warns + lets you
+        // move this date earlier.
         mesthri_commission_effective_from: commissionOn
-          ? (() => {
-              const d = dayjs();
-              return d.add(d.day() === 0 ? 0 : 7 - d.day(), "day").format("YYYY-MM-DD");
-            })()
+          ? dayjs().format("YYYY-MM-DD")
           : null,
         ...pricing,
       };
