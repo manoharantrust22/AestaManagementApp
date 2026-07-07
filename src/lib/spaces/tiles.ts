@@ -228,22 +228,34 @@ export function rollupTileTotals(
   const byId = new Map(tileOptions.map((t) => [t.id, t]));
   const totals = new Map<string, TileOptionTotal>();
 
-  for (const space of spaces) {
-    if (!space.tile_option_id) continue;
-    const tile = byId.get(space.tile_option_id);
-    if (!tile) continue;
-    const result = computeTileLayout(space, tile, mode);
-    if (!result) continue;
-    const acc = totals.get(tile.id) ?? {
-      tileOptionId: tile.id,
+  const bump = (optionId: string, tiles: number) => {
+    if (tiles <= 0) return;
+    const acc = totals.get(optionId) ?? {
+      tileOptionId: optionId,
       totalTiles: 0,
       boxes: null,
       price: null,
       spaceCount: 0,
     };
-    acc.totalTiles += result.totalTiles;
-    acc.spaceCount += 1;
-    totals.set(tile.id, acc);
+    acc.totalTiles += tiles;
+    totals.set(optionId, acc);
+  };
+
+  for (const space of spaces) {
+    if (!space.tile_option_id) continue;
+    const tile = byId.get(space.tile_option_id);
+    if (!tile) continue;
+    const layout = space.tile_layout ?? {};
+    const skirtingTile = layout.skirting_tile_option_id
+      ? byId.get(layout.skirting_tile_option_id) ?? null
+      : null;
+    const result = computeTileLayout(space, tile, mode, skirtingTile);
+    if (!result) continue;
+    bump(tile.id, result.totalTiles);
+    totals.get(tile.id)!.spaceCount += 1;
+    if (result.skirtingIsSeparate && result.skirtingTileOptionId) {
+      bump(result.skirtingTileOptionId, result.skirtingTotalTiles);
+    }
   }
 
   // Boxes/price from the aggregated tile count — buying happens per option,

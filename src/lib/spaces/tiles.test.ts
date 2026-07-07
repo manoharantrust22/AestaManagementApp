@@ -297,4 +297,20 @@ describe("rollupTileTotals", () => {
     );
     expect(totals).toHaveLength(0);
   });
+
+  it("attributes floor tiles and separate skirting tiles to their own options", () => {
+    const floor = makeTile(); // t1
+    const dark = makeTile({ id: "t2", label: "Dark", tiles_per_box: 10, price_per_box: 500 });
+    const a = makeSpace({
+      id: "a",
+      tile_layout: { wastage_pct: 0, skirting_tile_option_id: "t2" },
+    });
+    const totals = rollupTileTotals([a], [floor, dark]);
+    const t1 = totals.find((t) => t.tileOptionId === "t1")!;
+    const t2 = totals.find((t) => t.tileOptionId === "t2")!;
+    expect(t1.totalTiles).toBe(25); // floor only
+    expect(t1.spaceCount).toBe(1);
+    expect(t2.totalTiles).toBe(3); // skirting for the room
+    expect(t2.boxes).toBe(1); // ceil(3/10)
+  });
 });
