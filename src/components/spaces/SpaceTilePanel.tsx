@@ -5,10 +5,8 @@ import {
   Box,
   Button,
   Divider,
-  FormControlLabel,
   MenuItem,
   Stack,
-  Switch,
   TextField,
   Typography,
 } from "@mui/material";
@@ -68,7 +66,10 @@ export default function SpaceTilePanel({
 
   const layout: TileLayout = space.tile_layout ?? {};
   const tile = tileOptions.find((t) => t.id === space.tile_option_id) ?? null;
-  const result = tile ? computeTileLayout(space, tile, mode) : null;
+  const skirtingTile = layout.skirting_tile_option_id
+    ? tileOptions.find((t) => t.id === layout.skirting_tile_option_id) ?? null
+    : null;
+  const result = tile ? computeTileLayout(space, tile, mode, skirtingTile) : null;
   const dims = resolveDims(space, mode);
 
   const saveLayout = (next: TileLayout) => onUpdate({ tile_layout: next });
@@ -78,7 +79,21 @@ export default function SpaceTilePanel({
       onManageTileOptions();
       return;
     }
-    onUpdate({ tile_option_id: value === NONE ? null : value });
+    if (value === NONE) {
+      onUpdate({ tile_option_id: null });
+      return;
+    }
+    // Seed same-tile skirting on first pick so a count shows immediately,
+    // without clobbering an existing skirting choice.
+    const hasSkirtingChoice =
+      layout.skirting_from_same_tile !== undefined ||
+      layout.skirting_tile_option_id != null;
+    onUpdate({
+      tile_option_id: value,
+      tile_layout: hasSkirtingChoice
+        ? layout
+        : { ...layout, skirting_from_same_tile: true },
+    });
   };
 
   const handleAddZone = () => {
@@ -125,6 +140,25 @@ export default function SpaceTilePanel({
 
   const wastage = layout.wastage_pct ?? DEFAULT_WASTAGE_PCT;
 
+  const skirtingMode: "same" | "separate" | "none" = layout.skirting_tile_option_id
+    ? "separate"
+    : layout.skirting_from_same_tile
+      ? "same"
+      : "none";
+
+  const setSkirtingMode = (m: "same" | "separate" | "none") => {
+    if (m === "same")
+      saveLayout({ ...layout, skirting_from_same_tile: true, skirting_tile_option_id: null });
+    else if (m === "none")
+      saveLayout({ ...layout, skirting_from_same_tile: false, skirting_tile_option_id: null });
+    else
+      saveLayout({
+        ...layout,
+        skirting_from_same_tile: false,
+        skirting_tile_option_id: skirtingTile?.id ?? tileOptions[0]?.id ?? null,
+      });
+  };
+
   return (
     <Box>
       <Typography variant="subtitle2" sx={{ mb: 1 }}>
@@ -166,6 +200,8 @@ export default function SpaceTilePanel({
               selectedExclusionId={selectedExclusionId}
               onSelectExclusion={setSelectedExclusionId}
               onMoveExclusion={handleMoveZone}
+              skirtingTile={skirtingTile}
+              stripIn={layout.skirting_strip_in ?? 4}
             />
 
             {canEdit && (
@@ -187,23 +223,41 @@ export default function SpaceTilePanel({
                     Remove zone
                   </Button>
                 )}
-                <FormControlLabel
-                  control={
-                    <Switch
-                      size="small"
-                      checked={layout.skirting_from_same_tile ?? false}
-                      onChange={(e) =>
-                        saveLayout({
-                          ...layout,
-                          skirting_from_same_tile: e.target.checked,
-                        })
-                      }
-                    />
+                <TextField
+                  select
+                  label="Skirting"
+                  size="small"
+                  value={skirtingMode}
+                  onChange={(e) =>
+                    setSkirtingMode(e.target.value as "same" | "separate" | "none")
                   }
-                  label={
-                    <Typography variant="body2">Skirting cut from this tile</Typography>
-                  }
-                />
+                  sx={{ minWidth: 150 }}
+                >
+                  <MenuItem value="same">Cut from floor tile</MenuItem>
+                  <MenuItem value="separate">Separate tile</MenuItem>
+                  <MenuItem value="none">Running feet only</MenuItem>
+                </TextField>
+                {skirtingMode === "separate" && (
+                  <TextField
+                    select
+                    label="Skirting tile"
+                    size="small"
+                    value={layout.skirting_tile_option_id ?? ""}
+                    onChange={(e) =>
+                      saveLayout({
+                        ...layout,
+                        skirting_tile_option_id: e.target.value || null,
+                      })
+                    }
+                    sx={{ minWidth: 170 }}
+                  >
+                    {tileOptions.map((t) => (
+                      <MenuItem key={t.id} value={t.id}>
+                        {t.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                )}
                 <TextField
                   label="Wastage %"
                   size="small"
@@ -250,9 +304,6 @@ export default function SpaceTilePanel({
               {result.excludedTiles > 0 && <> − {result.excludedTiles} excluded</>}
               {" = "}
               <strong>{result.tilesNeeded}</strong> tiles
-              {result.skirtingTiles > 0 && (
-                <> + {result.skirtingTiles} skirting ({result.skirtingRft} rft)</>
-              )}
               {result.floorAppearances > 1 && <> × {result.floorAppearances} floors</>}
               {" + "}
               {result.wastagePct}% waste → <strong>{result.totalTiles} tiles</strong>
@@ -263,6 +314,24 @@ export default function SpaceTilePanel({
                 </>
               )}
               {result.price !== null && <> · ₹{result.price.toLocaleString("en-IN")}</>}
+              {result.skirtingPieces > 0 && (
+                <>
+                  {" · skirting "}
+                  <strong>{result.skirtingPieces}</strong> pcs
+                  {result.skirtingIsSeparate ? (
+                    <>
+                      {" → "}
+                      <strong>{result.skirtingTotalTiles}</strong> tiles
+                      {result.skirtingBoxes !== null && <> ≈ {result.skirtingBoxes} box</>}
+                      {result.skirtingPrice !== null && (
+                        <> · ₹{result.skirtingPrice.toLocaleString("en-IN")}</>
+                      )}
+                    </>
+                  ) : (
+                    <> ({result.skirtingTiles} tiles, same tile)</>
+                  )}
+                </>
+              )}
             </Typography>
           </>
         )}
