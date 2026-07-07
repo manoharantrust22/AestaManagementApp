@@ -503,12 +503,13 @@ export default function TaskWorkPackageDialog({
               label={
                 <Box component="span" sx={{ display: "block", pt: 0.75 }}>
                   <Typography variant="body2" fontWeight={700}>
-                    Commission to the maistry
+                    Pay each laborer directly
                   </Typography>
                   <Typography variant="caption" color="text.secondary" component="span" sx={{ display: "block" }}>
-                    Company laborers on this package are paid directly each week (net of the
-                    per-day commission, ₹50 default per laborer); the maistry collects the
-                    commission + own wages. Off = paid via the fixed-price package.
+                    ON — you pay each company laborer their net wages from the crew ledger (net of a
+                    per-day ₹50 commission per laborer); the maistry gets his commission + own wages
+                    separately. OFF — you pay the maistry a lump against the fixed price and he
+                    distributes to the crew.
                   </Typography>
                 </Box>
               }

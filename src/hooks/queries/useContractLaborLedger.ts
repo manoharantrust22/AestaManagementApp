@@ -26,6 +26,10 @@ export interface ContractLaborLedgerRow {
   gross: number;
   commission: number;
   net: number;
+  /** Net already settled (is_paid) for this laborer on this contract. */
+  netPaid: number;
+  /** Net still owed (unpaid) — what a per-laborer "Pay" would settle. */
+  netUnpaid: number;
   isMesthri: boolean;
 }
 
@@ -34,6 +38,10 @@ export interface ContractLaborLedger {
   totalGross: number;
   totalCommission: number;
   totalNet: number;
+  /** Σ net already paid across all laborers on this contract. */
+  totalNetPaid: number;
+  /** Σ net still owed across all laborers on this contract. */
+  totalNetUnpaid: number;
   /** The mesthri's own labour value (his own rows, no commission). */
   mesthriOwnLabour: number;
   mesthriName: string | null;
@@ -82,6 +90,8 @@ export function useContractLaborLedger(
         gross: toNumber(r.gross),
         commission: toNumber(r.commission),
         net: toNumber(r.net),
+        netPaid: toNumber(r.net_paid),
+        netUnpaid: toNumber(r.net_unpaid),
         isMesthri: Boolean(r.is_mesthri),
       }));
       const mesthriRow = rows.find((r) => r.isMesthri) ?? null;
@@ -90,6 +100,8 @@ export function useContractLaborLedger(
         totalGross: rows.reduce((s, r) => s + r.gross, 0),
         totalCommission: rows.reduce((s, r) => s + r.commission, 0),
         totalNet: rows.reduce((s, r) => s + r.net, 0),
+        totalNetPaid: rows.reduce((s, r) => s + r.netPaid, 0),
+        totalNetUnpaid: rows.reduce((s, r) => s + r.netUnpaid, 0),
         mesthriOwnLabour: mesthriRow?.gross ?? 0,
         mesthriName: mesthriRow?.laborerName ?? null,
       };

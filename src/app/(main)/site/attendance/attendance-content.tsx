@@ -2318,31 +2318,26 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           // scoped named records so the weekly strip totals the trade, not the site.
           (tradeScope ? e.summary.records : (unscopedRecordsByDate.get(e.date) ?? e.summary.records)).forEach((r) => {
             if (r.is_paid) return;
-            // Commission overlay (present only for enabled-contract crew/own days,
-            // post-cutover). Presence flips the settle model: this company day is paid
-            // DIRECTLY in the company week at NET (gross − commission), instead of being
-            // excluded as task-work / non-Civil. Mirrors get_salary_waterfall + the
-            // settle_company_week_contract write path.
-            const commission = commissionByAttendanceId?.get(r.id);
-            const isCommissionDay = commission !== undefined;
+            // Commission overlay (present only for direct-pay contract crew/own days,
+            // post-cutover). Those days are settled per-laborer INSIDE the contract pane,
+            // so they must stay OUT of the site-wide weekly company total. Presence here
+            // = exclude. Mirrors get_salary_waterfall's direct-mode exclusion.
+            const isCommissionDay = commissionByAttendanceId?.get(r.id) !== undefined;
             if (r.laborer_type === "contract") {
               // A day tagged to a non-Civil trade (e.g. Painting) settles in that trade's
-              // own workspace — kept out of the company total UNLESS commission is on,
-              // in which case the company pays it directly at net.
+              // own workspace — kept out of the company total.
               const isNonCivilTradeDay =
                 !tradeScope &&
                 !!r.subcontract_id &&
                 (nonCivilTradeSubcontractIds?.has(r.subcontract_id) ?? false);
               const normalCompanyDay = !r.task_work_package_id && !isNonCivilTradeDay;
-              // Unscoped/Civil view: include normal company days OR any commission day
-              // (net). Trade scope: the scoped records are the trade's own, but a
-              // commission day is now company-paid, so drop it from the trade total.
+              // Direct-pay (commission) crew/own days are settled in the pane, never here.
               const includeInCompany = tradeScope
                 ? !r.task_work_package_id && !isCommissionDay
-                : normalCompanyDay || isCommissionDay;
+                : normalCompanyDay && !isCommissionDay;
               if (includeInCompany) {
                 if (!isCurrentWeek) {
-                  pendingContractSalary += r.daily_earnings - (commission ?? 0);
+                  pendingContractSalary += r.daily_earnings;
                 }
                 if (!contractLaborerIds.includes(r.laborer_id)) {
                   contractLaborerIds.push(r.laborer_id);

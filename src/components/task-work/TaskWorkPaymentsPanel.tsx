@@ -1,156 +1,154 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import {
   Box,
   Button,
   Chip,
   Divider,
-  Grid,
   IconButton,
   List,
   ListItem,
   ListItemText,
-  Paper,
   Typography,
 } from "@mui/material";
 import {
   AccountBalanceWallet,
   Add,
   CheckCircle,
+  CheckCircleOutline,
   Delete,
   OpenInNew,
   ReceiptLong,
 } from "@mui/icons-material";
 import { useRouter } from "next/navigation";
-import {
-  taskPaymentLineNumbers,
-  formatTaskPaymentRef,
-} from "@/lib/taskWork/paymentRef";
 import dayjs from "dayjs";
 import {
-  useTaskWorkPayments,
-  useDeleteTaskWorkPayment,
-} from "@/hooks/queries/useTaskWorkPayments";
+  useContractPaymentHistory,
+  type ContractPaymentRow,
+} from "@/hooks/queries/useContractPaymentHistory";
+import { useDeleteTaskWorkPayment } from "@/hooks/queries/useTaskWorkPayments";
+import { useReverseSettlement } from "@/hooks/mutations/useReverseSettlement";
 import { formatPayerSource } from "@/lib/settlement/payerSource";
-import {
-  TASK_WORK_PAYMENT_MODE_LABEL,
-  TASK_WORK_PAYMENT_TYPE_LABEL,
-  type TaskWorkPackageWithMeta,
-} from "@/types/taskWork.types";
-import TaskWorkPaymentDialog from "./TaskWorkPaymentDialog";
+import { type TaskWorkPackageWithMeta } from "@/types/taskWork.types";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 
 interface Props {
   pkg: TaskWorkPackageWithMeta;
   canEdit: boolean;
+  /** Open the "Record payment" dialog (owned by the parent pane / drawer). */
+  onRecordPayment: () => void;
+  /** Open the completion dialog. Hidden when absent or the package is closed. */
+  onMarkComplete?: () => void;
 }
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
+const modeLabel = (m: string | null) =>
+  m ? m.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Cash";
 
-export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
-  const { data: payments = [], isLoading } = useTaskWorkPayments(pkg.id);
+export default function TaskWorkPaymentsPanel({
+  pkg,
+  canEdit,
+  onRecordPayment,
+  onMarkComplete,
+}: Props) {
+  const { data: history = [], isLoading } = useContractPaymentHistory(
+    "task_work",
+    pkg.id,
+  );
   const deleteMut = useDeleteTaskWorkPayment();
+  const reverseMut = useReverseSettlement();
   const router = useRouter();
-  const lineNumbers = useMemo(
-    () =>
-      taskPaymentLineNumbers(
-        payments.map((p) => ({
-          id: p.id,
-          payment_date: p.payment_date,
-          created_at: p.created_at,
-        }))
-      ),
-    [payments]
+  const [pendingDelete, setPendingDelete] = useState<ContractPaymentRow | null>(
+    null,
   );
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [defaultType, setDefaultType] = useState<"advance" | "final_settlement">(
-    "advance"
-  );
-  const [pendingDelete, setPendingDelete] = useState<
-    (typeof payments)[number] | null
-  >(null);
 
-  const paid = useMemo(
-    () => payments.reduce((s, p) => s + (p.amount || 0), 0),
-    [payments]
-  );
-  const balance = (pkg.total_value || 0) - paid;
+  const isClosed = pkg.status === "completed" || pkg.status === "cancelled";
+  // Direct-pay mode: crew are paid per-laborer in the ledger; the maistry lump/package
+  // payment path is off (blocked server-side too), so the "Record payment" button hides.
+  const directMode = Boolean(pkg.mesthri_commission_enabled);
+  const hasPackagePayment = history.some((h) => h.source === "package_payment");
 
-  const open = (type: "advance" | "final_settlement") => {
-    setDefaultType(type);
-    setDialogOpen(true);
+  const confirmRemove = () => {
+    const row = pendingDelete;
+    if (!row) return;
+    if (row.source === "package_payment") {
+      deleteMut.mutate(
+        {
+          paymentId: row.refId,
+          packageId: pkg.id,
+          siteId: pkg.site_id,
+          reason: "Removed by user",
+        },
+        { onSuccess: () => setPendingDelete(null) },
+      );
+    } else {
+      reverseMut.mutate(
+        { settlementGroupId: row.refId, reason: "Removed by user" },
+        { onSuccess: () => setPendingDelete(null) },
+      );
+    }
   };
 
   return (
     <Box>
-      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 1.5 }}>
-        <Grid container spacing={1.5}>
-          <Grid size={{ xs: 4 }}>
-            <Typography variant="caption" color="text.secondary">
-              Price
-            </Typography>
-            <Typography variant="body1" fontWeight={700}>
-              {inr(pkg.total_value)}
-            </Typography>
-          </Grid>
-          <Grid size={{ xs: 4 }}>
-            <Typography variant="caption" color="text.secondary">
-              Paid
-            </Typography>
-            <Typography variant="body1" fontWeight={700} color="success.main">
-              {inr(paid)}
-            </Typography>
-          </Grid>
-          <Grid size={{ xs: 4 }}>
-            <Typography variant="caption" color="text.secondary">
-              Balance
-            </Typography>
-            <Typography variant="body1" fontWeight={700} color="error.main">
-              {inr(balance)}
-            </Typography>
-          </Grid>
-        </Grid>
-        {payments.length > 0 && (
-          <Box sx={{ mt: 1 }}>
-            <Button
-              size="small"
-              color="success"
-              startIcon={<CheckCircle />}
-              endIcon={<OpenInNew />}
-              sx={{ textTransform: "none" }}
-              onClick={() =>
-                router.push(
-                  `/site/expenses?ref=${encodeURIComponent(pkg.package_number)}`
-                )
-              }
-            >
-              On record in Site Expenses · {pkg.package_number}
-            </Button>
-          </Box>
-        )}
-      </Paper>
-
-      {canEdit && (
-        <Box sx={{ display: "flex", gap: 1, mb: 1 }}>
+      {hasPackagePayment && (
+        <Box sx={{ mb: 1 }}>
           <Button
-            fullWidth
             size="small"
-            variant="outlined"
-            startIcon={<Add />}
-            onClick={() => open("advance")}
+            color="success"
+            startIcon={<CheckCircle />}
+            endIcon={<OpenInNew />}
+            sx={{ textTransform: "none" }}
+            onClick={() =>
+              router.push(
+                `/site/expenses?ref=${encodeURIComponent(pkg.package_number)}`,
+              )
+            }
           >
-            Pay
-          </Button>
-          <Button
-            fullWidth
-            size="small"
-            variant="contained"
-            onClick={() => open("final_settlement")}
-          >
-            Settle
+            On record in Site Expenses · {pkg.package_number}
           </Button>
         </Box>
+      )}
+
+      {canEdit && !isClosed && (
+        <Box sx={{ display: "flex", gap: 1, mb: 1 }}>
+          {!directMode && (
+            <Button
+              fullWidth
+              size="small"
+              variant="contained"
+              startIcon={<Add />}
+              onClick={onRecordPayment}
+            >
+              Record payment
+            </Button>
+          )}
+          {onMarkComplete && (
+            <Button
+              fullWidth
+              size="small"
+              variant="outlined"
+              color="success"
+              startIcon={<CheckCircleOutline />}
+              onClick={onMarkComplete}
+            >
+              Mark complete
+            </Button>
+          )}
+        </Box>
+      )}
+
+      {directMode && !isClosed && (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: "block", mb: 1 }}
+        >
+          Company laborers are paid directly from the crew ledger above (net of the
+          maistry&apos;s commission). Lump payments to the maistry are off for this
+          contract.
+        </Typography>
       )}
 
       <Divider />
@@ -159,30 +157,31 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
         <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
           Loading…
         </Typography>
-      ) : payments.length === 0 ? (
+      ) : history.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-          No payments recorded yet. You can record payments even
-          without a day log — handy for historical back-fill.
+          {directMode
+            ? "No payments yet. Pay each laborer their net (and the maistry his wages + commission) from the crew ledger above."
+            : "No payments recorded yet. You can record payments even without a day log — handy for historical back-fill."}
         </Typography>
       ) : (
         <List dense disablePadding>
-          {payments.map((p) => {
+          {history.map((h) => {
             const src = formatPayerSource({
-              payer_source: p.payer_source,
-              payer_name: p.payer_name,
-              payer_source_split: p.payer_source_split,
+              payer_source: h.payerSource,
+              payer_name: h.payerName,
+              payer_source_split: null,
             });
             return (
               <ListItem
-                key={p.id}
+                key={`${h.source}:${h.refId}`}
                 disableGutters
                 secondaryAction={
                   <Box sx={{ display: "flex", alignItems: "center" }}>
-                    {p.proof_url && (
+                    {h.proofUrl && (
                       <IconButton
                         size="small"
                         component="a"
-                        href={p.proof_url}
+                        href={h.proofUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         title="View payment screenshot"
@@ -194,7 +193,12 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
                       <IconButton
                         size="small"
                         color="error"
-                        onClick={() => setPendingDelete(p)}
+                        onClick={() => setPendingDelete(h)}
+                        title={
+                          h.source === "package_payment"
+                            ? "Delete payment"
+                            : "Reverse payment"
+                        }
                       >
                         <Delete fontSize="small" />
                       </IconButton>
@@ -205,27 +209,19 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
                 <ListItemText
                   primary={
                     <Box
-                      sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                      sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}
                       component="span"
                     >
                       <Typography variant="body2" fontWeight={700} component="span">
-                        {inr(p.amount)}
+                        {inr(h.amount)}
                       </Typography>
-                      <Chip
-                        size="small"
-                        variant="outlined"
-                        label={TASK_WORK_PAYMENT_TYPE_LABEL[p.payment_type]}
-                      />
+                      <Chip size="small" variant="outlined" label={h.payeeName} />
                       <Typography
                         variant="caption"
                         color="text.secondary"
                         component="span"
-                        sx={{ fontFamily: "monospace" }}
                       >
-                        {formatTaskPaymentRef(
-                          pkg.package_number,
-                          lineNumbers.get(p.id) ?? 0
-                        )}
+                        {h.detail}
                       </Typography>
                     </Box>
                   }
@@ -244,17 +240,17 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
                         color="text.secondary"
                         component="span"
                       >
-                        {dayjs(p.payment_date).format("DD MMM YYYY")} ·{" "}
-                        {TASK_WORK_PAYMENT_MODE_LABEL[p.payment_mode] ?? "Cash"}
+                        {h.paymentDate
+                          ? dayjs(h.paymentDate).format("DD MMM YYYY")
+                          : ""}{" "}
+                        · {modeLabel(h.paymentMode)}
                       </Typography>
-                      {p.payment_channel === "engineer_wallet" ? (
+                      {h.isWallet ? (
                         <Chip
                           size="small"
                           variant="outlined"
                           color="primary"
-                          icon={
-                            <AccountBalanceWallet sx={{ fontSize: "0.95rem" }} />
-                          }
+                          icon={<AccountBalanceWallet sx={{ fontSize: "0.95rem" }} />}
                           label="My wallet"
                           title="Paid from the engineer's own wallet"
                           sx={{
@@ -266,13 +262,23 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
                             },
                           }}
                         />
-                      ) : (
+                      ) : h.payerSource ? (
                         <Typography
                           variant="caption"
                           color="text.secondary"
                           component="span"
                         >
                           · {src.kind === "single" ? src.label : src.summary}
+                        </Typography>
+                      ) : null}
+                      {h.reference && (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          component="span"
+                          sx={{ fontFamily: "monospace" }}
+                        >
+                          · {h.reference}
                         </Typography>
                       )}
                     </Box>
@@ -285,40 +291,27 @@ export default function TaskWorkPaymentsPanel({ pkg, canEdit }: Props) {
         </List>
       )}
 
-      <TaskWorkPaymentDialog
-        open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
-        pkg={pkg}
-        balanceDue={balance}
-        defaultType={defaultType}
-      />
-
       <ConfirmDialog
         open={!!pendingDelete}
-        title="Delete payment?"
+        title={
+          pendingDelete?.source === "package_payment"
+            ? "Delete payment?"
+            : "Reverse payment?"
+        }
         message={
           pendingDelete
-            ? `This will remove the ${inr(
-                pendingDelete.amount
-              )} payment. This cannot be undone.`
+            ? pendingDelete.source === "package_payment"
+              ? `This will remove the ${inr(pendingDelete.amount)} payment. This cannot be undone.`
+              : `This will reverse the ${inr(pendingDelete.amount)} paid to ${pendingDelete.payeeName} — the days become unpaid again and any wallet debit is refunded.`
             : ""
         }
-        confirmText="Delete"
+        confirmText={
+          pendingDelete?.source === "package_payment" ? "Delete" : "Reverse"
+        }
         confirmColor="error"
-        isLoading={deleteMut.isPending}
+        isLoading={deleteMut.isPending || reverseMut.isPending}
         onCancel={() => setPendingDelete(null)}
-        onConfirm={() => {
-          if (!pendingDelete) return;
-          deleteMut.mutate(
-            {
-              paymentId: pendingDelete.id,
-              packageId: pkg.id,
-              siteId: pkg.site_id,
-              reason: "Removed by user",
-            },
-            { onSuccess: () => setPendingDelete(null) }
-          );
-        }}
+        onConfirm={confirmRemove}
       />
     </Box>
   );

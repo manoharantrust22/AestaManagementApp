@@ -34,6 +34,7 @@ import { GoodDealCard } from "./GoodDealCard";
 import { PaymentsHistoryCard } from "./PaymentsHistoryCard";
 import { ScopeSheetPanel } from "./ScopeSheetPanel";
 import ContractLaborLedger from "./ContractLaborLedger";
+import { useSite } from "@/contexts/SiteContext";
 
 const STATUS_PILL: Record<ContractStatus, { label: string; color: string; bg: string }> = {
   active: { label: "Active", color: wsColors.green, bg: wsColors.greenBg },
@@ -82,6 +83,7 @@ export function TaskDetailPane({
   onBack?: () => void;
 }) {
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const { selectedSite } = useSite();
   if (!task) {
     return (
       <Box
@@ -517,6 +519,7 @@ export function TaskDetailPane({
               refId={task.id}
               commissionEnabled={Boolean(task.mesthriCommissionEnabled)}
               onEnableCommission={canEdit && onEdit ? onEdit : undefined}
+              siteId={selectedSite?.id}
             />
           </Box>
         )}

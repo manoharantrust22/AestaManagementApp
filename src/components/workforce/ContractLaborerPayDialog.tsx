@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Box,
@@ -26,12 +26,12 @@ import {
 import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
 import WalletBalancePreview from "@/components/wallet-v2/WalletBalancePreview";
 import { useEngineerWalletBalance } from "@/hooks/queries/useEngineerWalletV2";
-import { useMesthriCommissionPayable } from "@/hooks/queries/useMesthriCommissionPayable";
-import { usePayMesthriCommission } from "@/hooks/mutations/usePayMesthriCommission";
+import { useSettleContractLaborer } from "@/hooks/mutations/useSettleContractLaborer";
+import { blurOnWheel } from "@/lib/utils/numberInput";
 import { requiresPayerName, type PayerSource } from "@/types/settlement.types";
 import type { PaymentMode } from "@/types/payment.types";
+import type { ContractLedgerKind } from "@/hooks/queries/useContractLaborLedger";
 import { formatCurrencyFull } from "@/lib/formatters";
-import { blurOnWheel } from "@/lib/utils/numberInput";
 
 const PAYMENT_MODES: { value: PaymentMode; label: string }[] = [
   { value: "cash", label: "Cash" },
@@ -41,32 +41,42 @@ const PAYMENT_MODES: { value: PaymentMode; label: string }[] = [
 ];
 
 /**
- * Record a commission payout to a mesthri (payment_type='commission'). Company/office
- * picks a payer source; a site engineer pays from their own wallet only. Defaults the
- * amount to the outstanding payable.
+ * Pay ONE company laborer their net contract wages directly (direct-pay mode), or the
+ * maistry his own wages. Company/office picks a payer source; a site engineer pays from
+ * their own wallet only. Reused from the crew ledger rows + the maistry strip.
  */
-export default function CommissionPayoutDialog({
+export default function ContractLaborerPayDialog({
   open,
   onClose,
   siteId,
-  collectorLaborerId,
-  collectorName,
+  kind,
+  refId,
+  laborerId,
+  laborerName,
+  amountOwed,
+  dateFrom,
+  dateTo,
+  windowLabel,
+  onPaid,
 }: {
   open: boolean;
   onClose: () => void;
   siteId: string;
-  collectorLaborerId: string;
-  collectorName: string;
+  kind: ContractLedgerKind;
+  refId: string;
+  laborerId: string;
+  laborerName: string;
+  amountOwed: number;
+  dateFrom: string | null;
+  dateTo: string | null;
+  windowLabel: string;
+  onPaid?: () => void;
 }) {
   const { userProfile } = useAuth();
   const { selectedSite } = useSite();
-  const { data: payableRows } = useMesthriCommissionPayable(
-    open ? siteId : null,
-    collectorLaborerId,
-  );
-  const payable = payableRows?.[0]?.payable ?? 0;
-  const payMut = usePayMesthriCommission();
+  const settleMut = useSettleContractLaborer();
 
+  // A site engineer pays ONLY from their own wallet (like Miscellaneous / task-work).
   const isSiteEngineer = userProfile?.role === "site_engineer";
   const balanceQuery = useEngineerWalletBalance(
     isSiteEngineer ? userProfile?.id : undefined,
@@ -84,7 +94,7 @@ export default function CommissionPayoutDialog({
 
   useEffect(() => {
     if (!open) return;
-    setAmount(Math.max(0, Math.round(payable * 100) / 100));
+    setAmount(Math.max(0, Math.round(amountOwed * 100) / 100));
     setPaymentDate(dayjs().format("YYYY-MM-DD"));
     setPaymentMode("cash");
     setPayerSource("own_money");
@@ -92,17 +102,21 @@ export default function CommissionPayoutDialog({
     setScreenshot(null);
     setNotes("");
     setError("");
-  }, [open, payable]);
+  }, [open, amountOwed]);
 
   const isCash = paymentMode === "cash";
   const isUpi = paymentMode === "upi";
+  const balanceAfter = useMemo(
+    () => (balanceQuery.data?.balance ?? 0) - amount,
+    [balanceQuery.data?.balance, amount],
+  );
 
   const handleSubmit = async () => {
     if (!userProfile) {
       setError("Not signed in.");
       return;
     }
-    if (amount <= 0) {
+    if (!(amount > 0)) {
       setError("Enter an amount greater than zero.");
       return;
     }
@@ -111,10 +125,14 @@ export default function CommissionPayoutDialog({
       return;
     }
     const channel = isSiteEngineer ? "engineer_wallet" : "direct";
-    const res = await payMut.mutateAsync({
+    const res = await settleMut.mutateAsync({
       siteId,
-      collectorLaborerId,
-      collectorName,
+      kind,
+      refId,
+      laborerId,
+      laborerName,
+      dateFrom,
+      dateTo,
       amount,
       settlementDate: paymentDate,
       paymentMode,
@@ -128,18 +146,19 @@ export default function CommissionPayoutDialog({
       userName: userProfile.name ?? "",
     });
     if (res.success) {
+      onPaid?.();
       onClose();
     } else {
-      setError(res.error || "Failed to record commission payout.");
+      setError(res.error || "Failed to record the payment.");
     }
   };
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
       <DialogTitle>
-        Pay commission — {collectorName}
+        Pay {laborerName}
         <Typography variant="caption" color="text.secondary" component="div">
-          Outstanding payable: {formatCurrencyFull(payable)}
+          Owed {windowLabel}: {formatCurrencyFull(amountOwed)}
         </Typography>
       </DialogTitle>
       <DialogContent dividers>
@@ -151,7 +170,7 @@ export default function CommissionPayoutDialog({
             onChange={(e) => setAmount(Number(e.target.value))}
             onWheel={blurOnWheel}
             slotProps={{ input: { startAdornment: "₹" } }}
-            helperText={amount > payable ? "More than the outstanding payable" : undefined}
+            helperText={amount > amountOwed ? "More than the net owed for this window" : undefined}
             fullWidth
           />
 
@@ -205,7 +224,7 @@ export default function CommissionPayoutDialog({
               label={isUpi ? "UPI screenshot" : "Payment screenshot (optional)"}
               value={screenshot}
               onChange={setScreenshot}
-              folder="commission-receipts"
+              folder="contract-wage-receipts"
               bucket="settlement-proofs"
             />
           )}
@@ -218,13 +237,20 @@ export default function CommissionPayoutDialog({
             rows={2}
             fullWidth
           />
+
+          {isSiteEngineer && balanceAfter < 0 && (
+            <Alert severity="info" sx={{ py: 0.5 }}>
+              Your wallet goes {formatCurrencyFull(Math.abs(balanceAfter))} negative — the office
+              will owe you this.
+            </Alert>
+          )}
           {error && <Alert severity="error" onClose={() => setError("")}>{error}</Alert>}
         </Box>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={handleSubmit} disabled={payMut.isPending}>
-          {payMut.isPending ? "Recording…" : "Record payout"}
+        <Button variant="contained" onClick={handleSubmit} disabled={settleMut.isPending}>
+          {settleMut.isPending ? "Recording…" : "Record payment"}
         </Button>
       </DialogActions>
     </Dialog>

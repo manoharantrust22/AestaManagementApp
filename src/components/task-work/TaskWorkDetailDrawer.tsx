@@ -583,7 +583,14 @@ export default function TaskWorkDetailDrawer({ open, onClose, pkg, onEdit }: Pro
         />
       )}
 
-      {tab === 2 && <TaskWorkPaymentsPanel pkg={pkg} canEdit={canEdit} />}
+      {tab === 2 && (
+        <TaskWorkPaymentsPanel
+          pkg={pkg}
+          canEdit={canEdit}
+          onRecordPayment={() => setPayOpen(true)}
+          onMarkComplete={() => setCompleteOpen(true)}
+        />
+      )}
 
       <TaskWorkCompleteDialog
         open={completeOpen}

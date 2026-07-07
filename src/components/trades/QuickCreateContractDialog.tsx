@@ -359,12 +359,12 @@ export function QuickCreateContractDialog({
             label={
               <Box component="span" sx={{ display: "block", pt: 0.75 }}>
                 <Typography variant="body2" fontWeight={700}>
-                  Commission to the mesthri
+                  Pay each laborer directly
                 </Typography>
                 <Typography variant="caption" color="text.secondary" component="span" sx={{ display: "block" }}>
-                  Once daily attendance is tracked for this contract, its company laborers are
-                  paid directly (net of the per-day commission, ₹50 default per laborer) and the
-                  mesthri collects the commission. Off = settled the usual way.
+                  ON — you pay each company laborer their net wages from the crew ledger (net of a
+                  per-day ₹50 commission per laborer); the mesthri gets his commission + own wages
+                  separately. OFF — you pay the mesthri a lump and he distributes to the crew.
                 </Typography>
               </Box>
             }

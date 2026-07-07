@@ -295,13 +295,14 @@ export const TASK_WORK_STATUS_LABEL: Record<TaskWorkStatus, string> = {
 };
 
 export const TASK_WORK_PAYMENT_TYPE_LABEL: Record<TaskWorkPaymentType, string> = {
-  // "Advance" reads as money paid before work starts; in practice the crew is
-  // paid in installments as the job progresses, so advance + part_payment both
-  // surface as one consistent "Part payment" label.
-  advance: "Part payment",
-  part_payment: "Part payment",
-  final_settlement: "Final Settlement",
-  retention_release: "Retention Release",
+  // Every payment toward a contract is just a "Payment" toward the balance —
+  // there is no user-facing Advance / Part-payment / Settle distinction anymore
+  // (all new payments write `advance`). The final_settlement / retention labels
+  // are kept only so any legacy rows already in the DB still render sensibly.
+  advance: "Payment",
+  part_payment: "Payment",
+  final_settlement: "Final settlement",
+  retention_release: "Retention release",
 };
 
 export const TASK_WORK_PAYMENT_MODE_LABEL: Record<TaskWorkPaymentMode, string> = {

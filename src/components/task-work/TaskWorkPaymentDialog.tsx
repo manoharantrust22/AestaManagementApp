@@ -31,7 +31,6 @@ import { useEngineerWalletBalance } from "@/hooks/queries/useEngineerWalletV2";
 import { blurOnWheel } from "@/lib/utils/numberInput";
 import type { PayerSource } from "@/types/settlement.types";
 import {
-  TASK_WORK_PAYMENT_TYPE_LABEL,
   type TaskWorkPackageWithMeta,
   type TaskWorkPaymentChannel,
   type TaskWorkPaymentMode,
@@ -73,7 +72,6 @@ export default function TaskWorkPaymentDialog({
     pkg.site_id
   );
 
-  const [paymentType, setPaymentType] = useState<TaskWorkPaymentType>(defaultType);
   const [amount, setAmount] = useState<number>(0);
   const [paymentDate, setPaymentDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [paymentMode, setPaymentMode] = useState<TaskWorkPaymentMode>("cash");
@@ -88,7 +86,8 @@ export default function TaskWorkPaymentDialog({
 
   useEffect(() => {
     if (!open) return;
-    setPaymentType(defaultType);
+    // Opened from "pay the balance first" (completion flow) pre-fills the whole
+    // balance; a plain "Record payment" starts empty so a part-payment is typed.
     setAmount(defaultType === "final_settlement" ? Math.max(balanceDue, 0) : 0);
     setPaymentDate(dayjs().format("YYYY-MM-DD"));
     setPaymentMode("cash");
@@ -125,7 +124,9 @@ export default function TaskWorkPaymentDialog({
         siteId: pkg.site_id,
         packageNumber: pkg.package_number,
         packageTitle: pkg.title,
-        paymentType,
+        // Single canonical type — every contract payment is a payment toward the
+        // balance. No user-facing Advance / Part / Settle distinction.
+        paymentType: "advance",
         amount,
         paymentDate,
         paymentMode,
@@ -156,46 +157,27 @@ export default function TaskWorkPaymentDialog({
             Price {inr(pkg.total_value)} · Balance due {inr(balanceDue)}
           </Alert>
 
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <FormControl fullWidth>
-                <InputLabel>Type</InputLabel>
-                <Select
-                  value={paymentType}
-                  label="Type"
-                  onChange={(e) =>
-                    setPaymentType(e.target.value as TaskWorkPaymentType)
-                  }
-                >
-                  {(
-                    // "advance" surfaces as "Part payment"; the legacy
-                    // "part_payment" type is omitted here to avoid a duplicate
-                    // option (historical rows still render correctly).
-                    [
-                      "advance",
-                      "final_settlement",
-                      "retention_release",
-                    ] as TaskWorkPaymentType[]
-                  ).map((t) => (
-                    <MenuItem key={t} value={t}>
-                      {TASK_WORK_PAYMENT_TYPE_LABEL[t]}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                fullWidth
-                label="Amount"
-                type="number"
-                value={amount || ""}
-                onChange={(e) => setAmount(Number(e.target.value))}
-                onWheel={blurOnWheel}
-                slotProps={{ input: { startAdornment: "₹" } }}
-              />
-            </Grid>
-          </Grid>
+          <Box>
+            <TextField
+              fullWidth
+              label="Amount"
+              type="number"
+              value={amount || ""}
+              onChange={(e) => setAmount(Number(e.target.value))}
+              onWheel={blurOnWheel}
+              slotProps={{ input: { startAdornment: "₹" } }}
+            />
+            {balanceDue > 0 && amount !== Math.max(balanceDue, 0) && (
+              <Button
+                size="small"
+                variant="text"
+                onClick={() => setAmount(Math.max(balanceDue, 0))}
+                sx={{ mt: 0.5, textTransform: "none" }}
+              >
+                Pay full balance ({inr(balanceDue)})
+              </Button>
+            )}
+          </Box>
 
           {amount > balanceDue && (
             <Alert severity="warning" sx={{ py: 0.5 }}>

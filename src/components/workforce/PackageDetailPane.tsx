@@ -13,6 +13,7 @@ import {
   type TaskWorkPackageWithMeta,
 } from "@/types/taskWork.types";
 import { useTaskWorkProfitability } from "@/hooks/queries/useTaskWorkProfitability";
+import { useContractLaborLedger } from "@/hooks/queries/useContractLaborLedger";
 import { useTaskWorkDayLogs } from "@/hooks/queries/useTaskWorkDayLogs";
 import { useTaskWorkVariations } from "@/hooks/queries/useTaskWorkVariations";
 import { useUpdateTaskWorkPackage } from "@/hooks/queries/useTaskWorkPackages";
@@ -26,6 +27,7 @@ import {
 import TaskWorkEffortPanel from "@/components/task-work/TaskWorkEffortPanel";
 import ContractLaborLedger from "@/components/workforce/ContractLaborLedger";
 import TaskWorkPaymentsPanel from "@/components/task-work/TaskWorkPaymentsPanel";
+import TaskWorkPaymentDialog from "@/components/task-work/TaskWorkPaymentDialog";
 import TaskWorkVariationsSection from "@/components/task-work/TaskWorkVariationsSection";
 import TaskWorkCompleteDialog from "@/components/task-work/TaskWorkCompleteDialog";
 import { wsColors, wsRadius, wsShadow } from "@/lib/workforce/workspaceTokens";
@@ -69,10 +71,27 @@ export function PackageDetailPane({
 }) {
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [completeOpen, setCompleteOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
+  // "Record payment" starts blank; the completion flow's "pay the balance first"
+  // opens the same dialog pre-filled to the full balance.
+  const [paySettle, setPaySettle] = useState(false);
   const { data: prof } = useTaskWorkProfitability(pkg.id);
   const { data: dayLogs = [] } = useTaskWorkDayLogs(pkg.id);
   const { data: variations = [] } = useTaskWorkVariations(pkg.id);
   const updateMut = useUpdateTaskWorkPackage();
+
+  // Direct-pay mode: the money frame is per-laborer settlement, not the fixed price.
+  const directMode = Boolean(pkg.mesthri_commission_enabled);
+  const { data: ledger } = useContractLaborLedger(
+    "task_work",
+    pkg.id,
+    null,
+    null,
+    directMode,
+  );
+  const crewPaid = ledger?.totalNetPaid ?? 0;
+  const crewOwed = ledger?.totalNetUnpaid ?? 0;
+  const crewTotal = ledger?.totalNet ?? 0;
 
   const paid = prof?.paid ?? pkg.paid ?? 0;
   const baseAgreed = pkg.total_value || 0;
@@ -197,7 +216,7 @@ export function PackageDetailPane({
               {pkg.maistry_name ?? "—"}
             </Typography>
             <Typography sx={{ fontSize: 12.5, color: wsColors.muted }} noWrap>
-              Fixed price · {pkg.package_number}
+              {directMode ? "Pay laborers directly" : "Fixed price"} · {pkg.package_number}
             </Typography>
           </Box>
           <Box sx={{ px: 1.1, py: 0.4, borderRadius: 999, bgcolor: pill.bg, color: pill.color, fontSize: 11.5, fontWeight: 800 }}>
@@ -205,49 +224,96 @@ export function PackageDetailPane({
           </Box>
         </Box>
 
-        {/* Stat cards */}
-        <Box sx={{ display: "flex", gap: 1 }}>
-          <StatCard label="Agreed price" value={formatCurrencyFull(baseAgreed)} />
-          <StatCard label="Paid out" value={formatCurrencyFull(paid)} valueColor={wsColors.primary} sub={`${paidPct}% of price`} />
-          <StatCard
-            label={balanceDue >= 0 ? "Balance" : "Overpaid"}
-            value={formatCurrencyFull(Math.abs(balanceDue))}
-            valueColor={balanceDue > 0 ? wsColors.red : undefined}
-          />
-        </Box>
-
-        {/* Money vs work — agreed (incl. approved extras) vs logged work value vs paid. */}
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 1,
-            px: 1.5,
-            py: 1.1,
-            borderRadius: `${wsRadius.input}px`,
-            bgcolor: verdict.bg,
-            border: `1px solid ${verdict.color}33`,
-          }}
-        >
-          <Box sx={{ minWidth: 0 }}>
-            <Typography sx={{ fontSize: 12.5, fontWeight: 800, color: verdict.color }} noWrap>
-              {costStatus.verdict === "ahead"
-                ? `Paid ${formatCurrencyFull(Math.abs(costStatus.paidVsWork))} ahead of work logged`
-                : costStatus.verdict === "behind"
-                  ? `Paid ${formatCurrencyFull(Math.abs(costStatus.paidVsWork))} behind work logged`
-                  : costStatus.verdict === "fair"
-                    ? "Payments track the work logged"
-                    : "Log days to compare paid vs work done"}
-            </Typography>
-            {approvedExtras > 0 && (
-              <Typography sx={{ fontSize: 11, color: wsColors.muted }} noWrap>
-                Effective agreed {formatCurrencyFull(effectiveAgreed)} (incl. {formatCurrencyFull(approvedExtras)} extras)
-              </Typography>
-            )}
+        {/* Stat cards — lump mode tracks the fixed price; direct mode tracks crew wages. */}
+        {directMode ? (
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <StatCard label="Agreed price" value={formatCurrencyFull(baseAgreed)} sub="reference" />
+            <StatCard label="Paid to crew" value={formatCurrencyFull(crewPaid)} valueColor={wsColors.green} />
+            <StatCard
+              label="Owed to crew"
+              value={formatCurrencyFull(crewOwed)}
+              valueColor={crewOwed > 0 ? wsColors.red : undefined}
+            />
           </Box>
-          <Chip size="small" label={verdict.label} sx={{ bgcolor: "#fff", color: verdict.color, fontWeight: 700, flexShrink: 0 }} />
-        </Box>
+        ) : (
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <StatCard label="Agreed price" value={formatCurrencyFull(baseAgreed)} />
+            <StatCard label="Paid out" value={formatCurrencyFull(paid)} valueColor={wsColors.primary} sub={`${paidPct}% of price`} />
+            <StatCard
+              label={balanceDue >= 0 ? "Balance" : "Overpaid"}
+              value={formatCurrencyFull(Math.abs(balanceDue))}
+              valueColor={balanceDue > 0 ? wsColors.red : undefined}
+            />
+          </Box>
+        )}
+
+        {directMode ? (
+          /* Direct mode — labour settlement progress (the fixed price is just a benchmark). */
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 1,
+              px: 1.5,
+              py: 1.1,
+              borderRadius: `${wsRadius.input}px`,
+              bgcolor: crewOwed > 0 ? wsColors.amberBg : wsColors.greenBg,
+              border: `1px solid ${(crewOwed > 0 ? wsColors.amber : wsColors.green)}33`,
+            }}
+          >
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: 12.5, fontWeight: 800, color: crewOwed > 0 ? wsColors.amber : wsColors.green }} noWrap>
+                {crewOwed > 0
+                  ? `Labour settled ${formatCurrencyFull(crewPaid)} of ${formatCurrencyFull(crewTotal)}`
+                  : crewTotal > 0
+                    ? "All crew wages settled"
+                    : "No crew days logged yet"}
+              </Typography>
+              <Typography sx={{ fontSize: 11, color: wsColors.muted }} noWrap>
+                Pay each laborer their net + the maistry his commission from the crew ledger below.
+              </Typography>
+            </Box>
+            <Chip
+              size="small"
+              label={crewOwed > 0 ? `${formatCurrencyFull(crewOwed)} owed` : "Settled"}
+              sx={{ bgcolor: "#fff", color: crewOwed > 0 ? wsColors.amber : wsColors.green, fontWeight: 700, flexShrink: 0 }}
+            />
+          </Box>
+        ) : (
+          /* Money vs work — agreed (incl. approved extras) vs logged work value vs paid. */
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 1,
+              px: 1.5,
+              py: 1.1,
+              borderRadius: `${wsRadius.input}px`,
+              bgcolor: verdict.bg,
+              border: `1px solid ${verdict.color}33`,
+            }}
+          >
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: 12.5, fontWeight: 800, color: verdict.color }} noWrap>
+                {costStatus.verdict === "ahead"
+                  ? `Paid ${formatCurrencyFull(Math.abs(costStatus.paidVsWork))} ahead of work logged`
+                  : costStatus.verdict === "behind"
+                    ? `Paid ${formatCurrencyFull(Math.abs(costStatus.paidVsWork))} behind work logged`
+                    : costStatus.verdict === "fair"
+                      ? "Payments track the work logged"
+                      : "Log days to compare paid vs work done"}
+              </Typography>
+              {approvedExtras > 0 && (
+                <Typography sx={{ fontSize: 11, color: wsColors.muted }} noWrap>
+                  Effective agreed {formatCurrencyFull(effectiveAgreed)} (incl. {formatCurrencyFull(approvedExtras)} extras)
+                </Typography>
+              )}
+            </Box>
+            <Chip size="small" label={verdict.label} sx={{ bgcolor: "#fff", color: verdict.color, fontWeight: 700, flexShrink: 0 }} />
+          </Box>
+        )}
 
         {/* Company saving (locked) once actuals are logged AND a daywork benchmark
             exists — without an estimate the saving reads as a misleading -price. */}
@@ -314,7 +380,15 @@ export function PackageDetailPane({
         />
 
         <SectionTitle>Payments</SectionTitle>
-        <TaskWorkPaymentsPanel pkg={pkg} canEdit={canEdit} />
+        <TaskWorkPaymentsPanel
+          pkg={pkg}
+          canEdit={canEdit}
+          onRecordPayment={() => {
+            setPaySettle(false);
+            setPayOpen(true);
+          }}
+          onMarkComplete={!isClosed ? () => setCompleteOpen(true) : undefined}
+        />
       </Box>
 
       <TaskWorkCompleteDialog
@@ -323,8 +397,20 @@ export function PackageDetailPane({
         title={pkg.title}
         balanceDue={balanceDue}
         isPending={updateMut.isPending}
-        onSettle={() => setCompleteOpen(false)}
+        onSettle={() => {
+          setCompleteOpen(false);
+          setPaySettle(true);
+          setPayOpen(true);
+        }}
         onConfirm={handleCompleteConfirm}
+      />
+
+      <TaskWorkPaymentDialog
+        open={payOpen}
+        onClose={() => setPayOpen(false)}
+        pkg={pkg}
+        balanceDue={balanceDue}
+        defaultType={paySettle ? "final_settlement" : "advance"}
       />
     </Box>
   );

@@ -624,10 +624,11 @@ export async function processWeeklySettlement(
     let settlementGroupId: string | undefined;
     let settlementReference: string | undefined;
 
-    // The company-laborer (contract) count + settle now go through server RPCs
+    // The company-laborer (contract) count + settle go through server RPCs
     // (company_week_contract_net / settle_company_week_contract), which apply the full
-    // predicate — task-work + non-Civil exclusions AND the commission net inclusion —
-    // in one place shared with get_salary_waterfall. No client-side non-Civil filter here.
+    // predicate — task-work, non-Civil, AND direct-pay (commission) crew days are all
+    // EXCLUDED from the weekly company page (direct-pay crew are settled in the contract
+    // pane) — in one place shared with get_salary_waterfall. No client-side filter here.
 
     // 1. Count records that will be settled FIRST
     let laborerCount = 0;
@@ -652,8 +653,8 @@ export async function processWeeklySettlement(
     if (config.settlementType === "contract" || config.settlementType === "all") {
       // Server-authoritative count of the eligible unpaid company-laborer days for the
       // week (same predicate as settle_company_week_contract / get_salary_waterfall):
-      // task-work + non-Civil days are excluded UNLESS commission is enabled, in which
-      // case those crew days are paid directly here at net.
+      // task-work, non-Civil, and direct-pay (commission) crew days are all excluded —
+      // those are settled elsewhere (the contract pane / the trade workspace).
       const { data: netRows } = await supabase.rpc("company_week_contract_net", {
         p_site_id: config.siteId,
         p_date_from: config.dateFrom,
@@ -1063,6 +1064,190 @@ export async function payMesthriCommission(
   } catch (err: any) {
     console.error("Mesthri commission payout error:", err);
     return { success: false, error: err.message || "Failed to pay mesthri commission" };
+  }
+}
+
+/**
+ * Pay ONE company laborer their net wages on ONE contract, directly from the contract
+ * pane (direct-pay mode). Settles that laborer's unpaid contract days over a window at
+ * NET (via settle_contract_laborer), links them to a settlement_group (payment_type=
+ * 'salary', laborer_count=1) so it shows in v_all_expenses + the contract payment feed,
+ * and — because it writes NO labor_payments — stays out of the site-wide salary waterfall.
+ * The RPC's total_net is server-authoritative; the group's amount is reconciled to it.
+ *
+ * Also serves the maistry's OWN wages (his own days settle at gross, commission 0).
+ */
+export async function settleContractLaborer(
+  supabase: SupabaseClient,
+  config: {
+    siteId: string;
+    kind: "task_work" | "subcontract";
+    refId: string;
+    laborerId: string;
+    laborerName?: string;
+    dateFrom: string | null;
+    dateTo: string | null;
+    amount: number; // net owed for the window (from the ledger); server reconciles.
+    settlementDate?: string;
+    paymentMode: PaymentMode;
+    paymentChannel: PaymentChannel;
+    payerSource: PayerSource;
+    customPayerName?: string;
+    engineerId?: string;
+    proofUrl?: string;
+    notes?: string;
+    userId: string;
+    userName: string;
+  },
+): Promise<SettlementResult> {
+  try {
+    const paymentDate = config.settlementDate || dayjs().format("YYYY-MM-DD");
+    let engineerTransactionId: string | null = null;
+
+    const idempotencyKey = await deterministicSettlementKey({
+      siteId: config.siteId,
+      recordIds: [],
+      amount: config.amount,
+      paymentChannel: config.paymentChannel,
+      date: paymentDate,
+      extra: `contract-lab:${config.kind}:${config.refId}:${config.laborerId}:${config.dateFrom ?? "all"}:${config.dateTo ?? "all"}`,
+    });
+
+    // 1. Create the settlement group (amount reconciled to the RPC net after settling).
+    const { data: groupResult, error: groupError } = await supabase.rpc(
+      "create_settlement_group",
+      {
+        p_site_id: config.siteId,
+        p_settlement_date: paymentDate,
+        p_total_amount: config.amount,
+        p_laborer_count: 1,
+        p_payment_channel: config.paymentChannel,
+        p_payment_mode: config.paymentMode,
+        p_payer_source: config.payerSource,
+        p_payer_name: requiresPayerName(config.payerSource) ? config.customPayerName : null,
+        p_proof_url: config.proofUrl || null,
+        p_notes: config.notes
+          ? `Contract wages: ${config.notes}`
+          : `Paid ${config.laborerName ?? "laborer"} — contract wages`,
+        p_subcontract_id: null,
+        p_engineer_transaction_id: null,
+        p_created_by: config.userId,
+        p_created_by_name: config.userName,
+        p_payment_type: "salary",
+        p_idempotency_key: idempotencyKey,
+      },
+    );
+    if (groupError) throw groupError;
+    const groupData = Array.isArray(groupResult) ? groupResult[0] : groupResult;
+    if (!groupData?.id) throw new Error("Failed to create settlement group");
+    const settlementGroupId = groupData.id as string;
+    const settlementReference = groupData.settlement_reference as string;
+
+    // 2. Engineer-wallet debit (optional) — mirrors payMesthriCommission.
+    if (config.paymentChannel === "engineer_wallet" && config.engineerId) {
+      const walletPaymentMode: "cash" | "upi" | "bank_transfer" =
+        config.paymentMode === "upi"
+          ? "upi"
+          : config.paymentMode === "net_banking"
+            ? "bank_transfer"
+            : "cash";
+      try {
+        const { id: txId } = await recordSpend(supabase, {
+          engineer_id: config.engineerId,
+          site_id: config.siteId,
+          amount: config.amount,
+          transaction_date: paymentDate,
+          payment_mode: walletPaymentMode,
+          proof_url: config.proofUrl || null,
+          notes: config.notes || null,
+          recorded_by: config.userName,
+          recorded_by_user_id: config.userId,
+          description: `Contract wages ${settlementReference}`,
+          settlement_group_id: settlementGroupId,
+        });
+        engineerTransactionId = txId;
+        await supabase
+          .from("settlement_groups")
+          .update({ engineer_transaction_id: engineerTransactionId })
+          .eq("id", settlementGroupId);
+      } catch (walletErr: any) {
+        await supabase
+          .from("settlement_groups")
+          .update({
+            is_cancelled: true,
+            cancelled_at: new Date().toISOString(),
+            cancelled_by: config.userName,
+            cancelled_by_user_id: config.userId,
+            cancellation_reason: `Engineer wallet debit failed: ${walletErr?.message ?? walletErr}`,
+          })
+          .eq("id", settlementGroupId);
+        throw walletErr;
+      }
+    }
+
+    // 3. Mark the laborer's unpaid contract days paid (net) + write the commission snapshot.
+    const { data: settleData, error: settleError } = await supabase.rpc(
+      "settle_contract_laborer",
+      {
+        p_kind: config.kind,
+        p_ref_id: config.refId,
+        p_laborer_id: config.laborerId,
+        p_date_from: config.dateFrom,
+        p_date_to: config.dateTo,
+        p_settlement_group_id: settlementGroupId,
+        p_is_paid: true,
+        p_payment_date: paymentDate,
+        p_payment_mode: config.paymentMode,
+        p_paid_via: config.paymentChannel,
+        p_engineer_transaction_id: engineerTransactionId,
+        p_payment_proof_url: config.proofUrl || null,
+        p_payment_notes: config.notes || null,
+        p_payer_source: config.payerSource,
+        p_payer_name: requiresPayerName(config.payerSource) ? config.customPayerName : null,
+      },
+    );
+    if (settleError) {
+      // Un-link + refund via the standard reversal (also cancels the wallet debit).
+      await supabase.rpc("reverse_settlement", {
+        p_settlement_group_id: settlementGroupId,
+        p_reason: "Contract laborer settle failed",
+      });
+      throw settleError;
+    }
+
+    const settleRow = Array.isArray(settleData) ? settleData[0] : settleData;
+    const rowsSettled = Number(settleRow?.rows_settled ?? 0);
+    const totalNet = Number(settleRow?.total_net ?? 0);
+
+    if (rowsSettled === 0) {
+      // Nothing unpaid to settle (already paid / no days in window) — undo the empty group.
+      await supabase.rpc("reverse_settlement", {
+        p_settlement_group_id: settlementGroupId,
+        p_reason: "No unpaid days to settle",
+      });
+      return {
+        success: false,
+        error: "Nothing to settle — this laborer's days in this window are already paid.",
+      };
+    }
+
+    // Reconcile the group total to the server-authoritative net (guards a mid-flight race).
+    if (Math.abs(totalNet - config.amount) > 0.5) {
+      await supabase
+        .from("settlement_groups")
+        .update({ total_amount: totalNet })
+        .eq("id", settlementGroupId);
+    }
+
+    return {
+      success: true,
+      settlementReference,
+      settlementGroupId,
+      engineerTransactionId: engineerTransactionId || undefined,
+    };
+  } catch (err: any) {
+    console.error("Contract laborer settle error:", err);
+    return { success: false, error: err.message || "Failed to settle the laborer." };
   }
 }
 
