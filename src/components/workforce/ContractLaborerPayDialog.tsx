@@ -41,9 +41,10 @@ const PAYMENT_MODES: { value: PaymentMode; label: string }[] = [
 ];
 
 /**
- * Pay ONE company laborer their net contract wages directly (direct-pay mode), or the
- * maistry his own wages. Company/office picks a payer source; a site engineer pays from
- * their own wallet only. Reused from the crew ledger rows + the maistry strip.
+ * Record a payment to ONE company laborer against their contract dues (direct-pay mode) — the
+ * full remaining or a partial / already-paid amount (back-date via the Date field). Company/office
+ * picks a payer source; a site engineer pays from their own wallet only. Reused from the crew ledger
+ * rows + the maistry strip. The amount is clamped server-side to what's still owed.
  */
 export default function ContractLaborerPayDialog({
   open,
@@ -170,7 +171,13 @@ export default function ContractLaborerPayDialog({
             onChange={(e) => setAmount(Number(e.target.value))}
             onWheel={blurOnWheel}
             slotProps={{ input: { startAdornment: "₹" } }}
-            helperText={amount > amountOwed ? "More than the net owed for this window" : undefined}
+            helperText={
+              amount > amountOwed
+                ? "More than what's still owed"
+                : amount > 0 && amount < amountOwed
+                  ? `Partial — ${formatCurrencyFull(amountOwed - amount)} will still be owed`
+                  : undefined
+            }
             fullWidth
           />
 

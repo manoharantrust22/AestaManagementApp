@@ -29,12 +29,6 @@ function windowFor(period: Period): { from: string | null; to: string | null } {
   return { from: start.format("YYYY-MM-DD"), to: start.add(6, "day").format("YYYY-MM-DD") };
 }
 
-const WINDOW_LABEL: Record<Period, string> = {
-  day: "today",
-  week: "this week",
-  project: "so far",
-};
-
 const num = { fontVariantNumeric: "tabular-nums" as const };
 
 /**
@@ -197,9 +191,9 @@ export default function ContractLaborLedger({
           laborerId={payLaborer.laborerId}
           laborerName={payLaborer.laborerName}
           amountOwed={payLaborer.netUnpaid}
-          dateFrom={from}
-          dateTo={to}
-          windowLabel={WINDOW_LABEL[period]}
+          dateFrom={null}
+          dateTo={null}
+          windowLabel="in total"
         />
       )}
 
