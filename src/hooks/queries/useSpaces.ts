@@ -195,6 +195,36 @@ export function useUpdateSpace() {
   });
 }
 
+/** Assign one floor tile to many spaces at once ("apply to all / unassigned"). */
+export function useBulkSetSpaceTile() {
+  const supabase = createClient() as SupabaseAny;
+  const invalidate = useInvalidateSpaces();
+
+  return useMutation({
+    mutationFn: async ({
+      siteId,
+      ids,
+      tileOptionId,
+    }: {
+      siteId: string;
+      ids: string[];
+      tileOptionId: string;
+    }) => {
+      if (ids.length === 0) return [] as Space[];
+      await ensureFreshSession();
+      const { data, error } = await supabase
+        .from("spaces")
+        .update({ tile_option_id: tileOptionId })
+        .eq("site_id", siteId)
+        .in("id", ids)
+        .select();
+      if (error) throw error;
+      return (data ?? []) as Space[];
+    },
+    onSuccess: (_, { siteId }) => invalidate(siteId),
+  });
+}
+
 export function useDeleteSpace() {
   const supabase = createClient() as SupabaseAny;
   const invalidate = useInvalidateSpaces();
