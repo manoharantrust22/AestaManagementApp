@@ -47,6 +47,8 @@ import EstimateLinesEditor, {
   cleanDraftLines,
 } from "@/components/task-work/EstimateLinesEditor";
 import { blurOnWheel } from "@/lib/utils/numberInput";
+import { useContractCrewCommissionDays } from "@/hooks/queries/useContractCrewCommissionDays";
+import { splitCrewCommissionByDate } from "@/lib/workforce/commission";
 import type {
   TaskWorkMeasurementUnit,
   TaskWorkPackage,
@@ -127,12 +129,14 @@ const EMPTY: FormState = {
   notes: "",
 };
 
-/** The coming Sunday (company week bucket) — the safe default cutover date. */
-function comingSunday(): string {
-  const d = dayjs();
-  // day()=0 on Sunday; if today is Sunday use today, else the next Sunday.
-  const add = d.day() === 0 ? 0 : 7 - d.day();
-  return d.add(add, "day").format("YYYY-MM-DD");
+/** Today as YYYY-MM-DD (local). */
+function todayISO(): string {
+  return dayjs().format("YYYY-MM-DD");
+}
+
+/** Format a work-day count, dropping a trailing ".0" (2 → "2", 1.5 → "1.5"). */
+function fmtWorkDays(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
 export default function TaskWorkPackageDialog({
@@ -308,9 +312,10 @@ export default function TaskWorkPackageDialog({
       status: form.status,
       parent_subcontract_id: form.parent_subcontract_id || null,
       mesthri_commission_enabled: form.mesthri_commission_enabled,
-      // When enabled, a cutover date is required (default to the coming Sunday).
+      // When enabled, a start date is required (default to the crew's first day so
+      // all their worked days count; today if no attendance yet).
       mesthri_commission_effective_from: form.mesthri_commission_enabled
-        ? form.mesthri_commission_effective_from || comingSunday()
+        ? form.mesthri_commission_effective_from || crewDays?.earliestDate || todayISO()
         : null,
       notes: form.notes.trim() || null,
     };
@@ -327,6 +332,22 @@ export default function TaskWorkPackageDialog({
       setError(e?.message || "Failed to save the task-work package.");
     }
   };
+
+  const { data: crewDays } = useContractCrewCommissionDays(
+    "task_work",
+    editing?.id ?? null,
+    form.maistry_laborer_id,
+    open && Boolean(editing?.id),
+  );
+
+  const commissionSplit = useMemo(
+    () =>
+      splitCrewCommissionByDate(
+        crewDays?.rows ?? [],
+        form.mesthri_commission_effective_from || null,
+      ),
+    [crewDays?.rows, form.mesthri_commission_effective_from],
+  );
 
   const selectedMaistryValue: MaistryOption | string | null = useMemo(() => {
     if (form.maistry_laborer_id) {
@@ -494,7 +515,7 @@ export default function TaskWorkPackageDialog({
                       mesthri_commission_enabled: on,
                       mesthri_commission_effective_from:
                         on && !p.mesthri_commission_effective_from
-                          ? comingSunday()
+                          ? (crewDays?.earliestDate ?? todayISO())
                           : p.mesthri_commission_effective_from,
                     }));
                   }}
@@ -515,15 +536,33 @@ export default function TaskWorkPackageDialog({
               }
             />
             {form.mesthri_commission_enabled && (
-              <TextField
-                label="Direct-pay from (cutover)"
-                type="date"
-                value={form.mesthri_commission_effective_from}
-                onChange={(e) => set("mesthri_commission_effective_from", e.target.value)}
-                slotProps={{ inputLabel: { shrink: true } }}
-                helperText="Days before this stay paid via the package. Use a Sunday (week start)."
-                sx={{ mt: 1.5, maxWidth: 280 }}
-              />
+              <Box sx={{ mt: 1.5 }}>
+                <TextField
+                  label="Commission / direct-pay from"
+                  type="date"
+                  value={form.mesthri_commission_effective_from}
+                  onChange={(e) => set("mesthri_commission_effective_from", e.target.value)}
+                  slotProps={{ inputLabel: { shrink: true } }}
+                  helperText="Commission applies to company-laborer days on/after this date. Earlier days are not counted."
+                  sx={{ maxWidth: 280 }}
+                />
+                {(crewDays?.rows.length ?? 0) > 0 &&
+                  (commissionSplit.excludedWorkDays > 0 ? (
+                    <Alert severity="warning" sx={{ mt: 1 }}>
+                      {fmtWorkDays(commissionSplit.excludedWorkDays)} work-day
+                      {commissionSplit.excludedWorkDays === 1 ? "" : "s"} before{" "}
+                      {dayjs(form.mesthri_commission_effective_from).format("DD MMM")} won&apos;t earn
+                      commission (−₹
+                      {Math.round(commissionSplit.excludedCommission).toLocaleString("en-IN")} to the
+                      mesthri). Pick an earlier date to include them.
+                    </Alert>
+                  ) : (
+                    <Alert severity="success" sx={{ mt: 1 }}>
+                      All {fmtWorkDays(commissionSplit.includedWorkDays)} work-day
+                      {commissionSplit.includedWorkDays === 1 ? "" : "s"} so far are included.
+                    </Alert>
+                  ))}
+              </Box>
             )}
           </Box>
 
