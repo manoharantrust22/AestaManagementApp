@@ -26,8 +26,9 @@ import {
   GridOn as TileIcon,
 } from "@mui/icons-material";
 
-import type { ScopePhotoRef, SpaceTileOption } from "@/types/spaces.types";
+import type { ScopePhotoRef, Space, SpaceTileOption } from "@/types/spaces.types";
 import {
+  useBulkSetSpaceTile,
   useCreateTileOption,
   useDeleteTileOption,
   useTileOptions,
@@ -45,6 +46,7 @@ interface TileOptionsManagerProps {
   onClose: () => void;
   siteId: string;
   canEdit: boolean;
+  spaces: Space[];
 }
 
 interface FormState {
@@ -75,11 +77,36 @@ export default function TileOptionsManager({
   onClose,
   siteId,
   canEdit,
+  spaces,
 }: TileOptionsManagerProps) {
   const { data: options = [] } = useTileOptions(siteId);
   const createOption = useCreateTileOption();
   const updateOption = useUpdateTileOption();
   const deleteOption = useDeleteTileOption();
+  const bulkSetTile = useBulkSetSpaceTile();
+
+  const applyTile = (option: SpaceTileOption, scope: "all" | "unassigned") => {
+    const target =
+      scope === "unassigned" ? spaces.filter((s) => !s.tile_option_id) : spaces;
+    const ids = target.map((s) => s.id);
+    if (ids.length === 0) {
+      window.alert(scope === "unassigned" ? "No unassigned spaces." : "No spaces yet.");
+      return;
+    }
+    const differing =
+      scope === "all"
+        ? spaces.filter((s) => s.tile_option_id && s.tile_option_id !== option.id).length
+        : 0;
+    if (
+      differing > 0 &&
+      !window.confirm(
+        `Set "${option.label}" as the floor tile on all ${ids.length} spaces? ${differing} already use a different tile and will be overwritten.`
+      )
+    ) {
+      return;
+    }
+    bulkSetTile.mutate({ siteId, ids, tileOptionId: option.id });
+  };
 
   const [form, setForm] = useState<FormState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -225,10 +252,23 @@ export default function TileOptionsManager({
                   )}
                   <ListItemText
                     primary={o.label}
+                    secondaryTypographyProps={{ component: "div" }}
                     secondary={
-                      `${formatFeetInches(o.tile_width_in)} × ${formatFeetInches(o.tile_height_in)}` +
-                      (o.tiles_per_box ? ` · ${o.tiles_per_box}/box` : "") +
-                      (o.price_per_box ? ` · ₹${o.price_per_box}/box` : "")
+                      <Box>
+                        {`${formatFeetInches(o.tile_width_in)} × ${formatFeetInches(o.tile_height_in)}` +
+                          (o.tiles_per_box ? ` · ${o.tiles_per_box}/box` : "") +
+                          (o.price_per_box ? ` · ₹${o.price_per_box}/box` : "")}
+                        {canEdit && (
+                          <Box sx={{ mt: 0.5, display: "flex", gap: 1 }}>
+                            <Button size="small" onClick={() => applyTile(o, "unassigned")}>
+                              Apply to unassigned
+                            </Button>
+                            <Button size="small" onClick={() => applyTile(o, "all")}>
+                              Apply to all
+                            </Button>
+                          </Box>
+                        )}
+                      </Box>
                     }
                   />
                 </ListItem>

@@ -423,6 +423,7 @@ export default function SpacesPage() {
         onClose={() => setTilesOpen(false)}
         siteId={siteId}
         canEdit={canEdit}
+        spaces={spaces}
       />
     </Box>
   );
