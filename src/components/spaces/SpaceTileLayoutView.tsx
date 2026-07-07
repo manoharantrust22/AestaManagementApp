@@ -23,6 +23,10 @@ interface SpaceTileLayoutViewProps {
   onSelectExclusion: (id: string | null) => void;
   /** Fired once on drag end with the new snapped position. */
   onMoveExclusion: (id: string, xIn: number, yIn: number) => void;
+  /** Contrast skirting tile — draws a dark perimeter band when set. */
+  skirtingTile?: SpaceTileOption | null;
+  /** Skirting strip height, inches (band width). Default 4. */
+  stripIn?: number;
 }
 
 interface DragState {
@@ -51,6 +55,8 @@ export default function SpaceTileLayoutView({
   selectedExclusionId,
   onSelectExclusion,
   onMoveExclusion,
+  skirtingTile = null,
+  stripIn = 4,
 }: SpaceTileLayoutViewProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -161,6 +167,39 @@ export default function SpaceTileLayoutView({
           />
         ))}
 
+        {/* Dark skirting band around the perimeter (contrast tile). */}
+        {skirtingTile &&
+          (() => {
+            const b = Math.min(stripIn, roomXIn / 2, roomYIn / 2);
+            const skirtId = `skirt-img-${skirtingTile.id}`;
+            const fill = skirtingTile.photo ? `url(#${skirtId})` : "#37474f";
+            return (
+              <g pointerEvents="none">
+                {skirtingTile.photo && (
+                  <defs>
+                    <pattern
+                      id={skirtId}
+                      width={skirtingTile.tile_width_in}
+                      height={skirtingTile.tile_height_in}
+                      patternUnits="userSpaceOnUse"
+                    >
+                      <image
+                        href={skirtingTile.photo.url}
+                        width={skirtingTile.tile_width_in}
+                        height={skirtingTile.tile_height_in}
+                        preserveAspectRatio="xMidYMid slice"
+                      />
+                    </pattern>
+                  </defs>
+                )}
+                <rect x={0} y={0} width={roomXIn} height={b} fill={fill} fillOpacity={0.85} />
+                <rect x={0} y={roomYIn - b} width={roomXIn} height={b} fill={fill} fillOpacity={0.85} />
+                <rect x={0} y={0} width={b} height={roomYIn} fill={fill} fillOpacity={0.85} />
+                <rect x={roomXIn - b} y={0} width={b} height={roomYIn} fill={fill} fillOpacity={0.85} />
+              </g>
+            );
+          })()}
+
         {/* Cut tiles get a subtle diagonal marker. */}
         {result.cells
           .filter((c) => c.kind === "cut")
@@ -219,6 +258,7 @@ export default function SpaceTileLayoutView({
         {formatFeetInches(roomXIn)} × {formatFeetInches(roomYIn)} · tile{" "}
         {formatFeetInches(tile.tile_width_in)} ×{" "}
         {formatFeetInches(tile.tile_height_in)} · grid {result.cols}×{result.rows}
+        {skirtingTile && " · dark skirting band"}
         {canEdit && exclusions.length > 0 && " · drag a zone to move it"}
       </Typography>
     </Box>
