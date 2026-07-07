@@ -191,6 +191,85 @@ describe("computeTileLayout", () => {
     expect(r.boxes).toBeNull();
     expect(r.price).toBeNull();
   });
+
+  it("counts skirting pieces cut from the same tile", () => {
+    const r = computeTileLayout(
+      makeSpace({
+        tile_layout: { wastage_pct: 0, skirting_from_same_tile: true },
+      }),
+      makeTile()
+    )!;
+    // 33 rft perimeter → ceil(396in / 24in) = 17 strips of 2'.
+    expect(r.skirtingPieces).toBe(17);
+    expect(r.skirtingTiles).toBe(3); // ceil(17 / 6 strips-per-tile)
+    expect(r.skirtingTileOptionId).toBe("t1");
+    expect(r.skirtingIsSeparate).toBe(false);
+    expect(r.totalTiles).toBe(28); // 25 + 3 folded in
+  });
+
+  it("multiplies skirting pieces across mirrored floors", () => {
+    const r = computeTileLayout(
+      makeSpace({
+        mirrored_section_ids: ["ff"],
+        tile_layout: { wastage_pct: 0, skirting_from_same_tile: true },
+      }),
+      makeTile()
+    )!;
+    expect(r.skirtingPieces).toBe(34); // 17 × 2 floors
+    expect(r.skirtingTiles).toBe(6); // ceil(34 / 6)
+    expect(r.totalTiles).toBe(56); // (25×2) + 6
+  });
+
+  it("uses a separate contrast skirting tile, counted against its own option", () => {
+    const dark = makeTile({
+      id: "t2",
+      label: "Dark 2×2",
+      tiles_per_box: 10,
+      price_per_box: 500,
+    });
+    const r = computeTileLayout(
+      makeSpace({ tile_layout: { wastage_pct: 0, skirting_tile_option_id: "t2" } }),
+      makeTile(),
+      "best",
+      dark
+    )!;
+    expect(r.skirtingIsSeparate).toBe(true);
+    expect(r.skirtingTileOptionId).toBe("t2");
+    expect(r.skirtingTiles).toBe(3);
+    expect(r.totalTiles).toBe(25); // floor only — skirting NOT folded in
+    expect(r.skirtingTotalTiles).toBe(3);
+    expect(r.skirtingBoxes).toBe(1); // ceil(3/10)
+    expect(r.skirtingPrice).toBe(500);
+  });
+
+  it("treats a dedicated 4-inch skirting strip tile as one tile per piece", () => {
+    const strip = makeTile({
+      id: "t3",
+      tile_width_in: 24,
+      tile_height_in: 4,
+      tiles_per_box: 20,
+      price_per_box: 200,
+    });
+    const r = computeTileLayout(
+      makeSpace({ tile_layout: { wastage_pct: 0, skirting_tile_option_id: "t3" } }),
+      makeTile(),
+      "best",
+      strip
+    )!;
+    expect(r.skirtingPieces).toBe(17);
+    expect(r.skirtingTiles).toBe(17); // ceil(17 / 1 strip-per-tile)
+    expect(r.skirtingBoxes).toBe(1); // ceil(17/20)
+  });
+
+  it("falls back to running-feet-only when the separate skirting tile isn't provided", () => {
+    const r = computeTileLayout(
+      makeSpace({ tile_layout: { wastage_pct: 0, skirting_tile_option_id: "t2" } }),
+      makeTile()
+    )!;
+    expect(r.skirtingPieces).toBe(0);
+    expect(r.skirtingTiles).toBe(0);
+    expect(r.skirtingTileOptionId).toBeNull();
+  });
 });
 
 describe("rollupTileTotals", () => {

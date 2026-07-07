@@ -102,6 +102,8 @@ export interface TileLayout {
   skirting_from_same_tile?: boolean;
   /** Skirting strip height, inches. Default 4. */
   skirting_strip_in?: number;
+  /** A separate (contrast) tile for skirting; overrides skirting_from_same_tile. */
+  skirting_tile_option_id?: string | null;
 }
 
 /** A shop tile option (size + photo) shared by the site's spaces. */

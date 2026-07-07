@@ -41,13 +41,23 @@ export interface TileLayoutResult {
   excludedTiles: number;
   /** full + cut − excluded (one room, one floor). */
   tilesNeeded: number;
-  /** Extra tiles when skirting strips are cut from the same tile. */
+  /** Number of skirting strips needed (across mirrored floors). */
+  skirtingPieces: number;
+  /** Whole tiles consumed by skirting (from the resolved skirting tile). */
   skirtingTiles: number;
   skirtingRft: number;
+  /** Which option the skirting tiles belong to (floor tile or contrast tile). */
+  skirtingTileOptionId: string | null;
+  /** True when skirting uses a different tile than the floor. */
+  skirtingIsSeparate: boolean;
+  /** Separate skirting purchase after wastage (0 when same-tile / none). */
+  skirtingTotalTiles: number;
+  skirtingBoxes: number | null;
+  skirtingPrice: number | null;
   wastagePct: number;
   /** 1 + mirrored floors — the room repeats on each. */
   floorAppearances: number;
-  /** ceil((tilesNeeded + skirtingTiles) × appearances × (1 + wastage)). */
+  /** Floor-tile purchase: ceil((floor tiles × appearances + same-tile skirting) × (1 + wastage)). */
   totalTiles: number;
   boxes: number | null;
   price: number | null;
@@ -72,7 +82,8 @@ const cellInsideExclusion = (
 export function computeTileLayout(
   space: Space,
   tile: SpaceTileOption,
-  mode: MeasureMode = "best"
+  mode: MeasureMode = "best",
+  skirtingTile: SpaceTileOption | null = null
 ): TileLayoutResult | null {
   const { lengthIn: xIn, widthIn: yIn } = resolveDims(space, mode);
   if (
@@ -119,32 +130,62 @@ export function computeTileLayout(
   }
 
   const tilesNeeded = fullTiles + cutTiles;
-
-  // Skirting cut from the same tile: each tile yields floor(th / strip)
-  // strips of tw length.
+  const floorAppearances = 1 + new Set(space.mirrored_section_ids ?? []).size;
+  const wastagePct = layout.wastage_pct ?? DEFAULT_WASTAGE_PCT;
   const skirtingRftValue = computeQuantities(space, mode).skirtingRft;
+
+  // Resolve which tile the skirting is cut from: a separate contrast tile
+  // (when its id is set AND the caller supplied it) wins; else the floor tile
+  // when "cut from same tile" is on; else no tile (running feet only).
+  const separate =
+    layout.skirting_tile_option_id &&
+    skirtingTile &&
+    skirtingTile.id === layout.skirting_tile_option_id
+      ? skirtingTile
+      : null;
+  const skirtingSource = separate ?? (layout.skirting_from_same_tile ? tile : null);
+  const skirtingIsSeparate = separate !== null && separate.id !== tile.id;
+
+  const stripIn = layout.skirting_strip_in ?? DEFAULT_SKIRTING_STRIP_IN;
+  let skirtingPieces = 0;
   let skirtingTiles = 0;
-  if (layout.skirting_from_same_tile) {
-    const stripIn = layout.skirting_strip_in ?? DEFAULT_SKIRTING_STRIP_IN;
-    const stripsPerTile = Math.floor(th / stripIn);
-    if (stripsPerTile > 0 && skirtingRftValue > 0) {
-      const rftPerTile = (stripsPerTile * tw) / 12;
-      skirtingTiles = Math.ceil(skirtingRftValue / rftPerTile);
+  let skirtingTileOptionId: string | null = null;
+  if (skirtingSource && skirtingRftValue > 0) {
+    // Strips run along the tile's longer side, stacked across the shorter.
+    const longSide = Math.max(skirtingSource.tile_width_in, skirtingSource.tile_height_in);
+    const shortSide = Math.min(skirtingSource.tile_width_in, skirtingSource.tile_height_in);
+    const stripsPerTile = Math.floor(shortSide / stripIn);
+    if (longSide > 0 && stripsPerTile > 0) {
+      skirtingPieces = Math.ceil((skirtingRftValue * 12) / longSide) * floorAppearances;
+      skirtingTiles = Math.ceil(skirtingPieces / stripsPerTile);
+      skirtingTileOptionId = skirtingSource.id;
     }
   }
 
-  const wastagePct = layout.wastage_pct ?? DEFAULT_WASTAGE_PCT;
-  const floorAppearances = 1 + new Set(space.mirrored_section_ids ?? []).size;
+  const sameTileSkirting =
+    skirtingTileOptionId !== null && !skirtingIsSeparate ? skirtingTiles : 0;
   const totalTiles = Math.ceil(
-    (tilesNeeded + skirtingTiles) * floorAppearances * (1 + wastagePct / 100)
+    (tilesNeeded * floorAppearances + sameTileSkirting) * (1 + wastagePct / 100)
   );
-
   const boxes =
     tile.tiles_per_box && tile.tiles_per_box > 0
       ? Math.ceil(totalTiles / tile.tiles_per_box)
       : null;
   const price =
     boxes !== null && tile.price_per_box ? boxes * tile.price_per_box : null;
+
+  // A separate contrast skirting tile is its own purchase line.
+  const skirtingTotalTiles = skirtingIsSeparate
+    ? Math.ceil(skirtingTiles * (1 + wastagePct / 100))
+    : 0;
+  const skirtingBoxes =
+    skirtingIsSeparate && separate?.tiles_per_box && separate.tiles_per_box > 0
+      ? Math.ceil(skirtingTotalTiles / separate.tiles_per_box)
+      : null;
+  const skirtingPrice =
+    skirtingBoxes !== null && separate?.price_per_box
+      ? skirtingBoxes * separate.price_per_box
+      : null;
 
   return {
     cols,
@@ -154,8 +195,14 @@ export function computeTileLayout(
     cutTiles,
     excludedTiles,
     tilesNeeded,
+    skirtingPieces,
     skirtingTiles,
     skirtingRft: skirtingRftValue,
+    skirtingTileOptionId,
+    skirtingIsSeparate,
+    skirtingTotalTiles,
+    skirtingBoxes,
+    skirtingPrice,
     wastagePct,
     floorAppearances,
     totalTiles,
