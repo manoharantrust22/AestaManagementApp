@@ -1068,14 +1068,13 @@ export async function payMesthriCommission(
 }
 
 /**
- * Pay ONE company laborer their net wages on ONE contract, directly from the contract
- * pane (direct-pay mode). Settles that laborer's unpaid contract days over a window at
- * NET (via settle_contract_laborer), links them to a settlement_group (payment_type=
- * 'salary', laborer_count=1) so it shows in v_all_expenses + the contract payment feed,
- * and — because it writes NO labor_payments — stays out of the site-wide salary waterfall.
- * The RPC's total_net is server-authoritative; the group's amount is reconciled to it.
- *
- * Also serves the maistry's OWN wages (his own days settle at gross, commission 0).
+ * Pay ONE company laborer their contract wages directly from the pane (direct-pay mode) —
+ * the full remaining OR a partial / already-paid amount. Creates a settlement_group
+ * (payment_type='salary', laborer_count=1), then records a RUPEE amount against the laborer
+ * via record_contract_laborer_payment, which clamps to what's still owed and links the group
+ * to (contract, laborer). Writes NO labor_payments, so it stays out of the site-wide salary
+ * waterfall, and surfaces in v_all_expenses + the contract payment feed. Also serves the
+ * maistry's OWN wages.
  */
 export async function settleContractLaborer(
   supabase: SupabaseClient,
@@ -1113,7 +1112,8 @@ export async function settleContractLaborer(
       extra: `contract-lab:${config.kind}:${config.refId}:${config.laborerId}:${config.dateFrom ?? "all"}:${config.dateTo ?? "all"}`,
     });
 
-    // 1. Create the settlement group (amount reconciled to the RPC net after settling).
+    // 1. Create the settlement group (payment_type='salary', laborer_count=1). No linked
+    //    attendance days — it is a rupee credit against the laborer's contract dues.
     const { data: groupResult, error: groupError } = await supabase.rpc(
       "create_settlement_group",
       {
@@ -1143,7 +1143,39 @@ export async function settleContractLaborer(
     const settlementGroupId = groupData.id as string;
     const settlementReference = groupData.settlement_reference as string;
 
-    // 2. Engineer-wallet debit (optional) — mirrors payMesthriCommission.
+    // 2. Link the group to (contract, laborer) and clamp to what's still owed
+    //    (server-authoritative — never lets net go negative). Returns the recorded rupee amount.
+    const { data: recordData, error: recordError } = await supabase.rpc(
+      "record_contract_laborer_payment",
+      {
+        p_kind: config.kind,
+        p_ref_id: config.refId,
+        p_laborer_id: config.laborerId,
+        p_settlement_group_id: settlementGroupId,
+        p_amount: config.amount,
+      },
+    );
+    if (recordError) {
+      await supabase.rpc("reverse_settlement", {
+        p_settlement_group_id: settlementGroupId,
+        p_reason: "Contract laborer record failed",
+      });
+      throw recordError;
+    }
+    const amountRecorded =
+      Number(Array.isArray(recordData) ? recordData[0] : recordData) || 0;
+    if (amountRecorded <= 0) {
+      await supabase.rpc("reverse_settlement", {
+        p_settlement_group_id: settlementGroupId,
+        p_reason: "Nothing owed to settle",
+      });
+      return {
+        success: false,
+        error: "Nothing to record — this laborer is already fully paid on this contract.",
+      };
+    }
+
+    // 3. Engineer-wallet debit (optional) — debit the AUTHORITATIVE recorded amount.
     if (config.paymentChannel === "engineer_wallet" && config.engineerId) {
       const walletPaymentMode: "cash" | "upi" | "bank_transfer" =
         config.paymentMode === "upi"
@@ -1155,7 +1187,7 @@ export async function settleContractLaborer(
         const { id: txId } = await recordSpend(supabase, {
           engineer_id: config.engineerId,
           site_id: config.siteId,
-          amount: config.amount,
+          amount: amountRecorded,
           transaction_date: paymentDate,
           payment_mode: walletPaymentMode,
           proof_url: config.proofUrl || null,
@@ -1183,60 +1215,6 @@ export async function settleContractLaborer(
           .eq("id", settlementGroupId);
         throw walletErr;
       }
-    }
-
-    // 3. Mark the laborer's unpaid contract days paid (net) + write the commission snapshot.
-    const { data: settleData, error: settleError } = await supabase.rpc(
-      "settle_contract_laborer",
-      {
-        p_kind: config.kind,
-        p_ref_id: config.refId,
-        p_laborer_id: config.laborerId,
-        p_date_from: config.dateFrom,
-        p_date_to: config.dateTo,
-        p_settlement_group_id: settlementGroupId,
-        p_is_paid: true,
-        p_payment_date: paymentDate,
-        p_payment_mode: config.paymentMode,
-        p_paid_via: config.paymentChannel,
-        p_engineer_transaction_id: engineerTransactionId,
-        p_payment_proof_url: config.proofUrl || null,
-        p_payment_notes: config.notes || null,
-        p_payer_source: config.payerSource,
-        p_payer_name: requiresPayerName(config.payerSource) ? config.customPayerName : null,
-      },
-    );
-    if (settleError) {
-      // Un-link + refund via the standard reversal (also cancels the wallet debit).
-      await supabase.rpc("reverse_settlement", {
-        p_settlement_group_id: settlementGroupId,
-        p_reason: "Contract laborer settle failed",
-      });
-      throw settleError;
-    }
-
-    const settleRow = Array.isArray(settleData) ? settleData[0] : settleData;
-    const rowsSettled = Number(settleRow?.rows_settled ?? 0);
-    const totalNet = Number(settleRow?.total_net ?? 0);
-
-    if (rowsSettled === 0) {
-      // Nothing unpaid to settle (already paid / no days in window) — undo the empty group.
-      await supabase.rpc("reverse_settlement", {
-        p_settlement_group_id: settlementGroupId,
-        p_reason: "No unpaid days to settle",
-      });
-      return {
-        success: false,
-        error: "Nothing to settle — this laborer's days in this window are already paid.",
-      };
-    }
-
-    // Reconcile the group total to the server-authoritative net (guards a mid-flight race).
-    if (Math.abs(totalNet - config.amount) > 0.5) {
-      await supabase
-        .from("settlement_groups")
-        .update({ total_amount: totalNet })
-        .eq("id", settlementGroupId);
     }
 
     return {
