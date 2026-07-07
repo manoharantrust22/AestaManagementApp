@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { mesthriCommissionOf, netOfCommission } from "./commission";
+import {
+  mesthriCommissionOf,
+  netOfCommission,
+  splitCrewCommissionByDate,
+  type CommissionDayRow,
+} from "./commission";
 
 describe("mesthriCommissionOf", () => {
   it("full day at the ₹50 default = ₹50", () => {
@@ -49,5 +54,58 @@ describe("netOfCommission", () => {
     const gross = 1000;
     const comm = mesthriCommissionOf(false, gross, 50, 1);
     expect(netOfCommission(gross, comm)).toBe(1000);
+  });
+});
+
+describe("splitCrewCommissionByDate", () => {
+  // WaterTank-shaped crew days (maistry Jithin already excluded by the caller).
+  const rows: CommissionDayRow[] = [
+    // Hemanta — 3 days, all early
+    { date: "2026-07-02", workDays: 1.5, dailyEarnings: 1200, commissionPerDay: 50 },
+    { date: "2026-07-03", workDays: 1.5, dailyEarnings: 1200, commissionPerDay: 50 },
+    { date: "2026-07-04", workDays: 1.5, dailyEarnings: 1200, commissionPerDay: 50 },
+    // Jugeswar — 3 days, all early
+    { date: "2026-06-30", workDays: 1.0, dailyEarnings: 950, commissionPerDay: 50 },
+    { date: "2026-07-02", workDays: 1.5, dailyEarnings: 1425, commissionPerDay: 50 },
+    { date: "2026-07-04", workDays: 1.5, dailyEarnings: 1425, commissionPerDay: 50 },
+    // Sadha — 1 early, 1 on cutover
+    { date: "2026-07-03", workDays: 1.5, dailyEarnings: 1200, commissionPerDay: 50 },
+    { date: "2026-07-07", workDays: 1.0, dailyEarnings: 800, commissionPerDay: 50 },
+    // Utam — 1 early, 1 on cutover
+    { date: "2026-07-03", workDays: 1.0, dailyEarnings: 800, commissionPerDay: 50 },
+    { date: "2026-07-07", workDays: 1.0, dailyEarnings: 800, commissionPerDay: 50 },
+  ];
+
+  it("cutover 2026-07-07 excludes the pre-cutover work (11 work-days / ₹550)", () => {
+    const s = splitCrewCommissionByDate(rows, "2026-07-07");
+    expect(s.includedWorkDays).toBe(2);
+    expect(s.includedCommission).toBe(100);
+    expect(s.excludedWorkDays).toBe(11);
+    expect(s.excludedCommission).toBe(550);
+  });
+
+  it("cutover 2026-06-30 includes everything (13 work-days / ₹650)", () => {
+    const s = splitCrewCommissionByDate(rows, "2026-06-30");
+    expect(s.includedWorkDays).toBe(13);
+    expect(s.includedCommission).toBe(650);
+    expect(s.excludedWorkDays).toBe(0);
+    expect(s.excludedCommission).toBe(0);
+  });
+
+  it("null cutover = no gate, everything included", () => {
+    const s = splitCrewCommissionByDate(rows, null);
+    expect(s.includedWorkDays).toBe(13);
+    expect(s.includedCommission).toBe(650);
+    expect(s.excludedCommission).toBe(0);
+  });
+
+  it("empty rows → all zeros", () => {
+    const s = splitCrewCommissionByDate([], "2026-07-07");
+    expect(s).toEqual({
+      includedWorkDays: 0,
+      includedCommission: 0,
+      excludedWorkDays: 0,
+      excludedCommission: 0,
+    });
   });
 });

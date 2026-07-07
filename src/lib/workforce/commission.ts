@@ -34,3 +34,51 @@ export function netOfCommission(
 ): number {
   return n(dailyEarnings) - commission;
 }
+
+/** One crew attendance day, the fields the commission split needs. */
+export interface CommissionDayRow {
+  date: string; // YYYY-MM-DD
+  workDays: number;
+  dailyEarnings: number;
+  commissionPerDay: number;
+}
+
+/** Work-day + ₹ totals on each side of a chosen commission start date. */
+export interface CommissionDateSplit {
+  includedWorkDays: number;
+  includedCommission: number;
+  excludedWorkDays: number;
+  excludedCommission: number;
+}
+
+/**
+ * Split a contract's crew days at a candidate start date. Days on/after `fromDate`
+ * are INCLUDED (earn commission), days before are EXCLUDED — mirrors the view
+ * predicate `d.date >= effective_from` (and `effective_from IS NULL` = no gate).
+ * Each day's commission = mesthriCommissionOf(true, ...). The caller must have
+ * already dropped the maistry's own rows (they earn no commission).
+ */
+export function splitCrewCommissionByDate(
+  rows: CommissionDayRow[],
+  fromDate: string | null,
+): CommissionDateSplit {
+  const split: CommissionDateSplit = {
+    includedWorkDays: 0,
+    includedCommission: 0,
+    excludedWorkDays: 0,
+    excludedCommission: 0,
+  };
+  for (const r of rows) {
+    const commission = mesthriCommissionOf(true, r.dailyEarnings, r.commissionPerDay, r.workDays);
+    const workDays = n(r.workDays, 1);
+    // NULL fromDate = no cutover = everything counts (matches the view).
+    if (!fromDate || r.date >= fromDate) {
+      split.includedWorkDays += workDays;
+      split.includedCommission += commission;
+    } else {
+      split.excludedWorkDays += workDays;
+      split.excludedCommission += commission;
+    }
+  }
+  return split;
+}
