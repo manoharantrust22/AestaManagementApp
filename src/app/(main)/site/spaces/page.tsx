@@ -358,6 +358,7 @@ export default function SpacesPage() {
                     key={space.id}
                     space={space}
                     mode={mode}
+                    tileOptions={tileOptions}
                     expanded={!isMobile && expandedId === space.id}
                     onToggle={() =>
                       isMobile

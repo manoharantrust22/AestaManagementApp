@@ -14,17 +14,19 @@ import {
   ExpandMore as ExpandIcon,
 } from "@mui/icons-material";
 
-import type { MeasureMode, Space } from "@/types/spaces.types";
+import type { MeasureMode, Space, SpaceTileOption } from "@/types/spaces.types";
 import {
   computeQuantities,
   formatFeetInches,
   spaceStatus,
 } from "@/lib/spaces/measurements";
+import { computeTileLayout } from "@/lib/spaces/tiles";
 import SpaceStatusChip from "./SpaceStatusChip";
 
 interface SpaceRowProps {
   space: Space;
   mode: MeasureMode;
+  tileOptions: SpaceTileOption[];
   /** Desktop: expands inline. Mobile: parent opens the bottom sheet instead. */
   expanded: boolean;
   onToggle: () => void;
@@ -39,12 +41,20 @@ interface SpaceRowProps {
 export default function SpaceRow({
   space,
   mode,
+  tileOptions,
   expanded,
   onToggle,
   children,
 }: SpaceRowProps) {
   const q = computeQuantities(space, mode);
   const status = spaceStatus(space);
+  const tile = space.tile_option_id
+    ? tileOptions.find((t) => t.id === space.tile_option_id) ?? null
+    : null;
+  const skirtingTile = space.tile_layout?.skirting_tile_option_id
+    ? tileOptions.find((t) => t.id === space.tile_layout.skirting_tile_option_id) ?? null
+    : null;
+  const tileResult = tile ? computeTileLayout(space, tile, mode, skirtingTile) : null;
 
   return (
     <Box>
@@ -94,7 +104,23 @@ export default function SpaceRow({
           }}
         >
           <QuantityCell label="Floor" value={q.floorTileSqft} unit="sqft" />
-          <QuantityCell label="Skirting" value={q.skirtingRft} unit="rft" />
+          <QuantityCell
+            label="Skirting"
+            value={q.skirtingRft}
+            unit="rft"
+            sub={
+              tileResult && tileResult.skirtingPieces > 0
+                ? `${tileResult.skirtingPieces} pc`
+                : undefined
+            }
+          />
+          {tileResult && (
+            <QuantityCell
+              label="Tiles"
+              value={tileResult.totalTiles}
+              unit={tileResult.boxes !== null ? `· ${tileResult.boxes} box` : "tiles"}
+            />
+          )}
           {space.wall_tile_enabled && (
             <QuantityCell label="Wall" value={q.wallTileSqft} unit="sqft" />
           )}
@@ -122,10 +148,12 @@ function QuantityCell({
   label,
   value,
   unit,
+  sub,
 }: {
   label: string;
   value: number;
   unit: string;
+  sub?: string;
 }) {
   return (
     <Box sx={{ textAlign: "right", minWidth: 64 }}>
@@ -138,6 +166,11 @@ function QuantityCell({
           {unit}
         </Typography>
       </Typography>
+      {sub && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", lineHeight: 1 }}>
+          {sub}
+        </Typography>
+      )}
     </Box>
   );
 }
