@@ -28,6 +28,8 @@ interface SpacesTotalsStripProps {
   sectionNames: Map<string | null, string>;
   /** Manually-entered built-up sqft per floor (section_id → sqft). */
   builtUpBySection?: Map<string, number>;
+  /** Extra lines (tile purchases) appended to the WhatsApp copy. */
+  extraCopyLines?: string[];
 }
 
 const TILES: Array<{
@@ -53,6 +55,7 @@ export default function SpacesTotalsStrip({
   siteName,
   sectionNames,
   builtUpBySection,
+  extraCopyLines = [],
 }: SpacesTotalsStripProps) {
   const [copied, setCopied] = useState(false);
 
@@ -64,14 +67,17 @@ export default function SpacesTotalsStrip({
 
   const handleCopy = async () => {
     try {
+      const base = formatTotalsForWhatsApp(
+        totals,
+        siteName,
+        mode,
+        sectionNames,
+        builtUpBySection
+      );
       await navigator.clipboard.writeText(
-        formatTotalsForWhatsApp(
-          totals,
-          siteName,
-          mode,
-          sectionNames,
-          builtUpBySection
-        )
+        extraCopyLines.length
+          ? `${base}\n\nTiles to buy:\n${extraCopyLines.join("\n")}`
+          : base
       );
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);

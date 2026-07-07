@@ -273,3 +273,17 @@ export function rollupTileTotals(
   }
   return [...totals.values()];
 }
+
+/** WhatsApp lines for the per-option tile purchase (one per option in use). */
+export function formatTileTotalsForWhatsApp(
+  totals: TileOptionTotal[],
+  tileOptions: SpaceTileOption[]
+): string[] {
+  const byId = new Map(tileOptions.map((t) => [t.id, t]));
+  return totals.map((t) => {
+    const label = byId.get(t.tileOptionId)?.label ?? "Tile";
+    const boxes = t.boxes !== null ? ` ≈ ${t.boxes} boxes` : "";
+    const price = t.price !== null ? ` · ₹${t.price.toLocaleString("en-IN")}` : "";
+    return `${label}: ${t.totalTiles} tiles${boxes}${price}`;
+  });
+}

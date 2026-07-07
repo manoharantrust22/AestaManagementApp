@@ -34,6 +34,7 @@ import {
   useVerifySpaceDimensions,
 } from "@/hooks/queries/useSpaces";
 import { rollupTotals } from "@/lib/spaces/measurements";
+import { formatTileTotalsForWhatsApp, rollupTileTotals } from "@/lib/spaces/tiles";
 import { pickDefaultFloorSectionId } from "@/lib/spaces/floors";
 import type { MeasureMode, Space } from "@/types/spaces.types";
 
@@ -46,6 +47,7 @@ import SpaceRow from "@/components/spaces/SpaceRow";
 import SpacesImportDialog from "@/components/spaces/SpacesImportDialog";
 import SpacesTotalsStrip from "@/components/spaces/SpacesTotalsStrip";
 import TileOptionsManager from "@/components/spaces/TileOptionsManager";
+import TilePurchaseSummary from "@/components/spaces/TilePurchaseSummary";
 
 const UNASSIGNED = "__unassigned__";
 
@@ -84,6 +86,15 @@ export default function SpacesPage() {
   const totals = useMemo(
     () => rollupTotals(spaces, mode, knownSectionIds),
     [spaces, mode, knownSectionIds]
+  );
+
+  const tileTotals = useMemo(
+    () => rollupTileTotals(spaces, tileOptions, mode),
+    [spaces, tileOptions, mode]
+  );
+  const tileCopyLines = useMemo(
+    () => formatTileTotalsForWhatsApp(tileTotals, tileOptions),
+    [tileTotals, tileOptions]
   );
 
   const sectionNames = useMemo(() => {
@@ -289,7 +300,9 @@ export default function SpacesPage() {
         siteName={selectedSite.name}
         sectionNames={sectionNames}
         builtUpBySection={builtUpBySection}
+        extraCopyLines={tileCopyLines}
       />
+      <TilePurchaseSummary totals={tileTotals} tileOptions={tileOptions} />
 
       {isLoading ? (
         <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>

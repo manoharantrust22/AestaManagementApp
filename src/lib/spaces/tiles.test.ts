@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { Space, SpaceTileOption } from "@/types/spaces.types";
-import { computeTileLayout, rollupTileTotals } from "./tiles";
+import {
+  computeTileLayout,
+  formatTileTotalsForWhatsApp,
+  rollupTileTotals,
+} from "./tiles";
 
 const ft = (feet: number, inches = 0) => feet * 12 + inches;
 
@@ -312,5 +316,20 @@ describe("rollupTileTotals", () => {
     expect(t1.spaceCount).toBe(1);
     expect(t2.totalTiles).toBe(3); // skirting for the room
     expect(t2.boxes).toBe(1); // ceil(3/10)
+  });
+});
+
+describe("formatTileTotalsForWhatsApp", () => {
+  it("lists one line per tile option with boxes and price", () => {
+    const tile = makeTile();
+    const a = makeSpace({ tile_layout: { wastage_pct: 0 } }); // 25 tiles
+    const lines = formatTileTotalsForWhatsApp(
+      rollupTileTotals([a], [tile]),
+      [tile]
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("2×2 Ivory");
+    expect(lines[0]).toContain("25 tiles");
+    expect(lines[0]).toContain("7 boxes");
   });
 });
