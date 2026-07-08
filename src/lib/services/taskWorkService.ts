@@ -122,6 +122,9 @@ export async function createTaskWorkPayment(
       balance_after_payment: config.balanceAfterPayment ?? null,
       reference_number: config.packageNumber,
       proof_url: config.proofUrl ?? null,
+      // Persist the note on the payment itself so it shows in the contract payment
+      // feed for BOTH channels. (Wallet spends also carry it on the wallet txn.)
+      notes: config.notes ?? null,
       created_by: config.userId,
       created_by_name: config.userName,
     };

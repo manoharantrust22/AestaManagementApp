@@ -10,6 +10,8 @@ import {
   List,
   ListItem,
   ListItemText,
+  Popover,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import {
@@ -18,6 +20,8 @@ import {
   CheckCircle,
   CheckCircleOutline,
   Delete,
+  InfoOutlined,
+  Notes,
   OpenInNew,
   ReceiptLong,
 } from "@mui/icons-material";
@@ -45,6 +49,108 @@ interface Props {
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 const modeLabel = (m: string | null) =>
   m ? m.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Cash";
+
+/** Human label for the money source of a payment row (wallet vs. payer source). */
+function sourceDisplay(h: ContractPaymentRow): string {
+  if (h.isWallet) return "Engineer's wallet";
+  if (!h.payerSource) return "";
+  const s = formatPayerSource({
+    payer_source: h.payerSource,
+    payer_name: h.payerName,
+    payer_source_split: null,
+  });
+  return s.kind === "single" ? s.label : s.summary;
+}
+
+/**
+ * Per-row "ℹ️" affordance: opens a popover with the full record captured with the
+ * payment — recorded-by, logged date/time, payment date, mode, source, reference and notes.
+ * The logged date + notes are otherwise invisible on the compact row.
+ */
+function PaymentDetailPopover({ row }: { row: ContractPaymentRow }) {
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const open = Boolean(anchorEl);
+
+  const fields: Array<{ label: string; value: string; mono?: boolean }> = [];
+  if (row.recordedBy) fields.push({ label: "Recorded by", value: row.recordedBy });
+  if (row.loggedAt)
+    fields.push({
+      label: "Logged on",
+      value: dayjs(row.loggedAt).format("DD MMM YYYY, hh:mm A"),
+    });
+  if (row.paymentDate)
+    fields.push({
+      label: "Payment date",
+      value: dayjs(row.paymentDate).format("DD MMM YYYY"),
+    });
+  fields.push({ label: "Mode", value: modeLabel(row.paymentMode) });
+  const source = sourceDisplay(row);
+  if (source) fields.push({ label: "Source", value: source });
+  if (row.reference) fields.push({ label: "Reference", value: row.reference, mono: true });
+
+  return (
+    <>
+      <Tooltip title="Payment details">
+        <IconButton
+          size="small"
+          onClick={(e) => {
+            e.stopPropagation();
+            setAnchorEl(e.currentTarget);
+          }}
+          aria-label="Payment details"
+        >
+          <InfoOutlined fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Popover
+        open={open}
+        anchorEl={anchorEl}
+        onClose={() => setAnchorEl(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{ paper: { sx: { minWidth: 260, maxWidth: 340, borderRadius: 2 } } }}
+      >
+        <Box sx={{ p: 2 }}>
+          <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+            Payment details
+          </Typography>
+          <Divider sx={{ mb: 1 }} />
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            {fields.map((d) => (
+              <Box key={d.label}>
+                <Typography variant="caption" color="text.secondary" component="div">
+                  {d.label}
+                </Typography>
+                <Typography
+                  variant="body2"
+                  fontWeight={500}
+                  component="div"
+                  sx={d.mono ? { fontFamily: "monospace" } : undefined}
+                >
+                  {d.value}
+                </Typography>
+              </Box>
+            ))}
+            <Box>
+              <Typography variant="caption" color="text.secondary" component="div">
+                Notes
+              </Typography>
+              <Typography
+                variant="body2"
+                fontWeight={500}
+                component="div"
+                color={row.notes ? "text.primary" : "text.disabled"}
+                sx={{ whiteSpace: "pre-wrap" }}
+              >
+                {row.notes || "—"}
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+      </Popover>
+    </>
+  );
+}
 
 export default function TaskWorkPaymentsPanel({
   pkg,
@@ -177,6 +283,7 @@ export default function TaskWorkPaymentsPanel({
                 disableGutters
                 secondaryAction={
                   <Box sx={{ display: "flex", alignItems: "center" }}>
+                    <PaymentDetailPopover row={h} />
                     {h.proofUrl && (
                       <IconButton
                         size="small"
@@ -229,57 +336,101 @@ export default function TaskWorkPaymentsPanel({
                     <Box
                       sx={{
                         display: "flex",
-                        alignItems: "center",
-                        gap: 0.75,
-                        flexWrap: "wrap",
+                        flexDirection: "column",
+                        gap: 0.25,
                         mt: 0.25,
                       }}
                     >
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        component="span"
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 0.75,
+                          flexWrap: "wrap",
+                        }}
                       >
-                        {h.paymentDate
-                          ? dayjs(h.paymentDate).format("DD MMM YYYY")
-                          : ""}{" "}
-                        · {modeLabel(h.paymentMode)}
-                      </Typography>
-                      {h.isWallet ? (
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          color="primary"
-                          icon={<AccountBalanceWallet sx={{ fontSize: "0.95rem" }} />}
-                          label="My wallet"
-                          title="Paid from the engineer's own wallet"
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          component="span"
+                        >
+                          {h.paymentDate
+                            ? dayjs(h.paymentDate).format("DD MMM YYYY")
+                            : ""}{" "}
+                          · {modeLabel(h.paymentMode)}
+                        </Typography>
+                        {h.isWallet ? (
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            color="primary"
+                            icon={<AccountBalanceWallet sx={{ fontSize: "0.95rem" }} />}
+                            label="My wallet"
+                            title="Paid from the engineer's own wallet"
+                            sx={{
+                              height: 20,
+                              "& .MuiChip-label": {
+                                px: 0.75,
+                                fontSize: "0.7rem",
+                                fontWeight: 600,
+                              },
+                            }}
+                          />
+                        ) : h.payerSource ? (
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            component="span"
+                          >
+                            · {src.kind === "single" ? src.label : src.summary}
+                          </Typography>
+                        ) : null}
+                        {h.reference && (
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            component="span"
+                            sx={{ fontFamily: "monospace" }}
+                          >
+                            · {h.reference}
+                          </Typography>
+                        )}
+                        {h.loggedAt && (
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            component="span"
+                            title={`Recorded ${dayjs(h.loggedAt).format(
+                              "DD MMM YYYY, hh:mm A",
+                            )}`}
+                          >
+                            · logged {dayjs(h.loggedAt).format("DD MMM")}
+                          </Typography>
+                        )}
+                      </Box>
+                      {h.notes && (
+                        <Box
                           sx={{
-                            height: 20,
-                            "& .MuiChip-label": {
-                              px: 0.75,
-                              fontSize: "0.7rem",
-                              fontWeight: 600,
-                            },
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 0.5,
+                            minWidth: 0,
                           }}
-                        />
-                      ) : h.payerSource ? (
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          component="span"
                         >
-                          · {src.kind === "single" ? src.label : src.summary}
-                        </Typography>
-                      ) : null}
-                      {h.reference && (
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          component="span"
-                          sx={{ fontFamily: "monospace" }}
-                        >
-                          · {h.reference}
-                        </Typography>
+                          <Notes
+                            sx={{ fontSize: "0.9rem", color: "text.disabled" }}
+                          />
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            component="span"
+                            noWrap
+                            title={h.notes}
+                            sx={{ minWidth: 0 }}
+                          >
+                            {h.notes}
+                          </Typography>
+                        </Box>
                       )}
                     </Box>
                   }

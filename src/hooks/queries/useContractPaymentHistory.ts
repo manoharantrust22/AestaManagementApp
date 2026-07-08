@@ -33,6 +33,12 @@ export interface ContractPaymentRow {
   isWallet: boolean;
   reference: string | null;
   proofUrl: string | null;
+  /** When the payment was RECORDED (created_at), distinct from the user-entered paymentDate. */
+  loggedAt: string | null;
+  /** created_by_name — who entered the payment. */
+  recordedBy: string | null;
+  /** Free-text note captured when recording the payment. */
+  notes: string | null;
 }
 
 function toNumber(v: unknown): number {
@@ -75,6 +81,9 @@ export function useContractPaymentHistory(
         isWallet: Boolean(r.is_wallet),
         reference: r.reference ?? null,
         proofUrl: r.proof_url ?? null,
+        loggedAt: r.logged_at ?? null,
+        recordedBy: r.recorded_by ?? null,
+        notes: r.notes ?? null,
       }));
     },
   });
