@@ -8,7 +8,13 @@ import dayjs from "dayjs";
 import {
   Alert,
   Box,
+  Button,
   Chip,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   IconButton,
   Snackbar,
   Tab,
@@ -52,6 +58,7 @@ import SettleViaWalletDialog from "@/components/payments/SettleViaWalletDialog";
 import {
   processSettlement,
   processContractPayment,
+  reverseSettlementTransfer,
 } from "@/lib/services/settlementService";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import type { SettlementRecord } from "@/types/settlement.types";
@@ -64,6 +71,8 @@ import SettlementRefDetailDialog, {
 } from "@/components/payments/SettlementRefDetailDialog";
 import { SettlementsList } from "@/components/payments/SettlementsList";
 import { SettlementViewToolbar } from "@/components/payments/SettlementViewToolbar";
+import { MoveSettlementWizard } from "@/components/payments/MoveSettlementWizard";
+import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 import { UnlinkedSettlementsGroup } from "@/components/payments/UnlinkedSettlementsGroup";
 import ContractSettlementEditDialog from "@/components/payments/ContractSettlementEditDialog";
 import DeleteContractSettlementDialog from "@/components/payments/DeleteContractSettlementDialog";
@@ -358,6 +367,13 @@ export default function PaymentsContent() {
   // Date-only ledger entry (not bound to a week). The user picks any date
   // in the dialog; the waterfall RPC handles allocation downstream.
   const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
+  // Inter-site "Move to another site" wizard. `moveRow` preselects a single row
+  // (launched from its row action); null = bulk / amount mode from the toolbar.
+  const [moveWizardOpen, setMoveWizardOpen] = useState(false);
+  const [moveRow, setMoveRow] = useState<SettlementListRow | null>(null);
+  // Confirm target for undoing a move (reverse_settlement_transfer).
+  const [reverseTarget, setReverseTarget] = useState<SettlementListRow | null>(null);
+  const [reversing, setReversing] = useState(false);
   // In-page settle dialog for a single Daily+Market date. Holds the date AND
   // the slice context from the originating row (laborer type + period) so the
   // records hook fetches the same slice the user clicked, keeping the dialog
@@ -405,6 +421,31 @@ export default function PaymentsContent() {
   // mestri when only one is present, and provides laborer_name for the
   // processContractPayment payload without an extra round-trip.
   const siteSubcontractsQuery = useSiteSubcontracts(selectedSite?.id);
+  // Inter-site "Move to another site": available only with edit permission AND at
+  // least one sibling site in the same group to move to.
+  const groupMembership = useSiteGroupMembership(selectedSite?.id);
+  const canMoveToSite =
+    canEditSettlements && (groupMembership.data?.otherSites?.length ?? 0) > 0;
+  const openMoveWizard = useCallback((row?: SettlementListRow | null) => {
+    setMoveRow(row ?? null);
+    setMoveWizardOpen(true);
+  }, []);
+  const handleReverseTransfer = useCallback(async () => {
+    if (!reverseTarget?.transferId) return;
+    setReversing(true);
+    try {
+      await reverseSettlementTransfer(createSupabaseClient(), {
+        transferId: reverseTarget.transferId,
+      });
+      invalidateSettlementsCaches(queryClient);
+      setNotice("Move undone — the payment is back on this site.");
+      setReverseTarget(null);
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "Could not undo the move.");
+    } finally {
+      setReversing(false);
+    }
+  }, [reverseTarget, queryClient]);
   const weekSubcontractsQuery = useWeekContractSubcontracts(
     selectedSite?.id,
     settleDialog?.weekStart,
@@ -1140,6 +1181,11 @@ export default function PaymentsContent() {
               onHideCancelledChange={setHideCancelled}
               onRecord={() => setRecordPaymentOpen(true)}
               recordLabel="Record mesthri payment"
+              onMove={
+                canMoveToSite && viewMode === "by-settlement"
+                  ? () => openMoveWizard(null)
+                  : undefined
+              }
             />
             <Box sx={{ flex: 1, minHeight: 0, overflow: "auto", pb: { xs: 9, sm: 0 } }}>
               <UnlinkedSettlementsGroup
@@ -1198,6 +1244,10 @@ export default function PaymentsContent() {
                     canEditSettlements
                       ? (row) => setHardDeleteTarget(row)
                       : undefined
+                  }
+                  onMoveRow={canMoveToSite ? (row) => openMoveWizard(row) : undefined}
+                  onReverseTransfer={
+                    canEditSettlements ? (row) => setReverseTarget(row) : undefined
                   }
                   filter="contract"
                   emptyMessage={
@@ -1413,6 +1463,11 @@ export default function PaymentsContent() {
               cancelledCount={tabCancelledCount}
               hideCancelled={hideCancelled}
               onHideCancelledChange={setHideCancelled}
+              onMove={
+                canMoveToSite && viewMode === "by-settlement"
+                  ? () => openMoveWizard(null)
+                  : undefined
+              }
             />
             {viewMode === "default" ? (
               <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "auto" }}>
@@ -1445,6 +1500,10 @@ export default function PaymentsContent() {
                       ? (row) => setHardDeleteTarget(row)
                       : undefined
                   }
+                  onMoveRow={canMoveToSite ? (row) => openMoveWizard(row) : undefined}
+                  onReverseTransfer={
+                    canEditSettlements ? (row) => setReverseTarget(row) : undefined
+                  }
                   filter="all"
                   emptyMessage={
                     hideCancelled && tabCancelledCount > 0
@@ -1457,6 +1516,66 @@ export default function PaymentsContent() {
           </Box>
         )}
       </Box>
+
+      {selectedSite && moveWizardOpen && (
+        <MoveSettlementWizard
+          open={moveWizardOpen}
+          onClose={() => {
+            setMoveWizardOpen(false);
+            setMoveRow(null);
+          }}
+          originSiteId={selectedSite.id}
+          originSiteName={selectedSite.name}
+          fromSubcontractId={selectedSubcontractId}
+          defaultAmount={salarySummaryQuery.data?.futureCredit ?? 0}
+          candidateRows={settlementRowsVisible}
+          preselectedRowId={moveRow?.id ?? null}
+          onDone={(result) => {
+            invalidateSettlementsCaches(queryClient);
+            invalidateContractWalletCaches();
+            setMoveWizardOpen(false);
+            setMoveRow(null);
+            const moved = `₹${Math.round(result.movedAmount).toLocaleString("en-IN")}`;
+            setNotice(
+              result.shortfall > 0.5
+                ? `Moved ${moved}. ₹${Math.round(result.shortfall).toLocaleString(
+                    "en-IN"
+                  )} couldn't be moved (attendance-linked payments aren't split — use "Pick payments").`
+                : `Moved ${moved} to the other site. It's read-only here now and reversible from the transfer.`
+            );
+          }}
+        />
+      )}
+
+      <Dialog
+        open={!!reverseTarget}
+        onClose={reversing ? undefined : () => setReverseTarget(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>Undo this move?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            The payment{reverseTarget?.movedToSiteName ? ` moved to ${reverseTarget.movedToSiteName}` : ""}{" "}
+            will come back to this site (restored to its expenses and excess), and
+            the copy on the other site will be cancelled. This can be redone later.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={() => setReverseTarget(null)} disabled={reversing} color="inherit">
+            Keep the move
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={handleReverseTransfer}
+            disabled={reversing}
+            startIcon={reversing ? <CircularProgress size={16} color="inherit" /> : undefined}
+          >
+            {reversing ? "Undoing…" : "Undo move"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {reconcileOpen && auditState.dataStartedAt && selectedSite && (
         <ReconcileDialog

@@ -12,7 +12,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { Add as AddIcon } from "@mui/icons-material";
+import { Add as AddIcon, SwapHoriz as SwapHorizIcon } from "@mui/icons-material";
 
 /**
  * One option in the view-mode toggle. shortLabel renders on phones (xs),
@@ -44,6 +44,11 @@ export interface SettlementViewToolbarProps {
    *  the per-trade colour inside createTradeTheme, and default blue for Civil. */
   onRecord?: () => void;
   recordLabel?: string;
+  /** When provided, renders a secondary "Move to another site" action (group
+   *  sites only). Shown next to Record from sm up; hidden on phones to keep the
+   *  toolbar uncrowded (per-row move + the amount-mode entry cover mobile). */
+  onMove?: () => void;
+  moveLabel?: string;
 }
 
 /**
@@ -67,6 +72,8 @@ export function SettlementViewToolbar({
   summary,
   onRecord,
   recordLabel = "Record payment",
+  onMove,
+  moveLabel = "Move to another site",
 }: SettlementViewToolbarProps) {
   const isBySettlement = viewMode === "by-settlement";
 
@@ -165,6 +172,25 @@ export function SettlementViewToolbar({
           </Box>
         )}
 
+        {/* Secondary Move action (group sites only) — desktop/tablet. */}
+        {onMove && (
+          <Button
+            variant="outlined"
+            color="info"
+            size="small"
+            startIcon={<SwapHorizIcon />}
+            onClick={onMove}
+            sx={{
+              display: { xs: "none", sm: "inline-flex" },
+              flexShrink: 0,
+              whiteSpace: "nowrap",
+              ml: "auto",
+            }}
+          >
+            {moveLabel}
+          </Button>
+        )}
+
         {/* Desktop / tablet inline Record (phones use the FAB below). */}
         {onRecord && (
           <Button
@@ -177,7 +203,7 @@ export function SettlementViewToolbar({
               display: { xs: "none", sm: "inline-flex" },
               flexShrink: 0,
               whiteSpace: "nowrap",
-              ml: "auto",
+              ml: onMove ? 1 : "auto",
             }}
           >
             {recordLabel}

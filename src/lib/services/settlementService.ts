@@ -1317,6 +1317,109 @@ export async function reverseSettlement(
   };
 }
 
+export interface MoveSettlementsArgs {
+  /** Destination site (must be in the same site_group as the origin). */
+  toSiteId: string;
+  mode: "rows" | "amount";
+  /** rows mode: explicit origin settlement_group ids to move whole. */
+  settlementIds?: string[];
+  /** amount mode: exact rupees to move (defaults to the shown excess). */
+  targetAmount?: number;
+  /** amount mode: the origin site (required). */
+  fromSiteId?: string;
+  /** amount mode: scope to the same subcontract the excess is shown for. */
+  fromSubcontractId?: string | null;
+  /** Optional destination contract; null lands it unlinked (still contract salary). */
+  destSubcontractId?: string | null;
+  /** Chosen from the DESTINATION site's payer_sources registry. */
+  payerSource?: string;
+  payerName?: string | null;
+  payerSourceSplit?: unknown | null;
+  reason?: string | null;
+  idempotencyKey?: string | null;
+}
+
+export interface MoveSettlementsResult {
+  transferId: string;
+  mode: string;
+  movedAmount: number;
+  targetAmount: number | null;
+  /** amount mode: requested − moved (e.g. an attendance-linked boundary row couldn't be split). */
+  shortfall: number;
+  twinIds: string[];
+  originIds: string[];
+  fromSiteId: string;
+  toSiteId: string;
+  idempotentReplay?: boolean;
+}
+
+/**
+ * Move salary/mesthri settlements to a sibling site in the same group (double
+ * entry: origin drops out of the money readers as a read-only trace, a
+ * destination twin appears there). Calls transfer_settlements_to_site — a
+ * SECURITY DEFINER RPC that enforces the same-group boundary and authorizes on
+ * the ORIGIN site only. Reversible via reverseSettlementTransfer.
+ */
+export async function moveSettlementsToSite(
+  supabase: SupabaseClient,
+  args: MoveSettlementsArgs
+): Promise<MoveSettlementsResult> {
+  const { data, error } = await (supabase as SupabaseClient).rpc(
+    "transfer_settlements_to_site" as never,
+    {
+      p_to_site_id: args.toSiteId,
+      p_mode: args.mode,
+      p_settlement_ids: args.settlementIds ?? null,
+      p_target_amount: args.targetAmount ?? null,
+      p_from_site_id: args.fromSiteId ?? null,
+      p_from_subcontract_id: args.fromSubcontractId ?? null,
+      p_dest_subcontract_id: args.destSubcontractId ?? null,
+      p_payer_source: args.payerSource ?? "own_money",
+      p_payer_name: args.payerName ?? null,
+      p_payer_source_split: args.payerSourceSplit ?? null,
+      p_reason: args.reason ?? null,
+      p_idempotency_key: args.idempotencyKey ?? null,
+    } as never
+  );
+  if (error) throw error;
+  const r = (data ?? {}) as Record<string, unknown>;
+  return {
+    transferId: String(r.transfer_id ?? ""),
+    mode: String(r.mode ?? args.mode),
+    movedAmount: Number(r.moved_amount ?? 0),
+    targetAmount: r.target_amount != null ? Number(r.target_amount) : null,
+    shortfall: Number(r.shortfall ?? 0),
+    twinIds: Array.isArray(r.twin_ids) ? (r.twin_ids as string[]) : [],
+    originIds: Array.isArray(r.origin_ids) ? (r.origin_ids as string[]) : [],
+    fromSiteId: String(r.from_site_id ?? args.fromSiteId ?? ""),
+    toSiteId: String(r.to_site_id ?? args.toSiteId),
+    idempotentReplay: !!r.idempotent_replay,
+  };
+}
+
+/**
+ * Undo an inter-site settlement transfer: restores the origin rows (and their
+ * labor_payments from a snapshot) and soft-cancels the destination twins.
+ * Idempotent — reversing an already-reversed transfer is a no-op.
+ */
+export async function reverseSettlementTransfer(
+  supabase: SupabaseClient,
+  args: { transferId: string; reason?: string | null }
+): Promise<{ transferId: string; alreadyReversed: boolean; originsRestored: number; twinsCancelled: number }> {
+  const { data, error } = await (supabase as SupabaseClient).rpc(
+    "reverse_settlement_transfer" as never,
+    { p_transfer_id: args.transferId, p_reason: args.reason ?? null } as never
+  );
+  if (error) throw error;
+  const r = (data ?? {}) as Record<string, unknown>;
+  return {
+    transferId: String(r.transfer_id ?? args.transferId),
+    alreadyReversed: !!r.already_reversed,
+    originsRestored: Number(r.origins_restored ?? 0),
+    twinsCancelled: Number(r.twins_cancelled ?? 0),
+  };
+}
+
 /**
  * Cancel a settlement and revert attendance records.
  * Modern (group-bearing) records reverse atomically via reverse_settlement (which

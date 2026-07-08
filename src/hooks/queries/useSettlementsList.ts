@@ -34,6 +34,17 @@ export interface SettlementListRow {
    *  exclude settlements that belong to a trade (e.g. Painting) category. */
   subcontractCategoryId: string | null;
   recordedByName: string | null;
+  /** Inter-site transfer state (see transfer_settlements_to_site). A moved
+   *  ORIGIN row is kept as a read-only trace here (excluded from every money
+   *  reader); a DESTINATION twin renders "Moved from {site}". */
+  transferId: string | null;
+  transferRole: "origin" | "destination" | null;
+  transferredOutAt: string | null;
+  /** origin was PARTIALLY moved (still active at the reduced amount). */
+  isPartialMove: boolean;
+  transferOriginalTotal: number | null;
+  movedToSiteName: string | null;
+  movedFromSiteName: string | null;
 }
 
 export type SettlementsListFilter = "contract" | "daily-market" | "all";
@@ -89,7 +100,13 @@ export function useSettlementsList(args: UseSettlementsListArgs) {
           proof_urls,
           subcontract_id,
           created_by_name,
+          transferred_out_at,
+          transfer_id,
+          transfer_role,
+          transfer_original_total,
           subcontract:subcontracts ( title, trade_category_id ),
+          transfer_to_site:sites!settlement_groups_transfer_to_site_id_fkey ( name ),
+          transfer_from_site:sites!settlement_groups_transfer_from_site_id_fkey ( name ),
           labor_payments!labor_payments_settlement_group_id_fkey ( is_under_contract )
           `
         )
@@ -152,6 +169,23 @@ export function useSettlementsList(args: UseSettlementsListArgs) {
           subcontractCategoryId:
             sg.subcontract && typeof sg.subcontract === "object"
               ? ((sg.subcontract as { title?: string | null; trade_category_id?: string | null }).trade_category_id ?? null)
+              : null,
+          transferId: sg.transfer_id ?? null,
+          transferRole: (sg.transfer_role as "origin" | "destination" | null) ?? null,
+          transferredOutAt: sg.transferred_out_at ?? null,
+          isPartialMove:
+            sg.transfer_role === "origin" &&
+            sg.transfer_original_total != null &&
+            !sg.transferred_out_at,
+          transferOriginalTotal:
+            sg.transfer_original_total != null ? Number(sg.transfer_original_total) : null,
+          movedToSiteName:
+            sg.transfer_to_site && typeof sg.transfer_to_site === "object"
+              ? ((sg.transfer_to_site as { name?: string | null }).name ?? null)
+              : null,
+          movedFromSiteName:
+            sg.transfer_from_site && typeof sg.transfer_from_site === "object"
+              ? ((sg.transfer_from_site as { name?: string | null }).name ?? null)
               : null,
         };
       });

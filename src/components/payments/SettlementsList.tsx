@@ -15,9 +15,12 @@ import {
 import {
   DeleteForever as DeleteForeverIcon,
   AccountBalanceWallet as WalletIcon,
+  SwapHoriz as SwapHorizIcon,
+  Undo as UndoIcon,
 } from "@mui/icons-material";
 import dayjs from "dayjs";
 import type { SettlementListRow, SettlementsListFilter } from "@/hooks/queries/useSettlementsList";
+import { TransferBadge } from "@/components/payments/TransferBadge";
 
 interface SettlementsListProps {
   rows: SettlementListRow[];
@@ -27,8 +30,22 @@ interface SettlementsListProps {
   emptyMessage?: string;
   /** When provided, cancelled rows render a trash icon that calls this. */
   onHardDelete?: (row: SettlementListRow) => void;
+  /** When provided, movable contract rows render a "Move to another site" action. */
+  onMoveRow?: (row: SettlementListRow) => void;
+  /** When provided, a moved ORIGIN row renders an "Undo move" action. */
+  onReverseTransfer?: (row: SettlementListRow) => void;
   /** Which tab/filter is active — used to hide the type chip in daily-market tab. */
   filter?: SettlementsListFilter;
+}
+
+/** A contract-salary row that can still be moved to a sibling site. */
+function isMovable(r: SettlementListRow): boolean {
+  return r.isContract && !r.isCancelled && !r.transferredOutAt && !r.transferId;
+}
+
+/** An origin row of a live transfer, which can be undone. */
+function isReversible(r: SettlementListRow): boolean {
+  return r.transferRole === "origin" && !!r.transferId;
 }
 
 function formatINR(n: number): string {
@@ -69,6 +86,8 @@ export function SettlementsList({
   onRowClick,
   emptyMessage,
   onHardDelete,
+  onMoveRow,
+  onReverseTransfer,
   filter,
 }: SettlementsListProps) {
   const theme = useTheme();
@@ -104,7 +123,7 @@ export function SettlementsList({
               px: { xs: 1.25, sm: 1.75 },
               py: 1.25,
               cursor: "pointer",
-              opacity: r.isCancelled ? 0.55 : 1,
+              opacity: r.isCancelled ? 0.55 : r.transferredOutAt ? 0.72 : 1,
               "&:hover": { bgcolor: "action.hover" },
             }}
           >
@@ -250,7 +269,7 @@ export function SettlementsList({
                       }}
                     />
                   )}
-                  {!r.subcontractId && !r.isCancelled && (
+                  {!r.subcontractId && !r.isCancelled && !r.transferId && (
                     <Chip
                       size="small"
                       label="⚠ Unlinked"
@@ -263,6 +282,7 @@ export function SettlementsList({
                       }}
                     />
                   )}
+                  <TransferBadge row={r} />
                 </Box>
               </Box>
 
@@ -312,14 +332,50 @@ export function SettlementsList({
                 </Typography>
               </Box>
 
-              {/* Hard-delete icon (cancelled rows only) — desktop column */}
+              {/* Row action (desktop column): Move for movable rows, hard-delete for cancelled */}
               <Box
                 sx={{
                   display: { xs: "none", md: "flex" },
                   justifyContent: "center",
                 }}
               >
-                {r.isCancelled && onHardDelete ? (
+                {onMoveRow && isMovable(r) ? (
+                  <Tooltip title="Move this payment to another site in the group">
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onMoveRow(r);
+                      }}
+                      sx={{
+                        color: "info.main",
+                        opacity: 0.8,
+                        "&:hover": { opacity: 1, bgcolor: alpha(theme.palette.info.main, 0.1) },
+                      }}
+                      aria-label="Move payment to another site"
+                    >
+                      <SwapHorizIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                ) : onReverseTransfer && isReversible(r) ? (
+                  <Tooltip title={`Undo this move${r.movedToSiteName ? ` to ${r.movedToSiteName}` : ""}`}>
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onReverseTransfer(r);
+                      }}
+                      sx={{
+                        color: "warning.main",
+                        opacity: 0.85,
+                        "&:hover": { opacity: 1, bgcolor: alpha(theme.palette.warning.main, 0.1) },
+                      }}
+                      aria-label="Undo move"
+                    >
+                      <UndoIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                ) : r.isCancelled && onHardDelete ? (
                   <Tooltip title="Permanently delete this cancelled settlement">
                     <IconButton
                       size="small"
@@ -363,12 +419,13 @@ export function SettlementsList({
                 >
                   {r.ref}
                 </Box>
-                <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+                <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
                   <Chip
                     size="small"
                     label={getPaymentModeLabel(r.paymentMode)}
                     sx={{ height: 16, fontSize: 9.5 }}
                   />
+                  <TransferBadge row={r} />
                   {filter === "all" && (
                     r.isContract ? (
                       <Chip
@@ -383,6 +440,32 @@ export function SettlementsList({
                         sx={{ height: 16, fontSize: 9.5 }}
                       />
                     )
+                  )}
+                  {onMoveRow && isMovable(r) && (
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onMoveRow(r);
+                      }}
+                      sx={{ p: 0.25, color: "info.main" }}
+                      aria-label="Move payment to another site"
+                    >
+                      <SwapHorizIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  )}
+                  {onReverseTransfer && isReversible(r) && (
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onReverseTransfer(r);
+                      }}
+                      sx={{ p: 0.25, color: "warning.main" }}
+                      aria-label="Undo move"
+                    >
+                      <UndoIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
                   )}
                   {r.isCancelled && onHardDelete && (
                     <IconButton
