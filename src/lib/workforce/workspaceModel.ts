@@ -71,6 +71,19 @@ export interface WorkspaceTask {
 }
 
 /**
+ * Contract-page lump payment ENTRY is routed to the workspace (Salary Settlements)
+ * when the contract is attendance-tracked (`detailed`) AND its trade runs the workspace.
+ * Only ENTRY is gated — money always DISPLAYS on the contract page (read-only).
+ * `mesthri_only` / `headcount` / fixed-price contracts stay ungated and keep recording
+ * lump payments on the contract page (their natural model — no per-laborer attendance).
+ */
+export function isContractPaymentGated(
+  t: Pick<WorkspaceTask, "mode" | "hasWorkspace">,
+): boolean {
+  return t.mode === "detailed" && t.hasWorkspace === true;
+}
+
+/**
  * Where a node sits in the Contract ▸ Section ▸ Task ladder, derived from its depth in
  * the `parent_subcontract_id` chain. Contracts hold Sections; Sections hold Tasks. Any
  * node may be a leaf (a simple one-shot Contract has no Sections).

@@ -22,7 +22,7 @@ import MoreVert from "@mui/icons-material/MoreVert";
 import EditOutlined from "@mui/icons-material/EditOutlined";
 import DeleteOutline from "@mui/icons-material/DeleteOutline";
 import Handshake from "@mui/icons-material/Handshake";
-import type { ContractTier, WorkspaceTask } from "@/lib/workforce/workspaceModel";
+import { isContractPaymentGated, type ContractTier, type WorkspaceTask } from "@/lib/workforce/workspaceModel";
 import type { ContractStatus } from "@/types/trade.types";
 import { modeMeta, tierMeta, wsColors, wsRadius, wsShadow } from "@/lib/workforce/workspaceTokens";
 import { formatCurrencyFull } from "@/lib/formatters";
@@ -167,6 +167,10 @@ export function TaskDetailPane({
     task.hasWorkspace &&
     task.mode !== "mesthri_only";
 
+  // When gated (detailed + workspace on) money is routed to Salary Settlements and
+  // contract-page payment entry is read-only. The mode banner spells this out.
+  const gated = isContractPaymentGated(task);
+
   // Mode banner: full workspace (green) / count-by-role (blue) / lump (grey).
   const wsBanner =
     task.mode === "detailed"
@@ -176,7 +180,9 @@ export function TaskDetailPane({
           icon: <CheckCircleRounded sx={{ fontSize: 18, color: wsColors.green }} />,
           titleColor: "#1f7a44",
           title: "Full workspace · Attendance + Salary",
-          sub: "Daily attendance and salary are recorded for this contract.",
+          sub: gated
+            ? "Record payments in Salary Settlements — the contract page shows money read-only."
+            : "Daily attendance and salary are recorded for this contract.",
         }
       : task.mode === "headcount"
         ? {

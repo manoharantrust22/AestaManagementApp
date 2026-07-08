@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { Box, Typography, Collapse, Button, IconButton, Tooltip } from "@mui/material";
+import { Box, Typography, Collapse, Button, IconButton, Tooltip, Switch } from "@mui/material";
 import ChevronRight from "@mui/icons-material/ChevronRight";
 import Add from "@mui/icons-material/Add";
 import LaunchRounded from "@mui/icons-material/LaunchRounded";
@@ -760,6 +760,7 @@ export function ContractTree({
   onAddTaskWork,
   onMoveNode,
   onOpenTradeWorkspace,
+  onToggleTradeWorkspace,
 }: {
   siteId: string;
   canEdit: boolean;
@@ -778,6 +779,8 @@ export function ContractTree({
   onMoveNode?: (nodeId: string, newParentId: string | null) => void;
   /** Open per-trade attendance or salary surface (ensures in-house contract). Non-Civil only. */
   onOpenTradeWorkspace?: (tradeCategoryId: string, tradeName: string, base: "/site/attendance" | "/site/payments") => void;
+  /** Toggle this trade's workspace on/off (runs the payment migration). Non-Civil only. */
+  onToggleTradeWorkspace?: (tradeCategoryId: string, tradeName: string, currentlyOn: boolean) => void;
 }) {
   const q = query.trim().toLowerCase();
   const taskVisible = (t: WorkspaceTask) =>
@@ -941,6 +944,16 @@ export function ContractTree({
 
     const visibleContracts = node.contracts.filter((c) => isNodeVisible(c, ctx));
 
+    // One parent contract per trade: once a top-level contract exists, "New contract"
+    // becomes "Add a section" under it (many sections/task-works, one parent).
+    const nonCancelledContracts = node.contracts.filter((c) => c.task.status !== "cancelled");
+    const existingParent = nonCancelledContracts[0]?.task ?? null;
+    const hasParent = !!existingParent;
+    const addContractOrSection = () =>
+      hasParent && existingParent
+        ? onAddTaskWork(node.category.id, { parentId: existingParent.id, tier: "section" }, addStatus)
+        : onAddTaskWork(node.category.id, { parentId: null, tier: "contract" }, addStatus);
+
     return (
       <Box key={node.category.id} sx={{ mb: 0.5 }}>
         {/* Trade group header — also a "drop here for top-level" target while dragging. */}
@@ -1004,6 +1017,32 @@ export function ContractTree({
                 {headerBar}
               </Box>
               <Box className="ws-actions" sx={{ display: "flex", alignItems: "center" }}>
+                {onToggleTradeWorkspace &&
+                  node.category.name !== "Civil" &&
+                  node.category.id !== UNCATEGORIZED_TRADE_ID && (
+                    <Tooltip
+                      title={
+                        node.category.hasWorkspace
+                          ? "Workspace ON — money is recorded in Salary Settlements. Switch off to record on the contract page."
+                          : "Workspace OFF — record money on the contract page. Switch on to move it to Salary Settlements (attendance + salary)."
+                      }
+                    >
+                      <Switch
+                        size="small"
+                        checked={Boolean(node.category.hasWorkspace)}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          onToggleTradeWorkspace(
+                            node.category.id,
+                            node.category.name,
+                            Boolean(node.category.hasWorkspace)
+                          );
+                        }}
+                        aria-label={`${node.category.name} workspace`}
+                      />
+                    </Tooltip>
+                  )}
                 {onOpenTradeWorkspace &&
                   node.category.hasWorkspace &&
                   node.category.name !== "Civil" &&
@@ -1037,18 +1076,24 @@ export function ContractTree({
                       </Tooltip>
                     </>
                   )}
-                <Tooltip title={`Add ${node.category.name} contract`}>
+                <Tooltip
+                  title={
+                    hasParent
+                      ? `Add a section to ${existingParent?.title ?? node.category.name}`
+                      : `Add ${node.category.name} contract`
+                  }
+                >
                   <IconButton
                     size="small"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onAddTaskWork(
-                        node.category.id,
-                        { parentId: null, tier: "contract" },
-                        addStatus
-                      );
+                      addContractOrSection();
                     }}
-                    aria-label={`Add ${node.category.name} contract`}
+                    aria-label={
+                      hasParent
+                        ? `Add a section to ${node.category.name}`
+                        : `Add ${node.category.name} contract`
+                    }
                     sx={{ p: 0.4, color: wsColors.primary }}
                   >
                     <Add sx={{ fontSize: 18 }} />
@@ -1074,17 +1119,17 @@ export function ContractTree({
               />
             ))}
 
-            {/* Start another contract under this trade (or the first one). */}
+            {/* One parent per trade: first is the contract; after that it's sections under it. */}
             {showAddAffordances && (
               <Button
                 size="small"
                 startIcon={<Add sx={{ fontSize: 16 }} />}
-                onClick={() =>
-                  onAddTaskWork(node.category.id, { parentId: null, tier: "contract" }, addStatus)
-                }
+                onClick={addContractOrSection}
                 sx={{ ml: 0.5, mt: 0.5, textTransform: "none", color: wsColors.primary, fontWeight: 700 }}
               >
-                {activeTab === "future" ? "Plan a" : "New"} {node.category.name} contract
+                {hasParent
+                  ? "Add a section"
+                  : `${activeTab === "future" ? "Plan a" : "New"} ${node.category.name} contract`}
               </Button>
             )}
 

@@ -23,6 +23,15 @@ export interface SiteTradeWorkspaceUsage {
   total_workspace_rows: number;
 }
 
+/** One row of `v_site_trade_migration_usage` — how many workspace rows for a (site, trade)
+ *  are contract-payment migration artefacts. Subtract from total_workspace_rows to get the
+ *  GENUINE (non-migration) usage that hard-locks a workspace ON. */
+export interface SiteTradeMigrationUsage {
+  site_id: string;
+  trade_category_id: string;
+  migration_rows: number;
+}
+
 /** Raw override rows for one site (keyed for the settings tab + the merge in useSiteTrades). */
 export function useSiteTradeSettings(siteId: string | undefined) {
   const supabase: any = createClient();
@@ -55,6 +64,25 @@ export function useSiteTradeWorkspaceUsage(siteId: string | undefined) {
         .eq("site_id", siteId);
       if (error) throw error;
       return (data ?? []) as SiteTradeWorkspaceUsage[];
+    },
+  });
+}
+
+/** Per-(site,trade) migration-artefact counts — reconciles the workspace OFF-lock so a
+ *  workspace whose only data is migrated contract payments can still be switched off. */
+export function useSiteTradeMigrationUsage(siteId: string | undefined) {
+  const supabase: any = createClient();
+  return useQuery({
+    queryKey: ["site-trade-migration-usage", siteId],
+    enabled: !!siteId,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("v_site_trade_migration_usage")
+        .select("site_id, trade_category_id, migration_rows")
+        .eq("site_id", siteId);
+      if (error) throw error;
+      return (data ?? []) as SiteTradeMigrationUsage[];
     },
   });
 }

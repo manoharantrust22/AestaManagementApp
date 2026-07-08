@@ -47,6 +47,12 @@ import {
   wsShadow,
 } from "@/lib/workforce/workspaceTokens";
 import { ContractListPane } from "./ContractListPane";
+import { WorkspaceToggleConfirmDialog } from "./WorkspaceToggleConfirmDialog";
+import { useToggleTradeWorkspace } from "@/hooks/mutations/useToggleTradeWorkspace";
+import {
+  useSiteTradeWorkspaceUsage,
+  useSiteTradeMigrationUsage,
+} from "@/hooks/queries/useSiteTradeSettings";
 import { TaskDetailPane } from "./TaskDetailPane";
 import { GroupDetailPane } from "./GroupDetailPane";
 import { PackageDetailPane } from "./PackageDetailPane";
@@ -137,6 +143,9 @@ export function WorkspaceLayout({
   const [convertOpen, setConvertOpen] = useState(false);
   const [handOpen, setHandOpen] = useState(false);
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null);
+  // Per-trade workspace toggle (the trades-page shortcut) — runs the payment migration.
+  const [toggleWsCtx, setToggleWsCtx] = useState<{ mode: "on" | "off"; tradeCategoryId: string; tradeName: string } | null>(null);
+  const [wsUndoBatch, setWsUndoBatch] = useState<string | null>(null);
   const [snack, setSnack] = useState<{ open: boolean; msg: string; severity: "success" | "error" }>({
     open: false,
     msg: "",
@@ -234,6 +243,39 @@ export function WorkspaceLayout({
     }
   };
 
+  // ── Per-trade workspace toggle (shortcut on the trades page) ───────────────
+  const { undoBatch: undoWsBatch } = useToggleTradeWorkspace(siteId);
+  const { data: wsUsage = [] } = useSiteTradeWorkspaceUsage(siteId);
+  const { data: wsMigrationUsage = [] } = useSiteTradeMigrationUsage(siteId);
+  // Genuine (non-migration) workspace rows per trade — these hard-lock a workspace ON.
+  const genuineUsageByTrade = useMemo(() => {
+    const mig = new Map(wsMigrationUsage.map((u) => [u.trade_category_id, u.migration_rows]));
+    const m = new Map<string, number>();
+    for (const u of wsUsage) {
+      m.set(u.trade_category_id, Math.max(0, u.total_workspace_rows - (mig.get(u.trade_category_id) ?? 0)));
+    }
+    return m;
+  }, [wsUsage, wsMigrationUsage]);
+  const handleToggleTradeWorkspace = (tradeCategoryId: string, tradeName: string, currentlyOn: boolean) => {
+    // Turning OFF is blocked while the trade holds genuine attendance/settlement data.
+    if (currentlyOn && (genuineUsageByTrade.get(tradeCategoryId) ?? 0) > 0) {
+      notify(`${tradeName} has attendance/settlement data — it can't be switched off here`, "error");
+      return;
+    }
+    setToggleWsCtx({ mode: currentlyOn ? "off" : "on", tradeCategoryId, tradeName });
+  };
+  const handleUndoWs = async () => {
+    const batchId = wsUndoBatch;
+    if (!batchId) return;
+    setWsUndoBatch(null);
+    try {
+      await undoWsBatch(batchId);
+      notify("Undone — payments back on the contract page");
+    } catch (e) {
+      notify((e as Error).message || "Couldn't undo", "error");
+    }
+  };
+
   // ── Drag-and-drop re-parenting ─────────────────────────────────────────────
   const moveNode = useMoveSubcontractNode(siteId);
   const undoMove = useUndoMove(siteId);
@@ -298,8 +340,24 @@ export function WorkspaceLayout({
       onAddClick={(el) => setAddAnchor(el)}
       canEdit={canEdit}
       onOpenTradeWorkspace={canEdit ? handleOpenTradeWorkspace : undefined}
+      onToggleTradeWorkspace={canEdit ? handleToggleTradeWorkspace : undefined}
     />
   );
+
+  const workspaceToggleDialog = toggleWsCtx ? (
+    <WorkspaceToggleConfirmDialog
+      open={!!toggleWsCtx}
+      mode={toggleWsCtx.mode}
+      siteId={siteId}
+      tradeCategoryId={toggleWsCtx.tradeCategoryId}
+      tradeName={toggleWsCtx.tradeName}
+      onClose={() => setToggleWsCtx(null)}
+      onDone={(msg, undoBatchId) => {
+        notify(msg);
+        if (undoBatchId) setWsUndoBatch(undoBatchId);
+      }}
+    />
+  ) : null;
 
   const detailPane = selectedPackage ? (
     <PackageDetailPane
@@ -553,6 +611,24 @@ export function WorkspaceLayout({
           </Button>
         }
       />
+
+      {/* One-tap undo after turning a workspace on (the migration is journalled). */}
+      <Snackbar
+        open={!!wsUndoBatch}
+        autoHideDuration={6000}
+        onClose={() => setWsUndoBatch(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: mobile ? "center" : "left" }}
+        message="Workspace on — payments moved"
+        action={
+          <Button
+            size="small"
+            onClick={handleUndoWs}
+            sx={{ color: "#9ec5ff", textTransform: "none", fontWeight: 800 }}
+          >
+            Undo
+          </Button>
+        }
+      />
     </>
   );
 
@@ -662,6 +738,7 @@ export function WorkspaceLayout({
       {sheets}
       {modeDialog}
       {contractDialogs}
+      {workspaceToggleDialog}
       {snackbar}
     </Box>
   );

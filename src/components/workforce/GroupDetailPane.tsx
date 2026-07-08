@@ -7,7 +7,7 @@ import PaymentsRounded from "@mui/icons-material/PaymentsRounded";
 import ChevronRight from "@mui/icons-material/ChevronRight";
 import EditOutlined from "@mui/icons-material/EditOutlined";
 import CallMerge from "@mui/icons-material/CallMerge";
-import { computeInitials, type ContractMoneySplit, type ContractorGroup, type WorkspaceTask } from "@/lib/workforce/workspaceModel";
+import { computeInitials, isContractPaymentGated, type ContractMoneySplit, type ContractorGroup, type WorkspaceTask } from "@/lib/workforce/workspaceModel";
 import { rollupSeverity, type ExposureResult } from "@/lib/workforce/exposure";
 import { wsColors, wsRadius, wsShadow } from "@/lib/workforce/workspaceTokens";
 import { formatCurrencyFull } from "@/lib/formatters";
@@ -96,6 +96,9 @@ export function GroupDetailPane({
   const anyTracked =
     (parentMode?.parent.mode === "detailed" && parentMode.parent.hasWorkspace) ||
     group.tasks.some((t) => t.mode === "detailed" && t.hasWorkspace);
+  // When the parent contract is gated, its money is routed to Salary Settlements —
+  // the Record drawer redirects there. Reflect that in the tile sub-copy.
+  const parentGated = parentMode ? isContractPaymentGated(parentMode.parent) : false;
 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: wsColors.canvas, minWidth: 0 }}>
@@ -322,9 +325,11 @@ export function GroupDetailPane({
             icon={<PaymentsRounded sx={{ fontSize: 19, color: wsColors.primary }} />}
             label="Record"
             sub={
-              anyTracked
-                ? "Payment, progress, attendance or salary"
-                : "Record a payment or update progress"
+              parentGated
+                ? "Progress, attendance & salary — payments go to Salary Settlements"
+                : anyTracked
+                  ? "Payment, progress, attendance or salary"
+                  : "Record a payment or update progress"
             }
             onClick={onRecord}
             enabled={canEdit}

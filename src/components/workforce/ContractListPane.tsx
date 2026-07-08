@@ -39,6 +39,7 @@ export function ContractListPane({
   onAddClick,
   canEdit,
   onOpenTradeWorkspace,
+  onToggleTradeWorkspace,
 }: {
   siteId: string;
   siteName: string;
@@ -60,6 +61,8 @@ export function ContractListPane({
   onAddClick: (anchorEl: HTMLElement) => void;
   canEdit: boolean;
   onOpenTradeWorkspace?: (tradeCategoryId: string, tradeName: string, base: "/site/attendance" | "/site/payments") => void;
+  /** Toggle this trade's workspace on/off from the trades page (runs the payment migration). */
+  onToggleTradeWorkspace?: (tradeCategoryId: string, tradeName: string, currentlyOn: boolean) => void;
 }) {
   // Per-tab item counts (contracts + packages) for the segmented control badges.
   const tabCounts = useMemo(() => {
@@ -222,6 +225,7 @@ export function ContractListPane({
           onAddTaskWork={onAddTaskWork}
           onMoveNode={onMoveNode}
           onOpenTradeWorkspace={onOpenTradeWorkspace}
+          onToggleTradeWorkspace={onToggleTradeWorkspace}
         />
       </Box>
     </Box>

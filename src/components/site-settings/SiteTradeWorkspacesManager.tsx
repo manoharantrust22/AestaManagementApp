@@ -1,17 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Alert, Box, Card, Chip, Stack, Switch, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Card, Chip, Snackbar, Stack, Switch, Tooltip, Typography } from "@mui/material";
 import { useAuth } from "@/contexts/AuthContext";
 import { hasEditPermission } from "@/lib/permissions";
 import { useLaborCategories, type LaborCategory } from "@/hooks/queries/useLaborCategories";
 import {
   useSiteTradeSettings,
   useSiteTradeWorkspaceUsage,
+  useSiteTradeMigrationUsage,
   useUpsertSiteTradeSetting,
 } from "@/hooks/queries/useSiteTradeSettings";
+import { useToggleTradeWorkspace } from "@/hooks/mutations/useToggleTradeWorkspace";
 import { useTradeContractSummaries } from "@/hooks/queries/useTradeContractSummary";
 import { QuickCreateContractDialog } from "@/components/trades/QuickCreateContractDialog";
+import { WorkspaceToggleConfirmDialog } from "@/components/workforce/WorkspaceToggleConfirmDialog";
 import { NoContractPrompt } from "./NoContractPrompt";
 
 /**
@@ -28,9 +31,15 @@ export default function SiteTradeWorkspacesManager({ siteId }: { siteId: string 
   const { data: categories = [], isLoading } = useLaborCategories(false);
   const { data: overrides = [] } = useSiteTradeSettings(siteId);
   const { data: usage = [] } = useSiteTradeWorkspaceUsage(siteId);
+  const { data: migrationUsage = [] } = useSiteTradeMigrationUsage(siteId);
   const upsert = useUpsertSiteTradeSetting();
+  const { undoBatch } = useToggleTradeWorkspace(siteId);
   const saving = upsert.isPending;
   const [error, setError] = useState("");
+  // Workspace toggle runs the contract-payment migration, so it goes through a confirm
+  // dialog (preview on / reversal warning off) rather than a bare flag flip.
+  const [toggleCtx, setToggleCtx] = useState<{ mode: "on" | "off"; c: LaborCategory } | null>(null);
+  const [snack, setSnack] = useState<{ msg: string; undoBatchId?: string | null } | null>(null);
 
   // Money summaries — to flag a trade whose Workspace is ON but has no detailed
   // contract to record attendance against (and offer to create one inline).
@@ -49,16 +58,18 @@ export default function SiteTradeWorkspacesManager({ siteId }: { siteId: string 
     () => new Map(usage.map((u) => [u.trade_category_id, u.total_workspace_rows])),
     [usage]
   );
+  const migrationMap = useMemo(
+    () => new Map(migrationUsage.map((u) => [u.trade_category_id, u.migration_rows])),
+    [migrationUsage]
+  );
 
-  const toggleWorkspace = async (c: LaborCategory, effectiveWs: boolean, lockedOn: boolean) => {
-    // Guard (defensive — the disabled Switch already blocks this): a trade holding
-    // workspace data AT THIS SITE can't be switched off. Off is hide-only; data stays.
+  const toggleWorkspace = (c: LaborCategory, effectiveWs: boolean, lockedOn: boolean) => {
+    // Guard (defensive — the disabled Switch already blocks this): a trade holding GENUINE
+    // (non-migration) workspace data can't be switched off.
     if (effectiveWs && lockedOn) return;
-    try {
-      await upsert.mutateAsync({ siteId, tradeCategoryId: c.id, has_workspace: !effectiveWs });
-    } catch (e) {
-      setError((e as Error).message);
-    }
+    // Route through the confirm dialog, which runs the payment migration (on) or its
+    // reversal (off) alongside the flag flip.
+    setToggleCtx({ mode: effectiveWs ? "off" : "on", c });
   };
 
   const toggleOffered = async (c: LaborCategory, effectiveOffered: boolean) => {
@@ -75,15 +86,19 @@ export default function SiteTradeWorkspacesManager({ siteId }: { siteId: string 
     const effectiveOffered = ov?.is_offered ?? true;
     const hasDetailedContract = summaries.byCategoryId.get(c.id)?.hasDetailedContract ?? false;
     const showNoContractPrompt = effectiveWs && !hasDetailedContract;
+    // Genuine (non-migration) workspace rows lock the workspace ON. Rows created by the
+    // contract-payment migration don't count — turning OFF reverses them cleanly.
     const usageRows = usageMap.get(c.id) ?? 0;
-    const lockedOn = usageRows > 0;
+    const migrationRows = migrationMap.get(c.id) ?? 0;
+    const genuineRows = Math.max(0, usageRows - migrationRows);
+    const lockedOn = genuineRows > 0;
     const wsDisabled = !canEdit || saving || (effectiveWs && lockedOn);
     const wsTooltip = effectiveWs
       ? lockedOn
-        ? `Workspace ON — this site has ${usageRows} attendance / settlement ${
-            usageRows === 1 ? "entry" : "entries"
+        ? `Workspace ON — this site has ${genuineRows} attendance / settlement ${
+            genuineRows === 1 ? "entry" : "entries"
           } for this trade, so it can't be switched off here.`
-        : "Workspace ON for this site — full attendance, salary, tea & holidays. No data yet, so you can switch it off."
+        : "Workspace ON for this site — full attendance, salary, tea & holidays. Switch off to move payments back to the contract page."
       : "Workspace OFF for this site — ladder only (contracts, sections, tasks). Switch on to add attendance, salary, tea & holidays.";
 
     return (
@@ -193,6 +208,44 @@ export default function SiteTradeWorkspacesManager({ siteId }: { siteId: string 
           initialStatus="active"
         />
       )}
+
+      {toggleCtx && (
+        <WorkspaceToggleConfirmDialog
+          open={!!toggleCtx}
+          mode={toggleCtx.mode}
+          siteId={siteId}
+          tradeCategoryId={toggleCtx.c.id}
+          tradeName={toggleCtx.c.name}
+          onClose={() => setToggleCtx(null)}
+          onDone={(msg, undoBatchId) => setSnack({ msg, undoBatchId })}
+        />
+      )}
+
+      <Snackbar
+        open={!!snack}
+        autoHideDuration={6000}
+        onClose={() => setSnack(null)}
+        message={snack?.msg}
+        action={
+          snack?.undoBatchId ? (
+            <Button
+              color="secondary"
+              size="small"
+              onClick={async () => {
+                const id = snack.undoBatchId!;
+                setSnack(null);
+                try {
+                  await undoBatch(id);
+                } catch (e) {
+                  setError((e as Error).message);
+                }
+              }}
+            >
+              Undo
+            </Button>
+          ) : undefined
+        }
+      />
     </Box>
   );
 }

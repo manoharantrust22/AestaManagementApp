@@ -47,6 +47,15 @@ interface RecordPaymentDialogProps {
   defaultAmount?: number;
   /** Heading override — Settle flows want "Settle Asis for the week" etc. */
   titleOverride?: string;
+  /**
+   * When true, this contract is attendance-tracked under a workspace: money must be
+   * recorded as a salary settlement, not a subcontract_payments lump. The form is
+   * replaced by a redirect panel and submit is hard-guarded. Default false → all
+   * existing (headcount / mid / client-payment) callers are unaffected.
+   */
+  gatedToWorkspace?: boolean;
+  /** Optional handler to jump the user to Salary Settlements when gated. */
+  onGoToSettlements?: () => void;
 }
 
 const PAYMENT_TYPES: Array<{
@@ -99,6 +108,8 @@ export function RecordPaymentDialog({
   defaultPaymentType,
   defaultAmount,
   titleOverride,
+  gatedToWorkspace = false,
+  onGoToSettlements,
 }: RecordPaymentDialogProps) {
   const supabase = createClient();
   const queryClient = useQueryClient();
@@ -155,6 +166,12 @@ export function RecordPaymentDialog({
     !submitting && amount !== "" && !Number.isNaN(amountNum) && amountNum > 0 && !!paymentDate;
 
   const handleSubmit = async () => {
+    // Defensive: attendance-tracked workspace contracts must never write a
+    // subcontract_payments lump — money is recorded as a salary settlement.
+    if (gatedToWorkspace) {
+      setError("This contract is attendance-tracked — record money in Salary Settlements.");
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
@@ -212,6 +229,20 @@ export function RecordPaymentDialog({
         </Typography>
       </DialogTitle>
       <DialogContent dividers>
+        {gatedToWorkspace ? (
+          <Stack spacing={2}>
+            <Alert severity="info">
+              This contract is attendance-tracked under a workspace. Record money as a{" "}
+              <strong>salary settlement</strong> in Salary Settlements — the contract page shows
+              money read-only.
+            </Alert>
+            {onGoToSettlements && (
+              <Button variant="contained" onClick={onGoToSettlements}>
+                Open Salary Settlements
+              </Button>
+            )}
+          </Stack>
+        ) : (
         <Stack spacing={2.5}>
           <FormControl>
             <FormLabel>What kind of payment?</FormLabel>
@@ -323,19 +354,22 @@ export function RecordPaymentDialog({
 
           {error && <Alert severity="error">{error}</Alert>}
         </Stack>
+        )}
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={submitting}>
-          Cancel
+          {gatedToWorkspace ? "Close" : "Cancel"}
         </Button>
-        <Button
-          variant="contained"
-          onClick={handleSubmit}
-          disabled={!canSubmit}
-          startIcon={submitting ? <CircularProgress size={16} /> : null}
-        >
-          {submitting ? "Saving…" : "Record payment"}
-        </Button>
+        {!gatedToWorkspace && (
+          <Button
+            variant="contained"
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+            startIcon={submitting ? <CircularProgress size={16} /> : null}
+          >
+            {submitting ? "Saving…" : "Record payment"}
+          </Button>
+        )}
       </DialogActions>
     </Dialog>
   );

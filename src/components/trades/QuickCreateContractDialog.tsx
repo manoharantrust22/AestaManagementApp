@@ -149,6 +149,26 @@ export function QuickCreateContractDialog({
     setError(null);
     setSubmitting(true);
     try {
+      // One parent contract per trade: block a second top-level contract for this
+      // site+trade (defense-in-depth — the tree steers to "Add a section" already).
+      if (tier === "contract" && !parentSubcontractId) {
+        const sbCheck = supabase as any;
+        const { data: existing, error: existErr } = await sbCheck
+          .from("subcontracts")
+          .select("id")
+          .eq("site_id", siteId)
+          .eq("trade_category_id", tradeCategoryId)
+          .is("parent_subcontract_id", null)
+          .neq("status", "cancelled")
+          .limit(1);
+        if (existErr) throw existErr;
+        if (existing && existing.length > 0) {
+          throw new Error(
+            `${tradeName} already has a contract. Add a section under it instead of a second contract.`
+          );
+        }
+      }
+
       // Money basis depends on the pricing toggle.
       const pricing: Record<string, unknown> = pricedBySqft
         ? {

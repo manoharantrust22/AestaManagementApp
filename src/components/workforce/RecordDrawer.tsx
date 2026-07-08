@@ -42,7 +42,7 @@ import WalletBalancePreview from "@/components/wallet-v2/WalletBalancePreview";
 import { HeadcountEntryInline } from "@/components/trades/HeadcountEntryInline";
 import { ContractWorkUpdatesPanel } from "@/components/trades/ContractWorkUpdatesPanel";
 import type { PayerSource } from "@/types/settlement.types";
-import type { WorkspaceTask } from "@/lib/workforce/workspaceModel";
+import { isContractPaymentGated, type WorkspaceTask } from "@/lib/workforce/workspaceModel";
 import { severityMeta, wsColors, wsRadius } from "@/lib/workforce/workspaceTokens";
 import { formatCurrencyFull } from "@/lib/formatters";
 import { ResponsiveSheet } from "./ResponsiveSheet";
@@ -105,6 +105,11 @@ export function RecordDrawer({
   // a workspace-off trade keeps the ladder (payments / progress / headcount) only.
   const isDetailed = task.mode === "detailed" && task.hasWorkspace;
   const isHeadcount = task.mode === "headcount";
+  // When gated (detailed + workspace on — same predicate as isDetailed), contract-page
+  // lump payments are routed to Salary Settlements: the "Record a payment" item becomes
+  // a redirect and the subcontract_payments form is unreachable. Money still DISPLAYS
+  // read-only on the contract page (PaymentsHistoryCard reads the unified ledger).
+  const gated = isContractPaymentGated(task);
 
   const subtitle = `${task.who} · ${task.title}`;
 
@@ -117,13 +122,24 @@ export function RecordDrawer({
       sub: string;
       onClick: () => void;
     }> = [
-      {
-        key: "payment",
-        icon: <PaymentsRounded sx={{ fontSize: 20, color: wsColors.primary }} />,
-        label: "Record a payment",
-        sub: "Advance, part payment or final settlement",
-        onClick: () => setView("payment"),
-      },
+      gated
+        ? {
+            key: "payment",
+            icon: <ReceiptLongRounded sx={{ fontSize: 20, color: wsColors.primary }} />,
+            label: "Settle in Salary Settlements",
+            sub: "Attendance-tracked — record money as a salary settlement",
+            onClick: () => {
+              onClose();
+              onSettleSalary();
+            },
+          }
+        : {
+            key: "payment",
+            icon: <PaymentsRounded sx={{ fontSize: 20, color: wsColors.primary }} />,
+            label: "Record a payment",
+            sub: "Advance, part payment or final settlement",
+            onClick: () => setView("payment"),
+          },
     ];
     if (isHeadcount) {
       items.push({
@@ -135,6 +151,8 @@ export function RecordDrawer({
       });
     }
     if (isDetailed) {
+      // "Settle salary" is intentionally NOT pushed here: when detailed, `gated` is true,
+      // so the first item above is already the Salary-Settlements redirect. Keep attendance.
       items.push({
         key: "attendance",
         icon: <HowToReg sx={{ fontSize: 20, color: wsColors.primary }} />,
@@ -143,16 +161,6 @@ export function RecordDrawer({
         onClick: () => {
           onClose();
           onLogAttendance();
-        },
-      });
-      items.push({
-        key: "settle",
-        icon: <ReceiptLongRounded sx={{ fontSize: 20, color: wsColors.primary }} />,
-        label: "Settle salary",
-        sub: "Open this contract's salary settlement",
-        onClick: () => {
-          onClose();
-          onSettleSalary();
         },
       });
     }
@@ -350,6 +358,13 @@ function PaymentView({
   const PreviewIcon = meta.icon;
 
   const handleSubmit = async () => {
+    // Defensive: a gated (detailed + workspace) contract must never write a
+    // subcontract_payments row — money is routed to Salary Settlements. The menu
+    // redirects before reaching this view, so this only guards deep/stale state.
+    if (isContractPaymentGated(task)) {
+      setError("This contract is attendance-tracked — record money in Salary Settlements.");
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {

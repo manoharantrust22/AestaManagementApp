@@ -356,6 +356,9 @@ export function TradeAttendanceView({
           contractId={contract.id}
           contractTitle={contractTitle}
           remainingBalance={(summary?.quotedAmount ?? 0) - (summary?.amountPaid ?? 0)}
+          // Detailed contracts route money to Salary Settlements. This view already
+          // redirects detailed contracts to /site/attendance, so this is defensive.
+          gatedToWorkspace={contract.laborTrackingMode === "detailed"}
         />
       )}
 
