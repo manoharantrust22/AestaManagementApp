@@ -971,6 +971,9 @@ export default function UnifiedPurchaseOrderDialog({
               selected_brand_name: null,
               // Reset price when variant changes
               unit_price: 0,
+              // Clear the previous variant's pack; the new variant re-seeds its own.
+              pack_id: null,
+              pack_count: null,
             }
           : item
       )
@@ -1002,6 +1005,20 @@ export default function UnifiedPurchaseOrderDialog({
     setRequestItemsState((prev) =>
       prev.map((item) =>
         item.id === itemId ? { ...item, pricing_mode: value } : item
+      )
+    );
+  };
+
+  // Pack-priced variants: RequestItemRow reports the chosen can + count so the
+  // PO line is stamped with them (quantity stays base-unit; unit_price per-unit).
+  const handleRequestItemPackChange = (
+    itemId: string,
+    packId: string | null,
+    packCount: number | null
+  ) => {
+    setRequestItemsState((prev) =>
+      prev.map((item) =>
+        item.id === itemId ? { ...item, pack_id: packId, pack_count: packCount } : item
       )
     );
   };
@@ -1242,6 +1259,9 @@ export default function UnifiedPurchaseOrderDialog({
         pricing_mode: item.pricing_mode || "per_piece",
         calculated_weight: item.calculated_weight || null,
         actual_weight: item.actual_weight || null,
+        // Pack-priced variants: carry the can size + count (quantity stays base-unit).
+        pack_id: item.pack_id ?? null,
+        pack_count: item.pack_count ?? null,
         // Track request item linkage
         request_item_id: item.id,
       }));
@@ -1772,6 +1792,9 @@ export default function UnifiedPurchaseOrderDialog({
                           }
                           onPricingModeChange={(value) =>
                             handleRequestItemPricingModeChange(item.id, value)
+                          }
+                          onPackChange={(packId, packCount) =>
+                            handleRequestItemPackChange(item.id, packId, packCount)
                           }
                           showPricingModeColumn={hasWeightBasedRequestItems}
                           priceIncludesGst={priceIncludesGst}

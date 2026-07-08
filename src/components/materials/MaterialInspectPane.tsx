@@ -32,6 +32,7 @@ import {
   MoreVert as MoreVertIcon,
   AddCircleOutline as AddCircleOutlineIcon,
   Receipt as ReceiptIcon,
+  CallSplit as CallSplitIcon,
 } from "@mui/icons-material";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
 import { useImageViewer } from "@/components/common/ImageViewerProvider";
@@ -90,6 +91,8 @@ interface MaterialInspectPaneProps {
   onEdit?: (material: MaterialWithDetails) => void;
   onOpenInPage?: (material: MaterialWithDetails) => void;
   onAddVendorQuote?: (material: MaterialWithDetails) => void;
+  /** Convert a flat material into a branded parent-with-variants (see BrandedProductDialog). */
+  onConvertToBranded?: (material: MaterialWithDetails) => void;
   /** Click a vendor row (in the Vendors tab) → swap pane to that vendor */
   onVendorClick?: (vendorId: string, vendorName: string) => void;
   /** Optional breadcrumb header — rendered above title when navigating a stack */
@@ -105,6 +108,7 @@ export function MaterialInspectPane({
   onEdit,
   onOpenInPage,
   onAddVendorQuote,
+  onConvertToBranded,
   onVendorClick,
   breadcrumb,
   canEdit = false,
@@ -222,6 +226,17 @@ export function MaterialInspectPane({
                 <Tooltip title="Edit material" placement="top">
                   <IconButton size="small" onClick={() => onEdit(material)}>
                     <EditIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              ) : null}
+              {material &&
+              canEdit &&
+              onConvertToBranded &&
+              !material.parent_id &&
+              (material.variant_count || 0) === 0 ? (
+                <Tooltip title="Convert to branded product (add brand + variants)" placement="top">
+                  <IconButton size="small" onClick={() => onConvertToBranded(material)}>
+                    <CallSplitIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
               ) : null}

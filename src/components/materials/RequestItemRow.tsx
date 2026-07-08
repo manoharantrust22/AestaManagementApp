@@ -14,11 +14,14 @@ import {
   CircularProgress,
   IconButton,
   Collapse,
+  MenuItem,
 } from "@mui/material";
 import { Warning as WarningIcon, ShowChart as ShowChartIcon } from "@mui/icons-material";
 import MiniPriceChart from "./MiniPriceChart";
 import { useVendorMaterialBrands, useVendorMaterialPrice } from "@/hooks/queries/useVendorInventory";
 import { useBrandVariantLinkedBrandNames, useBrandVariantLinks } from "@/hooks/queries/useMaterials";
+import { useMaterialPacks } from "@/hooks/queries/useMaterialPacks";
+import { activePacks, representativePack, packUnitPrice } from "@/lib/materials/packs";
 import type { RequestItemForConversion, MaterialBrand } from "@/types/material.types";
 import { formatCurrency } from "@/lib/formatters";
 
@@ -32,6 +35,7 @@ interface RequestItemRowProps {
   onVariantChange: (variantId: string | null, variantName: string | null) => void;
   onBrandChange: (brandId: string | null, brandName: string | null) => void;
   onPricingModeChange: (value: "per_piece" | "per_kg") => void;
+  onPackChange?: (packId: string | null, packCount: number | null) => void;
   showPricingModeColumn: boolean; // Whether to show the pricing mode column (for table alignment)
   priceIncludesGst?: boolean; // Whether the unit price input is in GST-inclusive mode
 }
@@ -46,6 +50,7 @@ export default function RequestItemRow({
   onVariantChange,
   onBrandChange,
   onPricingModeChange,
+  onPackChange,
   showPricingModeColumn,
   priceIncludesGst = false,
 }: RequestItemRowProps) {
@@ -167,6 +172,90 @@ export default function RequestItemRow({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [priceData, item.selected]);
+
+  // ── Pack-priced variants (paint/putty/etc. sold in fixed cans) ──────────
+  // Fetch the EFFECTIVE (variant) material's can sizes. The generic parent has
+  // none, so this stays empty until the office picks a variant that is sold in
+  // packs — then we let them order in whole cans and enter the per-can rate,
+  // while unit_price is kept per-base-unit so all downstream money math (PO
+  // total, delivery, stock, settlement) is unchanged.
+  const { data: packsData = [] } = useMaterialPacks(effectiveMaterialId);
+  const packOptions = useMemo(() => activePacks(packsData), [packsData]);
+  const showPackUi = packOptions.length > 0 && !isWeightBased;
+  const activePack = useMemo(() => {
+    if (packOptions.length === 0) return null;
+    return packOptions.find((p) => p.id === item.pack_id) ?? representativePack(packOptions);
+  }, [packOptions, item.pack_id]);
+  const packContents = activePack?.contents_qty || 0;
+  const cans = packContents ? Math.round((item.quantity_to_order || 0) / packContents) : 0;
+
+  const [localPackPrice, setLocalPackPrice] = useState<string>("");
+  const [isPackPriceFocused, setIsPackPriceFocused] = useState(false);
+
+  // Seed pack_id/pack_count once per effective material so the PO line carries
+  // the can + count even if the office never touches the field, and normalise
+  // the ordered quantity to a whole number of cans.
+  const packSeededRef = useRef(false);
+  useEffect(() => {
+    packSeededRef.current = false;
+  }, [effectiveMaterialId]);
+  useEffect(() => {
+    if (!showPackUi || !activePack || !item.selected || packSeededRef.current) return;
+    packSeededRef.current = true;
+    const contents = activePack.contents_qty || 1;
+    const seededCans = Math.max(1, Math.round((item.quantity_to_order || 0) / contents));
+    if (item.pack_id !== activePack.id || item.pack_count !== seededCans) {
+      onPackChange?.(activePack.id, seededCans);
+    }
+    const base = seededCans * contents;
+    if (base !== item.quantity_to_order) onQuantityChange(String(base));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPackUi, activePack, item.selected, effectiveMaterialId]);
+
+  // Fallback: if the chosen vendor has no quote for this variant but the can
+  // carries a reference price, seed it. The vendor quote auto-fill above wins.
+  useEffect(() => {
+    if (!item.selected || hasAutoFilled.current || isLoadingPrice) return;
+    if (priceData?.price) return;
+    if (!showPackUi || activePack?.price == null || item.unit_price !== 0) return;
+    hasAutoFilled.current = true;
+    const perUnit = packUnitPrice(activePack);
+    if (perUnit) onPriceChange(String(perUnit));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoadingPrice, priceData, showPackUi, activePack, item.selected]);
+
+  // Keep the per-can field in sync with unit_price (per-base-unit) when idle.
+  const perCanFromUnit = packContents && item.unit_price ? item.unit_price * packContents : 0;
+  useEffect(() => {
+    if (!isPackPriceFocused) {
+      setLocalPackPrice(perCanFromUnit ? String(Number(perCanFromUnit.toFixed(2))) : "");
+    }
+  }, [perCanFromUnit, isPackPriceFocused]);
+
+  const handleCansChange = (value: string) => {
+    if (!activePack) return;
+    const contents = activePack.contents_qty || 1;
+    const maxCans = Math.max(0, Math.floor(item.remaining_qty / contents));
+    const raw = Math.floor(parseFloat(value) || 0);
+    const cansVal = Math.min(Math.max(0, raw), maxCans || raw);
+    onQuantityChange(String(cansVal * contents));
+    onPackChange?.(activePack.id, cansVal);
+  };
+  const handlePackSelect = (packId: string) => {
+    const pack = packOptions.find((p) => p.id === packId);
+    if (!pack) return;
+    const contents = pack.contents_qty || 1;
+    const maxCans = Math.max(0, Math.floor(item.remaining_qty / contents));
+    const cansVal = Math.min(Math.max(1, cans || 1), maxCans || (cans || 1));
+    onQuantityChange(String(cansVal * contents));
+    onPackChange?.(pack.id, cansVal);
+  };
+  const handlePackPriceChange = (value: string) => {
+    setLocalPackPrice(value);
+    const perCan = parseFloat(value) || 0;
+    const contents = activePack?.contents_qty || 1;
+    onPriceChange(String(perCan / contents));
+  };
 
   // Handle brand name selection
   const handleBrandNameChange = (brandName: string | null) => {
@@ -360,6 +449,31 @@ export default function RequestItemRow({
               Variant: {item.selected_variant_name}
             </Typography>
           )}
+
+          {/* Pack (can) size — only when the chosen variant is sold in cans */}
+          {showPackUi && item.selected && (
+            packOptions.length > 1 ? (
+              <TextField
+                select
+                size="small"
+                label="Can size"
+                value={activePack?.id || ""}
+                onChange={(e) => handlePackSelect(e.target.value)}
+                disabled={isDisabled}
+                sx={{ mt: 0.5, maxWidth: 200 }}
+              >
+                {packOptions.map((p) => (
+                  <MenuItem key={p.id} value={p.id}>
+                    {p.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            ) : (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                Sold in {activePack?.label}
+              </Typography>
+            )
+          )}
         </Box>
       </TableCell>
 
@@ -383,20 +497,24 @@ export default function RequestItemRow({
             slotProps={{
               popper: { disablePortal: false }
             }}
-            renderOption={(props, option) => (
-              <Box component="li" {...props} sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-                {option.imageUrl ? (
-                  <Box
-                    component="img"
-                    src={option.imageUrl}
-                    sx={{ width: 24, height: 24, objectFit: "cover", borderRadius: 0.5, flexShrink: 0 }}
-                  />
-                ) : (
-                  <Box sx={{ width: 24, height: 24, bgcolor: "grey.200", borderRadius: 0.5, flexShrink: 0 }} />
-                )}
-                <span>{option.name}</span>
-              </Box>
-            )}
+            renderOption={(props, option) => {
+              // MUI passes `key` inside props; React forbids spreading it — pull it out.
+              const { key, ...optionProps } = props as typeof props & { key?: string };
+              return (
+                <Box component="li" key={key} {...optionProps} sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                  {option.imageUrl ? (
+                    <Box
+                      component="img"
+                      src={option.imageUrl}
+                      sx={{ width: 24, height: 24, objectFit: "cover", borderRadius: 0.5, flexShrink: 0 }}
+                    />
+                  ) : (
+                    <Box sx={{ width: 24, height: 24, bgcolor: "grey.200", borderRadius: 0.5, flexShrink: 0 }} />
+                  )}
+                  <span>{option.name}</span>
+                </Box>
+              );
+            }}
             renderInput={(params) => (
               <TextField
                 {...params}
@@ -492,47 +610,107 @@ export default function RequestItemRow({
 
       {/* Qty to Order */}
       <TableCell align="right">
-        <TextField
-          type="number"
-          size="small"
-          value={item.quantity_to_order || ""}
-          onChange={(e) => onQuantityChange(e.target.value)}
-          disabled={isDisabled || !item.selected}
-          inputProps={{
-            min: 0,
-            max: item.remaining_qty,
-            step: 1,
-            style: { textAlign: "right", width: 60 },
-          }}
-        />
+        {showPackUi ? (
+          <Box>
+            <TextField
+              type="number"
+              size="small"
+              value={cans || ""}
+              onChange={(e) => handleCansChange(e.target.value)}
+              disabled={isDisabled || !item.selected}
+              inputProps={{
+                min: 0,
+                step: 1,
+                style: { textAlign: "right", width: 56 },
+              }}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end" sx={{ fontSize: "0.7rem" }}>
+                    cans
+                  </InputAdornment>
+                ),
+              }}
+            />
+            {item.selected && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                = {item.quantity_to_order} {item.unit}
+              </Typography>
+            )}
+          </Box>
+        ) : (
+          <TextField
+            type="number"
+            size="small"
+            value={item.quantity_to_order || ""}
+            onChange={(e) => onQuantityChange(e.target.value)}
+            disabled={isDisabled || !item.selected}
+            inputProps={{
+              min: 0,
+              max: item.remaining_qty,
+              step: 1,
+              style: { textAlign: "right", width: 60 },
+            }}
+          />
+        )}
       </TableCell>
 
       {/* Unit Price */}
       <TableCell align="right">
-        <TextField
-          type="number"
-          size="small"
-          value={localPrice}
-          onChange={(e) => handlePriceInputChange(e.target.value)}
-          onFocus={() => setIsPriceFocused(true)}
-          onBlur={() => setIsPriceFocused(false)}
-          disabled={isDisabled || !item.selected}
-          inputProps={{
-            min: 0,
-            step: 0.01,
-            style: { textAlign: "right", width: 80 },
-          }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">₹</InputAdornment>
-            ),
-            endAdornment: isWeightBased ? (
-              <InputAdornment position="end" sx={{ fontSize: "0.7rem" }}>/kg</InputAdornment>
-            ) : undefined,
-          }}
-        />
+        {showPackUi ? (
+          <TextField
+            type="number"
+            size="small"
+            value={localPackPrice}
+            onChange={(e) => handlePackPriceChange(e.target.value)}
+            onFocus={() => setIsPackPriceFocused(true)}
+            onBlur={() => setIsPackPriceFocused(false)}
+            disabled={isDisabled || !item.selected}
+            inputProps={{
+              min: 0,
+              step: 0.01,
+              style: { textAlign: "right", width: 80 },
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">₹</InputAdornment>
+              ),
+              endAdornment: (
+                <InputAdornment position="end" sx={{ fontSize: "0.7rem" }}>/can</InputAdornment>
+              ),
+            }}
+          />
+        ) : (
+          <TextField
+            type="number"
+            size="small"
+            value={localPrice}
+            onChange={(e) => handlePriceInputChange(e.target.value)}
+            onFocus={() => setIsPriceFocused(true)}
+            onBlur={() => setIsPriceFocused(false)}
+            disabled={isDisabled || !item.selected}
+            inputProps={{
+              min: 0,
+              step: 0.01,
+              style: { textAlign: "right", width: 80 },
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">₹</InputAdornment>
+              ),
+              endAdornment: isWeightBased ? (
+                <InputAdornment position="end" sx={{ fontSize: "0.7rem" }}>/kg</InputAdornment>
+              ) : undefined,
+            }}
+          />
+        )}
+        {/* Pack mode: per-can → per-unit equivalent + line total helper */}
+        {showPackUi && item.selected && item.unit_price > 0 && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+            ≈ {formatCurrency(item.unit_price)}/{item.unit} · {cans} can{cans !== 1 ? "s" : ""} = {formatCurrency(itemSubtotal)}
+          </Typography>
+        )}
         {/* Show last price hint if available with unit context */}
-        {priceData?.price && item.unit_price !== priceData.price && (
+        {!showPackUi && priceData?.price && item.unit_price !== priceData.price && (
           <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
             → Last: {formatCurrency(priceData.price)}
             {priceData.pricing_mode === "per_kg" ? "/kg" : priceData.pricing_mode === "per_piece" ? "/pc" : ""}

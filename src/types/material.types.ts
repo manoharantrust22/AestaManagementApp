@@ -1432,6 +1432,16 @@ export interface VariantFormData {
    * `bill_url` is rendered (catalog row, vendor inspect, price history tab).
    */
   initial_vendor_bill_url?: string | null;
+  /**
+   * Optional pack (can/container) this variant is sold in — e.g. a 20 L can.
+   * When set, the create hook marks the variant `sold_in_packs` and writes a
+   * `material_packs` row. `pack_price` is the per-can price; the vendor quote
+   * (`vendor_inventory.current_price`) is derived as pack_price / contents so
+   * all downstream money math stays per-base-unit.
+   */
+  pack_label?: string | null;
+  pack_contents_qty?: number | null;
+  pack_price?: number | null;
 }
 
 // A "design" is a purely-visual pattern/colour belonging to the PARENT
@@ -1461,6 +1471,16 @@ export interface CreateMaterialWithVariantsData extends MaterialFormData {
   variants?: VariantFormData[];
   // Shared visual designs attached to the parent material (e.g. tile patterns).
   designs?: MaterialDesignFormData[];
+  /**
+   * Branded-product flow: when set, a `material_brands` row is created on the
+   * parent (and auto-linked to every variant). Presence of this OR a variant
+   * pack also makes the hook record a dated `price_history` quote row.
+   */
+  brand_name?: string | null;
+  /** Whether the entered per-variant prices already include GST. Default true. */
+  price_includes_gst?: boolean;
+  /** Date (YYYY-MM-DD) to stamp on the price_history quote rows. Default today. */
+  quote_recorded_date?: string;
 }
 
 // Weight calculation result

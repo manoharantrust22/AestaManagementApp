@@ -26,6 +26,7 @@ import {
   AutoAwesome as VariantsIcon,
   PriceChange as PriceMissingIcon,
   GridView as TileIcon,
+  Inventory2 as ProductIcon,
 } from "@mui/icons-material";
 import { useSitesData } from "@/contexts/SiteContext";
 import PageHeader from "@/components/layout/PageHeader";
@@ -58,6 +59,7 @@ import { VendorQuoteDialog } from "@/components/shared/VendorQuoteDialog";
 import { InspectPaneBreadcrumb } from "@/components/shared/InspectPaneBreadcrumb";
 import { useInspectStack } from "@/components/shared/useInspectStack";
 import type { MaterialWithDetails, VendorWithCategories } from "@/types/material.types";
+import type { BrandedSourceMaterial } from "@/components/materials/BrandedProductDialog";
 
 const MaterialDialog = dynamic(
   () => import("@/components/materials/MaterialDialog"),
@@ -76,6 +78,11 @@ const CatalogImageFillDialog = dynamic(
 
 const TileMaterialDialog = dynamic(
   () => import("@/components/materials/TileMaterialDialog"),
+  { ssr: false }
+);
+
+const BrandedProductDialog = dynamic(
+  () => import("@/components/materials/BrandedProductDialog"),
   { ssr: false }
 );
 
@@ -118,6 +125,8 @@ export default function MaterialsPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [tileDialogOpen, setTileDialogOpen] = useState(false);
+  const [brandedDialogOpen, setBrandedDialogOpen] = useState(false);
+  const [brandedSource, setBrandedSource] = useState<BrandedSourceMaterial | null>(null);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
   const [fillImagesOpen, setFillImagesOpen] = useState(false);
   const { sites: userSites } = useSitesData();
@@ -390,6 +399,16 @@ export default function MaterialsPage() {
               >
                 New tile
               </Button>
+              <Button
+                variant="outlined"
+                startIcon={<ProductIcon />}
+                onClick={() => {
+                  setBrandedSource(null);
+                  setBrandedDialogOpen(true);
+                }}
+              >
+                New product
+              </Button>
               <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenAdd}>
                 Add Material
               </Button>
@@ -635,6 +654,17 @@ export default function MaterialsPage() {
           onEdit={handleOpenEdit}
           onOpenInPage={handleOpenInPage}
           onAddVendorQuote={handleAddVendorQuote}
+          onConvertToBranded={(m) => {
+            setBrandedSource({
+              id: m.id,
+              name: m.name,
+              code: m.code,
+              category_id: m.category_id,
+              unit: m.unit,
+            });
+            setBrandedDialogOpen(true);
+            inspect.close();
+          }}
           onVendorClick={(vendorId, vendorName) =>
             inspect.push({ kind: "vendor", id: vendorId, title: vendorName })
           }
@@ -673,6 +703,18 @@ export default function MaterialsPage() {
           open={tileDialogOpen}
           onClose={() => setTileDialogOpen(false)}
           categories={categories}
+        />
+      )}
+
+      {brandedDialogOpen && (
+        <BrandedProductDialog
+          open={brandedDialogOpen}
+          onClose={() => {
+            setBrandedDialogOpen(false);
+            setBrandedSource(null);
+          }}
+          categories={categories}
+          sourceMaterial={brandedSource}
         />
       )}
 

@@ -1529,6 +1529,196 @@ export function useDeleteMaterialBrand() {
 // ============================================
 
 /**
+ * Insert a set of variants (child materials) under an existing parent, wiring
+ * up brand links, pack rows, the first vendor quote (vendor_inventory), and a
+ * dated price_history quote row for the branded/pack flow. Shared by
+ * useCreateMaterialWithVariants and useConvertMaterialToBranded so both paths
+ * behave identically. The tile flow (no brand, no pack) is unaffected: no
+ * packs, per-piece vendor price, and no price_history row.
+ */
+async function insertBrandedVariants(
+  supabase: any,
+  params: {
+    parentId: string;
+    parentCode: string | null;
+    unit: string;
+    gstRate?: number;
+    categoryId?: string | null;
+    weightUnit?: string;
+    lengthUnit?: string;
+    hsnCode?: string | null;
+    createdBrandId: string | null;
+    brandName?: string | null;
+    priceIncludesGst?: boolean;
+    quoteRecordedDate?: string;
+    variants: VariantFormData[];
+  }
+): Promise<void> {
+  const {
+    parentId,
+    parentCode,
+    unit,
+    gstRate,
+    categoryId,
+    weightUnit,
+    lengthUnit,
+    hsnCode,
+    createdBrandId,
+    brandName,
+    priceIncludesGst,
+    quoteRecordedDate,
+    variants,
+  } = params;
+
+  if (!variants || variants.length === 0) return;
+
+  // Map each row back to its source VariantFormData by its (deterministic) code.
+  const codeToVariant = new Map<string, VariantFormData>();
+  const variantsToInsert = variants.map((v, index) => {
+    const variantCode =
+      v.code?.trim() || `${parentCode}-V${(index + 1).toString().padStart(2, "0")}`;
+    codeToVariant.set(variantCode, v);
+    return {
+      name: v.name.trim(),
+      code: variantCode,
+      local_name: v.local_name?.trim() || null,
+      parent_id: parentId,
+      category_id: categoryId?.trim() || null,
+      unit,
+      hsn_code: hsnCode?.trim() || null,
+      gst_rate: gstRate,
+      weight_per_unit: v.weight_per_unit,
+      weight_unit: weightUnit || "kg",
+      length_per_piece: v.length_per_piece,
+      length_unit: lengthUnit || "m",
+      rods_per_bundle: v.rods_per_bundle,
+      image_url: v.image_url ?? null,
+      specifications: v.specifications || null,
+      // Pack-priced branded variants are sold in fixed cans.
+      sold_in_packs: !!(v.pack_contents_qty && v.pack_contents_qty > 0),
+    };
+  });
+
+  const { data: createdVariants, error: variantError } = await supabase
+    .from("materials")
+    .insert(variantsToInsert)
+    .select("id, code");
+  if (variantError) throw variantError;
+  if (!createdVariants || createdVariants.length === 0) return;
+
+  // Auto-link all active brands of the parent to each new variant.
+  const { data: brands } = await supabase
+    .from("material_brands")
+    .select("id")
+    .eq("material_id", parentId)
+    .eq("is_active", true);
+  if (brands && brands.length > 0) {
+    const links = (createdVariants as { id: string }[]).flatMap((v) =>
+      brands.map((b: { id: string }) => ({
+        brand_id: b.id,
+        variant_id: v.id,
+        is_active: true,
+      }))
+    );
+    await supabase.from("material_brand_variant_links").insert(links).throwOnError();
+  }
+
+  const nowIso = new Date().toISOString();
+  const recordedDate = quoteRecordedDate || nowIso.slice(0, 10);
+  const incGst = priceIncludesGst ?? true;
+
+  // Per-variant packs (branded products sold in fixed cans). The entered
+  // per-can price becomes a material_packs row; the vendor quote below is
+  // stored per-base-unit so all downstream money math stays per-base-unit.
+  const packRows = (createdVariants as { id: string; code: string }[])
+    .map((cv) => {
+      const src = codeToVariant.get(cv.code);
+      if (src?.pack_contents_qty && src.pack_contents_qty > 0) {
+        return {
+          material_id: cv.id,
+          label: src.pack_label?.trim() || `${src.pack_contents_qty} ${unit}`,
+          contents_qty: src.pack_contents_qty,
+          price: src.pack_price ?? null,
+          price_includes_gst: incGst,
+          gst_rate: gstRate ?? 0,
+          display_order: 0,
+          is_active: true,
+        };
+      }
+      return null;
+    })
+    .filter(Boolean);
+  if (packRows.length > 0) {
+    const { error: packErr } = await supabase.from("material_packs").insert(packRows);
+    if (packErr) console.error("Failed to insert variant packs:", packErr);
+  }
+
+  const priceHistoryRows: Record<string, unknown>[] = [];
+  const inventoryRows = (createdVariants as { id: string; code: string }[])
+    .map((cv) => {
+      const src = codeToVariant.get(cv.code);
+      if (!src?.initial_vendor_id) return null;
+      const hasPack = !!(
+        src.pack_contents_qty &&
+        src.pack_contents_qty > 0 &&
+        src.pack_price &&
+        src.pack_price > 0
+      );
+      const perUnit = hasPack
+        ? src.pack_price! / src.pack_contents_qty!
+        : src.initial_vendor_price ?? null;
+      if (!perUnit || perUnit <= 0) return null;
+
+      // Dated quote log — branded/pack flow only.
+      if (hasPack || brandName) {
+        priceHistoryRows.push({
+          vendor_id: src.initial_vendor_id,
+          material_id: cv.id,
+          brand_id: createdBrandId,
+          price: perUnit,
+          price_includes_gst: incGst,
+          gst_rate: gstRate ?? 0,
+          total_landed_cost: perUnit,
+          recorded_date: recordedDate,
+          source: "quotation",
+          notes: src.initial_vendor_notes?.trim() || null,
+          bill_url: src.initial_vendor_bill_url || null,
+        });
+      }
+
+      return {
+        vendor_id: src.initial_vendor_id,
+        material_id: cv.id,
+        brand_id: createdBrandId ?? undefined,
+        current_price: perUnit,
+        unit,
+        gst_rate: gstRate ?? 0,
+        price_includes_gst: incGst,
+        price_includes_transport: true,
+        is_available: true,
+        min_order_qty: 1,
+        lead_time_days: 1,
+        notes: src.initial_vendor_notes?.trim() || null,
+        last_price_update: nowIso,
+        price_source: src.initial_vendor_bill_url
+          ? "bill"
+          : brandName
+            ? "quotation"
+            : "manual",
+      };
+    })
+    .filter(Boolean);
+  if (inventoryRows.length > 0) {
+    const { error: invErr } = await supabase.from("vendor_inventory").insert(inventoryRows);
+    if (invErr) console.error("Failed to insert variant prices:", invErr);
+  }
+  if (priceHistoryRows.length > 0) {
+    const { error: phErr } = await supabase.from("price_history").insert(priceHistoryRows);
+    if (phErr) console.error("Failed to insert variant price history:", phErr);
+  }
+}
+
+/**
  * Create a material with variants in one transaction
  * Creates the parent material first, then all variants with the same parent_id
  */
@@ -1541,7 +1731,16 @@ export function useCreateMaterialWithVariants() {
       // Ensure fresh session before mutation
       await ensureFreshSession();
 
-      const { variants, designs, ...parentData } = data;
+      // Pull the branded-flow fields out so they don't leak into the materials
+      // insert (they are not columns on `materials`).
+      const {
+        variants,
+        designs,
+        brand_name,
+        price_includes_gst,
+        quote_recorded_date,
+        ...parentData
+      } = data;
 
       // Generate parent code if not provided
       let code = parentData.code?.trim() || null;
@@ -1570,6 +1769,25 @@ export function useCreateMaterialWithVariants() {
 
       if (parentError) throw parentError;
 
+      // Branded-product flow: create the brand on the parent up-front so the
+      // variant auto-link below (which links all active parent brands) picks it
+      // up. The tile flow passes no brand_name and is unaffected.
+      let createdBrandId: string | null = null;
+      if (brand_name?.trim()) {
+        const { data: brandRow, error: brandErr } = await (supabase as any)
+          .from("material_brands")
+          .insert({
+            material_id: parent.id,
+            brand_name: brand_name.trim(),
+            is_preferred: true,
+            is_active: true,
+          })
+          .select("id")
+          .single();
+        if (brandErr) throw brandErr;
+        createdBrandId = brandRow.id;
+      }
+
       // Insert shared visual designs (e.g. tile patterns) on the parent.
       // Designs are not priced and not tied to a variant — a gallery uploaded
       // once and shown across all thickness variants.
@@ -1586,111 +1804,121 @@ export function useCreateMaterialWithVariants() {
         if (designError) throw designError;
       }
 
-      // Create variants if any
+      // Create variants (child materials) with brand links, packs, the first
+      // vendor quote, and a dated price_history row. Shared with
+      // useConvertMaterialToBranded via insertBrandedVariants.
       if (variants && variants.length > 0) {
-        // Map each row back to its source VariantFormData by its (deterministic)
-        // code, so we can chain the optional first price after insert.
-        const codeToVariant = new Map<string, VariantFormData>();
-        const variantsToInsert = variants.map((v, index) => {
-          const variantCode =
-            v.code?.trim() ||
-            `${code}-V${(index + 1).toString().padStart(2, "0")}`;
-          codeToVariant.set(variantCode, v);
-          return {
-            name: v.name.trim(),
-            code: variantCode,
-            local_name: v.local_name?.trim() || null,
-            parent_id: parent.id,
-            category_id: parentData.category_id?.trim() || null,
-            unit: parentData.unit,
-            hsn_code: parentData.hsn_code?.trim() || null,
-            gst_rate: parentData.gst_rate,
-            // Legacy fields for backward compatibility
-            weight_per_unit: v.weight_per_unit,
-            weight_unit: parentData.weight_unit || "kg",
-            length_per_piece: v.length_per_piece,
-            length_unit: parentData.length_unit || "m",
-            rods_per_bundle: v.rods_per_bundle,
-            // Per-variant image (e.g. gallery picker)
-            image_url: v.image_url ?? null,
-            // Dynamic specifications based on category template
-            specifications: v.specifications || null,
-          };
+        await insertBrandedVariants(supabase, {
+          parentId: parent.id,
+          parentCode: code,
+          unit: parentData.unit,
+          gstRate: parentData.gst_rate,
+          categoryId: parentData.category_id,
+          weightUnit: parentData.weight_unit,
+          lengthUnit: parentData.length_unit,
+          hsnCode: parentData.hsn_code,
+          createdBrandId,
+          brandName: brand_name,
+          priceIncludesGst: price_includes_gst,
+          quoteRecordedDate: quote_recorded_date,
+          variants,
         });
-
-        const { data: createdVariants, error: variantError } = await (supabase.from("materials") as any)
-          .insert(variantsToInsert)
-          .select("id, code");
-
-        if (variantError) throw variantError;
-
-        // Auto-link all existing active brands of the parent material to each new variant
-        if (createdVariants && createdVariants.length > 0) {
-          const { data: brands } = await supabase
-            .from("material_brands")
-            .select("id")
-            .eq("material_id", parent.id)
-            .eq("is_active", true);
-
-          if (brands && brands.length > 0) {
-            const links = createdVariants.flatMap((v: { id: string }) =>
-              brands.map((b) => ({
-                brand_id: b.id,
-                variant_id: v.id,
-                is_active: true,
-              }))
-            );
-            await (supabase as any)
-              .from("material_brand_variant_links")
-              .insert(links)
-              .throwOnError();
-          }
-
-          // Optional first price per variant. Previously this path silently
-          // dropped initial_vendor_price (only useAddVariantToMaterial wrote it).
-          // Mirror that vendor_inventory insert so per-thickness tile prices
-          // land where the catalog card + inspect pane read them. GST is left
-          // at the parent's rate with price_includes_gst=true so the displayed
-          // landed price equals the entered price.
-          const inventoryRows = (createdVariants as { id: string; code: string }[])
-            .map((cv) => {
-              const src = codeToVariant.get(cv.code);
-              if (
-                src?.initial_vendor_id &&
-                src.initial_vendor_price &&
-                src.initial_vendor_price > 0
-              ) {
-                return {
-                  vendor_id: src.initial_vendor_id,
-                  material_id: cv.id,
-                  current_price: src.initial_vendor_price,
-                  unit: parentData.unit,
-                  gst_rate: parentData.gst_rate ?? 0,
-                  price_includes_gst: true,
-                  price_includes_transport: true,
-                  is_available: true,
-                  min_order_qty: 1,
-                  lead_time_days: 1,
-                  notes: src.initial_vendor_notes?.trim() || null,
-                  last_price_update: new Date().toISOString(),
-                  price_source: src.initial_vendor_bill_url ? "bill" : "manual",
-                };
-              }
-              return null;
-            })
-            .filter(Boolean);
-
-          if (inventoryRows.length > 0) {
-            const { error: invErr } = await (supabase as any)
-              .from("vendor_inventory")
-              .insert(inventoryRows);
-            // Don't fail the whole create — variants are in, the price just
-            // didn't land. Surface to console; the user can re-attach via the
-            // Vendors tab.
-            if (invErr) console.error("Failed to insert variant prices:", invErr);
-          }
-        }
       }
+
+      return parent as Material;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["materials"] });
+    },
+  });
+}
+
+export interface ConvertMaterialToBrandedData {
+  material_id: string;
+  /** Optional new name for the parent (e.g. rename "Berger White Primer" → "Wall Primer"). */
+  name?: string;
+  brand_name: string;
+  gst_rate?: number;
+  price_includes_gst?: boolean;
+  quote_recorded_date?: string;
+  variants: VariantFormData[];
+}
+
+/**
+ * Convert an existing FLAT material into a branded parent-with-variants:
+ * optionally rename it, add the brand, and add the priced variants (+ packs +
+ * vendor quote + dated price_history). Reuses insertBrandedVariants so it stays
+ * identical to the create flow. Intended for fixing a mistakenly-created flat
+ * material (e.g. a brand name entered as a standalone material).
+ */
+export function useConvertMaterialToBranded() {
+  const queryClient = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    mutationFn: async (data: ConvertMaterialToBrandedData) => {
+      await ensureFreshSession();
+
+      // Load the existing parent for its code/unit/category needed by variants.
+      const { data: parent, error: parentErr } = await (supabase.from("materials") as any)
+        .select("id, code, name, unit, category_id, gst_rate, weight_unit, length_unit, hsn_code, parent_id")
+        .eq("id", data.material_id)
+        .single();
+      if (parentErr) throw parentErr;
+      if (parent.parent_id) {
+        throw new Error("This material is already a variant — pick its parent instead.");
+      }
+
+      // Optional rename + GST update; keep it a top-level parent.
+      const updates: Record<string, unknown> = {};
+      if (data.name?.trim() && data.name.trim() !== parent.name) {
+        updates.name = data.name.trim();
+      }
+      if (data.gst_rate != null) updates.gst_rate = data.gst_rate;
+      if (Object.keys(updates).length > 0) {
+        const { error: upErr } = await (supabase.from("materials") as any)
+          .update(updates)
+          .eq("id", parent.id);
+        if (upErr) throw upErr;
+      }
+
+      // Reuse an existing active brand of the same name, else create it.
+      const bn = data.brand_name.trim();
+      let brandId: string | null = null;
+      const { data: existing } = await supabase
+        .from("material_brands")
+        .select("id")
+        .eq("material_id", parent.id)
+        .eq("brand_name", bn)
+        .eq("is_active", true)
+        .limit(1);
+      if (existing && existing.length > 0) {
+        brandId = existing[0].id;
+      } else {
+        const { data: brandRow, error: brandErr } = await (supabase as any)
+          .from("material_brands")
+          .insert({ material_id: parent.id, brand_name: bn, is_preferred: true, is_active: true })
+          .select("id")
+          .single();
+        if (brandErr) throw brandErr;
+        brandId = brandRow.id;
+      }
+
+      await insertBrandedVariants(supabase, {
+        parentId: parent.id,
+        parentCode: parent.code,
+        unit: parent.unit,
+        gstRate: data.gst_rate ?? parent.gst_rate,
+        categoryId: parent.category_id,
+        weightUnit: parent.weight_unit,
+        lengthUnit: parent.length_unit,
+        hsnCode: parent.hsn_code,
+        createdBrandId: brandId,
+        brandName: bn,
+        priceIncludesGst: data.price_includes_gst,
+        quoteRecordedDate: data.quote_recorded_date,
+        variants: data.variants,
+      });
 
       return parent as Material;
     },
