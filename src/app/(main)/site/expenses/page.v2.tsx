@@ -1509,7 +1509,15 @@ export default function ExpensesPageV2() {
 
                 return (
                   <TableRow
-                    key={row.id}
+                    // A single settlement can split into multiple expense_type
+                    // rows (e.g. part Advance + part Contract Salary) that all
+                    // share the same underlying row.id (= settlement_group_id).
+                    // Keying on row.id alone collides in that case — React's
+                    // reconciliation for duplicate keys is explicitly
+                    // undefined ("children ... duplicated and/or omitted"),
+                    // which manifested as a stale row surviving date-range
+                    // filtering. expense_type disambiguates the split rows.
+                    key={`${row.id}:${row.expense_type}`}
                     sx={{
                       "&:hover": { bgcolor: "action.hover" },
                       borderTop: 1,

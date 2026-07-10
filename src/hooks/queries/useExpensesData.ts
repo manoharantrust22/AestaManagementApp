@@ -122,27 +122,48 @@ export const PAGE_SIZE = 50;
 export interface Cursor {
   date: string;
   id: string;
+  // A single settlement can split into multiple expense_type rows (e.g. part
+  // Advance + part Contract Salary) that all share the same underlying id
+  // (= settlement_group_id). (date, id) is therefore NOT always a unique
+  // total order — add expense_type as a tie-breaker so the cursor can't
+  // permanently strand a sibling split-row on the wrong side of a page
+  // boundary (id.lt.cursor.id excludes it forever since its id is equal,
+  // not less).
+  expenseType: string;
 }
 
 export function buildCursorFromLastRow(rows: ExpenseRow[]): Cursor | null {
   if (rows.length === 0) return null;
   const last = rows[rows.length - 1];
-  return { date: last.date, id: last.id };
+  return { date: last.date, id: last.id, expenseType: last.expense_type };
 }
 
 /**
- * PostgREST or-filter string for `(date, id) < (cursor.date, cursor.id)`.
+ * PostgREST or-filter string for
+ * `(date, id, expense_type) < (cursor.date, cursor.id, cursor.expenseType)`.
  *
  * Encodes the "strictly older than cursor" predicate for newest-first
- * (date DESC, id DESC) pagination ONLY. Do not use for ascending order —
- * callers requiring ASC need the symmetric `gt`/`eq+gt` predicate, which
- * this function does not provide. The caller is responsible for ensuring
- * the surrounding query is ordered DESC.
+ * (date DESC, id DESC, expense_type DESC) pagination ONLY. Do not use for
+ * ascending order — callers requiring ASC need the symmetric `gt`/`eq+gt`
+ * predicate, which this function does not provide. The caller is
+ * responsible for ensuring the surrounding query is ordered DESC.
  *
  * Used as `.or(buildCursorPredicate(c))` in Supabase JS query chains.
  */
 export function buildCursorPredicate(c: Cursor): string {
-  return `date.lt.${c.date},and(date.eq.${c.date},id.lt.${c.id})`;
+  return (
+    `date.lt.${c.date},` +
+    `and(date.eq.${c.date},id.lt.${c.id}),` +
+    `and(date.eq.${c.date},id.eq.${c.id},expense_type.lt.${c.expenseType})`
+  );
+}
+
+// Split-settlement rows (see Cursor above) share an id across expense_type
+// variants, so `id` alone isn't a safe dedupe key — it would drop a
+// legitimate sibling row that lands in a later page. Key on (id, expense_type)
+// instead.
+function rowDedupeKey(r: ExpenseRow): string {
+  return `${r.id}::${r.expense_type}`;
 }
 
 export function appendPageDedupe(
@@ -150,8 +171,8 @@ export function appendPageDedupe(
   next: ExpenseRow[],
 ): ExpenseRow[] {
   if (next.length === 0) return prev;
-  const seen = new Set(prev.map((r) => r.id));
-  const fresh = next.filter((r) => !seen.has(r.id));
+  const seen = new Set(prev.map(rowDedupeKey));
+  const fresh = next.filter((r) => !seen.has(rowDedupeKey(r)));
   if (fresh.length === 0) return prev;
   return [...prev, ...fresh];
 }
@@ -238,7 +259,8 @@ export function useExpensesData(args: Args) {
           .eq("site_id", siteId)
           .eq("is_deleted", false)
           .order("date", { ascending: false })
-          .order("id", { ascending: false });
+          .order("id", { ascending: false })
+          .order("expense_type", { ascending: false });
 
         if (!isAllTime && dateFrom && dateTo) {
           query = query.gte("date", dateFrom).lte("date", dateTo);
