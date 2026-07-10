@@ -19,7 +19,7 @@ import {
 import { Warning as WarningIcon, ShowChart as ShowChartIcon } from "@mui/icons-material";
 import MiniPriceChart from "./MiniPriceChart";
 import { useVendorMaterialBrands, useVendorMaterialPrice } from "@/hooks/queries/useVendorInventory";
-import { useBrandVariantLinkedBrandNames, useBrandVariantLinks } from "@/hooks/queries/useMaterials";
+import { useBrandVariantLinks } from "@/hooks/queries/useMaterials";
 import { useMaterialPacks } from "@/hooks/queries/useMaterialPacks";
 import { activePacks, representativePack, packUnitPrice } from "@/lib/materials/packs";
 import type { RequestItemForConversion, MaterialBrand } from "@/types/material.types";
@@ -66,36 +66,38 @@ export default function RequestItemRow({
   // If variant is selected, use variant's material_id, otherwise use the parent
   const effectiveMaterialId = item.selected_variant_id || item.material_id;
 
-  // Fetch brands for the vendor + material combination
+  // Fetch brands for the vendor + material combination. Brand is the PARENT of
+  // the variant, so brand options come from the parent material and stay stable
+  // regardless of which variant is later chosen under that brand.
   const { data: vendorBrands = [], isLoading: isLoadingBrands } = useVendorMaterialBrands(
     vendorId,
-    effectiveMaterialId
+    item.material_id ?? effectiveMaterialId
   );
 
-  // When ordering a variant material, filter brands to those linked to that variant.
-  // item.selected_variant_id is set when user has selected a specific grade/variant.
-  const { data: linkedBrandNames } = useBrandVariantLinkedBrandNames(
-    item.selected_variant_id ?? undefined
-  );
-
-  // Fetch brand-variant links to resolve variant-level images for the brand dropdown.
+  // Fetch brand-variant links to (a) resolve variant-level images for the brand
+  // dropdown and (b) filter the Variant options down to the chosen brand below.
   // material_brands are keyed to the PARENT material, not the variant — always use material_id.
   const { data: brandLinks = [] } = useBrandVariantLinks(
     item.material_id ?? undefined
   );
 
-  // Get unique brand names from vendor inventory
+  // Get unique brand names for this material. The variant is chosen AFTER the
+  // brand now, so we no longer narrow brands by the selected variant. Prefer the
+  // brands the vendor stocks; fall back to the catalog's parent-keyed brands
+  // (material_brands) so brand-first selection still works when the vendor has no
+  // inventory rows at the parent level yet (e.g. inventory keyed per variant).
   const uniqueBrandNames = useMemo(() => {
-    if (!vendorBrands || vendorBrands.length === 0) return [];
-    const brandNames = new Set<string>();
-    vendorBrands.forEach((b: any) => {
-      if (b.brand_name) brandNames.add(b.brand_name);
+    const fromVendor = new Set<string>();
+    (vendorBrands ?? []).forEach((b: any) => {
+      if (b.brand_name) fromVendor.add(b.brand_name);
     });
-    const allNames = Array.from(brandNames).sort();
-    // null means "no variant selected" or "no links yet" → show all brands
-    if (!linkedBrandNames) return allNames;
-    return allNames.filter((name) => linkedBrandNames.includes(name));
-  }, [vendorBrands, linkedBrandNames]);
+    if (fromVendor.size > 0) return Array.from(fromVendor).sort();
+    const fromCatalog = new Set<string>();
+    (brandLinks ?? []).forEach((b) => {
+      if (b.brand_name) fromCatalog.add(b.brand_name);
+    });
+    return Array.from(fromCatalog).sort();
+  }, [vendorBrands, brandLinks]);
 
   // Build brand option objects with resolved images for the dropdown
   // Priority: link.image_url → brand.image_url (material image not available on this view model)
@@ -111,6 +113,40 @@ export default function RequestItemRow({
       return { name, imageUrl };
     });
   }, [uniqueBrandNames, vendorBrands, brandLinks, item.selected_variant_id]);
+
+  // ── Brand → Variant gating ────────────────────────────────────────────────
+  // Brand is the parent; once picked, the Variant field only offers the variants
+  // linked to that brand (material_brand_variant_links). Fallbacks keep the user
+  // unblocked: a brand with no links yet → show all variants.
+  const variantOptionsForBrand = useMemo(() => {
+    const allVariants = item.variants ?? [];
+    if (!item.selected_brand_name) return [];
+    const brandEntry = brandLinks.find((b) => b.brand_name === item.selected_brand_name);
+    const linkedVariantIds = new Set(
+      (brandEntry?.material_brand_variant_links ?? [])
+        .filter((l) => l.is_active !== false && l.variant_id)
+        .map((l) => l.variant_id)
+    );
+    if (linkedVariantIds.size === 0) return allVariants; // no links → show all
+    return allVariants.filter((v) => linkedVariantIds.has(v.id));
+  }, [item.variants, item.selected_brand_name, brandLinks]);
+
+  // Only gate the Variant on Brand when this material actually offers brands.
+  // Brandless materials (or vendors with no brands) keep the variant enabled.
+  const materialHasBrandChoices = brandOptions.length > 0;
+  const variantNeedsBrand = materialHasBrandChoices && !item.selected_brand_name;
+  const variantOptions = useMemo(() => {
+    const base = materialHasBrandChoices ? variantOptionsForBrand : (item.variants ?? []);
+    // Keep any already-selected variant present (e.g. a request arrives with a
+    // suggested variant before a brand is chosen) so MUI never warns that the
+    // Autocomplete value is missing from its options.
+    if (item.selected_variant_id && !base.some((v) => v.id === item.selected_variant_id)) {
+      const sel = (item.variants ?? []).find((v) => v.id === item.selected_variant_id);
+      if (sel) return [...base, sel];
+    }
+    return base;
+  }, [materialHasBrandChoices, variantOptionsForBrand, item.variants, item.selected_variant_id]);
+  const variantDisabled = isDisabled || !item.selected || variantNeedsBrand;
 
   // Get brand variants for the selected brand name
   const brandVariantsForSelectedBrand = useMemo(() => {
@@ -259,6 +295,11 @@ export default function RequestItemRow({
 
   // Handle brand name selection
   const handleBrandNameChange = (brandName: string | null) => {
+    // Brand is the parent of the variant — changing it invalidates any variant
+    // chosen under the previous brand, so clear the variant and reset the price.
+    onVariantChange(null, null);
+    onPriceChange("0");
+
     if (!brandName) {
       onBrandChange(null, null);
       return;
@@ -274,6 +315,12 @@ export default function RequestItemRow({
     } else if (brandsWithName.length > 1) {
       // Multiple variants - just set the brand name, user will select variant
       onBrandChange(null, brandName);
+    } else {
+      // Catalog-only brand (vendor has no inventory row yet): resolve the
+      // material_brands id from the parent's brand links so the PO still carries
+      // a real brand_id.
+      const catalogBrand = brandLinks.find((b) => b.brand_name === brandName);
+      onBrandChange(catalogBrand?.id ?? null, brandName);
     }
   };
 
@@ -413,42 +460,7 @@ export default function RequestItemRow({
             </Tooltip>
           </Box>
 
-          {/* Variant Selection - show if material has variants */}
-          {item.has_variants && item.variants && item.variants.length > 0 && (
-            <Autocomplete
-              size="small"
-              options={item.variants}
-              getOptionLabel={(opt) => opt.name}
-              value={item.variants.find(v => v.id === item.selected_variant_id) || null}
-              onChange={(_, value) => {
-                onVariantChange(value?.id || null, value?.name || null);
-                // Clear brand when variant changes
-                onBrandChange(null, null);
-                // Reset price when variant changes
-                onPriceChange("0");
-              }}
-              disabled={isDisabled || !item.selected}
-              slotProps={{
-                popper: { disablePortal: false }
-              }}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  placeholder="Select variant..."
-                  size="small"
-                  sx={{ mt: 0.5, maxWidth: 200 }}
-                />
-              )}
-              sx={{ mt: 0.5 }}
-            />
-          )}
-
-          {/* Show selected variant name if any */}
-          {item.selected_variant_name && (
-            <Typography variant="caption" color="primary.main" sx={{ display: "block", mt: 0.25 }}>
-              Variant: {item.selected_variant_name}
-            </Typography>
-          )}
+          {/* Variant Selection now lives under Brand (Material → Brand → Variant). */}
 
           {/* Pack (can) size — only when the chosen variant is sold in cans */}
           {showPackUi && item.selected && (
@@ -540,6 +552,42 @@ export default function RequestItemRow({
               />
             )}
           />
+
+          {/* Variant Selection — chosen AFTER the brand. Options are filtered to
+              the selected brand and the field is disabled until a brand is picked. */}
+          {item.has_variants && item.variants && item.variants.length > 0 && (
+            <>
+              <Autocomplete
+                size="small"
+                options={variantOptions}
+                getOptionLabel={(opt) => opt.name}
+                value={item.variants.find((v) => v.id === item.selected_variant_id) || null}
+                onChange={(_, value) => {
+                  onVariantChange(value?.id || null, value?.name || null);
+                  // Reset price when variant changes (brand stays — it's the parent).
+                  onPriceChange("0");
+                }}
+                disabled={variantDisabled}
+                slotProps={{
+                  popper: { disablePortal: false }
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    placeholder={variantNeedsBrand ? "Select brand first" : "Select variant..."}
+                    size="small"
+                    sx={{ mt: 0.5, maxWidth: 200 }}
+                  />
+                )}
+                sx={{ mt: 0.5 }}
+              />
+              {item.selected_variant_name && (
+                <Typography variant="caption" color="primary.main" sx={{ display: "block", mt: 0.25 }}>
+                  Variant: {item.selected_variant_name}
+                </Typography>
+              )}
+            </>
+          )}
 
           {/* Brand variant dropdown - show if brand has multiple variants */}
           {hasBrandVariants && item.selected_brand_name && (
@@ -709,16 +757,34 @@ export default function RequestItemRow({
             ≈ {formatCurrency(item.unit_price)}/{item.unit} · {cans} can{cans !== 1 ? "s" : ""} = {formatCurrency(itemSubtotal)}
           </Typography>
         )}
-        {/* Show last price hint if available with unit context */}
-        {!showPackUi && priceData?.price && item.unit_price !== priceData.price && (
+        {/* Price intelligence: the actual last purchase (price + date) for this
+            vendor+variant when we have history — shown even when it matches the
+            entered price so the office sees WHEN we last paid it; otherwise the
+            vendor's current quote as a suggestion. */}
+        {!showPackUi && priceData?.last_purchase_price != null && priceData?.last_purchase_date ? (
           <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-            → Last: {formatCurrency(priceData.price)}
+            Last paid {formatCurrency(priceData.last_purchase_price)}
             {priceData.pricing_mode === "per_kg" ? "/kg" : priceData.pricing_mode === "per_piece" ? "/pc" : ""}
-            {priceData.last_purchase_date && (
-              <> on {new Date(priceData.last_purchase_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</>
-            )}
+            {" on "}
+            {new Date(priceData.last_purchase_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
           </Typography>
-        )}
+        ) : (!showPackUi && priceData?.price && item.unit_price !== priceData.price ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+            → Suggested: {formatCurrency(priceData.price)}
+            {priceData.pricing_mode === "per_kg" ? "/kg" : priceData.pricing_mode === "per_piece" ? "/pc" : ""}
+          </Typography>
+        ) : null)}
+        {/* Cross-vendor hint: another vendor charged less for this material. */}
+        {!showPackUi &&
+          priceData?.lowest_vendor_price != null &&
+          priceData.lowest_vendor_id !== vendorId &&
+          priceData.price != null &&
+          priceData.lowest_vendor_price < priceData.price && (
+            <Typography variant="caption" sx={{ display: "block", color: "warning.main" }}>
+              ↓ Lowest {formatCurrency(priceData.lowest_vendor_price)}
+              {priceData.lowest_vendor_name ? ` · ${priceData.lowest_vendor_name}` : ""}
+            </Typography>
+          )}
         {/* Show converted price if weight-based */}
         {convertedPrice && item.selected && (
           <Typography

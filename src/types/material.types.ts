@@ -2572,12 +2572,23 @@ export interface SpotPurchasePayload {
   provisional_split?: Array<{ site_id: string; percentage: number }>;
   notes?: string;
   purchase_date?: string;
+  /**
+   * How the purchase is paid. `engineer_wallet` (default) debits the site
+   * engineer's wallet. `direct` is for admin/office — no wallet; the payer
+   * source below records whose money was used.
+   */
+  payment_channel?: "engineer_wallet" | "direct";
+  /** Direct payments only: which money paid for it (e.g. own_money, client_money). */
+  payer_source?: string | null;
+  /** Direct payments only: free-text name for custom/other-site sources. */
+  payer_name?: string | null;
 }
 
 export interface SpotPurchaseResult {
   batch_id: string;
   ref_code: string;
   vendor_id: string;
-  engineer_transaction_id: string;
+  /** Null for direct (non-wallet) admin/office payments. */
+  engineer_transaction_id: string | null;
 }
 

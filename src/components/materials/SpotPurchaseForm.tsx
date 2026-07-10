@@ -12,14 +12,17 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Alert, Autocomplete, Box, Button, Card, CardContent, Divider,
-  IconButton, MenuItem, Paper, Stack, TextField, ToggleButton,
+  MenuItem, Stack, TextField, ToggleButton,
   ToggleButtonGroup, Typography,
 } from "@mui/material";
-import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
+import { Add as AddIcon } from "@mui/icons-material";
 
 import { ReceiptCapture, type ReceiptCaptureValue } from "@/components/common/ReceiptCapture";
 import { RateUpdatePromptDialog } from "./RateUpdatePromptDialog";
+import SpotPurchaseItemRow from "./SpotPurchaseItemRow";
 import WalletBalancePreview from "@/components/wallet-v2/WalletBalancePreview";
+import PayerSourceSelector from "@/components/settlement/PayerSourceSelector";
+import { requiresPayerName, type PayerSource } from "@/types/settlement.types";
 import { useMaterials, useMaterialCategories } from "@/hooks/queries/useMaterials";
 import { useVendors } from "@/hooks/queries/useVendors";
 import { useSiteGroupSites } from "@/hooks/queries/useSiteGroups";
@@ -28,6 +31,7 @@ import { useCreateSpotPurchase } from "@/hooks/queries/useSpotPurchases";
 import { useSelectedSite } from "@/contexts/SiteContext";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Material, SpotPurchasePayload } from "@/types/material.types";
+import type { GraniteLine } from "@/types/spaces.types";
 
 type AllocationMode = "own_site" | "group";
 type PaymentMode = SpotPurchasePayload["payment_mode"];
@@ -40,7 +44,7 @@ const PAYMENT_MODES: { value: PaymentMode; label: string }[] = [
   { value: "credit", label: "Credit (pay later)" },
 ];
 
-interface ItemRow {
+export interface ItemRow {
   rid: string;
   material: Material | null;
   newMaterialName: string;
@@ -48,8 +52,12 @@ interface ItemRow {
   newMaterialCategoryId: string | null;
   qty: number;
   rate: number;
-  /** placeholder for Task F catalog-rate prompt; always undefined for now */
+  /** Vendor's catalog rate for this material; drives the post-submit rate prompt. */
   catalogRate: number | undefined;
+  /** Area materials (sqft/sqm): slab sizes; qty is derived from these. */
+  graniteLines?: GraniteLine[];
+  /** Human-readable slab-size summary, folded into the batch notes. */
+  sizeNote?: string | null;
 }
 
 interface VendorOption { id: string; name: string }
@@ -69,6 +77,10 @@ export default function SpotPurchaseForm() {
   const siteId = selectedSite?.id ?? null;
   const siteGroupId = selectedSite?.site_group_id ?? null;
   const engineerId = userProfile?.id ?? null;
+  // Site engineers pay from their own site wallet (source/mode derived from it).
+  // Admin/office have no wallet — they record full payment details (mode + payer
+  // source) and the purchase is settled "direct".
+  const isSiteEngineer = userProfile?.role === "site_engineer";
 
   // Supervisors should see their own quick-added drafts in the picker so
   // they can pick the same material/vendor for repeat spot purchases.
@@ -84,6 +96,8 @@ export default function SpotPurchaseForm() {
   const [billReceipt, setBillReceipt] = useState<ReceiptCaptureValue | null>(null);
   const [paymentScreenshot, setPaymentScreenshot] = useState<ReceiptCaptureValue | null>(null);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("cash");
+  const [payerSource, setPayerSource] = useState<PayerSource>("own_money");
+  const [payerName, setPayerName] = useState("");
   const [totalAmount, setTotalAmount] = useState<number>(0);
   const [notes, setNotes] = useState("");
   const [groupSplit, setGroupSplit] = useState<GroupSplitRow[]>([]);
@@ -104,7 +118,11 @@ export default function SpotPurchaseForm() {
     [groupSplit]
   );
 
-  const balanceQuery = useEngineerWalletBalance(engineerId ?? undefined, siteId ?? undefined);
+  // Only site engineers have a wallet — don't fetch a phantom ₹0 balance for admins.
+  const balanceQuery = useEngineerWalletBalance(
+    isSiteEngineer ? engineerId ?? undefined : undefined,
+    siteId ?? undefined,
+  );
   const walletBalance = balanceQuery.data?.balance;
   const walletKnown = !balanceQuery.isLoading && walletBalance != null;
 
@@ -141,13 +159,26 @@ export default function SpotPurchaseForm() {
     allocationMode === "own_site" ||
     (groupSplit.length > 0 && Math.abs(groupSplitTotal - 100) < 0.01);
   const totalOk = Number(totalAmount) > 0;
+  // Admin/office must pick a payer source (and a name for custom/other-site).
+  const payerOk =
+    isSiteEngineer ||
+    (!!payerSource && (!requiresPayerName(payerSource) || payerName.trim().length > 0));
   const canSubmit =
     !!siteId && vendorOk && items.length > 0 && itemsValid &&
-    groupSplitValid && totalOk && !create.isPending;
+    groupSplitValid && totalOk && payerOk && !create.isPending;
 
   async function handleSubmit() {
     if (!siteId || !canSubmit) return;
     setSubmitError(null);
+    // Preserve granite/marble slab sizes (entered by dimension) in the batch
+    // notes, since the payload only carries a numeric qty per item.
+    const sizeNotes = items
+      .filter((it) => it.sizeNote && it.sizeNote.trim())
+      .map((it) => `${it.material?.name ?? (it.newMaterialName.trim() || "Material")}: ${it.sizeNote}`);
+    const combinedNotes = [
+      notes.trim(),
+      sizeNotes.length ? `Sizes — ${sizeNotes.join(" · ")}` : "",
+    ].filter(Boolean).join("\n");
     const payload: SpotPurchasePayload = {
       site_id: siteId,
       allocation_mode: allocationMode,
@@ -169,7 +200,14 @@ export default function SpotPurchaseForm() {
       ),
       bill_url: billReceipt?.url ?? null,
       payment_screenshot_url: paymentScreenshot?.url ?? null,
-      notes: notes.trim() || undefined,
+      notes: combinedNotes || undefined,
+      payment_channel: isSiteEngineer ? "engineer_wallet" : "direct",
+      ...(isSiteEngineer
+        ? {}
+        : {
+            payer_source: payerSource,
+            payer_name: requiresPayerName(payerSource) ? payerName.trim() : null,
+          }),
       ...(allocationMode === "group"
         ? {
             provisional_split: groupSplit.map((r) => ({
@@ -218,6 +256,7 @@ export default function SpotPurchaseForm() {
           <Autocomplete
             size="small"
             options={vendors as VendorOption[]}
+            getOptionKey={(o) => o.id}
             getOptionLabel={(o) => o.name}
             isOptionEqualToValue={(a, b) => a.id === b.id}
             value={vendor}
@@ -293,69 +332,16 @@ export default function SpotPurchaseForm() {
         </Stack>
         <Stack spacing={1.5}>
           {items.map((it) => (
-            <Paper key={it.rid} variant="outlined" sx={{ p: 1.5 }}>
-              <Stack spacing={1}>
-                <Stack direction="row" spacing={1} alignItems="flex-start">
-                  <Autocomplete
-                    size="small"
-                    sx={{ flex: 1 }}
-                    options={materials}
-                    getOptionLabel={(m) => m.name}
-                    isOptionEqualToValue={(a, b) => a.id === b.id}
-                    value={it.material}
-                    onChange={(_, v) => updateItem(it.rid, { material: v, newMaterialName: "" })}
-                    renderInput={(p) => <TextField {...p} label="Material" placeholder="Search..." />}
-                  />
-                  {items.length > 1 && (
-                    <IconButton aria-label="remove item" size="small" onClick={() => removeItem(it.rid)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  )}
-                </Stack>
-                {!it.material && (
-                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                    <TextField
-                      size="small" label="New material name" value={it.newMaterialName}
-                      onChange={(e) => updateItem(it.rid, { newMaterialName: e.target.value })}
-                      sx={{ flex: 1 }}
-                    />
-                    <TextField
-                      size="small" label="Unit" value={it.newMaterialUnit}
-                      onChange={(e) => updateItem(it.rid, { newMaterialUnit: e.target.value })}
-                      sx={{ width: { sm: 110 } }}
-                    />
-                    <TextField
-                      select size="small" label="Category"
-                      value={it.newMaterialCategoryId ?? ""}
-                      onChange={(e) => updateItem(it.rid, { newMaterialCategoryId: e.target.value || null })}
-                      sx={{ width: { sm: 180 } }}
-                    >
-                      <MenuItem value="">(none)</MenuItem>
-                      {categories.map((c) => (
-                        <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
-                      ))}
-                    </TextField>
-                  </Stack>
-                )}
-                <Stack direction="row" spacing={1}>
-                  <TextField
-                    size="small" type="number" label="Qty" value={it.qty}
-                    onChange={(e) => updateItem(it.rid, { qty: Number(e.target.value) })}
-                    sx={{ flex: 1 }}
-                  />
-                  <TextField
-                    size="small" type="number" label="Rate" value={it.rate}
-                    onChange={(e) => updateItem(it.rid, { rate: Number(e.target.value) })}
-                    sx={{ flex: 1 }}
-                  />
-                  <TextField
-                    size="small" label="Line total"
-                    value={((Number(it.qty) || 0) * (Number(it.rate) || 0)).toFixed(2)}
-                    InputProps={{ readOnly: true }} sx={{ flex: 1 }}
-                  />
-                </Stack>
-              </Stack>
-            </Paper>
+            <SpotPurchaseItemRow
+              key={it.rid}
+              item={it}
+              vendorId={vendor?.id}
+              materials={materials}
+              categories={categories}
+              canRemove={items.length > 1}
+              onChange={(patch) => updateItem(it.rid, patch)}
+              onRemove={() => removeItem(it.rid)}
+            />
           ))}
           <Divider />
           <Stack direction="row" justifyContent="space-between">
@@ -384,14 +370,34 @@ export default function SpotPurchaseForm() {
       <Card variant="outlined"><CardContent>
         <Typography variant="subtitle1" sx={{ mb: 1 }}>Payment</Typography>
         <Stack spacing={1.5}>
-          <TextField
-            select size="small" label="Payment mode" value={paymentMode}
-            onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
-          >
-            {PAYMENT_MODES.map((m) => (
-              <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
-            ))}
-          </TextField>
+          {isSiteEngineer ? (
+            <Alert severity="info" sx={{ py: 0.5 }}>
+              Paid from your site wallet — settles automatically from the money in it.
+            </Alert>
+          ) : (
+            <>
+              <TextField
+                select size="small" label="Payment mode" value={paymentMode}
+                onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
+              >
+                {PAYMENT_MODES.map((m) => (
+                  <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
+                ))}
+              </TextField>
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+                  Paid from
+                </Typography>
+                <PayerSourceSelector
+                  value={payerSource}
+                  customName={payerName}
+                  onChange={setPayerSource}
+                  onCustomNameChange={setPayerName}
+                  siteId={siteId ?? undefined}
+                />
+              </Box>
+            </>
+          )}
           <TextField
             size="small" type="number" label="Total amount paid (₹)" value={totalAmount}
             onChange={(e) => setTotalAmount(Number(e.target.value))}
@@ -408,8 +414,8 @@ export default function SpotPurchaseForm() {
         </Stack>
       </CardContent></Card>
 
-      {/* Wallet preview */}
-      {engineerId && siteId && (
+      {/* Wallet preview — site engineers only (admins/office have no wallet). */}
+      {isSiteEngineer && engineerId && siteId && (
         <WalletBalancePreview
           engineerName={userProfile?.name ?? "Engineer"}
           siteName={selectedSite?.name ?? "Site"}

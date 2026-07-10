@@ -71,6 +71,7 @@ import SettlementRefDetailDialog, {
 } from "@/components/payments/SettlementRefDetailDialog";
 import { SettlementsList } from "@/components/payments/SettlementsList";
 import { SettlementViewToolbar } from "@/components/payments/SettlementViewToolbar";
+import { SettlementFilterBar, type SettlementQuickFlag } from "@/components/payments/SettlementFilterBar";
 import { MoveSettlementWizard } from "@/components/payments/MoveSettlementWizard";
 import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 import { UnlinkedSettlementsGroup } from "@/components/payments/UnlinkedSettlementsGroup";
@@ -347,6 +348,11 @@ export default function PaymentsContent() {
     if (typeof window === "undefined") return;
     sessionStorage.setItem("payments:hideCancelled", String(hideCancelled));
   }, [hideCancelled]);
+  // By-settlement quick filters (independent, combinable) + settlement-ID search.
+  // These narrow the already-loaded list on top of Hide-cancelled/trade scoping;
+  // the global date-range picker still bounds the fetch.
+  const [settlementFlags, setSettlementFlags] = useState<SettlementQuickFlag[]>([]);
+  const [settlementSearch, setSettlementSearch] = useState("");
   const { userProfile } = useAuth();
   const canEditSettlements = hasEditPermission(userProfile?.role);
   // Wallet-enabled site engineers see the SettleViaWalletDialog on Daily+Market
@@ -700,8 +706,25 @@ export default function PaymentsContent() {
         (r) => !r.subcontractCategoryId || !tradeCategoryIdSet.has(r.subcontractCategoryId)
       );
     }
+    // By-settlement quick filters — independent, combinable, and stacked AFTER
+    // the scoping above so they respect the active tab/trade context.
+    if (settlementFlags.includes("advance-paid")) {
+      // Every row here is already a recorded (paid) settlement, so "advance
+      // paid" = advance rows that aren't cancelled.
+      rows = rows.filter((r) => r.paymentType === "advance" && !r.isCancelled);
+    }
+    if (settlementFlags.includes("with-proof")) {
+      rows = rows.filter((r) => r.hasProof);
+    }
+    if (settlementFlags.includes("moved")) {
+      rows = rows.filter((r) => r.transferRole === "origin" && !!r.transferId);
+    }
+    const q = settlementSearch.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter((r) => r.ref?.toLowerCase().includes(q));
+    }
     return rows;
-  }, [settlementRowsAll, hideCancelled, scopeTradeId, contractIdParam, tradeChipSelection, tradeCategoryIdSet]);
+  }, [settlementRowsAll, hideCancelled, scopeTradeId, contractIdParam, tradeChipSelection, tradeCategoryIdSet, settlementFlags, settlementSearch]);
 
   // Count shown in the by-settlement strip header. Mirrors settlementRowsVisible's
   // scoping (trade workspace → only this contract; Civil → exclude trade-category
@@ -1236,26 +1259,35 @@ export default function PaymentsContent() {
                   )}
                 </>
               ) : (
-                <SettlementsList
-                  rows={settlementRowsVisible}
-                  isLoading={settlementsListQuery.isLoading}
-                  onRowClick={(row) => setRefDetail(row.ref)}
-                  onHardDelete={
-                    canEditSettlements
-                      ? (row) => setHardDeleteTarget(row)
-                      : undefined
-                  }
-                  onMoveRow={canMoveToSite ? (row) => openMoveWizard(row) : undefined}
-                  onReverseTransfer={
-                    canEditSettlements ? (row) => setReverseTarget(row) : undefined
-                  }
-                  filter="contract"
-                  emptyMessage={
-                    hideCancelled && tabCancelledCount > 0
-                      ? "No active contract settlements. Toggle 'Hide cancelled' off to see cancelled rows."
-                      : "No contract settlements recorded for this period."
-                  }
-                />
+                <>
+                  <SettlementFilterBar
+                    flags={settlementFlags}
+                    onFlagsChange={setSettlementFlags}
+                    search={settlementSearch}
+                    onSearchChange={setSettlementSearch}
+                    matchCount={settlementRowsVisible.length}
+                  />
+                  <SettlementsList
+                    rows={settlementRowsVisible}
+                    isLoading={settlementsListQuery.isLoading}
+                    onRowClick={(row) => setRefDetail(row.ref)}
+                    onHardDelete={
+                      canEditSettlements
+                        ? (row) => setHardDeleteTarget(row)
+                        : undefined
+                    }
+                    onMoveRow={canMoveToSite ? (row) => openMoveWizard(row) : undefined}
+                    onReverseTransfer={
+                      canEditSettlements ? (row) => setReverseTarget(row) : undefined
+                    }
+                    filter="contract"
+                    emptyMessage={
+                      hideCancelled && tabCancelledCount > 0
+                        ? "No active contract settlements. Toggle 'Hide cancelled' off to see cancelled rows."
+                        : "No contract settlements recorded for this period."
+                    }
+                  />
+                </>
               )}
             </Box>
           </Box>
@@ -1395,22 +1427,31 @@ export default function PaymentsContent() {
                   }
                 />
               ) : (
-                <SettlementsList
-                  rows={settlementRowsVisible}
-                  isLoading={settlementsListQuery.isLoading}
-                  onRowClick={(row) => setRefDetail(row.ref)}
-                  onHardDelete={
-                    canEditSettlements
-                      ? (row) => setHardDeleteTarget(row)
-                      : undefined
-                  }
-                  filter="daily-market"
-                  emptyMessage={
-                    hideCancelled && tabCancelledCount > 0
-                      ? "No active daily/market settlements. Toggle 'Hide cancelled' off to see cancelled rows."
-                      : "No daily/market settlements recorded for this period."
-                  }
-                />
+                <>
+                  <SettlementFilterBar
+                    flags={settlementFlags}
+                    onFlagsChange={setSettlementFlags}
+                    search={settlementSearch}
+                    onSearchChange={setSettlementSearch}
+                    matchCount={settlementRowsVisible.length}
+                  />
+                  <SettlementsList
+                    rows={settlementRowsVisible}
+                    isLoading={settlementsListQuery.isLoading}
+                    onRowClick={(row) => setRefDetail(row.ref)}
+                    onHardDelete={
+                      canEditSettlements
+                        ? (row) => setHardDeleteTarget(row)
+                        : undefined
+                    }
+                    filter="daily-market"
+                    emptyMessage={
+                      hideCancelled && tabCancelledCount > 0
+                        ? "No active daily/market settlements. Toggle 'Hide cancelled' off to see cancelled rows."
+                        : "No daily/market settlements recorded for this period."
+                    }
+                  />
+                </>
               )}
             </Box>
           </Box>
@@ -1490,6 +1531,13 @@ export default function PaymentsContent() {
                   rows={unlinkedSettlementRows}
                   siteId={selectedSite.id}
                   onRowClick={(row) => setRefDetail(row.ref)}
+                />
+                <SettlementFilterBar
+                  flags={settlementFlags}
+                  onFlagsChange={setSettlementFlags}
+                  search={settlementSearch}
+                  onSearchChange={setSettlementSearch}
+                  matchCount={settlementRowsVisible.length}
                 />
                 <SettlementsList
                   rows={settlementRowsVisible}

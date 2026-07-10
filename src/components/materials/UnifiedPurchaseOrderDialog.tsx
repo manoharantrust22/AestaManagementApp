@@ -49,7 +49,7 @@ import {
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useDraftSnapshot } from "@/hooks/useDraftSnapshot";
 import { useVendors, useVendorsForMaterials, VendorForMaterials } from "@/hooks/queries/useVendors";
-import { useMaterialSearchOptions, filterMaterialSearchOptions } from "@/hooks/queries/useMaterials";
+import { useMaterialSearchOptions, filterMaterialSearchOptions, useBrandVariantLinks } from "@/hooks/queries/useMaterials";
 import { useLatestPrice, useVendorMaterialPrice, useVendorMaterialBrands } from "@/hooks/queries/useVendorInventory";
 import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 import {
@@ -333,11 +333,17 @@ export default function UnifiedPurchaseOrderDialog({
   const effectiveMaterial = selectedVariant || selectedMaterial;
   const effectiveMaterialId = effectiveMaterial?.id;
 
-  // Fetch vendor-specific brands
+  // Fetch vendor-specific brands. Brand is the PARENT of the variant, so brand
+  // options come from the parent material — available before any variant is
+  // picked and stable across variant changes (Material → Brand → Variant).
   const { data: vendorBrands = [], isLoading: isLoadingVendorBrands } = useVendorMaterialBrands(
     selectedVendor?.id,
-    effectiveMaterialId
+    selectedMaterial?.id
   );
+
+  // Brand → variant links for the parent material, used to filter the Variant
+  // options down to the chosen brand below.
+  const { data: brandLinks = [] } = useBrandVariantLinks(selectedMaterial?.id);
 
   const uniqueBrandNames = useMemo(() => {
     if (selectedVendor && vendorBrands.length > 0) {
@@ -345,13 +351,13 @@ export default function UnifiedPurchaseOrderDialog({
       vendorBrands.forEach((b) => brandNames.add(b.brand_name));
       return Array.from(brandNames).sort();
     }
-    if (!effectiveMaterial?.brands) return [];
+    if (!selectedMaterial?.brands) return [];
     const brandNames = new Set<string>();
-    effectiveMaterial.brands
+    selectedMaterial.brands
       .filter((b) => b.is_active)
       .forEach((b) => brandNames.add(b.brand_name));
     return Array.from(brandNames).sort();
-  }, [selectedVendor, vendorBrands, effectiveMaterial]);
+  }, [selectedVendor, vendorBrands, selectedMaterial]);
 
   // A material with catalog/vendor brands must have a deliberate brand choice
   // (a real brand OR explicit "Unbranded") — that's how we stop blank brands
@@ -363,16 +369,34 @@ export default function UnifiedPurchaseOrderDialog({
   );
   const brandMissing = brandRequired && !selectedBrandName;
 
+  // Variants available under the chosen brand. Brand is the parent: filter the
+  // parent's variants to those linked to the brand. Fallbacks keep the user
+  // unblocked (Unbranded or a link-less brand → all variants).
+  const availableVariantsForBrand = useMemo(() => {
+    if (!selectedBrandName || selectedBrandName === UNBRANDED_OPTION) return availableVariants;
+    const brandEntry = brandLinks.find((b) => b.brand_name === selectedBrandName);
+    const linkedVariantIds = new Set(
+      (brandEntry?.material_brand_variant_links ?? [])
+        .filter((l) => l.is_active !== false && l.variant_id)
+        .map((l) => l.variant_id)
+    );
+    if (linkedVariantIds.size === 0) return availableVariants;
+    return availableVariants.filter((v) => linkedVariantIds.has(v.id));
+  }, [selectedBrandName, brandLinks, availableVariants]);
+
+  // Gate the Variant on Brand only when this material actually offers brands.
+  const variantNeedsBrand = brandRequired && !selectedBrandName;
+
   const brandVariantsForSelectedBrand = useMemo(() => {
     if (!selectedBrandName || selectedBrandName === UNBRANDED_OPTION) return [];
     if (selectedVendor && vendorBrands.length > 0) {
       return vendorBrands.filter((b) => b.brand_name === selectedBrandName);
     }
-    if (!effectiveMaterial?.brands) return [];
-    return effectiveMaterial.brands.filter(
+    if (!selectedMaterial?.brands) return [];
+    return selectedMaterial.brands.filter(
       (b) => b.is_active && b.brand_name === selectedBrandName
     );
-  }, [selectedBrandName, selectedVendor, vendorBrands, effectiveMaterial]);
+  }, [selectedBrandName, selectedVendor, vendorBrands, selectedMaterial]);
 
   const hasBrandVariants = brandVariantsForSelectedBrand.length > 1 ||
     (brandVariantsForSelectedBrand.length === 1 && brandVariantsForSelectedBrand[0].variant_name);
@@ -2148,35 +2172,7 @@ export default function UnifiedPurchaseOrderDialog({
             />
           </Grid>
 
-          {/* Variant Selection */}
-          {hasVariants && !selectedVariant && (
-            <Grid size={{ xs: 12, md: 2 }}>
-              <Autocomplete
-                options={availableVariants}
-                getOptionLabel={(option) => option.name}
-                value={selectedVariant}
-                onChange={(_, value) => {
-                  setSelectedVariant(value);
-                  setSelectedBrandName(null);
-                  setSelectedBrandVariant(null);
-                  setNewItemPrice("");
-                }}
-                slotProps={{
-                  popper: { disablePortal: false }
-                }}
-                renderInput={(params) => (
-                  <TextField {...params} label="Variant" size="small" required />
-                )}
-                renderOption={(props, option) => (
-                  <li {...props} key={option.id}>
-                    <Typography variant="body2">{option.name}</Typography>
-                  </li>
-                )}
-              />
-            </Grid>
-          )}
-
-          {/* Brand Selection */}
+          {/* Brand Selection — chosen BEFORE the variant (Brand is the parent). */}
           <Grid size={{ xs: 12, md: 2 }}>
             <Autocomplete
               options={brandOptions}
@@ -2184,9 +2180,12 @@ export default function UnifiedPurchaseOrderDialog({
               value={selectedBrandName}
               onChange={(_, value) => {
                 setSelectedBrandName(value);
+                // Brand is the parent — clear any variant chosen under the old brand.
+                setSelectedVariant(null);
+                setSelectedBrandVariant(null);
                 setNewItemPrice("");
               }}
-              disabled={!effectiveMaterial || isLoadingVendorBrands}
+              disabled={!selectedMaterial || isLoadingVendorBrands}
               loading={isLoadingVendorBrands}
               renderInput={(params) => (
                 <TextField
@@ -2198,8 +2197,8 @@ export default function UnifiedPurchaseOrderDialog({
                   placeholder={
                     !selectedVendor
                       ? "Select vendor first"
-                      : !effectiveMaterial
-                        ? hasVariants ? "Select variant" : "Select material"
+                      : !selectedMaterial
+                        ? "Select material"
                         : isLoadingVendorBrands
                           ? "Loading..."
                           : uniqueBrandNames.length === 0
@@ -2223,6 +2222,39 @@ export default function UnifiedPurchaseOrderDialog({
               }}
             />
           </Grid>
+
+          {/* Variant Selection — enabled once a Brand is chosen; options filtered to the brand. */}
+          {hasVariants && !selectedVariant && (
+            <Grid size={{ xs: 12, md: 2 }}>
+              <Autocomplete
+                options={availableVariantsForBrand}
+                getOptionLabel={(option) => option.name}
+                value={selectedVariant}
+                onChange={(_, value) => {
+                  setSelectedVariant(value);
+                  setNewItemPrice("");
+                }}
+                disabled={variantNeedsBrand}
+                slotProps={{
+                  popper: { disablePortal: false }
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Variant"
+                    size="small"
+                    required
+                    placeholder={variantNeedsBrand ? "Select brand first" : undefined}
+                  />
+                )}
+                renderOption={(props, option) => (
+                  <li {...props} key={option.id}>
+                    <Typography variant="body2">{option.name}</Typography>
+                  </li>
+                )}
+              />
+            </Grid>
+          )}
 
           {/* Brand Variant Selection */}
           {hasBrandVariants && (
@@ -2318,6 +2350,20 @@ export default function UnifiedPurchaseOrderDialog({
                   ) : latestPrice ? (
                     <span>Last: {formatCurrency(latestPrice.price)}</span>
                   ) : null}
+                  {latestPrice && "last_purchase_date" in latestPrice && (latestPrice as any).last_purchase_date && (
+                    <Typography component="span" variant="caption" sx={{ display: "block", color: "text.secondary" }}>
+                      Last paid on {new Date((latestPrice as any).last_purchase_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                    </Typography>
+                  )}
+                  {latestPrice && "lowest_vendor_price" in latestPrice &&
+                    (latestPrice as any).lowest_vendor_price != null &&
+                    (latestPrice as any).lowest_vendor_id !== selectedVendor?.id &&
+                    (latestPrice as any).lowest_vendor_price < ((latestPrice as any).price ?? Infinity) && (
+                      <Typography component="span" variant="caption" sx={{ display: "block", color: "warning.main" }}>
+                        ↓ Lowest {formatCurrency((latestPrice as any).lowest_vendor_price)}
+                        {(latestPrice as any).lowest_vendor_name ? ` · ${(latestPrice as any).lowest_vendor_name}` : ""}
+                      </Typography>
+                  )}
                   {priceIncludingGst && newItemTaxRate && (
                     <Typography
                       component="span"

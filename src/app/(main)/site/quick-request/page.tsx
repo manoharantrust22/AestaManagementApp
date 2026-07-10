@@ -62,6 +62,10 @@ import {
   type CategorySectionId,
 } from "@/lib/constants/materialCategories";
 import type { MaterialWithDetails } from "@/types/material.types";
+import GraniteLinesEditor from "@/components/spaces/GraniteLinesEditor";
+import { graniteSqft, isAreaUnit } from "@/lib/spaces/measurements";
+import { makeGraniteLine, graniteSizeNote } from "@/lib/materials/granite";
+import type { GraniteLine } from "@/types/spaces.types";
 
 interface CartItem {
   material_id: string;
@@ -71,6 +75,10 @@ interface CartItem {
   /** Pack-only materials: chosen can size + count. qty = contents × pack_count. */
   pack_id?: string | null;
   pack_count?: number | null;
+  /** Area materials (sqft/sqm): the slab sizes; qty = computed sq.ft. */
+  granite_lines?: GraniteLine[];
+  /** Human-readable slab-size summary, saved to the request item's notes. */
+  size_note?: string | null;
 }
 
 const QUICK_QTY_PRESETS = [1, 5, 10, 25, 50];
@@ -127,6 +135,8 @@ export default function QuickRequestPage() {
   // materials it is the NUMBER OF CANS.
   const [pickerQty, setPickerQty] = useState(1);
   const [pickerPackId, setPickerPackId] = useState<string>("");
+  // Area materials (sqft/sqm): slab sizes entered in the picker.
+  const [pickerGraniteLines, setPickerGraniteLines] = useState<GraniteLine[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const isSubmittingRef = useRef(false);
@@ -241,6 +251,11 @@ export default function QuickRequestPage() {
     [pickerMaterial],
   );
   const isPickerPack = !!pickerMaterial?.sold_in_packs && pickerPacks.length > 0;
+  const isPickerArea = isAreaUnit(pickerMaterial?.unit) && !isPickerPack;
+  const pickerAreaSqft = useMemo(
+    () => (isPickerArea ? graniteSqft(pickerGraniteLines) : 0),
+    [isPickerArea, pickerGraniteLines],
+  );
   const selectedPickerPack =
     pickerPacks.find((p) => p.id === pickerPackId) ?? null;
 
@@ -248,6 +263,7 @@ export default function QuickRequestPage() {
     const existing = cartByMaterial.get(material.id);
     const packs = activePacks(material.packs);
     const isPack = !!material.sold_in_packs && packs.length > 0;
+    const isArea = isAreaUnit(material.unit) && !isPack;
     setPickerMaterial(material);
     if (isPack) {
       // pickerQty = number of cans
@@ -256,9 +272,20 @@ export default function QuickRequestPage() {
         representativePack(packs) ??
         packs[0];
       setPickerPackId(defaultPack?.id ?? "");
+      setPickerGraniteLines([]);
       setPickerQty(existing?.pack_count || 1);
+    } else if (isArea) {
+      // Enter by slab size — qty is derived from the granite lines.
+      setPickerPackId("");
+      setPickerGraniteLines(
+        existing?.granite_lines && existing.granite_lines.length > 0
+          ? existing.granite_lines
+          : [makeGraniteLine()],
+      );
+      setPickerQty(existing?.qty || 0);
     } else {
       setPickerPackId("");
+      setPickerGraniteLines([]);
       setPickerQty(existing?.qty || 1);
     }
   };
@@ -276,10 +303,36 @@ export default function QuickRequestPage() {
     setPickerMaterial(null);
     setPickerQty(1);
     setPickerPackId("");
+    setPickerGraniteLines([]);
   };
 
   const addOrUpdateCart = () => {
-    if (!pickerMaterial || pickerQty <= 0) return;
+    if (!pickerMaterial) return;
+    if (isPickerArea) {
+      const sqft = graniteSqft(pickerGraniteLines);
+      if (sqft <= 0) return;
+      const note = graniteSizeNote(pickerGraniteLines);
+      setCart((prev) => {
+        const idx = prev.findIndex((c) => c.material_id === pickerMaterial.id);
+        const next: CartItem = {
+          material_id: pickerMaterial.id,
+          material_name: pickerMaterial.name,
+          unit: pickerMaterial.unit || "",
+          qty: sqft,
+          granite_lines: pickerGraniteLines,
+          size_note: note || null,
+        };
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = next;
+          return copy;
+        }
+        return [...prev, next];
+      });
+      closePicker();
+      return;
+    }
+    if (pickerQty <= 0) return;
     if (isPickerPack) {
       if (!selectedPickerPack) return;
       const cans = Math.max(1, Math.round(pickerQty));
@@ -361,6 +414,7 @@ export default function QuickRequestPage() {
         items: cart.map((c) => ({
           material_id: c.material_id,
           requested_qty: c.qty,
+          notes: c.size_note ?? undefined,
           pack_id: c.pack_id ?? null,
           pack_count: c.pack_count ?? null,
         })),
@@ -520,9 +574,14 @@ export default function QuickRequestPage() {
               <Typography variant="body2" fontWeight={600} noWrap>
                 {item.material_name}
               </Typography>
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption" color="text.secondary" component="div">
                 {item.qty} {item.unit}
               </Typography>
+              {item.size_note && (
+                <Typography variant="caption" color="text.secondary" component="div" noWrap>
+                  {item.size_note}
+                </Typography>
+              )}
             </Box>
             <IconButton
               size="small"
@@ -976,7 +1035,9 @@ export default function QuickRequestPage() {
                   <Typography variant="caption" color="text.secondary">
                     {isPickerPack
                       ? "Number of cans"
-                      : `Quantity in ${pickerMaterial.unit}`}
+                      : isPickerArea
+                        ? "Enter the sizes needed"
+                        : `Quantity in ${pickerMaterial.unit}`}
                   </Typography>
                 )}
               </Box>
@@ -1004,88 +1065,113 @@ export default function QuickRequestPage() {
               </TextField>
             )}
 
-            <Stack
-              direction="row"
-              alignItems="center"
-              justifyContent="center"
-              spacing={2}
-              sx={{ my: 3 }}
-            >
-              <IconButton
-                onClick={() => setPickerQty((q) => Math.max(1, q - 1))}
-                size="large"
-                sx={{ border: 1, borderColor: "divider", width: 56, height: 56 }}
-                aria-label="Decrease quantity"
-              >
-                <RemoveIcon fontSize="large" />
-              </IconButton>
-              <TextField
-                value={pickerQty}
-                onChange={(e) => {
-                  const v = parseFloat(e.target.value);
-                  setPickerQty(isNaN(v) || v < 0 ? 0 : v);
-                }}
-                inputProps={{
-                  inputMode: "decimal",
-                  "aria-label": "Quantity",
-                  style: {
-                    textAlign: "center",
-                    fontSize: 32,
-                    fontWeight: 600,
-                    padding: "8px 0",
-                    width: 100,
-                  },
-                }}
-                variant="standard"
-              />
-              <IconButton
-                onClick={() => setPickerQty((q) => q + 1)}
-                size="large"
-                sx={{ border: 1, borderColor: "divider", width: 56, height: 56 }}
-                aria-label="Increase quantity"
-              >
-                <AddIcon fontSize="large" />
-              </IconButton>
-            </Stack>
-
-            {isPickerPack ? (
-              <Typography
-                align="center"
-                variant="body2"
-                color="text.secondary"
-                sx={{ mb: 3 }}
-              >
-                {selectedPickerPack
-                  ? `Total: ${(selectedPickerPack.contents_qty * Math.max(1, Math.round(pickerQty)))} ${pickerMaterial.unit}` +
-                    (selectedPickerPack.price != null
-                      ? ` · ${formatCurrency(selectedPickerPack.price * Math.max(1, Math.round(pickerQty)))}`
-                      : "")
-                  : "Pick a can size"}
-              </Typography>
+            {isPickerArea ? (
+              <Box sx={{ my: 2 }}>
+                <GraniteLinesEditor
+                  value={pickerGraniteLines}
+                  onChange={setPickerGraniteLines}
+                />
+                <Typography
+                  align="center"
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mt: 1.5 }}
+                >
+                  {pickerAreaSqft > 0
+                    ? `Total: ${pickerAreaSqft} ${pickerMaterial.unit}`
+                    : "Add at least one size"}
+                </Typography>
+              </Box>
             ) : (
-              <Stack
-                direction="row"
-                spacing={1}
-                sx={{ flexWrap: "wrap", justifyContent: "center", mb: 3 }}
-              >
-                {QUICK_QTY_PRESETS.map((n) => (
-                  <Chip
-                    key={n}
-                    label={n}
-                    onClick={() => setPickerQty(n)}
-                    variant={pickerQty === n ? "filled" : "outlined"}
-                    color={pickerQty === n ? "primary" : "default"}
-                    sx={{ minWidth: 56 }}
+              <>
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  justifyContent="center"
+                  spacing={2}
+                  sx={{ my: 3 }}
+                >
+                  <IconButton
+                    onClick={() => setPickerQty((q) => Math.max(1, q - 1))}
+                    size="large"
+                    sx={{ border: 1, borderColor: "divider", width: 56, height: 56 }}
+                    aria-label="Decrease quantity"
+                  >
+                    <RemoveIcon fontSize="large" />
+                  </IconButton>
+                  <TextField
+                    value={pickerQty}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setPickerQty(isNaN(v) || v < 0 ? 0 : v);
+                    }}
+                    inputProps={{
+                      inputMode: "decimal",
+                      "aria-label": "Quantity",
+                      style: {
+                        textAlign: "center",
+                        fontSize: 32,
+                        fontWeight: 600,
+                        padding: "8px 0",
+                        width: 100,
+                      },
+                    }}
+                    variant="standard"
                   />
-                ))}
-              </Stack>
+                  <IconButton
+                    onClick={() => setPickerQty((q) => q + 1)}
+                    size="large"
+                    sx={{ border: 1, borderColor: "divider", width: 56, height: 56 }}
+                    aria-label="Increase quantity"
+                  >
+                    <AddIcon fontSize="large" />
+                  </IconButton>
+                </Stack>
+
+                {isPickerPack ? (
+                  <Typography
+                    align="center"
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ mb: 3 }}
+                  >
+                    {selectedPickerPack
+                      ? `Total: ${(selectedPickerPack.contents_qty * Math.max(1, Math.round(pickerQty)))} ${pickerMaterial.unit}` +
+                        (selectedPickerPack.price != null
+                          ? ` · ${formatCurrency(selectedPickerPack.price * Math.max(1, Math.round(pickerQty)))}`
+                          : "")
+                      : "Pick a can size"}
+                  </Typography>
+                ) : (
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    sx={{ flexWrap: "wrap", justifyContent: "center", mb: 3 }}
+                  >
+                    {QUICK_QTY_PRESETS.map((n) => (
+                      <Chip
+                        key={n}
+                        label={n}
+                        onClick={() => setPickerQty(n)}
+                        variant={pickerQty === n ? "filled" : "outlined"}
+                        color={pickerQty === n ? "primary" : "default"}
+                        sx={{ minWidth: 56 }}
+                      />
+                    ))}
+                  </Stack>
+                )}
+              </>
             )}
 
             <Button
               fullWidth
               size="large"
               variant="contained"
-              disabled={pickerQty <= 0 || (isPickerPack && !selectedPickerPack)}
+              disabled={
+                isPickerArea
+                  ? pickerAreaSqft <= 0
+                  : pickerQty <= 0 || (isPickerPack && !selectedPickerPack)
+              }
               onClick={addOrUpdateCart}
               sx={{ height: 52, fontSize: 16, fontWeight: 600 }}
             >

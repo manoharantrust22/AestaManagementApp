@@ -1291,11 +1291,15 @@ export function useVendorMaterialPrice(
 
       if (!item) return null;
 
-      // Fetch last actual purchase date from price_history
+      // Fetch the last actual purchase (price + date) from price_history for
+      // THIS vendor. This is the real amount paid last time — preferred over
+      // the vendor_inventory quote so the auto-filled PO price and the "Last
+      // paid" hint describe the same event.
       let lastPurchaseDate: string | null = null;
+      let lastPurchasePrice: number | null = null;
       const { data: lastHistory } = await supabase
         .from("price_history")
-        .select("recorded_date")
+        .select("recorded_date, price")
         .eq("vendor_id", vendorId!)
         .eq("material_id", materialId!)
         .eq("source", "purchase")
@@ -1304,6 +1308,34 @@ export function useVendorMaterialPrice(
 
       if (lastHistory && lastHistory.length > 0) {
         lastPurchaseDate = lastHistory[0].recorded_date;
+        lastPurchasePrice =
+          lastHistory[0].price != null ? Number(lastHistory[0].price) : null;
+      }
+
+      // Cross-vendor hint: the lowest price we've ever actually PAID for this
+      // material across ALL vendors, with the winning vendor's name/id. Lets the
+      // office spot a cheaper source without leaving the dialog. Degrades to no
+      // hint when there's no purchase history (or the embed is unavailable).
+      let lowestVendorPrice: number | null = null;
+      let lowestVendorName: string | null = null;
+      let lowestVendorId: string | null = null;
+      const { data: anyHistory } = await (supabase as any)
+        .from("price_history")
+        .select("price, vendor_id, vendors(name)")
+        .eq("material_id", materialId!)
+        .eq("source", "purchase")
+        .not("price", "is", null)
+        .order("price", { ascending: true })
+        .limit(1);
+
+      if (anyHistory && anyHistory.length > 0) {
+        const row = anyHistory[0];
+        lowestVendorPrice = row.price != null ? Number(row.price) : null;
+        lowestVendorId = row.vendor_id ?? null;
+        const v = row.vendors;
+        lowestVendorName = Array.isArray(v)
+          ? (v[0]?.name ?? null)
+          : (v?.name ?? null);
       }
 
       // For weight-based (per-kg) materials like TMT, learn the last ACTUAL
@@ -1337,7 +1369,11 @@ export function useVendorMaterialPrice(
       }
 
       return {
-        price: item.current_price,
+        // Prefer the actual last-paid price as the suggestion; fall back to the
+        // vendor's current quote when there is no purchase history. (Identical
+        // to the old behaviour for any material never purchased before.)
+        price: lastPurchasePrice ?? item.current_price,
+        current_vendor_price: item.current_price,
         pricing_mode: item.pricing_mode || 'per_piece',
         price_includes_gst: item.price_includes_gst,
         gst_rate: item.gst_rate,
@@ -1351,6 +1387,10 @@ export function useVendorMaterialPrice(
           (item.unloading_cost || 0),
         recorded_date: item.updated_at,
         last_purchase_date: lastPurchaseDate,
+        last_purchase_price: lastPurchasePrice,
+        lowest_vendor_price: lowestVendorPrice,
+        lowest_vendor_name: lowestVendorName,
+        lowest_vendor_id: lowestVendorId,
         last_actual_weight_per_piece: lastActualWeightPerPiece,
       };
     },

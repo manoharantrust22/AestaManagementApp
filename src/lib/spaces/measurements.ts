@@ -86,6 +86,13 @@ export const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 export const sqInToSqFt = (sqIn: number): number => sqIn / 144;
 
+/**
+ * True when a material's unit is an area unit (priced by square feet/metre).
+ * Such materials (granite, marble, tiles) are entered by slab size, not count.
+ */
+export const isAreaUnit = (unit: string | null | undefined): boolean =>
+  unit === "sqft" || unit === "sqm";
+
 // ==================== geometry ====================
 
 export function perimeterIn(lengthIn: number, widthIn: number): number {
