@@ -373,6 +373,7 @@ export function PackageDetailPane({
           kind="task_work"
           refId={pkg.id}
           commissionEnabled={Boolean(pkg.mesthri_commission_enabled)}
+          commissionApplies={pkg.mesthri_commission_applies ?? true}
           onEnableCommission={canEdit ? () => onEdit(pkg) : undefined}
           siteId={pkg.site_id}
           mesthriLaborerId={pkg.maistry_laborer_id}

@@ -45,6 +45,10 @@ export interface TradeContract {
   /** When true, company laborers on this contract are paid directly (net of the
    * mesthri commission) and the contract mesthri collects the commission. */
   mesthriCommissionEnabled?: boolean;
+  /** Sub-option of direct-pay: false = pay each laborer their full wage with no
+   * commission to the mesthri. Defaults true (commission deducted). Ignored when
+   * mesthriCommissionEnabled is off. */
+  mesthriCommissionApplies?: boolean;
   /**
    * Area-based pricing (optional — the hook always populates them, but they're
    * optional on the projection so older callers/tests need not supply them).

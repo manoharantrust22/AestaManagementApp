@@ -102,6 +102,7 @@ interface FormState {
   parent_subcontract_id: string;
   mesthri_commission_enabled: boolean;
   mesthri_commission_effective_from: string;
+  mesthri_commission_applies: boolean;
   notes: string;
 }
 
@@ -126,6 +127,7 @@ const EMPTY: FormState = {
   parent_subcontract_id: "",
   mesthri_commission_enabled: false,
   mesthri_commission_effective_from: "",
+  mesthri_commission_applies: true,
   notes: "",
 };
 
@@ -216,6 +218,7 @@ export default function TaskWorkPackageDialog({
         parent_subcontract_id: editing.parent_subcontract_id ?? "",
         mesthri_commission_enabled: Boolean(editing.mesthri_commission_enabled),
         mesthri_commission_effective_from: editing.mesthri_commission_effective_from ?? "",
+        mesthri_commission_applies: editing.mesthri_commission_applies ?? true,
         notes: editing.notes ?? "",
       });
     } else {
@@ -317,6 +320,11 @@ export default function TaskWorkPackageDialog({
       mesthri_commission_effective_from: form.mesthri_commission_enabled
         ? form.mesthri_commission_effective_from || crewDays?.earliestDate || todayISO()
         : null,
+      // Direct-pay sub-option: false = laborers get their full wage, no maistry commission.
+      // Only meaningful when direct-pay is on; keep it true otherwise so re-enabling starts clean.
+      mesthri_commission_applies: form.mesthri_commission_enabled
+        ? form.mesthri_commission_applies
+        : true,
       notes: form.notes.trim() || null,
     };
 
@@ -562,6 +570,33 @@ export default function TaskWorkPackageDialog({
                       {commissionSplit.includedWorkDays === 1 ? "" : "s"} so far are included.
                     </Alert>
                   ))}
+                <Divider sx={{ my: 1.5 }} />
+                <FormControlLabel
+                  sx={{ alignItems: "flex-start", m: 0 }}
+                  control={
+                    <Switch
+                      checked={form.mesthri_commission_applies}
+                      onChange={(e) => set("mesthri_commission_applies", e.target.checked)}
+                    />
+                  }
+                  label={
+                    <Box component="span" sx={{ display: "block", pt: 0.75 }}>
+                      <Typography variant="body2" fontWeight={700}>
+                        Deduct maistry commission
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        component="span"
+                        sx={{ display: "block" }}
+                      >
+                        ON — ₹50/day per company laborer is held back from their wage for the maistry
+                        (default). OFF — each laborer is paid their <strong>full</strong> wage directly and
+                        the maistry earns no commission on this contract.
+                      </Typography>
+                    </Box>
+                  }
+                />
               </Box>
             )}
           </Box>

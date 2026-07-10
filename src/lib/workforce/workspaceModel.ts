@@ -47,6 +47,8 @@ export interface WorkspaceTask {
   laborerId: string | null;
   /** When true, company laborers on this contract are paid directly (net of commission) and the mesthri collects the commission. */
   mesthriCommissionEnabled: boolean;
+  /** Sub-option of direct-pay: false = laborers paid their full wage, no commission to the mesthri. Defaults true. */
+  mesthriCommissionApplies: boolean;
   /** Set when this row is a CHILD of another subcontract (its parent in the ladder). Null = top-level Contract. */
   parentSubcontractId: string | null;
   /** Stable key used to cluster a contractor's task works (team › laborer › name › in-house). */
@@ -307,6 +309,7 @@ export function buildWorkspaceModel({
         teamId: c.teamId,
         laborerId: c.laborerId,
         mesthriCommissionEnabled: Boolean(c.mesthriCommissionEnabled),
+        mesthriCommissionApplies: c.mesthriCommissionApplies ?? true,
         parentSubcontractId: c.parentSubcontractId,
         contractorKey,
         quoted,

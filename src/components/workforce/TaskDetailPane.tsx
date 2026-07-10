@@ -524,6 +524,7 @@ export function TaskDetailPane({
               kind="subcontract"
               refId={task.id}
               commissionEnabled={Boolean(task.mesthriCommissionEnabled)}
+              commissionApplies={task.mesthriCommissionApplies ?? true}
               onEnableCommission={canEdit && onEdit ? onEdit : undefined}
               siteId={selectedSite?.id}
             />

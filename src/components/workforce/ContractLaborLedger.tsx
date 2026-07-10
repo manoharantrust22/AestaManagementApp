@@ -41,6 +41,7 @@ export default function ContractLaborLedger({
   kind,
   refId,
   commissionEnabled,
+  commissionApplies = true,
   onEnableCommission,
   defaultPeriod = "week",
   siteId,
@@ -51,6 +52,9 @@ export default function ContractLaborLedger({
   refId: string;
   /** The contract's mesthri_commission_enabled flag = "pay laborers directly" mode. */
   commissionEnabled: boolean;
+  /** The contract's mesthri_commission_applies flag. false + direct-pay = laborers
+   * paid their full wage with no commission to the maistry. Defaults true. */
+  commissionApplies?: boolean;
   /** Optional: inline affordance to switch to direct-pay (opens the edit dialog). */
   onEnableCommission?: () => void;
   defaultPeriod?: Period;
@@ -116,6 +120,13 @@ export default function ContractLaborLedger({
             onClick={onEnableCommission}
             clickable={Boolean(onEnableCommission)}
             sx={{ fontSize: 11, fontWeight: 700, color: wsColors.muted, bgcolor: "#f0f2f6" }}
+          />
+        )}
+        {commissionEnabled && !commissionApplies && (
+          <Chip
+            size="small"
+            label="No commission · full wage"
+            sx={{ fontSize: 11, fontWeight: 700, color: "#8a5a00", bgcolor: "#fff3d6" }}
           />
         )}
       </Box>

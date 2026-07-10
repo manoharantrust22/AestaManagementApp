@@ -103,6 +103,9 @@ export function QuickCreateContractDialog({
   // When on, company laborers on this contract are paid directly (net of the per-day
   // mesthri commission) once daily attendance is tracked; the mesthri collects the cut.
   const [commissionOn, setCommissionOn] = useState(false);
+  // Sub-option of direct-pay: false = pay each laborer their full wage, no commission
+  // to the mesthri. Default true (commission deducted). Only meaningful when commissionOn.
+  const [commissionApplies, setCommissionApplies] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -206,6 +209,8 @@ export function QuickCreateContractDialog({
         mesthri_commission_effective_from: commissionOn
           ? dayjs().format("YYYY-MM-DD")
           : null,
+        // Direct-pay sub-option; ignored when direct-pay is off (kept true so re-enabling starts clean).
+        mesthri_commission_applies: commissionOn ? commissionApplies : true,
         ...pricing,
       };
       // Crew is optional on a draft (Future plan) — attach only when picked.
@@ -388,6 +393,35 @@ export function QuickCreateContractDialog({
               </Box>
             }
           />
+
+          {commissionOn && (
+            <FormControlLabel
+              sx={{ alignItems: "flex-start", m: 0, pl: 4 }}
+              control={
+                <Switch
+                  checked={commissionApplies}
+                  onChange={(e) => setCommissionApplies(e.target.checked)}
+                />
+              }
+              label={
+                <Box component="span" sx={{ display: "block", pt: 0.75 }}>
+                  <Typography variant="body2" fontWeight={700}>
+                    Deduct maistry commission
+                  </Typography>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    component="span"
+                    sx={{ display: "block" }}
+                  >
+                    ON — ₹50/day per laborer is held back for the mesthri (default). OFF — each laborer
+                    is paid their <strong>full</strong> wage directly and the mesthri earns no
+                    commission on this contract.
+                  </Typography>
+                </Box>
+              }
+            />
+          )}
 
           {error && <Alert severity="error">{error}</Alert>}
         </Stack>

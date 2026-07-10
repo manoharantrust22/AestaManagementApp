@@ -81,6 +81,10 @@ export interface TaskWorkPackage {
   // commission. effective_from is the cutover Sunday (see migration 20260705120000).
   mesthri_commission_enabled: boolean;
   mesthri_commission_effective_from: string | null;
+  // Sub-option of direct-pay: when direct-pay is on, true = deduct the per-day maistry
+  // commission (default); false = pay each laborer their full wage, no commission to the
+  // maistry. Ignored when mesthri_commission_enabled is off. See migration 20260710120000.
+  mesthri_commission_applies: boolean;
   notes: string | null;
   completion_reason: string | null;
   balance_waived: boolean;
@@ -248,6 +252,7 @@ export interface TaskWorkPackageInput {
   parent_subcontract_id?: string | null;
   mesthri_commission_enabled?: boolean;
   mesthri_commission_effective_from?: string | null;
+  mesthri_commission_applies?: boolean;
   notes?: string | null;
   completion_reason?: string | null;
   balance_waived?: boolean;
