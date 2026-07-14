@@ -364,6 +364,12 @@ const companyNavCategories: NavCategory[] = [
         path: "/company/task-work-rates",
       },
       {
+        text: "Weekly Payouts",
+        icon: <PaymentsIcon />,
+        path: "/company/payouts",
+        adminOrOffice: true,
+      },
+      {
         text: "Engineer Wallet",
         icon: <PaymentIcon />,
         path: "/company/engineer-wallet",
