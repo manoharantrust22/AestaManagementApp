@@ -1232,15 +1232,40 @@ export function useRequestItemsForConversion(requestId: string | undefined) {
       let allocations: { request_item_id: string; quantity_allocated: number }[] = [];
       if (itemIds.length > 0) {
         try {
-          // Cast to any since this table is new and not in generated types yet
+          // Only COMMITTED orders should consume a request item's "remaining to
+          // order". A draft PO is not a real order yet, and a cancelled one never
+          // happened — counting either would grey out the row as "Already fully
+          // ordered" while the Material Hub still shows "Create PO" (it treats a
+          // draft as "needs a PO"). So we read each allocation's owning PO status
+          // and drop draft/cancelled ones. Cast to any since the junction table is
+          // not in the generated types yet.
           const { data: allocData, error: allocError } = await (supabase as any)
             .from("purchase_order_request_items")
-            .select("request_item_id, quantity_allocated")
+            .select(
+              `request_item_id, quantity_allocated,
+               po_item:purchase_order_items!po_item_id (
+                 purchase_order:purchase_orders!inner ( status )
+               )`
+            )
             .in("request_item_id", itemIds);
 
-          // If table doesn't exist or error, just use empty allocations
           if (!allocError && allocData) {
-            allocations = allocData;
+            allocations = (allocData as any[]).filter((a) => {
+              const status = a.po_item?.purchase_order?.status;
+              // Exclude only explicit draft/cancelled. An unresolved/undefined
+              // status counts (conservative) so a finalized PO can never be
+              // silently re-ordered.
+              return status !== "draft" && status !== "cancelled";
+            });
+          } else if (allocError) {
+            // Embed unavailable (older schema, missing relationship) → fall back to
+            // counting ALL allocations. Over-reporting "ordered" is safe; letting a
+            // finalized PO's items be ordered twice is not.
+            const { data: fallback } = await (supabase as any)
+              .from("purchase_order_request_items")
+              .select("request_item_id, quantity_allocated")
+              .in("request_item_id", itemIds);
+            if (fallback) allocations = fallback;
           }
         } catch {
           // Table may not exist yet - gracefully continue with no allocations

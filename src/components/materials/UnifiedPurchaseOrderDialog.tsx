@@ -303,6 +303,11 @@ export default function UnifiedPurchaseOrderDialog({
 
   // Request items state (for request mode)
   const [requestItemsState, setRequestItemsState] = useState<RequestItemForConversion[]>([]);
+  // Tracks which request's items are currently seeded into `requestItemsState`.
+  // The dialog is a single persistent instance (mounted once in HubDialogRouter,
+  // toggled via `open`), so without keying the reset on the request id, switching
+  // from material A to material B could leave A's rows in place (stale-rows bug).
+  const seededRequestIdRef = useRef<string | null>(null);
 
   // ============================================================================
   // New item form state (for smart search)
@@ -727,18 +732,23 @@ export default function UnifiedPurchaseOrderDialog({
     },
   });
 
-  // Initialize request items state when request items load
+  // Seed request items state when the request items load, and RE-seed whenever the
+  // request identity changes (not merely when the local copy is empty). Keying the
+  // reset on `request.id` fixes the stale-rows bug — switching material A → B now
+  // always replaces A's rows with B's — while still preserving the user's in-dialog
+  // edits for the *same* request across background query refetches (same id → skip).
   useEffect(() => {
-    if (isRequestMode && requestItems.length > 0 && requestItemsState.length === 0) {
-      setRequestItemsState(requestItems);
-      // TMT/weight-based bills are gross (GST-inclusive) by default — no TMT vendor
-      // sells without GST. Seed the dialog into inclusive mode so the office user
-      // enters the rate exactly as the vendor quotes it.
-      if (requestItems.some((it: RequestItemForConversion) => it.weight_per_unit)) {
-        setPriceIncludesGst(true);
-      }
+    if (!open || !isRequestMode || !request) return;
+    if (seededRequestIdRef.current === request.id || requestItems.length === 0) return;
+    setRequestItemsState(requestItems);
+    seededRequestIdRef.current = request.id;
+    // TMT/weight-based bills are gross (GST-inclusive) by default — no TMT vendor
+    // sells without GST. Seed the dialog into inclusive mode so the office user
+    // enters the rate exactly as the vendor quotes it.
+    if (requestItems.some((it: RequestItemForConversion) => it.weight_per_unit)) {
+      setPriceIncludesGst(true);
     }
-  }, [isRequestMode, requestItems, requestItemsState.length]);
+  }, [open, isRequestMode, request, requestItems]);
 
   // Auto-pick vendor when every request line agrees on the same suggested vendor
   // (e.g. a basket built on /company/calculator where the engineer picked one vendor
@@ -788,10 +798,13 @@ export default function UnifiedPurchaseOrderDialog({
     );
   }, [isRequestMode, selectedVendor?.id]);
 
-  // Reset request items state when dialog closes
+  // Reset request items state when dialog closes so the next opening re-seeds
+  // cleanly. Clearing the seeded-id ref alongside guarantees a genuine re-seed even
+  // when the same material is reopened after edits.
   useEffect(() => {
     if (!open) {
       setRequestItemsState([]);
+      seededRequestIdRef.current = null;
     }
   }, [open]);
 

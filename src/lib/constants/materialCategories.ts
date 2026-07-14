@@ -7,6 +7,7 @@ export const CATEGORY_TAB_MAPPING: Record<string, string[]> = {
   hardware: ["HRD", "MSC"],
   tiles: ["TIL"],
   pumps: ["PMP"],
+  formwork: ["CTR"],
   all: [],
 };
 
@@ -20,6 +21,7 @@ export const CATEGORY_TABS = [
   { id: "hardware", label: "Hardware", icon: "🔧" },
   { id: "tiles", label: "Tiles", icon: "🔲" },
   { id: "pumps", label: "Pumps & Motors", icon: "⚙️" },
+  { id: "formwork", label: "Centering & Shuttering", icon: "🪵" },
 ] as const;
 
 export type CategoryTabId = (typeof CATEGORY_TABS)[number]["id"];
@@ -77,6 +79,7 @@ export const CATEGORY_COLORS: Record<string, { bg: string; color: string }> = {
   hardware:      { bg: "#f3f3f3", color: "#424242" },
   tiles:         { bg: "#e8f5e9", color: "#2e7d32" },
   pumps:         { bg: "#e8eaf6", color: "#283593" },
+  formwork:      { bg: "#efebe9", color: "#4e342e" },
   other:         { bg: "#f3f3f3", color: "#546e7a" },
   general:       { bg: "#fafafa", color: "#555" },
 };
