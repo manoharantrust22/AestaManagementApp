@@ -214,9 +214,14 @@ export function WorkspaceLayout({
   // Looked up live so package edits reflect without re-selecting; falls back to
   // null (→ empty pane) if the package is deleted/closed out of the map.
   const selectedPackage = selectedPackageId ? pkgById.get(selectedPackageId) ?? null : null;
-  // A selected node WITH children renders the combined "one contract" view (its parts
-  // listed below); a leaf renders the single-task detail.
-  const containerSelected = !!selectedNode && selectedNode.node.children.length > 0;
+  // A selected node WITH children — subcontract children OR attached fixed-price
+  // packages — renders the combined "one contract" view (its parts listed below,
+  // rollup-aware money). Only a true leaf renders the single-task detail; a
+  // package-only section must NOT fall through to the leaf pane, whose own-value
+  // math reads ₹0 and mislabels every package payment as "overpaid".
+  const containerSelected =
+    !!selectedNode &&
+    (selectedNode.node.children.length > 0 || selectedNode.node.packages.length > 0);
   const notify = (msg: string, severity: "success" | "error" = "success") =>
     setSnack({ open: true, msg, severity });
 
@@ -381,8 +386,15 @@ export function WorkspaceLayout({
       parentMode={{
         parent: selectedNode.node.task,
         title: selectedNode.node.task.title,
-        // A Contract's parts are Sections; a Section's parts are Tasks.
-        partLabel: selectedNode.node.tier === "contract" ? "section" : "task",
+        // A Contract's parts are Sections; a Section's parts are Tasks; a node
+        // whose only parts are fixed-price packages labels them as such.
+        partLabel:
+          selectedNode.node.children.length > 0
+            ? selectedNode.node.tier === "contract"
+              ? "section"
+              : "task"
+            : "package",
+        selfLabel: selectedNode.node.tier,
         onEdit: () => setEditOpen(true),
       }}
       showBack={mobile}
@@ -496,6 +508,16 @@ export function WorkspaceLayout({
       task={selectedTask}
       siteId={siteId}
       notify={notify}
+      packages={
+        selectedNode?.node.packages.filter((p) => p.status !== "cancelled") ?? []
+      }
+      onOpenPackage={(packageId) => {
+        const pkg = pkgById.get(packageId);
+        if (pkg) {
+          setRecordOpen(false);
+          handleOpenPackage(pkg);
+        }
+      }}
       onLogAttendance={() =>
         router.push(buildContractScopeHref("/site/attendance", selectedTask))
       }

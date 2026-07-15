@@ -25,7 +25,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSiteSubcontracts } from "@/hooks/queries/useSubcontracts";
-import { buildSubcontractOptions } from "@/lib/workforce/subcontractOptions";
+import {
+  buildSubcontractOptions,
+  soleTopLevelSubcontractId,
+} from "@/lib/workforce/subcontractOptions";
 import { useWeekContractSubcontracts } from "@/hooks/queries/useWeekContractSubcontracts";
 import { useLaborers } from "@/hooks/queries/useLaborers";
 import { processContractPayment } from "@/lib/services/settlementService";
@@ -208,17 +211,18 @@ export function MestriSettleDialog({
     };
   }, [open, siteId, queryClient]);
 
-  // Auto-pick the subcontract if there's only one on the site (saves a click)
+  // Auto-pick the subcontract when the site offers a single top-level choice
+  // (one standalone contract, or one parent whose floors are optional picks) —
+  // saves a click. A parent + its floor children counts as ONE choice.
+  const soleClusterId = useMemo(
+    () => soleTopLevelSubcontractId(subcontracts ?? []),
+    [subcontracts]
+  );
   useEffect(() => {
-    if (
-      open &&
-      !subcontractId &&
-      subcontracts &&
-      subcontracts.length === 1
-    ) {
-      setSubcontractId(subcontracts[0].id);
+    if (open && !subcontractId && soleClusterId) {
+      setSubcontractId(soleClusterId);
     }
-  }, [open, subcontractId, subcontracts]);
+  }, [open, subcontractId, soleClusterId]);
 
   // Week-scoped auto-pick: if every contract attendance row for this week
   // points to the same subcontract, pre-select it. Layered AFTER the single-

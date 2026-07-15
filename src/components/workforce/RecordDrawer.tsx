@@ -25,6 +25,7 @@ import ReceiptLongRounded from "@mui/icons-material/ReceiptLongRounded";
 import ChevronRight from "@mui/icons-material/ChevronRight";
 import ArrowBack from "@mui/icons-material/ArrowBack";
 import PhotoCamera from "@mui/icons-material/PhotoCamera";
+import Handshake from "@mui/icons-material/Handshake";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -42,7 +43,11 @@ import WalletBalancePreview from "@/components/wallet-v2/WalletBalancePreview";
 import { HeadcountEntryInline } from "@/components/trades/HeadcountEntryInline";
 import { ContractWorkUpdatesPanel } from "@/components/trades/ContractWorkUpdatesPanel";
 import type { PayerSource } from "@/types/settlement.types";
-import { isContractPaymentGated, type WorkspaceTask } from "@/lib/workforce/workspaceModel";
+import {
+  isContractPaymentGated,
+  type WorkspacePackage,
+  type WorkspaceTask,
+} from "@/lib/workforce/workspaceModel";
 import { severityMeta, wsColors, wsRadius } from "@/lib/workforce/workspaceTokens";
 import { formatCurrencyFull } from "@/lib/formatters";
 import { ResponsiveSheet } from "./ResponsiveSheet";
@@ -84,6 +89,8 @@ export function RecordDrawer({
   task,
   siteId,
   notify,
+  packages,
+  onOpenPackage,
   onLogAttendance,
   onSettleSalary,
 }: {
@@ -92,6 +99,10 @@ export function RecordDrawer({
   task: WorkspaceTask;
   siteId: string;
   notify: (msg: string, severity?: "success" | "error") => void;
+  /** Non-cancelled fixed-price packages attached to this node (if any). */
+  packages?: WorkspacePackage[];
+  /** Selects the package in-pane so its own pay surfaces take the money. */
+  onOpenPackage?: (packageId: string) => void;
   onLogAttendance: () => void;
   onSettleSalary: () => void;
 }) {
@@ -110,6 +121,11 @@ export function RecordDrawer({
   // a redirect and the subcontract_payments form is unreachable. Money still DISPLAYS
   // read-only on the contract page (PaymentsHistoryCard reads the unified ledger).
   const gated = isContractPaymentGated(task);
+  // A zero-value node whose money lives entirely in its fixed-price packages must
+  // not take direct contract payments (a DB trigger backstops this) — Record
+  // routes into the package instead. Wins over the `gated` redirect.
+  const packageList = packages ?? [];
+  const packageHolder = packageList.length > 0 && task.quoted === 0;
 
   const subtitle = `${task.who} · ${task.title}`;
 
@@ -121,26 +137,40 @@ export function RecordDrawer({
       label: string;
       sub: string;
       onClick: () => void;
-    }> = [
-      gated
-        ? {
-            key: "payment",
-            icon: <ReceiptLongRounded sx={{ fontSize: 20, color: wsColors.primary }} />,
-            label: "Settle in Salary Settlements",
-            sub: "Attendance-tracked — record money as a salary settlement",
-            onClick: () => {
-              onClose();
-              onSettleSalary();
-            },
-          }
-        : {
-            key: "payment",
-            icon: <PaymentsRounded sx={{ fontSize: 20, color: wsColors.primary }} />,
-            label: "Record a payment",
-            sub: "Advance, part payment or final settlement",
-            onClick: () => setView("payment"),
-          },
-    ];
+    }> = [];
+    const packageItems = packageList.map((p) => ({
+      key: `pkg-${p.id}`,
+      icon: <Handshake sx={{ fontSize: 20, color: wsColors.primary }} />,
+      label: `Pay "${p.title}"`,
+      sub: `${p.who} · ${formatCurrencyFull(Math.max(0, p.quoted - p.paid))} left`,
+      onClick: () => {
+        onClose();
+        onOpenPackage?.(p.id);
+      },
+    }));
+    if (!packageHolder) {
+      items.push(
+        gated
+          ? {
+              key: "payment",
+              icon: <ReceiptLongRounded sx={{ fontSize: 20, color: wsColors.primary }} />,
+              label: "Settle in Salary Settlements",
+              sub: "Attendance-tracked — record money as a salary settlement",
+              onClick: () => {
+                onClose();
+                onSettleSalary();
+              },
+            }
+          : {
+              key: "payment",
+              icon: <PaymentsRounded sx={{ fontSize: 20, color: wsColors.primary }} />,
+              label: "Record a payment",
+              sub: "Advance, part payment or final settlement",
+              onClick: () => setView("payment"),
+            }
+      );
+    }
+    items.push(...packageItems);
     if (isHeadcount) {
       items.push({
         key: "count",
@@ -182,6 +212,12 @@ export function RecordDrawer({
     return (
       <ResponsiveSheet open={open} onClose={onClose} title="Record" subtitle={subtitle}>
         <Box sx={{ display: "flex", flexDirection: "column", gap: 1, py: 1 }}>
+          {packageHolder && (
+            <Typography sx={{ fontSize: 12.5, color: wsColors.muted, px: 0.5 }}>
+              This section&apos;s money lives in its fixed-price packages — pay inside
+              the package so each rupee lands on the right crew.
+            </Typography>
+          )}
           {items.map((it) => (
             <Box
               key={it.key}
@@ -239,6 +275,7 @@ export function RecordDrawer({
         siteId={siteId}
         subtitle={subtitle}
         notify={notify}
+        packageHolder={packageHolder}
       />
     );
   }
@@ -309,6 +346,7 @@ function PaymentView({
   siteId,
   subtitle,
   notify,
+  packageHolder,
 }: {
   open: boolean;
   onClose: () => void;
@@ -317,6 +355,8 @@ function PaymentView({
   siteId: string;
   subtitle: string;
   notify: (msg: string, severity?: "success" | "error") => void;
+  /** Zero-value node whose money lives in packages — payments blocked here. */
+  packageHolder?: boolean;
 }) {
   const supabase = createClient();
   const qc = useQueryClient();
@@ -358,6 +398,15 @@ function PaymentView({
   const PreviewIcon = meta.icon;
 
   const handleSubmit = async () => {
+    // Defensive: a zero-value node whose money lives in its packages must never
+    // write a subcontract_payments row (a DB trigger backstops this). The menu
+    // hides the payment item, so this only guards deep/stale state.
+    if (packageHolder) {
+      setError(
+        "This section's money lives in its fixed-price packages — record the payment inside the package instead."
+      );
+      return;
+    }
     // Defensive: a gated (detailed + workspace) contract must never write a
     // subcontract_payments row — money is routed to Salary Settlements. The menu
     // redirects before reaching this view, so this only guards deep/stale state.
@@ -395,6 +444,7 @@ function PaymentView({
         qc.invalidateQueries({ queryKey: ["trade-reconciliations", "site", siteId] }),
         qc.invalidateQueries({ queryKey: ["trade-activity", "site", siteId] }),
         qc.invalidateQueries({ queryKey: ["trades", "site", siteId] }),
+        qc.invalidateQueries({ queryKey: ["section-spend"] }),
       ]);
       if (typeof BroadcastChannel !== "undefined") {
         const bc = new BroadcastChannel("subcontracts-changed");

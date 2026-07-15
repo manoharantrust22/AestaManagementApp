@@ -51,6 +51,8 @@ function invalidate(
     queryKey: queryKeys.taskWork.profitability(packageId),
   });
   queryClient.invalidateQueries({ queryKey: queryKeys.taskWork.byId(packageId) });
+  // Package money rolls up into the parent section's spend breakdown.
+  queryClient.invalidateQueries({ queryKey: ["section-spend"] });
   if (siteId) {
     queryClient.invalidateQueries({ queryKey: queryKeys.taskWork.bySite(siteId) });
     queryClient.invalidateQueries({

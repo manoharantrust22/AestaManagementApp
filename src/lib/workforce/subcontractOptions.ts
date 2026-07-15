@@ -46,3 +46,20 @@ export function buildSubcontractOptions<
   }
   return out;
 }
+
+/**
+ * When the list boils down to a single top-level choice — one standalone
+ * contract, or one parent with its floor children — return that top-level id
+ * (the parent; floors are optional refinements). Otherwise null.
+ *
+ * Used by pickers to pre-select the contract instead of asking. Deliberately
+ * does NOT collapse multiple top-level contracts that share the same mestri:
+ * the pick decides which contract's ledger receives the money, so two
+ * contracts under one mestri are still an ambiguous choice.
+ */
+export function soleTopLevelSubcontractId<
+  T extends { id: string; parent_subcontract_id?: string | null }
+>(rows: T[]): string | null {
+  const tops = buildSubcontractOptions(rows).filter((r) => r.depth === 0);
+  return tops.length === 1 ? tops[0].item.id : null;
+}

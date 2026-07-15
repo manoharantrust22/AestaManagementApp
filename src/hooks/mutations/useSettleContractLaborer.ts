@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
+import { queryKeys } from "@/lib/cache/keys";
 import { settleContractLaborer } from "@/lib/services/settlementService";
 import type { SettlementResult } from "@/lib/services/settlementService";
 import type { PaymentMode, PaymentChannel } from "@/types/payment.types";
@@ -45,6 +46,15 @@ export function useSettleContractLaborer() {
       qc.invalidateQueries({ queryKey: ["mesthri-commission-payable"] });
       qc.invalidateQueries({ queryKey: ["settlements"] });
       qc.invalidateQueries({ queryKey: ["payments-ledger"] });
+      // Crew settlements now count into the trades-page rollups
+      // (v_task_work_profitability + v_subcontract_reconciliation) and the
+      // section spend breakdown — refresh them so Paid updates without reload.
+      qc.invalidateQueries({
+        queryKey: queryKeys.taskWork.profitabilityBySite(args.siteId),
+      });
+      qc.invalidateQueries({ queryKey: ["trade-reconciliations", "site", args.siteId] });
+      qc.invalidateQueries({ queryKey: ["contract-payments"] });
+      qc.invalidateQueries({ queryKey: ["section-spend"] });
       if (args.paymentChannel === "engineer_wallet") broadcastWalletChange();
     },
   });

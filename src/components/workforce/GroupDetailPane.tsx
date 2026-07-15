@@ -16,6 +16,8 @@ import { StatCard } from "./StatCard";
 import { MiniDualProgressBar } from "./MiniDualProgressBar";
 import { ScopeSheetPanel } from "./ScopeSheetPanel";
 import { WorkPhotosCard } from "./WorkPhotosCard";
+import { PaymentsHistoryCard } from "./PaymentsHistoryCard";
+import { SectionSpendBreakdown } from "./SectionSpendBreakdown";
 
 /**
  * Extra props supplied when this view backs a REAL parent contract (a `subcontracts`
@@ -27,8 +29,11 @@ export interface ParentMode {
   parent: WorkspaceTask;
   /** The parent's editable display name (e.g. "Jithin Civil contract"). */
   title: string;
-  /** What the children are called — "section" under a Contract, "task" under a Section. */
+  /** What the children are called — "section" under a Contract, "task" under a Section,
+   *  "package" when the only parts are fixed-price packages. */
   partLabel?: string;
+  /** What this node itself is called — its tier ("contract" | "section" | "task"). */
+  selfLabel?: string;
   /** Open the edit/rename dialog for the parent. */
   onEdit?: () => void;
 }
@@ -79,7 +84,16 @@ export function GroupDetailPane({
   const partsWord = parentMode?.partLabel ?? "part";
   const partsWordTitle = `${partsWord[0].toUpperCase()}${partsWord.slice(1)}`;
   // What this node itself is called (its parts are one level below it).
-  const selfWord = partsWord === "task" ? "section" : "contract";
+  const selfWord =
+    parentMode?.selfLabel ?? (partsWord === "task" ? "section" : "contract");
+  // Fixed-price packages folded under this node. A node whose ONLY parts are
+  // packages and whose own value is 0 carries no money of its own — payments
+  // belong inside the packages (the Record drawer routes there).
+  const pkgParts = group.parts.filter((p) => p.kind === "package");
+  const packageOnly = group.tasks.length === 0 && pkgParts.length > 0;
+  const packageHolder =
+    isParent && pkgParts.length > 0 && (parentMode?.parent.quoted ?? 0) === 0;
+  const partsCount = group.tasks.length > 0 ? group.tasks.length : pkgParts.length;
   const remaining = r.quoted - r.paid;
   // Combine the per-task exposures into the shape BalanceMeter expects.
   const groupExposure: ExposureResult = {
@@ -121,7 +135,10 @@ export function GroupDetailPane({
         )}
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: 11, fontWeight: 600, color: wsColors.muted }} noWrap>
-            {tradeName} › Combined contract
+            {tradeName} ›{" "}
+            {isParent
+              ? `${selfWord[0].toUpperCase()}${selfWord.slice(1)}`
+              : "Combined contract"}
           </Typography>
           <Typography sx={{ fontSize: 16.5, fontWeight: 800, color: wsColors.ink, letterSpacing: "-.02em" }} noWrap>
             {displayName}
@@ -161,7 +178,7 @@ export function GroupDetailPane({
             </Typography>
             <Typography sx={{ fontSize: 12.5, color: wsColors.muted }}>
               {isParent
-                ? `${group.who} · ${group.tasks.length} ${partsWord}${group.tasks.length === 1 ? "" : "s"} · one contract`
+                ? `${group.who} · ${partsCount} ${partsWord}${partsCount === 1 ? "" : "s"} · one ${selfWord}`
                 : `${group.tasks.length} works · shown as one contract`}
             </Typography>
           </Box>
@@ -182,7 +199,13 @@ export function GroupDetailPane({
         >
           <GroupWork sx={{ fontSize: 18, color: wsColors.primary, mt: 0.1 }} />
           <Typography sx={{ fontSize: 11.5, color: wsColors.ink2, flex: 1 }}>
-            {isParent ? (
+            {isParent && packageOnly ? (
+              <>
+                This {selfWord}&apos;s money lives in its fixed-price packages below — open a
+                package to pay its crew. Linked material and other expenses show in
+                &ldquo;Where the money went&rdquo;.
+              </>
+            ) : isParent ? (
               <>
                 One contract for {group.who}. The {partsWord}s below are kept as optional parts — open one
                 only when you need that detail. A payment recorded on the whole contract isn&apos;t tied to any
@@ -203,7 +226,7 @@ export function GroupDetailPane({
           <StatCard
             label="Work done"
             value={formatCurrencyFull(r.workValue)}
-            sub={tracked ? `${r.trackedCount} of ${group.tasks.length} tracked` : "Not tracked"}
+            sub={tracked ? `${r.trackedCount} of ${partsCount} tracked` : "Not tracked"}
           />
           <StatCard
             label="Paid out"
@@ -220,13 +243,8 @@ export function GroupDetailPane({
         {/* Plain balance: what's still owed on the whole contract (agreed − paid). */}
         <RemainingStrip quoted={r.quoted} paid={r.paid} remaining={remaining} />
 
-        {/* Combined balance meter */}
-        <BalanceMeter exposure={groupExposure} />
-
-        {/* Recent work-update photos + % done for the whole contract. */}
-        <WorkPhotosCard contractId={parentMode?.parent.id ?? group.key} />
-
-        {/* Parts of this contract */}
+        {/* Parts of this contract — listed first: the parts hold the money, and for a
+            package-only section they are where payments get recorded. */}
         <Box>
           <Typography
             sx={{
@@ -238,7 +256,7 @@ export function GroupDetailPane({
               mb: 0.5,
             }}
           >
-            {isParent ? `${partsWordTitle}s in this contract` : "Parts of this contract"}
+            {isParent ? `${partsWordTitle}s in this ${selfWord}` : "Parts of this contract"}
           </Typography>
           <Box
             sx={{
@@ -298,6 +316,27 @@ export function GroupDetailPane({
           </Box>
         </Box>
 
+        {/* Every rupee linked to this node + its packages, grouped by kind. Only the
+            Labor group counts toward the balance above; materials / rentals / other
+            expenses are linked spend shown for the full picture. */}
+        {parentMode && (
+          <SectionSpendBreakdown
+            sectionId={parentMode.parent.id}
+            packageIds={pkgParts.map((p) => p.id)}
+            selfWord={selfWord}
+          />
+        )}
+
+        {/* The node's own read-only ledger (contract payments, salary settlements,
+            and misc-expense chips like "Material Expenses" / "General Expense"). */}
+        {parentMode && <PaymentsHistoryCard contractId={parentMode.parent.id} />}
+
+        {/* Combined balance meter */}
+        <BalanceMeter exposure={groupExposure} />
+
+        {/* Recent work-update photos + % done for the whole contract. */}
+        <WorkPhotosCard contractId={parentMode?.parent.id ?? group.key} />
+
         {/* Agreed scope + same-angle before/after photos for the whole contract */}
         {(parentMode?.parent.id ?? group.key) && (
           <ScopeSheetPanel
@@ -325,11 +364,13 @@ export function GroupDetailPane({
             icon={<PaymentsRounded sx={{ fontSize: 19, color: wsColors.primary }} />}
             label="Record"
             sub={
-              parentGated
-                ? "Progress, attendance & salary — payments go to Salary Settlements"
-                : anyTracked
-                  ? "Payment, progress, attendance or salary"
-                  : "Record a payment or update progress"
+              packageHolder
+                ? "Progress & photos — payments go inside the packages"
+                : parentGated
+                  ? "Progress, attendance & salary — payments go to Salary Settlements"
+                  : anyTracked
+                    ? "Payment, progress, attendance or salary"
+                    : "Record a payment or update progress"
             }
             onClick={onRecord}
             enabled={canEdit}

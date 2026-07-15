@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { soleTopLevelSubcontractId } from "@/lib/workforce/subcontractOptions";
 import { ThemeProvider, useTheme } from "@mui/material/styles";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -427,6 +428,21 @@ export default function PaymentsContent() {
   // mestri when only one is present, and provides laborer_name for the
   // processContractPayment payload without an extra round-trip.
   const siteSubcontractsQuery = useSiteSubcontracts(selectedSite?.id);
+  // Civil-workspace context for the date-only "Record mesthri payment" dialog:
+  // in the plain Civil view no ?contractId= scope exists, so derive the contract
+  // when the site has exactly one top-level Civil contract (a parent plus its
+  // floor children counts as one). Multiple Civil parents → null → user picks.
+  const civilSubcontractId = useMemo(() => {
+    if (scopeTradeId) return null; // non-Civil scope already supplies the id
+    const civilCategoryId = sitTradesForChip?.find(
+      (t) => t.category.name === "Civil"
+    )?.category.id;
+    if (!civilCategoryId) return null;
+    const civilRows = (siteSubcontractsQuery.data ?? []).filter(
+      (s) => s.trade_category_id === civilCategoryId
+    );
+    return soleTopLevelSubcontractId(civilRows);
+  }, [scopeTradeId, sitTradesForChip, siteSubcontractsQuery.data]);
   // Inter-site "Move to another site": available only with edit permission AND at
   // least one sibling site in the same group to move to.
   const groupMembership = useSiteGroupMembership(selectedSite?.id);
@@ -1645,8 +1661,7 @@ export default function PaymentsContent() {
           const weekCandidates = weekIds.length
             ? allSubcontracts.filter((s) => weekIds.includes(s.id))
             : allSubcontracts;
-          const autoPicked =
-            weekCandidates.length === 1 ? weekCandidates[0].id : null;
+          const autoPicked = soleTopLevelSubcontractId(weekCandidates);
           const weekLabel =
             settleDialog.weekStart && settleDialog.weekEnd
               ? `${dayjs(settleDialog.weekStart).format("D MMM")} – ${dayjs(
@@ -1688,8 +1703,7 @@ export default function PaymentsContent() {
       {recordPaymentOpen && (
         isEngineerWalletSettle ? (() => {
           const allSubcontracts = siteSubcontractsQuery.data ?? [];
-          const autoPicked =
-            allSubcontracts.length === 1 ? allSubcontracts[0].id : null;
+          const autoPicked = soleTopLevelSubcontractId(allSubcontracts);
           return (
             <SettleViaWalletDialog
               open
@@ -1713,7 +1727,7 @@ export default function PaymentsContent() {
             onClose={() => setRecordPaymentOpen(false)}
             siteId={selectedSite.id}
             mode="date-only"
-            initialSubcontractId={selectedSubcontractId}
+            initialSubcontractId={selectedSubcontractId ?? civilSubcontractId}
           />
         )
       )}
