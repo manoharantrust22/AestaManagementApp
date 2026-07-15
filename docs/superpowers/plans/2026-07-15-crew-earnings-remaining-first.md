@@ -388,12 +388,13 @@ git commit -m "feat(workforce): week bucketing + labels for contract ledger"
 **Also:** the `paid` CTE keys on `contract_laborer_id IS NOT NULL` without filtering `payment_type`. Once Task 6 tags commission payouts to contracts, a commission row could be counted as the mesthri's own wages. Add `payment_type <> 'commission'` (defence #2 of 2; defence #1 is in Task 6).
 
 **Files:**
-- Create: `supabase/migrations/20260716120000_contract_labor_ledger_project_scoped_unpaid.sql`
+- Create: `supabase/migrations/20260716120000_contract_labor_ledger_project_scoped_unpaid.sql` (also defines the shared `contract_labor_days` / `contract_laborer_paid` functions that Task 4 reuses)
 - Modify: `src/hooks/queries/useContractLaborLedger.ts`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `ContractLaborLedgerRow.netTotal: number` and `ContractLaborLedger.totalNetTotal: number` (both project-scoped net). `netPaid`/`netUnpaid`/`totalNetPaid`/`totalNetUnpaid` keep their names but are now guaranteed project-scoped on every tab. Used by Tasks 7 and 8.
+- Produces (SQL, used by Task 4): `contract_labor_days(p_kind text, p_ref_id uuid)` → `(day_date date, laborer_id uuid, laborer_name text, role_name text, work_days numeric, daily_earnings numeric, comm numeric, is_mesthri_day boolean)`; `contract_laborer_paid(p_kind text, p_ref_id uuid)` → `(laborer_id uuid, net_paid numeric)`.
+- Produces (TS, used by Tasks 7 and 8): `ContractLaborLedgerRow.netTotal: number` and `ContractLaborLedger.totalNetTotal: number` (both project-scoped net). `netPaid`/`netUnpaid`/`totalNetPaid`/`totalNetUnpaid` keep their names but are now guaranteed project-scoped on every tab.
 
 - [ ] **Step 1: Write the migration**
 
@@ -414,6 +415,94 @@ Create `supabase/migrations/20260716120000_contract_labor_ledger_project_scoped_
 -- Also: the paid CTE now excludes payment_type='commission'. Commission payouts gain a
 -- contract tag in a later migration; without this filter one would be miscounted as the
 -- mesthri's own wages paid, inflating net_paid and hiding real debt.
+
+-- ---------------------------------------------------------------------------
+-- Shared building blocks. Both this RPC and get_contract_labor_ledger_weekly
+-- (next migration) select from these, so the contract-matching rule, the
+-- settled-snapshot-vs-live-estimate rule, and the payment_type guard have ONE
+-- definition. Duplicating them would let a later fix land in the Project view
+-- but not the Week view, making the two tabs disagree about the same money.
+-- ---------------------------------------------------------------------------
+
+-- One row per attendance day on this contract, commission resolved.
+CREATE OR REPLACE FUNCTION public.contract_labor_days(
+  p_kind text,                       -- 'task_work' | 'subcontract'
+  p_ref_id uuid
+) RETURNS TABLE(
+  day_date date,
+  laborer_id uuid,
+  laborer_name text,
+  role_name text,
+  work_days numeric,
+  daily_earnings numeric,
+  comm numeric,
+  is_mesthri_day boolean
+)
+LANGUAGE sql
+STABLE
+SET search_path TO 'public'
+AS $function$
+  SELECT
+    d.date                                                        AS day_date,
+    d.laborer_id,
+    l.name                                                        AS laborer_name,
+    COALESCE(lr.name, 'Unknown')                                  AS role_name,
+    COALESCE(d.work_days, 1)::numeric                             AS work_days,
+    d.daily_earnings,
+    -- settled rows: locked snapshot; unsettled crew rows: live estimate.
+    COALESCE(d.mesthri_commission_amount, vc.commission_amount)   AS comm,
+    (vc.collector_id = d.laborer_id)                              AS is_mesthri_day
+  FROM public.daily_attendance d
+  JOIN public.laborers l ON l.id = d.laborer_id
+  LEFT JOIN public.labor_roles lr ON lr.id = l.role_id
+  JOIN public.v_daily_attendance_commission vc ON vc.attendance_id = d.id
+  WHERE d.is_deleted = false
+    AND d.is_archived = false
+    AND l.laborer_type = 'contract'                 -- company laborers only
+    AND (
+      (p_kind = 'task_work'   AND d.task_work_package_id = p_ref_id)
+      OR
+      (p_kind = 'subcontract' AND d.subcontract_id = p_ref_id AND d.task_work_package_id IS NULL)
+    );
+$function$;
+
+COMMENT ON FUNCTION public.contract_labor_days(text, uuid) IS
+  'Per-day company-laborer projection for one contract, commission resolved (snapshot if settled, else estimate). Shared base for get_contract_labor_ledger and get_contract_labor_ledger_weekly so the contract-matching and commission rules have one definition.';
+
+GRANT EXECUTE ON FUNCTION public.contract_labor_days(text, uuid) TO authenticated, service_role;
+
+-- Rupee settlements credited to each laborer on this contract.
+CREATE OR REPLACE FUNCTION public.contract_laborer_paid(
+  p_kind text,
+  p_ref_id uuid
+) RETURNS TABLE(
+  laborer_id uuid,
+  net_paid numeric
+)
+LANGUAGE sql
+STABLE
+SET search_path TO 'public'
+AS $function$
+  SELECT sg.contract_laborer_id AS laborer_id,
+         COALESCE(SUM(sg.total_amount), 0)::numeric AS net_paid
+  FROM public.settlement_groups sg
+  WHERE sg.contract_ref_kind = p_kind
+    AND sg.contract_ref_id = p_ref_id
+    AND sg.contract_laborer_id IS NOT NULL
+    AND sg.payment_type <> 'commission'   -- commission is not own-wages
+    AND sg.is_cancelled = false
+    AND sg.is_archived = false
+  GROUP BY sg.contract_laborer_id;
+$function$;
+
+COMMENT ON FUNCTION public.contract_laborer_paid(text, uuid) IS
+  'Project-scoped ₹ settled per laborer on one contract. Excludes payment_type=commission: commission payouts carry a contract ref too, and counting one here would inflate the mesthri''s own-wages paid and hide real debt.';
+
+GRANT EXECUTE ON FUNCTION public.contract_laborer_paid(text, uuid) TO authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- The ledger itself.
+-- ---------------------------------------------------------------------------
 
 -- RETURNS TABLE gains net_total → the function must be dropped, not replaced.
 DROP FUNCTION IF EXISTS public.get_contract_labor_ledger(text, uuid, date, date);
@@ -442,27 +531,7 @@ STABLE
 SET search_path TO 'public'
 AS $function$
   WITH base AS (
-    SELECT
-      d.laborer_id,
-      l.name                                                        AS laborer_name,
-      COALESCE(lr.name, 'Unknown')                                  AS role_name,
-      d.date,
-      COALESCE(d.work_days, 1)::numeric                             AS work_days,
-      d.daily_earnings,
-      COALESCE(d.mesthri_commission_amount, vc.commission_amount)   AS comm,
-      (vc.collector_id = d.laborer_id)                              AS is_mesthri_day
-    FROM public.daily_attendance d
-    JOIN public.laborers l ON l.id = d.laborer_id
-    LEFT JOIN public.labor_roles lr ON lr.id = l.role_id
-    JOIN public.v_daily_attendance_commission vc ON vc.attendance_id = d.id
-    WHERE d.is_deleted = false
-      AND d.is_archived = false
-      AND l.laborer_type = 'contract'
-      AND (
-        (p_kind = 'task_work'   AND d.task_work_package_id = p_ref_id)
-        OR
-        (p_kind = 'subcontract' AND d.subcontract_id = p_ref_id AND d.task_work_package_id IS NULL)
-      )
+    SELECT * FROM public.contract_labor_days(p_kind, p_ref_id)
   ),
   windowed AS (
     SELECT
@@ -474,8 +543,8 @@ AS $function$
       COALESCE(SUM(base.daily_earnings - base.comm), 0)::numeric AS net,
       bool_or(base.is_mesthri_day)                           AS is_mesthri
     FROM base
-    WHERE (p_date_from IS NULL OR base.date >= p_date_from)
-      AND (p_date_to   IS NULL OR base.date <= p_date_to)
+    WHERE (p_date_from IS NULL OR base.day_date >= p_date_from)
+      AND (p_date_to   IS NULL OR base.day_date <= p_date_to)
     GROUP BY base.laborer_id, base.laborer_name, base.role_name
   ),
   lifetime AS (
@@ -485,16 +554,7 @@ AS $function$
     GROUP BY base.laborer_id
   ),
   paid AS (
-    SELECT sg.contract_laborer_id AS laborer_id,
-           COALESCE(SUM(sg.total_amount), 0)::numeric AS net_paid
-    FROM public.settlement_groups sg
-    WHERE sg.contract_ref_kind = p_kind
-      AND sg.contract_ref_id = p_ref_id
-      AND sg.contract_laborer_id IS NOT NULL
-      AND sg.payment_type <> 'commission'   -- commission is not own-wages
-      AND sg.is_cancelled = false
-      AND sg.is_archived = false
-    GROUP BY sg.contract_laborer_id
+    SELECT * FROM public.contract_laborer_paid(p_kind, p_ref_id)
   )
   SELECT
     w.laborer_id, w.laborer_name, w.role_name, w.man_days, w.day_count,
@@ -601,7 +661,7 @@ One query returns every week bucketed, rather than N queries for N weeks.
 - Create: `src/hooks/queries/useContractLaborLedgerWeekly.ts`
 
 **Interfaces:**
-- Consumes: `WeeklyLedgerRow` from Task 2; `ContractLedgerKind` from `useContractLaborLedger`.
+- Consumes: `contract_labor_days(p_kind, p_ref_id)` and `contract_laborer_paid(p_kind, p_ref_id)` — SQL functions created in Task 3's migration, which runs first by timestamp. `WeeklyLedgerRow` from Task 2; `ContractLedgerKind` from `useContractLaborLedger`.
 - Produces: `useContractLaborLedgerWeekly(kind, refId, enabled?)` returning `UseQueryResult<WeeklyLedgerRow[]>`. Used by Task 8.
 
 - [ ] **Step 1: Write the migration**
@@ -643,27 +703,13 @@ STABLE
 SET search_path TO 'public'
 AS $function$
   WITH base AS (
+    -- Shared with get_contract_labor_ledger (previous migration): one definition of
+    -- the contract-matching + commission-resolution rules, so Week and Project can
+    -- never drift apart on the same money.
     SELECT
-      (date_trunc('week', d.date::timestamp + interval '1 day')::date - 1) AS week_start,
-      d.laborer_id,
-      l.name                                                        AS laborer_name,
-      COALESCE(lr.name, 'Unknown')                                  AS role_name,
-      COALESCE(d.work_days, 1)::numeric                             AS work_days,
-      d.daily_earnings,
-      COALESCE(d.mesthri_commission_amount, vc.commission_amount)   AS comm,
-      (vc.collector_id = d.laborer_id)                              AS is_mesthri_day
-    FROM public.daily_attendance d
-    JOIN public.laborers l ON l.id = d.laborer_id
-    LEFT JOIN public.labor_roles lr ON lr.id = l.role_id
-    JOIN public.v_daily_attendance_commission vc ON vc.attendance_id = d.id
-    WHERE d.is_deleted = false
-      AND d.is_archived = false
-      AND l.laborer_type = 'contract'
-      AND (
-        (p_kind = 'task_work'   AND d.task_work_package_id = p_ref_id)
-        OR
-        (p_kind = 'subcontract' AND d.subcontract_id = p_ref_id AND d.task_work_package_id IS NULL)
-      )
+      (date_trunc('week', cld.day_date::timestamp + interval '1 day')::date - 1) AS week_start,
+      cld.*
+    FROM public.contract_labor_days(p_kind, p_ref_id) cld
   ),
   lifetime AS (
     SELECT base.laborer_id,
@@ -672,16 +718,7 @@ AS $function$
     GROUP BY base.laborer_id
   ),
   paid AS (
-    SELECT sg.contract_laborer_id AS laborer_id,
-           COALESCE(SUM(sg.total_amount), 0)::numeric AS net_paid
-    FROM public.settlement_groups sg
-    WHERE sg.contract_ref_kind = p_kind
-      AND sg.contract_ref_id = p_ref_id
-      AND sg.contract_laborer_id IS NOT NULL
-      AND sg.payment_type <> 'commission'
-      AND sg.is_cancelled = false
-      AND sg.is_archived = false
-    GROUP BY sg.contract_laborer_id
+    SELECT * FROM public.contract_laborer_paid(p_kind, p_ref_id)
   ),
   wk AS (
     SELECT
