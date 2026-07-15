@@ -1435,9 +1435,14 @@ export default function InventoryPage() {
             <Tabs
               value={stockTab}
               onChange={(_, newValue) => setStockTab(newValue as StockTabType)}
-              variant={isMobile ? "scrollable" : "standard"}
-              scrollButtons={isMobile ? "auto" : false}
-              sx={{ borderBottom: 1, borderColor: "divider" }}
+              variant="scrollable"
+              scrollButtons="auto"
+              allowScrollButtonsMobile
+              sx={{
+                borderBottom: 1,
+                borderColor: "divider",
+                "& .MuiTabs-scrollButtons.Mui-disabled": { opacity: 0.25 },
+              }}
             >
               <Tab
                 label="All Stock"

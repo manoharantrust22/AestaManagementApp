@@ -421,8 +421,8 @@ export default function MaterialsPage() {
         <Tabs
           value={selectedTab}
           onChange={handleTabChange}
-          variant={isMobile ? "scrollable" : "standard"}
-          scrollButtons={isMobile ? "auto" : false}
+          variant="scrollable"
+          scrollButtons="auto"
           allowScrollButtonsMobile
           sx={{
             minHeight: 40,
@@ -433,6 +433,7 @@ export default function MaterialsPage() {
               textTransform: "none",
               letterSpacing: 0.2,
             },
+            "& .MuiTabs-scrollButtons.Mui-disabled": { opacity: 0.25 },
           }}
         >
           {CATEGORY_TABS.map((t) => (

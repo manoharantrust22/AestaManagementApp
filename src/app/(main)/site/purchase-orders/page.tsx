@@ -920,9 +920,13 @@ export default function PurchaseOrdersPage() {
         <Tabs
           value={currentTab}
           onChange={(_, v) => setCurrentTab(v)}
-          sx={{ mb: 2 }}
-          variant={isMobile ? "scrollable" : "standard"}
+          sx={{
+            mb: 2,
+            "& .MuiTabs-scrollButtons.Mui-disabled": { opacity: 0.25 },
+          }}
+          variant="scrollable"
           scrollButtons="auto"
+          allowScrollButtonsMobile
         >
           <Tab label="All" value="all" />
           <Tab label="Draft" value="draft" />

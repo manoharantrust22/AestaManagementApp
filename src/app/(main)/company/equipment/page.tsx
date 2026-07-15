@@ -250,9 +250,10 @@ export default function EquipmentPage() {
         <Tabs
           value={selectedTab}
           onChange={handleTabChange}
-          variant={isMobile ? "scrollable" : "standard"}
-          scrollButtons={isMobile ? "auto" : false}
+          variant="scrollable"
+          scrollButtons="auto"
           allowScrollButtonsMobile
+          sx={{ "& .MuiTabs-scrollButtons.Mui-disabled": { opacity: 0.25 } }}
         >
           {CATEGORY_TABS.map((tab) => (
             <Tab key={tab.id} value={tab.id} label={tab.label} />

@@ -1,15 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import {
-  Box,
-  Tabs,
-  Tab,
-  Alert,
-  Snackbar,
-  useMediaQuery,
-  useTheme,
-} from "@mui/material";
+import { Box, Tabs, Tab, Alert, Snackbar } from "@mui/material";
 import {
   Person as PersonIcon,
   Security as SecurityIcon,
@@ -63,8 +55,6 @@ interface SettingsTabsProps {
 export default function SettingsTabs({ defaultTab = 0 }: SettingsTabsProps) {
   const { userProfile } = useAuth();
   const { selectedCompany } = useSelectedCompany();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [value, setValue] = useState(defaultTab);
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
@@ -133,8 +123,9 @@ export default function SettingsTabs({ defaultTab = 0 }: SettingsTabsProps) {
         <Tabs
           value={value}
           onChange={handleChange}
-          variant={isMobile ? "scrollable" : "standard"}
-          scrollButtons={isMobile ? "auto" : false}
+          variant="scrollable"
+          scrollButtons="auto"
+          allowScrollButtonsMobile
           aria-label="settings tabs"
           sx={{
             "& .MuiTab-root": {
@@ -143,6 +134,7 @@ export default function SettingsTabs({ defaultTab = 0 }: SettingsTabsProps) {
               fontSize: "0.9rem",
               fontWeight: 500,
             },
+            "& .MuiTabs-scrollButtons.Mui-disabled": { opacity: 0.25 },
           }}
         >
           {tabs.map((tab, index) => (
