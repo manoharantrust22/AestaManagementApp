@@ -68,6 +68,8 @@ describe("computeMesthriStrip", () => {
     });
     expect(v.ownRemaining).toBe(0);
     expect(v.stillToPay).toBe(0);
+    // pctPaid feeds a <LinearProgress value=…>, which overflows its track above 100.
+    expect(v.pctPaid).toBe(100);
   });
 
   it("does not divide by zero on a contract with no earnings yet", () => {
