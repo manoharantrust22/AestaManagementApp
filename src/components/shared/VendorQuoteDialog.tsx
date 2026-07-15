@@ -29,6 +29,10 @@ import { VendorPicker } from "@/components/shared/VendorPicker";
 import { useMaterial, useCreateMaterial } from "@/hooks/queries/useMaterials";
 import { useVendor, useCreateVendor } from "@/hooks/queries/useVendors";
 import { useUpsertVendorInventory } from "@/hooks/queries/useVendorInventory";
+import {
+  resolveQuoteScoping,
+  validateQuoteScoping,
+} from "@/lib/vendor-quote-scoping";
 import type {
   MaterialUnit,
   MaterialWithDetails,
@@ -76,6 +80,7 @@ export function VendorQuoteDialog({
   const [material, setMaterial] = useState<MaterialWithDetails | null>(null);
   const [vendor, setVendor] = useState<VendorWithCategories | null>(null);
   const [brand, setBrand] = useState<MaterialBrand | null>(null);
+  const [variant, setVariant] = useState<MaterialWithDetails | null>(null);
   const [price, setPrice] = useState("");
   const [unit, setUnit] = useState<MaterialUnit | "">("");
   const [priceIncludesGst, setPriceIncludesGst] = useState(false);
@@ -100,6 +105,7 @@ export function VendorQuoteDialog({
       setMaterial(lockedMaterial ?? null);
       setVendor(lockedVendor ?? null);
       setBrand(null);
+      setVariant(null);
       setPrice("");
       setUnit(lockedMaterial?.category?.code === 'WOD' ? 'cft' : (lockedMaterial?.unit ?? ""));
       setPriceIncludesGst(false);
@@ -152,10 +158,21 @@ export function VendorQuoteDialog({
       setError("Please enter a valid price.");
       return;
     }
+    const scopingError = validateQuoteScoping(scoping, {
+      brandId: brand?.id,
+      variantId: variant?.id,
+    });
+    if (scopingError) {
+      setError(scopingError);
+      return;
+    }
     try {
       await upsert.mutateAsync({
         vendor_id: vendor.id,
-        material_id: material.id,
+        // A variant IS a material row (parent_id set), so binding the quote to a
+        // size is just pointing material_id at it — no schema change, and the
+        // same shape 89 existing quotes already use.
+        material_id: variant?.id ?? material.id,
         brand_id: brand?.id,
         current_price: priceNum,
         unit: unit || material.unit,
@@ -177,6 +194,19 @@ export function VendorQuoteDialog({
 
   const visibleBrands: MaterialBrand[] =
     (material?.brands || []).filter((b) => b.is_active) || [];
+
+  const visibleVariants: MaterialWithDetails[] = (material?.variants || []).filter(
+    (v) => v.is_active !== false
+  );
+
+  // What this material's price actually depends on. Drives which fields are
+  // required — and, when it depends on nothing, makes the form say so instead of
+  // just showing empty space.
+  const scoping = resolveQuoteScoping({
+    quotedMaterial: material ?? { id: "", parent_id: null },
+    brandCount: visibleBrands.length,
+    variantCount: visibleVariants.length,
+  });
 
   return (
     <>
@@ -251,8 +281,45 @@ export function VendorQuoteDialog({
               />
             )}
 
-            {/* Brand (optional) */}
-            {visibleBrands.length > 0 ? (
+            {/* Variant — binds the price to a size. Only asked for when the
+                material declares its price varies by variant AND there are
+                variants to pick. */}
+            {scoping.requiresVariant && scoping.hasVariants ? (
+              <Autocomplete
+                size="small"
+                value={variant}
+                onChange={(_, v) => setVariant(v)}
+                options={visibleVariants}
+                getOptionLabel={(o) => o.name}
+                isOptionEqualToValue={(a, b) => a.id === b.id}
+                slotProps={{ popper: { disablePortal: false } }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Variant"
+                    size="small"
+                    required
+                    helperText={`${material?.name}'s price varies by size/variant`}
+                  />
+                )}
+              />
+            ) : null}
+
+            {/* Declared variant-priced but nothing to bind to: say so rather
+                than accepting a price that means nothing. */}
+            {scoping.requiresVariant && !scoping.hasVariants && material ? (
+              <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
+                <Typography sx={{ fontSize: 12.5 }}>
+                  {material.name}&apos;s price varies by size, but it has no
+                  variants yet — add one from the Variants tab first.
+                </Typography>
+              </Alert>
+            ) : null}
+
+            {/* Brand — required when the material says price depends on it. Kept
+                VISIBLE with no options rather than hidden: hiding the field is
+                how 27 quotes ended up brandless while brands existed. */}
+            {scoping.requiresBrand && visibleBrands.length > 0 ? (
               <Autocomplete
                 size="small"
                 value={brand}
@@ -264,9 +331,36 @@ export function VendorQuoteDialog({
                 isOptionEqualToValue={(a, b) => a.id === b.id}
                 slotProps={{ popper: { disablePortal: false } }}
                 renderInput={(params) => (
-                  <TextField {...params} label="Brand (optional)" size="small" />
+                  <TextField
+                    {...params}
+                    label="Brand"
+                    size="small"
+                    required
+                    helperText={`${material?.name}'s price varies by brand`}
+                  />
                 )}
               />
+            ) : null}
+
+            {scoping.requiresBrand && visibleBrands.length === 0 && material ? (
+              <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
+                <Typography sx={{ fontSize: 12.5 }}>
+                  {material.name}&apos;s price varies by brand, but it has no
+                  brands yet — add one from the Brands tab first.
+                </Typography>
+              </Alert>
+            ) : null}
+
+            {/* Brand is genuinely irrelevant for some materials (sand, bricks).
+                Say it out loud — an empty space is what let unscoped prices
+                through in the first place. */}
+            {material && scoping.isUnscopedByDesign ? (
+              <Alert severity="info" variant="outlined" sx={{ py: 0 }}>
+                <Typography sx={{ fontSize: 12.5 }}>
+                  One price for all brands &amp; sizes — {material.name} is
+                  declared brand/size-independent.
+                </Typography>
+              </Alert>
             ) : null}
 
             {/* Price + unit */}

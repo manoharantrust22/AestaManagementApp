@@ -37,6 +37,7 @@ export const CATEGORY_VARIANT_TEMPLATES: Record<string, CategoryVariantTemplate>
         min: 0,
         placeholder: '0.395',
         columnWidth: 110,
+        writeLegacyColumn: true,
       },
       {
         key: 'length_per_piece',
@@ -49,16 +50,18 @@ export const CATEGORY_VARIANT_TEMPLATES: Record<string, CategoryVariantTemplate>
         defaultValue: TMT_STANDARD_LENGTH,
         placeholder: '40',
         columnWidth: 100,
+        writeLegacyColumn: true,
       },
       {
         key: 'rods_per_bundle',
         name: 'Rods/Bundle',
-        type: 'number',
+        type: 'integer',
         required: false,
         step: 1,
         min: 1,
         placeholder: '10',
         columnWidth: 100,
+        writeLegacyColumn: true,
       },
     ],
     defaultUnit: 'piece',
@@ -246,7 +249,9 @@ export const CATEGORY_VARIANT_TEMPLATES: Record<string, CategoryVariantTemplate>
         columnWidth: 100,
       },
       {
-        key: 'length',
+        // Keyed to the legacy column (not 'length') so PO/Request length math
+        // sees pipe variants at all.
+        key: 'length_per_piece',
         name: 'Length',
         type: 'number',
         unit: 'm',
@@ -255,6 +260,7 @@ export const CATEGORY_VARIANT_TEMPLATES: Record<string, CategoryVariantTemplate>
         defaultValue: 6,
         min: 0,
         columnWidth: 90,
+        writeLegacyColumn: true,
       },
       {
         key: 'pipe_type',
@@ -320,7 +326,9 @@ export const CATEGORY_VARIANT_TEMPLATES: Record<string, CategoryVariantTemplate>
         columnWidth: 100,
       },
       {
-        key: 'coil_length',
+        // Keyed to the legacy column (not 'coil_length') so PO/Request length
+        // math sees cable variants at all.
+        key: 'length_per_piece',
         name: 'Coil Length',
         type: 'number',
         unit: 'm',
@@ -328,6 +336,7 @@ export const CATEGORY_VARIANT_TEMPLATES: Record<string, CategoryVariantTemplate>
         defaultValue: 90,
         min: 0,
         columnWidth: 100,
+        writeLegacyColumn: true,
       },
     ],
     defaultUnit: 'rmt',
@@ -414,6 +423,16 @@ export const CATEGORY_VARIANT_TEMPLATES: Record<string, CategoryVariantTemplate>
         ],
         columnWidth: 90,
       },
+      {
+        key: 'pieces_per_box',
+        name: 'Pieces/Box',
+        type: 'integer',
+        required: false,
+        min: 1,
+        step: 1,
+        placeholder: '4',
+        columnWidth: 100,
+      },
     ],
     defaultUnit: 'sqft',
   },
@@ -463,6 +482,21 @@ export const CATEGORY_VARIANT_TEMPLATES: Record<string, CategoryVariantTemplate>
           { value: 'eggshell', label: 'Eggshell' },
         ],
         columnWidth: 90,
+      },
+      {
+        // Every live Paint variant carries this ('Retail' / 'Project') — it is
+        // the only spec key anyone has populated organically besides jalli size.
+        // Neither legacy template declared it, so editing a Paint variant used
+        // to drop it on save.
+        key: 'tier',
+        name: 'Tier',
+        type: 'select',
+        required: false,
+        options: [
+          { value: 'Retail', label: 'Retail' },
+          { value: 'Project', label: 'Project' },
+        ],
+        columnWidth: 100,
       },
     ],
     defaultUnit: 'liter',
@@ -524,19 +558,49 @@ export const CATEGORY_VARIANT_TEMPLATES: Record<string, CategoryVariantTemplate>
   },
 
   // ============================================
-  // Default (Generic)
+  // Glass & Aluminum (GLS) — cut to size
   // ============================================
-  default: {
+  glass: {
     fields: [
+      { key: 'width_ft', name: 'Width', type: 'number', unit: 'ft', required: false, min: 0, step: 0.25, columnWidth: 90 },
+      { key: 'height_ft', name: 'Height', type: 'number', unit: 'ft', required: false, min: 0, step: 0.25, columnWidth: 90 },
       {
-        key: 'variant_spec',
-        name: 'Specification',
-        type: 'text',
+        key: 'thickness_mm',
+        name: 'Thickness',
+        type: 'number',
+        unit: 'mm',
         required: false,
-        placeholder: 'Enter variant specification...',
-        columnWidth: 200,
+        min: 0,
+        step: 0.5,
+        placeholder: '5',
+        columnWidth: 100,
       },
     ],
+    defaultUnit: 'sqft',
+  },
+
+  // ============================================
+  // Pumps & Motors (PMP)
+  // ============================================
+  pumps: {
+    fields: [
+      { key: 'hp', name: 'Power', type: 'number', unit: 'HP', required: false, min: 0, step: 0.25, placeholder: '1', columnWidth: 90 },
+      { key: 'stages', name: 'Stages', type: 'integer', required: false, min: 1, step: 1, placeholder: '30', columnWidth: 90 },
+    ],
+    defaultUnit: 'nos',
+  },
+
+  // ============================================
+  // Default (Generic)
+  //
+  // An EMPTY field list is deliberate, not a stub: categories with nothing
+  // structured worth capturing (hardware, tools, fasteners, misc) render no
+  // Specifications section at all. This replaced a generic "Specification" text
+  // box — a catch-all nobody filled, which is a large part of why only 11 of ~60
+  // variants carry any specs today.
+  // ============================================
+  default: {
+    fields: [],
   },
 
   // ============================================
@@ -561,6 +625,8 @@ export const CATEGORY_VARIANT_TEMPLATES: Record<string, CategoryVariantTemplate>
         options: [
           { value: 'ft', label: 'ft' },
           { value: 'in', label: 'in' },
+          { value: 'mm', label: 'mm' },
+          { value: 'cm', label: 'cm' },
         ],
         defaultValue: 'ft',
         columnWidth: 70,
@@ -581,6 +647,8 @@ export const CATEGORY_VARIANT_TEMPLATES: Record<string, CategoryVariantTemplate>
         options: [
           { value: 'in', label: 'in' },
           { value: 'ft', label: 'ft' },
+          { value: 'mm', label: 'mm' },
+          { value: 'cm', label: 'cm' },
         ],
         defaultValue: 'in',
         columnWidth: 70,
@@ -600,42 +668,161 @@ export const CATEGORY_VARIANT_TEMPLATES: Record<string, CategoryVariantTemplate>
         required: false,
         options: [
           { value: 'in', label: 'in' },
+          { value: 'mm', label: 'mm' },
+          { value: 'cm', label: 'cm' },
           { value: 'ft', label: 'ft' },
         ],
+        // Inches: this template now serves linear timber only (teak reapers are
+        // quoted 4" x 2"). Sheet goods moved to `plywood_boards`, which is
+        // mm-first — that is where the millimetre default belongs.
         defaultValue: 'in',
         columnWidth: 70,
       },
     ],
     defaultUnit: 'cft',
   },
+
+  // ============================================
+  // Plywood & Boards (WOD-PLY) — sheet goods
+  //
+  // Split out of wood_timber because Wood & Timber holds two incompatible
+  // shapes: linear stock priced by cross-section x length (teak), and sheets
+  // priced by sheet size x thickness (plywood). One category template served
+  // the former and mislabelled the latter's thickness as "Cross-section (mm)".
+  // ============================================
+  plywood_boards: {
+    fields: [
+      {
+        key: 'sheet_size',
+        name: 'Sheet size',
+        type: 'select',
+        required: true,
+        options: [
+          { value: '8x4', label: '8 x 4 ft' },
+          { value: '7x4', label: '7 x 4 ft' },
+          { value: '6x4', label: '6 x 4 ft' },
+          { value: '8x3', label: '8 x 3 ft' },
+          { value: '6x3', label: '6 x 3 ft' },
+        ],
+        defaultValue: '8x4',
+        columnWidth: 110,
+      },
+      {
+        // Deliberately a number, not a select: DynamicVariantField's select
+        // branch stores the raw string, which would put "18" in the JSONB while
+        // every other numeric spec holds a number.
+        key: 'thickness_mm',
+        name: 'Thickness',
+        type: 'number',
+        unit: 'mm',
+        required: true,
+        min: 3,
+        step: 1,
+        placeholder: '18',
+        helperText: '6 / 9 / 12 / 18 / 19 / 25',
+        columnWidth: 110,
+      },
+      {
+        // MR vs BWP is the biggest price driver after thickness (BWP runs ~2x
+        // MR at the same size), so a quote without it is underspecified.
+        key: 'grade',
+        name: 'Grade',
+        type: 'select',
+        required: false,
+        options: [
+          { value: 'MR', label: 'MR (interior)' },
+          { value: 'BWR', label: 'BWR (semi-wet)' },
+          { value: 'BWP', label: 'BWP / Marine' },
+        ],
+        columnWidth: 120,
+      },
+    ],
+    defaultUnit: 'sqft',
+    nameTemplate: '{sheet_size} · {thickness_mm}mm',
+  },
 };
 
 /**
- * Map of category codes/names to template keys
- * Used for quick lookup before pattern matching
+ * Category code -> template key. Checked FIRST, before any pattern matching.
+ *
+ * These are the real `material_categories.code` values. An earlier version of
+ * this map was written against invented codes (TMT, STEEL, TILE, PAINT, ELEC…)
+ * of which only CEM and WOD ever matched a real row — everything else silently
+ * fell through to the name patterns below. Adding a key here that no category
+ * actually has is worse than no key at all: it reads as intentional.
+ *
+ * WOD-PLY must be here specifically. The `wood_timber` pattern below matches
+ * /plywood/, so without an exact code hit, Plywood & Boards would resolve back
+ * to the timber template — the exact bug this split exists to fix.
  */
-const CATEGORY_CODE_MAP: Record<string, string> = {
-  // Exact code matches (case-insensitive)
-  TMT: 'tmt',
-  STEEL: 'tmt',
-  AGGR: 'aggregates',
-  GRAVEL: 'aggregates',
-  'SAND-AGG': 'sand_aggregates',
-  BRICK: 'bricks',
-  BLOCK: 'bricks',
-  CEMENT: 'cement',
+export const CATEGORY_CODE_MAP: Record<string, string> = {
   CEM: 'cement',
-  PVC: 'pipes',
-  PIPE: 'pipes',
-  ELEC: 'wire',
-  WIRE: 'wire',
-  CABLE: 'wire',
-  SAND: 'sand',
-  TILE: 'tiles',
-  PAINT: 'paint',
-  WP: 'waterproofing',
-  FIT: 'fittings',
+  'CEM-PPC': 'cement',
+  'CEM-OPC53': 'cement',
+  STL: 'tmt',
+  'STL-TMT': 'tmt',
+  'STL-WIRE': 'wire',
+  AGG: 'sand_aggregates',
+  'AGG-MSAND': 'sand',
+  'AGG-PSAND': 'sand',
+  'AGG-BM20': 'aggregates',
+  BRK: 'bricks',
+  'BRK-RED': 'bricks',
+  'BRK-CMT': 'bricks',
+  'BRK-AAC': 'bricks',
+  PLB: 'pipes',
+  ELC: 'wire',
   WOD: 'wood_timber',
+  'WOD-PLY': 'plywood_boards',
+  TIL: 'tiles',
+  PNT: 'paint',
+  GLS: 'glass',
+  WPF: 'waterproofing',
+  PMP: 'pumps',
+  'PMP-SUB': 'pumps',
+  // Deliberately unmapped -> `default` (no spec section): HRD, MSC, CTR,
+  // PMP-PNL. See INTENTIONALLY_UNMAPPED_CODES in the test file.
+};
+
+/**
+ * Lower-cased category NAME -> template key. Checked after the code map and
+ * before the name patterns.
+ *
+ * This step is load-bearing, not a convenience: 15 live subcategories have
+ * code = NULL (10 under Electrical, 5 under Hardware — 'Wiring & Cables',
+ * 'Switchgear', 'Tools', 'Fasteners'…). A code-only resolver cannot see them at
+ * all, and the patterns are too blunt to tell 'Switchgear' (no specs) from
+ * 'Electrical Cables' (gauge + coil length). Do not collapse this into the code
+ * map.
+ */
+export const CATEGORY_NAME_MAP: Record<string, string> = {
+  // Sheet goods. Also mapped by code (WOD-PLY), but a code-less row would
+  // otherwise walk up to WOD and land back on the timber template.
+  'plywood & boards': 'plywood_boards',
+  plywood: 'plywood_boards',
+
+  // Electrical subcategories (all code-less)
+  'wiring & cables': 'wire',
+  'electrical wires': 'wire',
+  'electrical cables': 'wire',
+  'tv & data cables': 'wire',
+  'conduits & fittings': 'pipes',
+  'conduit fittings': 'fittings',
+  'distribution boxes': 'default',
+  'junction boxes': 'default',
+  'electrical accessories': 'default',
+  'insulation tapes': 'default',
+  switchgear: 'default',
+
+  // Hardware subcategories (all code-less) — nothing structured worth capturing
+  tools: 'default',
+  fasteners: 'default',
+  clamps: 'default',
+  'pipes & fittings': 'fittings',
+
+  // Pump subcategories
+  'submersible pumps': 'pumps',
+  'pump panels & accessories': 'default',
 };
 
 /**
@@ -666,63 +853,51 @@ const CATEGORY_PATTERNS: Array<{ pattern: RegExp; templateKey: string }> = [
   { pattern: /\b(tile|flooring|ceramic|vitrified|porcelain)\b/i, templateKey: 'tiles' },
   // Paint
   { pattern: /\b(paint|primer|distemper|enamel|putty)\b/i, templateKey: 'paint' },
-  // Waterproofing
-  { pattern: /\b(waterproof|dr\s*fixit|fosroc|sika)\b/i, templateKey: 'waterproofing' },
+  // Waterproofing — no trailing \b: it would never match "Waterproofing",
+  // since \b requires a boundary between 'waterproof' and 'ing'.
+  { pattern: /waterproof|\b(dr\s*fixit|fosroc|sika)\b/i, templateKey: 'waterproofing' },
   // Fittings
   { pattern: /\b(fitting|elbow|tee|union|coupling|valve)\b/i, templateKey: 'fittings' },
 ];
 
+const normalizeName = (name?: string | null): string =>
+  (name ?? '').toLowerCase().trim();
+
 /**
- * Get the variant template for a category
+ * Resolve the template key for a category.
  *
- * @param category - The category to get template for
- * @param parentCategory - Optional parent category for hierarchical matching
- * @returns The variant template for the category
- */
-export function getCategoryTemplate(
-  category: CategoryForTemplate | null,
-  parentCategory?: CategoryForTemplate | null
-): CategoryVariantTemplate {
-  if (!category) {
-    return CATEGORY_VARIANT_TEMPLATES.default;
-  }
-
-  // 1. Check by code first (exact match)
-  const code = category.code?.toUpperCase();
-  if (code && CATEGORY_CODE_MAP[code]) {
-    return CATEGORY_VARIANT_TEMPLATES[CATEGORY_CODE_MAP[code]];
-  }
-
-  // 2. Build full name for pattern matching (include parent if available)
-  const fullName = parentCategory
-    ? `${parentCategory.name} ${category.name}`
-    : category.name;
-
-  // 3. Check patterns
-  for (const { pattern, templateKey } of CATEGORY_PATTERNS) {
-    if (pattern.test(fullName)) {
-      return CATEGORY_VARIANT_TEMPLATES[templateKey];
-    }
-  }
-
-  // 4. Fallback to default
-  return CATEGORY_VARIANT_TEMPLATES.default;
-}
-
-/**
- * Get the template key for a category (useful for debugging)
+ * Most specific signal wins, so a subcategory can override its parent:
+ *   1. the category's own code      (WOD-PLY -> plywood_boards)
+ *   2. the category's own name      (code-less subcats: 'Switchgear' -> default)
+ *   3. the parent's code            (a new WOD child inherits wood_timber)
+ *   4. the parent's name
+ *   5. name patterns                (safety net for categories added later)
+ *   6. default                      (no spec section)
+ *
+ * Steps 1-2 must both precede 3-5: the patterns are deliberately broad and would
+ * otherwise swallow a subcategory into its parent's template.
  */
 export function getCategoryTemplateKey(
   category: CategoryForTemplate | null,
   parentCategory?: CategoryForTemplate | null
 ): string {
-  if (!category) {
-    return 'default';
-  }
+  if (!category) return 'default';
 
-  const code = category.code?.toUpperCase();
-  if (code && CATEGORY_CODE_MAP[code]) {
-    return CATEGORY_CODE_MAP[code];
+  const ownCode = category.code?.toUpperCase();
+  if (ownCode && CATEGORY_CODE_MAP[ownCode]) return CATEGORY_CODE_MAP[ownCode];
+
+  const ownName = normalizeName(category.name);
+  if (ownName && CATEGORY_NAME_MAP[ownName]) return CATEGORY_NAME_MAP[ownName];
+
+  if (parentCategory) {
+    const parentCode = parentCategory.code?.toUpperCase();
+    if (parentCode && CATEGORY_CODE_MAP[parentCode]) {
+      return CATEGORY_CODE_MAP[parentCode];
+    }
+    const parentName = normalizeName(parentCategory.name);
+    if (parentName && CATEGORY_NAME_MAP[parentName]) {
+      return CATEGORY_NAME_MAP[parentName];
+    }
   }
 
   const fullName = parentCategory
@@ -736,6 +911,45 @@ export function getCategoryTemplateKey(
   }
 
   return 'default';
+}
+
+/**
+ * Get the variant template for a category.
+ *
+ * @param category - The category to get template for
+ * @param parentCategory - Optional parent category for hierarchical matching
+ */
+export function getCategoryTemplate(
+  category: CategoryForTemplate | null,
+  parentCategory?: CategoryForTemplate | null
+): CategoryVariantTemplate {
+  const key = getCategoryTemplateKey(category, parentCategory);
+  return CATEGORY_VARIANT_TEMPLATES[key] ?? CATEGORY_VARIANT_TEMPLATES.default;
+}
+
+/**
+ * Render a template's `nameTemplate` against spec values, e.g.
+ * '{sheet_size} · {thickness_mm}mm' + {sheet_size:'8x4', thickness_mm:18}
+ *   -> '8x4 · 18mm'
+ *
+ * Returns '' unless every token has a value — a half-derived name ('8x4 · mm')
+ * is worse than leaving the field alone for the user to type.
+ */
+export function renderNameTemplate(
+  nameTemplate: string | undefined,
+  values: Record<string, unknown>
+): string {
+  if (!nameTemplate) return '';
+  let missing = false;
+  const rendered = nameTemplate.replace(/\{(\w+)\}/g, (_match, key: string) => {
+    const value = values[key];
+    if (value === undefined || value === null || String(value).trim() === '') {
+      missing = true;
+      return '';
+    }
+    return String(value).trim();
+  });
+  return missing ? '' : rendered.trim();
 }
 
 /**

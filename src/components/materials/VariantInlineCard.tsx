@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
+  Autocomplete,
   Box,
   Button,
   CircularProgress,
@@ -26,14 +28,17 @@ import {
 } from "@mui/icons-material";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
 import VendorAutocomplete from "@/components/common/VendorAutocomplete";
+import DynamicVariantField from "./DynamicVariantField";
 import {
   useAddVariantToMaterial,
+  useMaterialCategories,
   useUpdateMaterial,
 } from "@/hooks/queries/useMaterials";
 import {
-  getSpecFieldsForMaterial,
-  type SpecFieldDef,
-} from "@/lib/material-variant-specs";
+  getCategoryTemplate,
+  renderNameTemplate,
+} from "@/lib/category-variant-templates";
+import type { VariantFieldDefinition } from "@/types/category-variant-fields.types";
 import type { MaterialWithDetails, VariantFormData } from "@/types/material.types";
 import { createClient } from "@/lib/supabase/client";
 import { hardenedUpload } from "@/lib/storage/uploadHelpers";
@@ -68,10 +73,10 @@ interface VariantInlineCardProps {
 
 function readSpecValue(
   variant: MaterialWithDetails | null | undefined,
-  field: SpecFieldDef
-): string {
-  if (!variant) return "";
-  // Steel uses legacy columns directly.
+  field: VariantFieldDefinition
+): unknown {
+  if (!variant) return field.defaultValue ?? null;
+  // Steel/pipes/cable mirror these into legacy columns; read them back from there.
   if (field.writeLegacyColumn) {
     const legacyVal =
       field.key === "weight_per_unit"
@@ -81,11 +86,10 @@ function readSpecValue(
         : field.key === "rods_per_bundle"
         ? variant.rods_per_bundle
         : null;
-    return legacyVal == null ? "" : String(legacyVal);
+    return legacyVal ?? null;
   }
   const specs = (variant.specifications as Record<string, unknown> | null | undefined) ?? {};
-  const v = specs[field.key];
-  return v == null ? "" : String(v);
+  return specs[field.key] ?? null;
 }
 
 export default function VariantInlineCard({
@@ -95,24 +99,73 @@ export default function VariantInlineCard({
   onCancel,
   onSaved,
 }: VariantInlineCardProps) {
-  const specFields = useMemo(
-    () => getSpecFieldsForMaterial(parentMaterial),
-    [parentMaterial]
+  // Resolve the spec template from the category hierarchy. Categories are
+  // fetched here rather than read off parentMaterial.category, because the
+  // material selects only (id, name, code) — `category.parent_id` type-checks
+  // but is undefined at runtime, so walking it would silently resolve nothing.
+  const { data: categories } = useMaterialCategories();
+  const category = useMemo(
+    () => categories?.find((c) => c.id === parentMaterial.category_id) ?? null,
+    [categories, parentMaterial.category_id]
   );
+  const parentCategory = useMemo(
+    () =>
+      category?.parent_id
+        ? categories?.find((c) => c.id === category.parent_id) ?? null
+        : null,
+    [categories, category]
+  );
+  const template = useMemo(
+    () => getCategoryTemplate(category, parentCategory),
+    [category, parentCategory]
+  );
+  const specFields = template.fields;
 
   // Form state
   const [name, setName] = useState(variant?.name ?? "");
   const [imageUrl, setImageUrl] = useState<string | null>(variant?.image_url ?? null);
-  const [specValues, setSpecValues] = useState<Record<string, string>>(() => {
-    const init: Record<string, string> = {};
-    for (const f of specFields) init[f.key] = readSpecValue(variant, f);
-    return init;
-  });
+  const [specValues, setSpecValues] = useState<Record<string, unknown>>({});
+  // Once the user types a name themselves, stop deriving it. Seeded true in edit
+  // mode so opening an existing variant never rewrites its name.
+  const [nameTouched, setNameTouched] = useState(mode === "edit");
+
+  // Categories arrive async, so specFields is empty on first render and the
+  // values have to be seeded once the template actually resolves.
+  useEffect(() => {
+    if (!specFields.length) return;
+    setSpecValues((prev) => {
+      const next: Record<string, unknown> = { ...prev };
+      for (const f of specFields) {
+        if (next[f.key] === undefined) next[f.key] = readSpecValue(variant, f);
+      }
+      return next;
+    });
+  }, [specFields, variant]);
+
+  // Derive the variant name from its specs ("8x4 · 18mm"). Users type dimensions
+  // into the name and skip the spec fields — only 11 of ~60 variants carry any
+  // specs — so making the specs *produce* the name is what gets them filled.
+  // Sets the real value (not a placeholder) so the required-name guard and the
+  // Save disabled state keep working untouched.
+  useEffect(() => {
+    if (nameTouched || !template.nameTemplate) return;
+    const derived = renderNameTemplate(template.nameTemplate, specValues);
+    if (derived) setName(derived);
+  }, [specValues, nameTouched, template.nameTemplate]);
 
   // Vendor + price (add mode only)
   const [vendorId, setVendorId] = useState<string | null>(null);
+  const [vendorBrandId, setVendorBrandId] = useState<string | null>(null);
   const [price, setPrice] = useState<string>("");
   const [vendorNotes, setVendorNotes] = useState<string>("");
+
+  // The parent declares whether a price is brand-specific. The variant row
+  // itself carries no such flag.
+  const requiresBrand = parentMaterial.price_varies_by_brand === true;
+  const visibleBrands = useMemo(
+    () => (parentMaterial.brands ?? []).filter((b) => b.is_active),
+    [parentMaterial.brands]
+  );
 
   // Optional bill backing the manual vendor rate. Uploaded to
   // `purchase-documents` on save and stamped onto a price_history row.
@@ -168,35 +221,52 @@ export default function VariantInlineCard({
     }
   };
 
-  const handleSpecChange = (key: string, value: string) => {
+  const handleSpecChange = (key: string, value: unknown) => {
     setSpecValues((prev) => ({ ...prev, [key]: value }));
   };
 
   const parseSpecsForSubmit = () => {
     const specs: Record<string, unknown> = {};
+    // DynamicVariantField already coerces number/integer, so these arrive typed.
     const legacy: {
       weight_per_unit?: number | null;
       length_per_piece?: number | null;
       rods_per_bundle?: number | null;
+      weight_unit?: string;
+      length_unit?: string;
     } = {};
+
     for (const f of specFields) {
-      const raw = specValues[f.key]?.trim();
-      if (!raw) {
-        if (f.writeLegacyColumn && (f.key === "weight_per_unit" || f.key === "length_per_piece" || f.key === "rods_per_bundle")) {
-          legacy[f.key] = null;
+      const value = specValues[f.key];
+      const isEmpty =
+        value === undefined || value === null || String(value).trim() === "";
+
+      if (isEmpty) {
+        // Clear the mirrored column too, or a blanked field would leave a stale
+        // number behind in the costing math.
+        if (f.writeLegacyColumn) {
+          if (f.key === "weight_per_unit") legacy.weight_per_unit = null;
+          else if (f.key === "length_per_piece") legacy.length_per_piece = null;
+          else if (f.key === "rods_per_bundle") legacy.rods_per_bundle = null;
         }
         continue;
       }
-      let parsed: unknown = raw;
-      if (f.type === "number") parsed = Number(raw);
-      else if (f.type === "integer") parsed = parseInt(raw, 10);
-      if (typeof parsed === "number" && Number.isNaN(parsed)) continue;
-      specs[f.key] = parsed;
+
+      specs[f.key] = value;
+
       if (f.writeLegacyColumn) {
         if (f.key === "weight_per_unit" || f.key === "length_per_piece") {
-          legacy[f.key] = parsed as number;
+          legacy[f.key] = Number(value);
+          // Carry the template's unit onto the paired column. Without this the
+          // unit columns keep their 'm'/'kg' defaults while the value is in
+          // whatever the template declares — a 40 ft TMT rod would persist as
+          // length_per_piece=40, length_unit='m'.
+          if (f.unit) {
+            if (f.key === "length_per_piece") legacy.length_unit = f.unit;
+            else legacy.weight_unit = f.unit;
+          }
         } else if (f.key === "rods_per_bundle") {
-          legacy.rods_per_bundle = parsed as number;
+          legacy.rods_per_bundle = Number(value);
         }
       }
     }
@@ -265,6 +335,16 @@ export default function VariantInlineCard({
       return;
     }
 
+    // A first quote is a quote: it has to name its brand like any other.
+    if (mode === "add" && vendorId && requiresBrand && !vendorBrandId) {
+      setError(
+        visibleBrands.length
+          ? `Pick the brand this price is for — ${parentMaterial.name}'s price varies by brand.`
+          : `${parentMaterial.name}'s price varies by brand, but it has no brands yet. Add one from the Brands tab first.`
+      );
+      return;
+    }
+
     const { specs, legacy } = parseSpecsForSubmit();
 
     try {
@@ -282,10 +362,13 @@ export default function VariantInlineCard({
           weight_per_unit: legacy.weight_per_unit ?? null,
           length_per_piece: legacy.length_per_piece ?? null,
           rods_per_bundle: legacy.rods_per_bundle ?? null,
+          weight_unit: legacy.weight_unit,
+          length_unit: legacy.length_unit,
           specifications: specs,
           image_url: imageUrl,
           initial_vendor_id: vendorId ?? null,
           initial_vendor_price: vendorId ? Number(price) : null,
+          initial_vendor_brand_id: vendorId ? vendorBrandId : null,
           initial_vendor_notes: vendorNotes.trim() || null,
           initial_vendor_bill_url: billUrl,
         };
@@ -299,10 +382,20 @@ export default function VariantInlineCard({
           data: {
             name: name.trim(),
             image_url: imageUrl ?? undefined,
-            specifications: specs,
+            // MERGE, don't replace. `specs` only holds keys the current template
+            // knows about, so a plain assignment drops everything else in the
+            // JSONB — renaming a Paint variant used to silently wipe its
+            // {"tier":"Retail"}, and Tools rows carry hand-authored JSON no
+            // template declares.
+            specifications: {
+              ...((variant.specifications as Record<string, unknown> | null) ?? {}),
+              ...specs,
+            },
             weight_per_unit: legacy.weight_per_unit ?? null,
             length_per_piece: legacy.length_per_piece ?? null,
             rods_per_bundle: legacy.rods_per_bundle ?? null,
+            ...(legacy.weight_unit ? { weight_unit: legacy.weight_unit } : {}),
+            ...(legacy.length_unit ? { length_unit: legacy.length_unit } : {}),
           },
         });
       }
@@ -365,13 +458,25 @@ export default function VariantInlineCard({
           label="Variant name"
           required
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            // Latch on the USER's keystroke only — never on the derivation's own
+            // setName, or auto-naming would kill itself on the first name it writes.
+            setNameTouched(true);
+            setName(e.target.value);
+          }}
           autoFocus
           placeholder={`e.g., ${parentMaterial.name} (variant)`}
+          helperText={
+            !nameTouched && template.nameTemplate && name
+              ? "Named from the specs below — type to override"
+              : undefined
+          }
         />
       </Box>
 
-      {/* Specifications (only if category has spec fields) */}
+      {/* Specifications — skipped entirely for categories with no structured
+          specs (sand, cement, hardware, tools), which is a deliberate template
+          declaration rather than a gap. */}
       {specFields.length > 0 && (
         <>
           <Divider textAlign="left" sx={{ fontSize: 11, color: "text.secondary", letterSpacing: 0.5, textTransform: "uppercase" }}>
@@ -379,29 +484,17 @@ export default function VariantInlineCard({
           </Divider>
           <Stack direction="row" flexWrap="wrap" gap={1}>
             {specFields.map((f) => (
-              <TextField
-                key={f.key}
-                size="small"
-                label={f.label}
-                value={specValues[f.key] ?? ""}
-                onChange={(e) => handleSpecChange(f.key, e.target.value)}
-                helperText={f.helper}
-                type={f.type === "text" ? "text" : "number"}
-                slotProps={{
-                  input: {
-                    endAdornment: f.unit ? (
-                      <InputAdornment position="end">{f.unit}</InputAdornment>
-                    ) : undefined,
-                    inputProps:
-                      f.type === "integer"
-                        ? { step: 1, min: 0 }
-                        : f.type === "number"
-                        ? { step: 0.001, min: 0 }
-                        : undefined,
-                  },
-                }}
-                sx={{ minWidth: 140, flex: "1 1 140px" }}
-              />
+              <Box key={f.key} sx={{ minWidth: 140, flex: "1 1 140px" }}>
+                <DynamicVariantField
+                  field={f}
+                  value={specValues[f.key] ?? ""}
+                  onChange={(v) => handleSpecChange(f.key, v)}
+                  size="small"
+                  variant="outlined"
+                  fullWidth
+                  showLabel
+                />
+              </Box>
             ))}
           </Stack>
         </>
@@ -439,6 +532,39 @@ export default function VariantInlineCard({
               disabled={!vendorId}
             />
           </Stack>
+          {/* Brand — shown only when this material's price actually depends on
+              it. Kept visible (rather than hidden) when there are no brands yet,
+              so the gap is stated instead of silently producing a brandless price. */}
+          {requiresBrand ? (
+            visibleBrands.length ? (
+              <Autocomplete
+                size="small"
+                value={visibleBrands.find((b) => b.id === vendorBrandId) ?? null}
+                onChange={(_, b) => setVendorBrandId(b?.id ?? null)}
+                options={visibleBrands}
+                getOptionLabel={(o) =>
+                  o.variant_name ? `${o.brand_name} ${o.variant_name}` : o.brand_name
+                }
+                isOptionEqualToValue={(a, b) => a.id === b.id}
+                disabled={!vendorId}
+                slotProps={{ popper: { disablePortal: false } }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Brand"
+                    size="small"
+                    required
+                    helperText={`${parentMaterial.name}'s price varies by brand`}
+                  />
+                )}
+              />
+            ) : vendorId ? (
+              <Alert severity="warning" variant="outlined" sx={{ py: 0, fontSize: 12 }}>
+                {parentMaterial.name}&apos;s price varies by brand, but it has no
+                brands yet — add one from the Brands tab.
+              </Alert>
+            ) : null
+          ) : null}
           <TextField
             size="small"
             label="Vendor notes"

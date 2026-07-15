@@ -164,6 +164,14 @@ export interface MaterialVendorSummary {
   accepts_credit: boolean;
   gst_number: string | null;
   quote_count: number;
+  /**
+   * How many of this vendor's quotes fail the material's own price-scoping
+   * declaration — no brand on a brand-priced material, or bound to the parent
+   * on a variant-priced one. Already respects the declaration (the RPC reads
+   * price_varies_by_*), so sand and cement report 0 rather than flagging every
+   * legacy row. Drives the "Unscoped" chip on the Vendors tab.
+   */
+  unscoped_quote_count: number;
   brand_chips: string[];
   distinct_brands_count: number;
   /** Lowest raw quoted price across this vendor's quotes (base, pre-transport/GST). */
@@ -530,6 +538,19 @@ export interface Material {
    * stock and usage remain free-form in the base `unit`.
    */
   sold_in_packs: boolean;
+  /**
+   * Parent materials only. When true, a vendor quote must name the brand it
+   * prices. Declared per-material rather than per-category because one category
+   * holds both kinds: within Wood & Timber, Teak's price turns on brand while
+   * sand's does not. Seeded from the category — see
+   * `defaultsForCategoryCode` in @/lib/material-price-scoping-defaults.
+   */
+  price_varies_by_brand: boolean;
+  /**
+   * Parent materials only. When true, a vendor quote must be bound to a variant
+   * (vendor_inventory.material_id points at the variant row, not the parent).
+   */
+  price_varies_by_variant: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -1401,6 +1422,10 @@ export interface MaterialFormData {
   image_url?: string;
   /** Sold only in fixed standard cans/containers (see MaterialPack). */
   sold_in_packs?: boolean;
+  /** Vendor quotes for this material must name a brand. */
+  price_varies_by_brand?: boolean;
+  /** Vendor quotes for this material must be bound to a variant. */
+  price_varies_by_variant?: boolean;
   // Spot-purchase flow: site engineers can quick-add draft materials.
   // Office un-drafts via /company/materials drafts filter (Task M-2).
   is_draft?: boolean;
@@ -1415,6 +1440,14 @@ export interface VariantFormData {
   weight_per_unit?: number | null;
   length_per_piece?: number | null;
   rods_per_bundle?: number | null;
+  /**
+   * Units for the two legacy scalars above, carried from the spec template's
+   * field definition. Without them these columns keep their DB defaults ('kg' /
+   * 'm') regardless of what the value actually is — a 40 ft TMT rod would read
+   * back as 40 metres.
+   */
+  weight_unit?: string;
+  length_unit?: string;
   // Dynamic specifications based on category template
   specifications?: Record<string, unknown>;
   // Image (gallery filename mapped to /Material_Photo/{file})
@@ -1425,6 +1458,13 @@ export interface VariantFormData {
   initial_vendor_id?: string | null;
   initial_vendor_price?: number | null;
   initial_vendor_notes?: string | null;
+  /**
+   * Brand this first quote is for. Required when the parent material declares
+   * `price_varies_by_brand`. Without it the chained vendor_inventory and
+   * price_history rows are recorded brandless — the same unscoped price the
+   * quote dialog now refuses.
+   */
+  initial_vendor_brand_id?: string | null;
   /**
    * Optional bill PDF/image URL backing the manually-entered vendor rate.
    * Uploaded to the `purchase-documents` storage bucket. Persisted as a

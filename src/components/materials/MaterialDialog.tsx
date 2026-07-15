@@ -74,6 +74,7 @@ import type {
 import VariantInlineTable from "./VariantInlineTable";
 import BrandVariantEditor from "./BrandVariantEditor";
 import CategoryDialog, { type CategoryFormData } from "@/components/categories/CategoryDialog";
+import { defaultsForCategoryCode } from "@/lib/material-price-scoping-defaults";
 
 const TMT_CATEGORY_PATTERNS = ["tmt", "steel", "bar", "rod"];
 
@@ -174,6 +175,8 @@ export default function MaterialDialog({
       reorder_level: material?.reorder_level ?? undefined,
       min_order_qty: material?.min_order_qty ?? undefined,
       sold_in_packs: material?.sold_in_packs ?? false,
+      price_varies_by_brand: material?.price_varies_by_brand ?? false,
+      price_varies_by_variant: material?.price_varies_by_variant ?? false,
       weight_per_unit: material?.weight_per_unit ?? null,
       weight_unit: material?.weight_unit || "kg",
       length_per_piece: material?.length_per_piece ?? null,
@@ -285,6 +288,24 @@ export default function MaterialDialog({
   const handleChange = (field: keyof MaterialFormData, value: unknown) => {
     updateField(field, value as MaterialFormData[typeof field]);
     setError("");
+  };
+
+  /**
+   * Picking a category seeds the price-scoping switches from that category's
+   * norms — nobody would think to set them by hand, and an unset flag is exactly
+   * how unscoped quotes happen. Only for NEW materials: on an existing one the
+   * flags are a deliberate answer and re-categorising must not silently rewrite
+   * them.
+   */
+  const handleCategoryChange = (value: string | string[] | null) => {
+    // CategoryAutocomplete is multi-capable; this instance is single-select.
+    const categoryId = (Array.isArray(value) ? value[0] : value) || "";
+    handleChange("category_id", categoryId);
+    if (material) return;
+    const code = categories.find((c) => c.id === categoryId)?.code ?? null;
+    const defaults = defaultsForCategoryCode(code);
+    updateField("price_varies_by_brand", defaults.price_varies_by_brand);
+    updateField("price_varies_by_variant", defaults.price_varies_by_variant);
   };
 
   const handleSubmit = async () => {
@@ -566,7 +587,7 @@ export default function MaterialDialog({
                 <Box sx={{ flex: 1 }}>
                   <CategoryAutocomplete
                     value={formData.category_id || null}
-                    onChange={(value) => handleChange("category_id", value || "")}
+                    onChange={(value) => handleCategoryChange(value)}
                     parentOnly={false}
                     disabled={isVariant && !!formData.parent_id}
                     label="Category"
@@ -836,6 +857,65 @@ export default function MaterialDialog({
                       sx={{ display: "block", fontSize: 11, color: "text.secondary" }}
                     >
                       Bought in whole cans (e.g. 5 L can). Define sizes in the Packs tab.
+                    </Typography>
+                  </Box>
+                }
+              />
+            </Box>
+
+            {/* What a vendor's price depends on. Seeded from the category on
+                category change, because the honest default differs per material:
+                plywood is priced by brand AND thickness, sand by neither. When
+                both are off, the quote form says "one price for all brands"
+                rather than silently accepting an unscoped number. */}
+            <Box sx={{ mt: 1 }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={!!formData.price_varies_by_brand}
+                    onChange={(e) =>
+                      handleChange("price_varies_by_brand", e.target.checked)
+                    }
+                  />
+                }
+                label={
+                  <Box component="span">
+                    <Typography component="span" sx={{ fontSize: 13 }}>
+                      Price varies by brand
+                    </Typography>
+                    <Typography
+                      component="span"
+                      sx={{ display: "block", fontSize: 11, color: "text.secondary" }}
+                    >
+                      Vendor quotes must name a brand (e.g. cement, plywood).
+                    </Typography>
+                  </Box>
+                }
+              />
+            </Box>
+
+            <Box sx={{ mt: 1 }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={!!formData.price_varies_by_variant}
+                    onChange={(e) =>
+                      handleChange("price_varies_by_variant", e.target.checked)
+                    }
+                  />
+                }
+                label={
+                  <Box component="span">
+                    <Typography component="span" sx={{ fontSize: 13 }}>
+                      Price varies by variant / size
+                    </Typography>
+                    <Typography
+                      component="span"
+                      sx={{ display: "block", fontSize: 11, color: "text.secondary" }}
+                    >
+                      Vendor quotes must be tied to a variant (e.g. 18mm vs 19mm ply).
                     </Typography>
                   </Box>
                 }

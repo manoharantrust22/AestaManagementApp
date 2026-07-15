@@ -40,6 +40,8 @@ const BASE_MATERIAL: Material = {
   reorder_level: null,
   image_url: null,
   sold_in_packs: false,
+  price_varies_by_brand: true,
+  price_varies_by_variant: false,
   is_active: true,
   created_at: "",
   updated_at: "",

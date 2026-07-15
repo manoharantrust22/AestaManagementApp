@@ -1143,6 +1143,51 @@ export function useUpdateMaterial() {
 }
 
 /**
+ * Toggle what a material's vendor price depends on, without opening the edit
+ * dialog. Mirrors useSetMaterialSoldInPacks — the realisation that a flag is
+ * wrong happens in the drawer while looking at a suspect price, and a flag that
+ * costs a dialog round-trip to fix is a flag that stays wrong.
+ */
+export function useUpdateMaterialPriceScoping() {
+  const queryClient = useQueryClient();
+  const supabase = createClient();
+
+  return useMutation({
+    mutationFn: async ({
+      materialId,
+      priceVariesByBrand,
+      priceVariesByVariant,
+    }: {
+      materialId: string;
+      priceVariesByBrand?: boolean;
+      priceVariesByVariant?: boolean;
+    }) => {
+      await ensureFreshSession();
+      const patch: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (priceVariesByBrand !== undefined) {
+        patch.price_varies_by_brand = priceVariesByBrand;
+      }
+      if (priceVariesByVariant !== undefined) {
+        patch.price_varies_by_variant = priceVariesByVariant;
+      }
+
+      const { error } = await (supabase.from("materials") as any)
+        .update(patch)
+        .eq("id", materialId);
+      if (error) throw error;
+    },
+    onSuccess: (_data, { materialId }) => {
+      queryClient.invalidateQueries({ queryKey: ["materials"] });
+      queryClient.invalidateQueries({ queryKey: ["material", materialId] });
+      // The unscoped-quote count is derived from these flags server-side.
+      queryClient.invalidateQueries({ queryKey: ["material-vendor-summary", materialId] });
+    },
+  });
+}
+
+/**
  * Delete (soft delete) a material
  */
 export function useDeleteMaterial() {
@@ -1979,12 +2024,18 @@ export function useAddVariantToMaterial() {
           unit: parentMaterial.unit,
           hsn_code: parentMaterial.hsn_code,
           gst_rate: parentMaterial.gst_rate,
-          // Legacy fields for backward compatibility
+          // Legacy fields for backward compatibility.
+          // The spec template's own unit wins: it is the unit the value was
+          // actually entered in. Falling straight through to the parent (or the
+          // 'm'/'kg' defaults) is what made a 40 ft rod persist as 40 metres.
           weight_per_unit: variant.weight_per_unit,
-          weight_unit: parentMaterial.weight_unit || "kg",
+          weight_unit: variant.weight_unit || parentMaterial.weight_unit || "kg",
           length_per_piece: variant.length_per_piece,
-          length_unit: parentMaterial.length_unit || "m",
+          length_unit: variant.length_unit || parentMaterial.length_unit || "m",
           rods_per_bundle: variant.rods_per_bundle,
+          // NOTE: price_varies_by_brand / _by_variant are deliberately NOT
+          // copied. They are a property of the parent; a variant resolves them
+          // by walking parent_id.
           // Dynamic specifications based on category template
           specifications: variant.specifications || null,
           // Variant image (from gallery picker)
@@ -2026,6 +2077,10 @@ export function useAddVariantToMaterial() {
           .insert({
             vendor_id: variant.initial_vendor_id,
             material_id: result.id,
+            // Scope the price to its brand. Omitting this is how a quote ends up
+            // meaning "Rs.75/sqft for Plywood" rather than for a specific brand
+            // and thickness.
+            brand_id: variant.initial_vendor_brand_id ?? null,
             current_price: variant.initial_vendor_price,
             unit: parentMaterial.unit,
             gst_rate: parentMaterial.gst_rate ?? 18,
@@ -2063,7 +2118,7 @@ export function useAddVariantToMaterial() {
             .insert({
               vendor_id: variant.initial_vendor_id,
               material_id: result.id,
-              brand_id: null,
+              brand_id: variant.initial_vendor_brand_id ?? null,
               price: variant.initial_vendor_price,
               price_includes_gst: true,
               gst_rate: parentMaterial.gst_rate ?? null,

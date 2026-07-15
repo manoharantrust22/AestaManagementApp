@@ -8,10 +8,12 @@ import {
   CircularProgress,
   Divider,
   Drawer,
+  FormControlLabel,
   IconButton,
   Menu,
   MenuItem,
   Skeleton,
+  Switch,
   Tab,
   Tabs,
   Tooltip,
@@ -36,7 +38,13 @@ import {
 } from "@mui/icons-material";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
 import { useImageViewer } from "@/components/common/ImageViewerProvider";
-import { useMaterial, useMaterialVariants, useMaterialBrands, useBrandVariantLinks } from "@/hooks/queries/useMaterials";
+import {
+  useMaterial,
+  useMaterialVariants,
+  useMaterialBrands,
+  useBrandVariantLinks,
+  useUpdateMaterialPriceScoping,
+} from "@/hooks/queries/useMaterials";
 import { useMaterialDesigns } from "@/hooks/queries/useMaterialDesigns";
 import {
   useMaterialVendorSummary,
@@ -427,6 +435,66 @@ export function MaterialInspectPane({
 // =====================================================
 // Overview tab
 // =====================================================
+/**
+ * What a vendor's price for this material depends on. Lives in the drawer (not
+ * only the edit dialog) because the moment you notice the declaration is wrong
+ * is while you're staring at a suspect price two tabs away — and a flag that
+ * costs a dialog round-trip to fix is a flag that stays wrong.
+ */
+function PriceScopingToggles({ material }: { material: MaterialWithDetails }) {
+  const update = useUpdateMaterialPriceScoping();
+  const byBrand = material.price_varies_by_brand === true;
+  const byVariant = material.price_varies_by_variant === true;
+
+  return (
+    <Box>
+      <Divider sx={{ my: 1.5 }} />
+      <FieldLabel>Vendor price depends on</FieldLabel>
+      <Box sx={{ mt: 0.5, display: "flex", flexDirection: "column" }}>
+        <FormControlLabel
+          control={
+            <Switch
+              size="small"
+              checked={byBrand}
+              disabled={update.isPending}
+              onChange={(e) =>
+                update.mutate({
+                  materialId: material.id,
+                  priceVariesByBrand: e.target.checked,
+                })
+              }
+            />
+          }
+          label={<Typography sx={{ fontSize: 13 }}>Brand</Typography>}
+        />
+        <FormControlLabel
+          control={
+            <Switch
+              size="small"
+              checked={byVariant}
+              disabled={update.isPending}
+              onChange={(e) =>
+                update.mutate({
+                  materialId: material.id,
+                  priceVariesByVariant: e.target.checked,
+                })
+              }
+            />
+          }
+          label={<Typography sx={{ fontSize: 13 }}>Variant / size</Typography>}
+        />
+        <Typography sx={{ fontSize: 11, color: "text.secondary", mt: 0.25 }}>
+          {byBrand || byVariant
+            ? `Vendor quotes must name the ${[byBrand && "brand", byVariant && "variant"]
+                .filter(Boolean)
+                .join(" and ")} they price.`
+            : "One price for all brands & sizes — quotes are recorded unscoped."}
+        </Typography>
+      </Box>
+    </Box>
+  );
+}
+
 function OverviewTab({ material }: { material: MaterialWithDetails }) {
   const rows: { label: string; value: React.ReactNode }[] = [
     { label: "Code", value: material.code || "—" },
@@ -522,6 +590,10 @@ function OverviewTab({ material }: { material: MaterialWithDetails }) {
           </Box>
         ))}
       </Box>
+
+      {/* Only parents carry the declaration — a variant resolves it via its
+          parent, so showing it here would imply it can be set per-size. */}
+      {material.parent_id ? null : <PriceScopingToggles material={material} />}
 
       {material.specifications && Object.keys(material.specifications).length > 0 ? (
         <Box>
@@ -972,6 +1044,34 @@ function VendorSummaryRow({
         gstNumber={summary.gst_number}
         size="xs"
       />
+
+      {/* Quotes recorded before this material declared what its price depends on
+          — no brand, or priced against the parent rather than a size. Not
+          back-filled: one existing brand doesn't prove the price was for it, so
+          they're flagged and fixed as they're touched. The RPC already respects
+          the declaration, so brand/size-independent materials never show this. */}
+      {summary.unscoped_quote_count > 0 ? (
+        <Tooltip
+          placement="top"
+          title={`${summary.unscoped_quote_count} quote${
+            summary.unscoped_quote_count === 1 ? "" : "s"
+          } recorded without a brand/size — the price may not be comparable. Re-save the quote to scope it.`}
+        >
+          <Chip
+            label={`${summary.unscoped_quote_count} unscoped`}
+            size="small"
+            variant="outlined"
+            color="warning"
+            sx={{
+              alignSelf: "flex-start",
+              height: 18,
+              fontSize: 10,
+              fontWeight: 600,
+              "& .MuiChip-label": { px: 0.75 },
+            }}
+          />
+        </Tooltip>
+      ) : null}
 
       {/* Brand chips */}
       {brandChips.length > 0 ? (
