@@ -17,6 +17,9 @@ export interface MesthriCommissionPayableRow {
   paid: number;
   payable: number;
   crewDayCount: number;
+  /** Commission paid site-wide with no contract tag. Only set when a contract ref is
+   *  passed; shown as a caveat, never subtracted from payable. */
+  untaggedPaid: number;
 }
 
 function toNumber(v: unknown): number {
@@ -30,11 +33,16 @@ export function useMesthriCommissionPayable(
   collectorId: string | null = null,
   dateFrom: string | null = null,
   dateTo: string | null = null,
+  contractRefKind: "task_work" | "subcontract" | null = null,
+  contractRefId: string | null = null,
   enabled = true,
 ) {
   const supabase = createClient();
   return useQuery<MesthriCommissionPayableRow[]>({
-    queryKey: ["mesthri-commission-payable", siteId, collectorId, dateFrom, dateTo],
+    queryKey: [
+      "mesthri-commission-payable", siteId, collectorId, dateFrom, dateTo,
+      contractRefKind, contractRefId,
+    ],
     enabled: Boolean(enabled && siteId),
     staleTime: 30_000,
     queryFn: async ({ signal }): Promise<MesthriCommissionPayableRow[]> => {
@@ -46,6 +54,8 @@ export function useMesthriCommissionPayable(
               p_collector_id: collectorId,
               p_date_from: dateFrom,
               p_date_to: dateTo,
+              p_contract_ref_kind: contractRefKind,
+              p_contract_ref_id: contractRefId,
             })
             .abortSignal(signal),
         ),
@@ -60,6 +70,7 @@ export function useMesthriCommissionPayable(
         paid: toNumber(r.paid),
         payable: toNumber(r.payable),
         crewDayCount: toNumber(r.crew_day_count),
+        untaggedPaid: toNumber(r.untagged_paid),
       }));
     },
   });
