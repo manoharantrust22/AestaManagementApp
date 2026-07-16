@@ -14,6 +14,8 @@ import { wsColors, wsRadius } from "@/lib/workforce/workspaceTokens";
 import { formatCurrencyFull } from "@/lib/formatters";
 import ContractLaborerPayDialog from "./ContractLaborerPayDialog";
 import MesthriPayStrip from "./MesthriPayStrip";
+import ContractLedgerWeekList from "./ContractLedgerWeekList";
+import type { WeeklyLedgerRow } from "@/lib/workforce/ledgerWeeks";
 
 type Period = "day" | "week" | "project";
 
@@ -64,7 +66,7 @@ export default function ContractLaborLedger({
   const [period, setPeriod] = useState<Period>(defaultPeriod);
   const [payLaborer, setPayLaborer] = useState<ContractLaborLedgerRow | null>(null);
   const { from, to } = useMemo(() => windowFor(period), [period]);
-  const { data, isLoading } = useContractLaborLedger(kind, refId, from, to);
+  const { data, isLoading } = useContractLaborLedger(kind, refId, from, to, period !== "week");
 
   const rows = data?.rows ?? [];
 
@@ -149,7 +151,21 @@ export default function ContractLaborLedger({
       )}
 
       {/* Rows */}
-      {isLoading ? (
+      {period === "week" ? (
+        <ContractLedgerWeekList
+          kind={kind}
+          refId={refId}
+          canPay={canPay}
+          onPay={(r: WeeklyLedgerRow) =>
+            setPayLaborer({
+              laborerId: r.laborerId, laborerName: r.laborerName, roleName: r.roleName,
+              manDays: r.manDays, dayCount: r.dayCount, gross: r.gross,
+              commission: r.commission, net: r.net, netTotal: r.netTotal,
+              netPaid: r.netPaid, netUnpaid: r.netUnpaid, isMesthri: r.isMesthri,
+            })
+          }
+        />
+      ) : isLoading ? (
         <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} variant="rounded" height={52} />
@@ -158,13 +174,13 @@ export default function ContractLaborLedger({
       ) : crewRows.length === 0 ? (
         <Box sx={{ py: 3, textAlign: "center" }}>
           <Typography sx={{ fontSize: 13, color: wsColors.muted }}>
-            No company laborers on this contract{period === "day" ? " today" : period === "week" ? " this week" : " yet"}.
+            No company laborers on this contract{period === "day" ? " today" : " yet"}.
           </Typography>
         </Box>
       ) : (
         <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
           {crewRows.map((r) => {
-            const paid = r.netUnpaid <= 0.5 && r.net > 0;
+            const paid = r.netUnpaid <= 0.5 && r.netTotal > 0;
             return (
               <Box
                 key={r.laborerId}
@@ -206,14 +222,14 @@ export default function ContractLaborLedger({
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
                     <Box sx={{ textAlign: "right" }}>
                       <Typography sx={{ fontSize: 14, fontWeight: 800, color: paid ? wsColors.green : wsColors.ink, ...num }}>
-                        {paid ? formatCurrencyFull(r.net) : formatCurrencyFull(r.netUnpaid)}
+                        {paid ? formatCurrencyFull(r.netTotal) : formatCurrencyFull(r.netUnpaid)}
                       </Typography>
                       <Typography sx={{ fontSize: 11, color: wsColors.muted, ...num }}>
                         {paid
-                          ? "paid"
+                          ? "paid in total"
                           : r.netPaid > 0
-                            ? `${formatCurrencyFull(r.netPaid)} paid of ${formatCurrencyFull(r.net)}`
-                            : "owed"}
+                            ? `${formatCurrencyFull(r.netPaid)} paid of ${formatCurrencyFull(r.netTotal)}`
+                            : "owed in total"}
                       </Typography>
                     </Box>
                     {canPay && (
@@ -257,7 +273,7 @@ export default function ContractLaborLedger({
             }}
           >
             <Typography sx={{ fontSize: 12, fontWeight: 800, color: wsColors.muted, textTransform: "uppercase", letterSpacing: ".04em" }}>
-              {commissionEnabled ? "Still owed to laborers" : "Total earned"}
+              {commissionEnabled ? "Still owed to laborers in total" : "Total earned"}
             </Typography>
             <Box sx={{ textAlign: "right" }}>
               <Typography sx={{ fontSize: 15, fontWeight: 900, color: wsColors.ink, ...num }}>
@@ -267,7 +283,7 @@ export default function ContractLaborLedger({
               </Typography>
               {commissionEnabled && (data?.totalNetPaid ?? 0) > 0 && (
                 <Typography sx={{ fontSize: 11, color: wsColors.muted, ...num }}>
-                  {formatCurrencyFull(data?.totalNetPaid ?? 0)} paid of {formatCurrencyFull(data?.totalNet ?? 0)}
+                  {formatCurrencyFull(data?.totalNetPaid ?? 0)} paid of {formatCurrencyFull(data?.totalNetTotal ?? 0)}
                 </Typography>
               )}
             </Box>
