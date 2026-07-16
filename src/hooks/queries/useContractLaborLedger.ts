@@ -26,9 +26,11 @@ export interface ContractLaborLedgerRow {
   gross: number;
   commission: number;
   net: number;
-  /** Net already settled (is_paid) for this laborer on this contract. */
+  /** Project-scoped net earned (lifetime), regardless of the query window. */
+  netTotal: number;
+  /** Project-scoped net already settled. NOT windowed — label it "in total" in UI. */
   netPaid: number;
-  /** Net still owed (unpaid) — what a per-laborer "Pay" would settle. */
+  /** Project-scoped net still owed = max(netTotal - netPaid, 0). NOT windowed. */
   netUnpaid: number;
   isMesthri: boolean;
 }
@@ -38,6 +40,9 @@ export interface ContractLaborLedger {
   totalGross: number;
   totalCommission: number;
   totalNet: number;
+  /** Σ project-scoped net across all laborers. Pairs with totalNetPaid/totalNetUnpaid —
+   *  totalNet is windowed and must NOT be used as their denominator. */
+  totalNetTotal: number;
   /** Σ net already paid across all laborers on this contract. */
   totalNetPaid: number;
   /** Σ net still owed across all laborers on this contract. */
@@ -90,6 +95,7 @@ export function useContractLaborLedger(
         gross: toNumber(r.gross),
         commission: toNumber(r.commission),
         net: toNumber(r.net),
+        netTotal: toNumber(r.net_total),
         netPaid: toNumber(r.net_paid),
         netUnpaid: toNumber(r.net_unpaid),
         isMesthri: Boolean(r.is_mesthri),
@@ -100,6 +106,7 @@ export function useContractLaborLedger(
         totalGross: rows.reduce((s, r) => s + r.gross, 0),
         totalCommission: rows.reduce((s, r) => s + r.commission, 0),
         totalNet: rows.reduce((s, r) => s + r.net, 0),
+        totalNetTotal: rows.reduce((s, r) => s + r.netTotal, 0),
         totalNetPaid: rows.reduce((s, r) => s + r.netPaid, 0),
         totalNetUnpaid: rows.reduce((s, r) => s + r.netUnpaid, 0),
         mesthriOwnLabour: mesthriRow?.gross ?? 0,
