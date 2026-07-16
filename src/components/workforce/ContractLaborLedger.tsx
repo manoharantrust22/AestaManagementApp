@@ -9,24 +9,22 @@ import {
   type ContractLedgerKind,
   type ContractLaborLedgerRow,
 } from "@/hooks/queries/useContractLaborLedger";
+import { weekStartStr, weekEndStr } from "@/lib/utils/weekUtils";
 import { wsColors, wsRadius } from "@/lib/workforce/workspaceTokens";
 import { formatCurrencyFull } from "@/lib/formatters";
-import CommissionPayoutDialog from "./CommissionPayoutDialog";
 import ContractLaborerPayDialog from "./ContractLaborerPayDialog";
+import MesthriPayStrip from "./MesthriPayStrip";
 
 type Period = "day" | "week" | "project";
 
-/** Compute the [from, to] date window for a period. Weeks bucket Sun→Sat to match
- * the salary waterfall (`date - dow`). Project = whole lifetime (null bounds). */
+/** Compute the [from, to] window for a period. Project = whole lifetime (null bounds). */
 function windowFor(period: Period): { from: string | null; to: string | null } {
   if (period === "project") return { from: null, to: null };
-  const today = dayjs();
   if (period === "day") {
-    const d = today.format("YYYY-MM-DD");
+    const d = dayjs().format("YYYY-MM-DD");
     return { from: d, to: d };
   }
-  const start = today.subtract(today.day(), "day"); // day()=0 on Sunday
-  return { from: start.format("YYYY-MM-DD"), to: start.add(6, "day").format("YYYY-MM-DD") };
+  return { from: weekStartStr(dayjs()), to: weekEndStr(dayjs()) };
 }
 
 const num = { fontVariantNumeric: "tabular-nums" as const };
@@ -43,7 +41,7 @@ export default function ContractLaborLedger({
   commissionEnabled,
   commissionApplies = true,
   onEnableCommission,
-  defaultPeriod = "week",
+  defaultPeriod = "project",
   siteId,
   mesthriLaborerId,
   mesthriName,
@@ -64,23 +62,14 @@ export default function ContractLaborLedger({
   mesthriName?: string | null;
 }) {
   const [period, setPeriod] = useState<Period>(defaultPeriod);
-  const [payoutOpen, setPayoutOpen] = useState(false);
   const [payLaborer, setPayLaborer] = useState<ContractLaborLedgerRow | null>(null);
   const { from, to } = useMemo(() => windowFor(period), [period]);
   const { data, isLoading } = useContractLaborLedger(kind, refId, from, to);
 
   const rows = data?.rows ?? [];
-  const totalCommission = data?.totalCommission ?? 0;
-  const mesthriOwn = data?.mesthriOwnLabour ?? 0;
-  const displayMesthriName = mesthriName ?? data?.mesthriName ?? null;
-  const mesthriTotal = mesthriOwn + totalCommission;
 
   // Direct-pay mode enables per-laborer settlement inside the pane.
   const canPay = commissionEnabled && Boolean(siteId);
-  const mesthriRow = rows.find((r) => r.isMesthri) ?? null;
-  // The collector's laborer id: prefer the explicit prop (package maistry); otherwise
-  // derive it from the ledger's own is_mesthri row (subcontracts don't thread it in).
-  const effectiveMesthriId = mesthriLaborerId ?? mesthriRow?.laborerId ?? null;
   // In direct mode the maistry is handled entirely in the strip; the rows list is crew.
   const crewRows = commissionEnabled ? rows.filter((r) => !r.isMesthri) : rows;
 
@@ -131,64 +120,15 @@ export default function ContractLaborLedger({
         )}
       </Box>
 
-      {/* Mesthri console — own wages + commission collected = total, with pay actions */}
-      {commissionEnabled && displayMesthriName && (
-        <Box
-          sx={{
-            px: 1.5,
-            py: 1.1,
-            borderRadius: `${wsRadius.input}px`,
-            bgcolor: wsColors.primaryTint,
-            border: `1px solid ${wsColors.primary}22`,
-          }}
-        >
-          <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: wsColors.muted, textTransform: "uppercase", letterSpacing: ".04em" }}>
-            Mesthri {displayMesthriName}
-          </Typography>
-          <Typography sx={{ fontSize: 13.5, color: wsColors.ink2, mt: 0.25, ...num }}>
-            Own labour {formatCurrencyFull(mesthriOwn)} + commission{" "}
-            <Box component="span" sx={{ fontWeight: 800, color: wsColors.primary }}>
-              {formatCurrencyFull(totalCommission)}
-            </Box>{" "}
-            ={" "}
-            <Box component="span" sx={{ fontWeight: 800, color: wsColors.ink }}>
-              {formatCurrencyFull(mesthriTotal)}
-            </Box>
-          </Typography>
-          {canPay && (
-            <Box sx={{ display: "flex", gap: 1, mt: 0.5, flexWrap: "wrap" }}>
-              {mesthriRow && mesthriRow.netUnpaid > 0 && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => setPayLaborer(mesthriRow)}
-                  sx={{ textTransform: "none", fontWeight: 700, py: 0.25 }}
-                >
-                  Pay own wages ({formatCurrencyFull(mesthriRow.netUnpaid)})
-                </Button>
-              )}
-              {effectiveMesthriId && (
-                <Button
-                  size="small"
-                  variant="text"
-                  onClick={() => setPayoutOpen(true)}
-                  sx={{ textTransform: "none", fontWeight: 700, color: wsColors.primary, py: 0.25 }}
-                >
-                  Pay commission…
-                </Button>
-              )}
-            </Box>
-          )}
-        </Box>
-      )}
-
-      {payoutOpen && siteId && effectiveMesthriId && (
-        <CommissionPayoutDialog
-          open={payoutOpen}
-          onClose={() => setPayoutOpen(false)}
+      {commissionEnabled && siteId && (
+        <MesthriPayStrip
+          kind={kind}
+          refId={refId}
           siteId={siteId}
-          collectorLaborerId={effectiveMesthriId}
-          collectorName={displayMesthriName || "Mesthri"}
+          mesthriLaborerId={mesthriLaborerId}
+          mesthriName={mesthriName}
+          commissionApplies={commissionApplies}
+          canPay={canPay}
         />
       )}
 
