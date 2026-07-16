@@ -492,7 +492,10 @@ AS $function$
   WHERE sg.contract_ref_kind = p_kind
     AND sg.contract_ref_id = p_ref_id
     AND sg.contract_laborer_id IS NOT NULL
-    AND sg.payment_type <> 'commission'   -- commission is not own-wages
+    -- Commission is not own-wages. COALESCE because payment_type is nullable and
+    -- NULL <> 'commission' is NULL, which WHERE drops — that would silently omit the
+    -- row from net_paid and overstate what the engineer is told is still owed.
+    AND COALESCE(sg.payment_type, 'salary') <> 'commission'
     AND sg.is_cancelled = false
     AND sg.is_archived = false
   GROUP BY sg.contract_laborer_id;
