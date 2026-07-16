@@ -51,18 +51,28 @@ export default function CommissionPayoutDialog({
   siteId,
   collectorLaborerId,
   collectorName,
+  contractRefKind,
+  contractRefId,
 }: {
   open: boolean;
   onClose: () => void;
   siteId: string;
   collectorLaborerId: string;
   collectorName: string;
+  /** When set, the payout is tagged to this contract and the amount defaults to the
+   *  contract's payable rather than the mesthri's whole-site pot. */
+  contractRefKind?: "task_work" | "subcontract";
+  contractRefId?: string;
 }) {
   const { userProfile } = useAuth();
   const { selectedSite } = useSite();
   const { data: payableRows } = useMesthriCommissionPayable(
     open ? siteId : null,
     collectorLaborerId,
+    null,
+    null,
+    contractRefKind ?? null,
+    contractRefId ?? null,
   );
   const payable = payableRows?.[0]?.payable ?? 0;
   const payMut = usePayMesthriCommission();
@@ -115,6 +125,8 @@ export default function CommissionPayoutDialog({
       siteId,
       collectorLaborerId,
       collectorName,
+      contractRefKind,
+      contractRefId,
       amount,
       settlementDate: paymentDate,
       paymentMode,
@@ -139,7 +151,8 @@ export default function CommissionPayoutDialog({
       <DialogTitle>
         Pay commission — {collectorName}
         <Typography variant="caption" color="text.secondary" component="div">
-          Outstanding payable: {formatCurrencyFull(payable)}
+          Outstanding {contractRefId ? "on this contract" : "across this site"}:{" "}
+          {formatCurrencyFull(payable)}
         </Typography>
       </DialogTitle>
       <DialogContent dividers>

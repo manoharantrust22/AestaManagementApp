@@ -951,6 +951,10 @@ export async function payMesthriCommission(
     siteId: string;
     collectorLaborerId: string;
     collectorName?: string;
+    /** Tag the payout to the contract it was paid from, so per-contract commission
+     *  owed is computable. Omit for a site-wide payout. */
+    contractRefKind?: "task_work" | "subcontract";
+    contractRefId?: string;
     amount: number;
     settlementDate?: string;
     paymentMode: PaymentMode;
@@ -969,13 +973,14 @@ export async function payMesthriCommission(
     const paymentDate = config.settlementDate || dayjs().format("YYYY-MM-DD");
     let engineerTransactionId: string | null = null;
 
+    const contractTag = config.contractRefId ?? "site";
     const idempotencyKey = await deterministicSettlementKey({
       siteId: config.siteId,
       recordIds: [],
       amount: config.amount,
       paymentChannel: config.paymentChannel,
       date: paymentDate,
-      extra: `commission:${config.collectorLaborerId}:${paymentDate}`,
+      extra: `commission:${config.collectorLaborerId}:${contractTag}:${paymentDate}`,
     });
 
     const { data: groupResult, error: groupError } = await supabase.rpc(
@@ -1007,10 +1012,17 @@ export async function payMesthriCommission(
     const settlementGroupId = groupData.id as string;
     const settlementReference = groupData.settlement_reference as string;
 
-    // create_settlement_group doesn't know the commission collector column — set it now.
+    // create_settlement_group doesn't know the commission columns — set them now.
+    // contract_laborer_id stays NULL on purpose: get_contract_labor_ledger's paid CTE
+    // keys on it, and a commission row there would be miscounted as own wages paid.
     await supabase
       .from("settlement_groups")
-      .update({ commission_collector_laborer_id: config.collectorLaborerId })
+      .update({
+        commission_collector_laborer_id: config.collectorLaborerId,
+        ...(config.contractRefKind && config.contractRefId
+          ? { contract_ref_kind: config.contractRefKind, contract_ref_id: config.contractRefId }
+          : {}),
+      })
       .eq("id", settlementGroupId);
 
     // Engineer-wallet debit (mirrors processWeeklySettlement's wallet path).

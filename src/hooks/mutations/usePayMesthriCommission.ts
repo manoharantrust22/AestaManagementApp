@@ -12,6 +12,8 @@ export interface PayMesthriCommissionArgs {
   siteId: string;
   collectorLaborerId: string;
   collectorName?: string;
+  contractRefKind?: "task_work" | "subcontract";
+  contractRefId?: string;
   amount: number;
   settlementDate?: string;
   paymentMode: PaymentMode;
@@ -37,6 +39,8 @@ export function usePayMesthriCommission() {
     onSuccess: (_res, args) => {
       qc.invalidateQueries({ queryKey: ["mesthri-commission-payable"] });
       qc.invalidateQueries({ queryKey: ["contract-labor-ledger"] });
+      qc.invalidateQueries({ queryKey: ["contract-labor-ledger-weekly"] });
+      qc.invalidateQueries({ queryKey: ["contract-payment-history"] });
       qc.invalidateQueries({ queryKey: ["settlements"] });
       qc.invalidateQueries({ queryKey: ["payments-ledger"] });
       if (args.paymentChannel === "engineer_wallet") broadcastWalletChange();
