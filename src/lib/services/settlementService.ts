@@ -973,14 +973,19 @@ export async function payMesthriCommission(
     const paymentDate = config.settlementDate || dayjs().format("YYYY-MM-DD");
     let engineerTransactionId: string | null = null;
 
-    const contractTag = config.contractRefId ?? "site";
+    // Drives BOTH the idempotency key and the .update() below — if these two ever
+    // disagreed, a call could hash as contract-tagged but persist untagged.
+    const contractTagged = Boolean(config.contractRefKind && config.contractRefId);
     const idempotencyKey = await deterministicSettlementKey({
       siteId: config.siteId,
       recordIds: [],
       amount: config.amount,
       paymentChannel: config.paymentChannel,
       date: paymentDate,
-      extra: `commission:${config.collectorLaborerId}:${contractTag}:${paymentDate}`,
+      // Untagged keeps the pre-existing format exactly; only the tagged branch is new.
+      extra: contractTagged
+        ? `commission:${config.collectorLaborerId}:${config.contractRefId}:${paymentDate}`
+        : `commission:${config.collectorLaborerId}:${paymentDate}`,
     });
 
     const { data: groupResult, error: groupError } = await supabase.rpc(
@@ -1019,7 +1024,7 @@ export async function payMesthriCommission(
       .from("settlement_groups")
       .update({
         commission_collector_laborer_id: config.collectorLaborerId,
-        ...(config.contractRefKind && config.contractRefId
+        ...(contractTagged
           ? { contract_ref_kind: config.contractRefKind, contract_ref_id: config.contractRefId }
           : {}),
       })
