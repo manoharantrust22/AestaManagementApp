@@ -1102,17 +1102,24 @@ In `src/lib/services/settlementService.ts`, add to the `payMesthriCommission` co
     contractRefId?: string;
 ```
 
-Replace the `idempotencyKey` block so two payouts of the same amount on the same day to the same mesthri from *different* contracts are not deduped into one:
+Replace the `idempotencyKey` block so two payouts of the same amount on the same day to the same mesthri from *different* contracts are not deduped into one.
+
+**The untagged branch must keep its ORIGINAL key format, byte for byte.** Commission payouts pass no attendance ids to `create_settlement_group`, so its already-settled guard never engages — the idempotency key is the *only* dedup defence on this path. Changing the key for a logically identical event means a stale-tab retry across a deploy recomputes a different hash, inserts a second payout, and double-debits the engineer's wallet. One `contractTagged` flag drives both the key and the DB write, so they can never disagree:
 
 ```ts
-    const contractTag = config.contractRefId ?? "site";
+    // Drives BOTH the idempotency key and the .update() below — if these two ever
+    // disagreed, a call could hash as contract-tagged but persist untagged.
+    const contractTagged = Boolean(config.contractRefKind && config.contractRefId);
     const idempotencyKey = await deterministicSettlementKey({
       siteId: config.siteId,
       recordIds: [],
       amount: config.amount,
       paymentChannel: config.paymentChannel,
       date: paymentDate,
-      extra: `commission:${config.collectorLaborerId}:${contractTag}:${paymentDate}`,
+      // Untagged keeps the pre-existing format exactly; only the tagged branch is new.
+      extra: contractTagged
+        ? `commission:${config.collectorLaborerId}:${config.contractRefId}:${paymentDate}`
+        : `commission:${config.collectorLaborerId}:${paymentDate}`,
     });
 ```
 
@@ -1126,7 +1133,7 @@ Replace the follow-up update (currently at :1011-1014):
       .from("settlement_groups")
       .update({
         commission_collector_laborer_id: config.collectorLaborerId,
-        ...(config.contractRefKind && config.contractRefId
+        ...(contractTagged
           ? { contract_ref_kind: config.contractRefKind, contract_ref_id: config.contractRefId }
           : {}),
       })
@@ -1581,6 +1588,7 @@ export default function ContractLedgerWeekList({
             <Box
               role="button"
               tabIndex={0}
+              aria-expanded={isOpen}
               onClick={() => setExpanded(isOpen ? "" : w.weekStart)}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setExpanded(isOpen ? "" : w.weekStart); }}
               sx={{

@@ -66,6 +66,7 @@ export default function ContractLedgerWeekList({
             <Box
               role="button"
               tabIndex={0}
+              aria-expanded={isOpen}
               onClick={() => setExpanded(isOpen ? "" : w.weekStart)}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setExpanded(isOpen ? "" : w.weekStart); }}
               sx={{
