@@ -1,14 +1,21 @@
 "use client";
 
-import { Box, Typography, Skeleton } from "@mui/material";
+import { useState } from "react";
+import { Box, IconButton, Tooltip, Typography, Skeleton } from "@mui/material";
 import Payments from "@mui/icons-material/Payments";
+import DeleteOutline from "@mui/icons-material/DeleteOutline";
 import {
   useContractPayments,
   type ContractLedgerEntry,
   type LedgerSource,
 } from "@/hooks/queries/useContractPayments";
+import { useDeleteSubcontractPayment } from "@/hooks/queries/useSubcontractPayments";
 import { wsColors, wsRadius, wsShadow } from "@/lib/workforce/workspaceTokens";
 import { formatCurrencyFull, formatDateDDMMMYY } from "@/lib/formatters";
+import {
+  RemoveContractPaymentDialog,
+  type RemoveContractPaymentTarget,
+} from "./RemoveContractPaymentDialog";
 
 const MODE_LABEL: Record<string, string> = {
   cash: "Cash",
@@ -33,8 +40,46 @@ function chipMeta(entry: ContractLedgerEntry): { label: string; color: string; b
   return { label: "Contract", color: wsColors.ink2, bg: "#eef1f6" };
 }
 
-export function PaymentsHistoryCard({ contractId }: { contractId: string }) {
+/**
+ * Only a `direct` row (subcontract_payments) can be removed here. A `settlement`
+ * row is reversed from Salary Settlements and an `extra` row is cancelled from
+ * /site/expenses — each has an owner screen that handles its own side effects,
+ * so this card deliberately stays read-only for those.
+ */
+function isRemovable(entry: ContractLedgerEntry): boolean {
+  return entry.source === "direct";
+}
+
+/** Strip the `sp:` prefix useContractPayments adds to keep ids unique across sources. */
+function bareId(entry: ContractLedgerEntry): string {
+  return entry.id.replace(/^sp:/, "");
+}
+
+export function PaymentsHistoryCard({
+  contractId,
+  canEdit = false,
+}: {
+  contractId: string;
+  /** Absent/false hides every row action — the parent owns the permission call. */
+  canEdit?: boolean;
+}) {
   const { data: payments, isLoading } = useContractPayments(contractId);
+  const removeMut = useDeleteSubcontractPayment();
+  const [pendingRemove, setPendingRemove] =
+    useState<RemoveContractPaymentTarget | null>(null);
+
+  const confirmRemove = (reason: string) => {
+    if (!pendingRemove) return;
+    removeMut.mutate(
+      { paymentId: pendingRemove.paymentId, contractId, reason },
+      { onSuccess: () => setPendingRemove(null) }
+    );
+  };
+
+  const closeRemove = () => {
+    setPendingRemove(null);
+    removeMut.reset();
+  };
 
   return (
     <Box
@@ -104,11 +149,39 @@ export function PaymentsHistoryCard({ contractId }: { contractId: string }) {
                 >
                   {chip.label}
                 </Box>
+                {canEdit && isRemovable(p) && (
+                  <Tooltip title="Remove this payment">
+                    <IconButton
+                      size="small"
+                      aria-label={`Remove the ${formatCurrencyFull(p.amount)} contract payment from ${formatDateDDMMMYY(p.paymentDate)}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPendingRemove({
+                          paymentId: bareId(p),
+                          amount: p.amount,
+                          paymentDate: p.paymentDate,
+                          paymentChannel: p.paymentChannel,
+                        });
+                      }}
+                      sx={{ flexShrink: 0, color: wsColors.muted, p: 0.5 }}
+                    >
+                      <DeleteOutline sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Tooltip>
+                )}
               </Box>
             );
           })}
         </Box>
       )}
+
+      <RemoveContractPaymentDialog
+        target={pendingRemove}
+        isRemoving={removeMut.isPending}
+        errorMessage={removeMut.error?.message ?? null}
+        onCancel={closeRemove}
+        onConfirm={confirmRemove}
+      />
     </Box>
   );
 }

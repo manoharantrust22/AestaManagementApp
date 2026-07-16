@@ -327,9 +327,12 @@ export function GroupDetailPane({
           />
         )}
 
-        {/* The node's own read-only ledger (contract payments, salary settlements,
-            and misc-expense chips like "Material Expenses" / "General Expense"). */}
-        {parentMode && <PaymentsHistoryCard contractId={parentMode.parent.id} />}
+        {/* The node's own money ledger (contract payments, salary settlements, and
+            misc-expense chips like "Material Expenses" / "General Expense"). Read-only
+            except for wrongly-recorded contract payments, which can be removed here. */}
+        {parentMode && (
+          <PaymentsHistoryCard contractId={parentMode.parent.id} canEdit={canEdit} />
+        )}
 
         {/* Combined balance meter */}
         <BalanceMeter exposure={groupExposure} />

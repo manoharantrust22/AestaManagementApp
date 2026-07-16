@@ -1,0 +1,269 @@
+-- Teach the wallet helper trio about subcontract_payments (section/contract payments).
+--
+-- WHY: subcontract_payments links its wallet spend via `site_engineer_transaction_id`
+-- (recordSubcontractPayment, engineer_wallet channel) — every other table except
+-- tea_shop_settlements uses `engineer_transaction_id`. Because of that odd-one-out
+-- column name, the three wallet helpers never learned about the table:
+--
+--   get_wallet_spend_source      -> returns source_type 'none'  => looks un-reversible
+--   reverse_wallet_spend         -> no cascade arm              => cannot undo
+--   list_unlinked_wallet_spends  -> flags it "Not linked"       => phantom debit
+--
+-- 20260620120000_wallet_task_work_link_and_reverse.sql closed this exact gap for
+-- task_work_payments; this mirrors it in shape.
+--
+-- BLAST RADIUS: zero existing rows. At the time of writing all 25 subcontract_payments
+-- have site_engineer_transaction_id IS NULL (company-direct), so this is a forward-looking
+-- correctness fix for the live `engineer_wallet` write path, not a repair of bad data.
+--
+-- Bodies below were dumped from the LIVE database via pg_get_functiondef and re-issued
+-- in full — this repo text-patches live function bodies (20260708100200 injected a guard
+-- into reverse_settlement), so the migration files on disk can lag production.
+--
+-- REQUIRES: 20260716110000_subcontract_payments_delete_audit.sql (deleted_at /
+-- deleted_by_user_id / deletion_reason, stamped by the 'undo' arm below).
+
+-- 1) list_unlinked_wallet_spends — a wallet-funded section payment IS linked.
+CREATE OR REPLACE FUNCTION public.list_unlinked_wallet_spends(p_user_ids uuid[], p_site_id uuid DEFAULT NULL::uuid)
+ RETURNS SETOF site_engineer_transactions
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT t.*
+  FROM site_engineer_transactions t
+  WHERE t.user_id = ANY(p_user_ids)
+    AND t.transaction_type = 'spend'
+    AND t.cancelled_at IS NULL
+    AND (p_site_id IS NULL OR t.site_id = p_site_id)
+    AND t.settlement_group_id IS NULL
+    AND NOT EXISTS (SELECT 1 FROM material_purchase_expenses x WHERE x.engineer_transaction_id = t.id)
+    AND NOT EXISTS (SELECT 1 FROM misc_expenses x          WHERE x.engineer_transaction_id = t.id)
+    AND NOT EXISTS (SELECT 1 FROM rental_advances x        WHERE x.engineer_transaction_id = t.id)
+    AND NOT EXISTS (SELECT 1 FROM rental_settlements x     WHERE x.engineer_transaction_id = t.id)
+    AND NOT EXISTS (SELECT 1 FROM tea_shop_settlements x   WHERE x.site_engineer_transaction_id = t.id)
+    AND NOT EXISTS (SELECT 1 FROM task_work_payments x     WHERE x.engineer_transaction_id = t.id AND x.is_deleted = false)
+    AND NOT EXISTS (SELECT 1 FROM subcontract_payments x   WHERE x.site_engineer_transaction_id = t.id AND x.is_deleted = false)
+  ORDER BY t.transaction_date DESC, t.id DESC;
+$function$;
+
+-- 2) get_wallet_spend_source — probe subcontract_payments on site_engineer_transaction_id.
+--    Placed after the salary branch: a salary settlement owns the spend via
+--    settlement_group_id and must keep winning, since reverse_wallet_spend deliberately
+--    refuses salary and redirects to the settlement reverse.
+CREATE OR REPLACE FUNCTION public.get_wallet_spend_source(p_spend_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_sg uuid;
+  v_id uuid;
+  v_paid boolean;
+BEGIN
+  SELECT settlement_group_id INTO v_sg FROM site_engineer_transactions WHERE id = p_spend_id;
+  IF v_sg IS NOT NULL THEN
+    RETURN jsonb_build_object('source_type','salary','source_id',v_sg,'is_settled',true);
+  END IF;
+
+  -- Section/contract lump payment paid from the wallet. NOTE the column is
+  -- site_engineer_transaction_id, not engineer_transaction_id — this table and
+  -- tea_shop_settlements are the two exceptions.
+  SELECT id INTO v_id FROM subcontract_payments
+    WHERE site_engineer_transaction_id = p_spend_id AND is_deleted = false LIMIT 1;
+  IF v_id IS NOT NULL THEN
+    RETURN jsonb_build_object('source_type','subcontract','source_id',v_id,'is_settled',true);
+  END IF;
+
+  SELECT id, is_paid INTO v_id, v_paid
+    FROM material_purchase_expenses WHERE engineer_transaction_id = p_spend_id LIMIT 1;
+  IF v_id IS NOT NULL THEN
+    RETURN jsonb_build_object('source_type','material','source_id',v_id,'is_settled',COALESCE(v_paid,false));
+  END IF;
+
+  SELECT id INTO v_id FROM misc_expenses WHERE engineer_transaction_id = p_spend_id LIMIT 1;
+  IF v_id IS NOT NULL THEN
+    RETURN jsonb_build_object('source_type','misc','source_id',v_id,'is_settled',true);
+  END IF;
+
+  SELECT id INTO v_id FROM rental_advances WHERE engineer_transaction_id = p_spend_id LIMIT 1;
+  IF v_id IS NOT NULL THEN
+    RETURN jsonb_build_object('source_type','rental','source_id',v_id,'is_settled',true,'rental_kind','advance');
+  END IF;
+
+  SELECT id INTO v_id FROM rental_settlements WHERE engineer_transaction_id = p_spend_id LIMIT 1;
+  IF v_id IS NOT NULL THEN
+    RETURN jsonb_build_object('source_type','rental','source_id',v_id,'is_settled',true,'rental_kind','settlement');
+  END IF;
+
+  SELECT id INTO v_id FROM tea_shop_settlements WHERE site_engineer_transaction_id = p_spend_id LIMIT 1;
+  IF v_id IS NOT NULL THEN
+    RETURN jsonb_build_object('source_type','tea','source_id',v_id,'is_settled',true);
+  END IF;
+
+  -- Task-work payment (advance / part / final / retention) paid from the wallet.
+  SELECT id INTO v_id FROM task_work_payments
+    WHERE engineer_transaction_id = p_spend_id AND is_deleted = false LIMIT 1;
+  IF v_id IS NOT NULL THEN
+    RETURN jsonb_build_object('source_type','task_work','source_id',v_id,'is_settled',true);
+  END IF;
+
+  RETURN jsonb_build_object('source_type','none','source_id',null,'is_settled',false);
+END;
+$function$;
+
+-- 3) reverse_wallet_spend — cascade arm for 'subcontract'.
+CREATE OR REPLACE FUNCTION public.reverse_wallet_spend(p_spend_id uuid, p_mode text, p_reason text DEFAULT NULL::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_spend       site_engineer_transactions%ROWTYPE;
+  v_caller_id   uuid;
+  v_caller_name text;
+  v_caller_role public.user_role;
+  v_src         jsonb;
+  v_type        text;
+  v_src_id      uuid;
+  v_rental_kind text;
+BEGIN
+  IF p_mode NOT IN ('undo','company_paid') THEN
+    RAISE EXCEPTION 'Invalid mode % (expected undo or company_paid)', p_mode USING ERRCODE = '22023';
+  END IF;
+
+  SELECT * INTO v_spend FROM site_engineer_transactions WHERE id = p_spend_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Wallet spend % not found', p_spend_id USING ERRCODE = 'P0002';
+  END IF;
+  IF v_spend.transaction_type <> 'spend' THEN
+    RAISE EXCEPTION 'Only spend rows can be reversed (got %)', v_spend.transaction_type USING ERRCODE = '22023';
+  END IF;
+
+  IF v_spend.cancelled_at IS NOT NULL THEN
+    RETURN jsonb_build_object('already_cancelled', true, 'spend_id', p_spend_id);
+  END IF;
+
+  SELECT id, name, role INTO v_caller_id, v_caller_name, v_caller_role
+    FROM users WHERE auth_id = auth.uid();
+  IF v_caller_id IS NULL THEN
+    RAISE EXCEPTION 'No user profile for the current user' USING ERRCODE = '42501';
+  END IF;
+  IF NOT (v_caller_role IN ('admin','office') OR v_spend.recorded_by_user_id = v_caller_id) THEN
+    RAISE EXCEPTION 'Not authorised to reverse this wallet spend' USING ERRCODE = '42501';
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(
+    hashtext(v_spend.user_id::text || ':' || COALESCE(v_spend.site_id::text, ''))
+  );
+
+  v_src        := get_wallet_spend_source(p_spend_id);
+  v_type       := v_src->>'source_type';
+  v_src_id     := NULLIF(v_src->>'source_id','')::uuid;
+  v_rental_kind:= v_src->>'rental_kind';
+
+  IF v_type = 'salary' THEN
+    RAISE EXCEPTION 'Salary/contract settlement — use the settlement reverse, not the wallet reverse'
+      USING ERRCODE = '22023';
+  END IF;
+  IF v_type = 'none' OR v_src_id IS NULL THEN
+    RAISE EXCEPTION 'This spend has no linked material/misc/rental/tea/task-work/section record to cascade to'
+      USING ERRCODE = '22023';
+  END IF;
+
+  IF v_type = 'material' THEN
+    IF p_mode = 'undo' THEN
+      UPDATE material_purchase_expenses
+         SET is_paid = false, paid_date = NULL, amount_paid = NULL,
+             settlement_reference = NULL, settlement_date = NULL,
+             settled_at = NULL, settled_by = NULL,
+             payment_channel = 'direct', engineer_transaction_id = NULL, updated_at = now()
+       WHERE id = v_src_id;
+    ELSE
+      UPDATE material_purchase_expenses
+         SET payment_channel = 'direct', engineer_transaction_id = NULL, updated_at = now()
+       WHERE id = v_src_id;
+    END IF;
+
+  ELSIF v_type = 'misc' THEN
+    IF p_mode = 'undo' THEN
+      UPDATE misc_expenses
+         SET is_cancelled = true, cancelled_at = now(), cancelled_by_user_id = v_caller_id,
+             cancellation_reason = COALESCE(p_reason, 'Wallet spend reversed'),
+             engineer_transaction_id = NULL
+       WHERE id = v_src_id;
+    ELSE
+      UPDATE misc_expenses
+         SET payer_type = 'company_direct', payment_channel = 'direct', engineer_transaction_id = NULL
+       WHERE id = v_src_id;
+    END IF;
+
+  ELSIF v_type = 'tea' THEN
+    IF p_mode = 'undo' THEN
+      UPDATE tea_shop_settlements
+         SET is_cancelled = true, site_engineer_transaction_id = NULL
+       WHERE id = v_src_id;
+    ELSE
+      UPDATE tea_shop_settlements
+         SET payment_channel = 'direct', site_engineer_transaction_id = NULL
+       WHERE id = v_src_id;
+    END IF;
+
+  ELSIF v_type = 'rental' THEN
+    IF p_mode = 'undo' THEN
+      RAISE EXCEPTION 'Rental "undo" is not supported yet — use "Paid by company", or reverse on the rentals page'
+        USING ERRCODE = '0A000';
+    END IF;
+    IF v_rental_kind = 'advance' THEN
+      UPDATE rental_advances
+         SET payment_channel = 'direct', engineer_transaction_id = NULL WHERE id = v_src_id;
+    ELSE
+      UPDATE rental_settlements
+         SET payment_channel = 'direct', engineer_transaction_id = NULL WHERE id = v_src_id;
+    END IF;
+
+  ELSIF v_type = 'task_work' THEN
+    IF p_mode = 'undo' THEN
+      UPDATE task_work_payments
+         SET is_deleted = true, engineer_transaction_id = NULL
+       WHERE id = v_src_id;
+    ELSE
+      UPDATE task_work_payments
+         SET payment_channel = 'direct', engineer_transaction_id = NULL
+       WHERE id = v_src_id;
+    END IF;
+
+  -- Section/contract lump payment. 'undo' stamps the delete-audit trio from
+  -- 20260716110000 — the wallet reverse is one of the two ways a payment can be
+  -- removed, so it must leave the same trail as the company-direct path in
+  -- softDeleteSubcontractPayment.
+  ELSIF v_type = 'subcontract' THEN
+    IF p_mode = 'undo' THEN
+      UPDATE subcontract_payments
+         SET is_deleted = true, site_engineer_transaction_id = NULL,
+             deleted_at = now(), deleted_by_user_id = v_caller_id,
+             deletion_reason = COALESCE(p_reason, 'Wallet spend reversed')
+       WHERE id = v_src_id;
+    ELSE
+      UPDATE subcontract_payments
+         SET payment_channel = 'direct', site_engineer_transaction_id = NULL
+       WHERE id = v_src_id;
+    END IF;
+  END IF;
+
+  UPDATE site_engineer_transactions
+     SET cancelled_at = now(), cancelled_by = v_caller_name, cancelled_by_user_id = v_caller_id,
+         cancellation_reason = COALESCE(
+           p_reason,
+           CASE WHEN p_mode = 'undo' THEN 'Settlement undone from wallet'
+                ELSE 'Reclassified as company-paid' END)
+   WHERE id = p_spend_id;
+
+  RETURN jsonb_build_object(
+    'spend_id', p_spend_id, 'source_type', v_type, 'source_id', v_src_id,
+    'mode', p_mode, 'cancelled', true
+  );
+END;
+$function$;

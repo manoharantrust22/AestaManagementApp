@@ -11,6 +11,7 @@ export type WalletSpendSourceType =
   | "tea"
   | "salary"
   | "task_work"
+  | "subcontract"
   | "none";
 
 /** Which reverse flow (if any) a spend supports in the Spend detail dialog. */
@@ -38,6 +39,13 @@ export function spendReverseMode(args: {
   const { transactionType, cancelledAt, settlementGroupId, kind, sourceType } = args;
   if (transactionType !== "spend") return "none";
   if (cancelledAt) return "none";
+  // A section lump payment (subcontract_payments) is resolved authoritatively by
+  // get_wallet_spend_source, so it must be decided BEFORE the description-derived
+  // `kind` heuristic below. classifySpend() reads "contract" off descriptions like
+  // "Contract payment for <laborer>", which belong to settlement groups — a section
+  // payment has no settlement group, so routing it to "settlement" would call
+  // reverse_settlement on a group that doesn't exist.
+  if (sourceType === "subcontract") return "cascade";
   if (
     settlementGroupId ||
     kind === "salary" ||

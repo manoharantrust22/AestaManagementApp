@@ -5,6 +5,7 @@ import type {
 } from "@/types/settlement.types";
 import { validatePayerSourceInput, toRpcArgs } from "@/lib/settlement/payerSource";
 import { recordSpend, cancelTransaction } from "./engineerWalletV2";
+import { reverseWalletSpend } from "./walletSpendReverseService";
 
 export interface SubcontractTotals {
   subcontractId: string;
@@ -358,6 +359,80 @@ export async function recordSubcontractPayment(
     return {
       success: false,
       error: error?.message || "Failed to record the payment.",
+    };
+  }
+}
+
+export interface SoftDeleteSubcontractPaymentResult {
+  success: boolean;
+  /** True when the payment was wallet-funded and the wallet balance was refunded. */
+  walletReversed?: boolean;
+  error?: string;
+}
+
+/**
+ * Remove a wrongly-recorded contract/section payment (soft delete).
+ *
+ * Branches on how the payment was funded, the same shape as cancelMiscExpense:
+ *
+ *  - Wallet-funded (`site_engineer_transaction_id` set) → reverse_wallet_spend('undo').
+ *    That RPC refunds the engineer's wallet AND cascades the soft-delete + audit
+ *    stamp in one transaction. Flipping `is_deleted` ourselves here would strand a
+ *    phantom debit in the wallet and badge the spend "Not linked" — which is what
+ *    the bare .update() in TradeSettlementView's headcount delete still does.
+ *  - Company/direct → plain soft delete with the audit trio.
+ *
+ * The `block_section_payment_when_packages` trigger is not a concern: it fires on
+ * INSERT / UPDATE OF contract_id and early-returns when is_deleted is true.
+ */
+export async function softDeleteSubcontractPayment(
+  supabase: SupabaseClient,
+  args: { paymentId: string; reason: string; userId: string }
+): Promise<SoftDeleteSubcontractPaymentResult> {
+  try {
+    const reason = args.reason?.trim();
+    if (!reason) {
+      return { success: false, error: "A reason is required to remove a payment." };
+    }
+
+    const { data: payment, error: fetchError } = await (
+      supabase.from("subcontract_payments") as any
+    )
+      .select("id, is_deleted, site_engineer_transaction_id")
+      .eq("id", args.paymentId)
+      .single();
+    if (fetchError) throw fetchError;
+
+    // Idempotent: a second removal is a no-op rather than an error. This also keeps
+    // us out of reverse_wallet_spend, whose source lookup filters is_deleted = false
+    // and would raise "no linked record to cascade to" on an already-removed row.
+    if (payment.is_deleted) return { success: true, walletReversed: false };
+
+    if (payment.site_engineer_transaction_id) {
+      await reverseWalletSpend(supabase, {
+        spendId: payment.site_engineer_transaction_id,
+        mode: "undo",
+        reason,
+      });
+      return { success: true, walletReversed: true };
+    }
+
+    const { error } = await (supabase.from("subcontract_payments") as any)
+      .update({
+        is_deleted: true,
+        deleted_at: new Date().toISOString(),
+        deleted_by_user_id: args.userId || null,
+        deletion_reason: reason,
+      })
+      .eq("id", args.paymentId);
+    if (error) throw error;
+
+    return { success: true, walletReversed: false };
+  } catch (error: any) {
+    console.error("Error removing subcontract payment:", error);
+    return {
+      success: false,
+      error: error?.message || "Failed to remove the payment.",
     };
   }
 }

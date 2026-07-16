@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { spendReverseMode } from "./spendDetailHelpers";
+import { spendReverseMode, type WalletSpendSourceType } from "./spendDetailHelpers";
 
 // Defaults for a plain, reversible material spend; override per case.
 const base = {
@@ -7,15 +7,7 @@ const base = {
   cancelledAt: null as string | null,
   settlementGroupId: null as string | null,
   kind: "other" as const,
-  sourceType: "material" as
-    | "material"
-    | "misc"
-    | "rental"
-    | "tea"
-    | "salary"
-    | "task_work"
-    | "none"
-    | null,
+  sourceType: "material" as WalletSpendSourceType | null,
 };
 
 describe("spendReverseMode", () => {
@@ -37,12 +29,30 @@ describe("spendReverseMode", () => {
     ).toBe("settlement");
   });
 
-  it.each(["material", "misc", "rental", "tea", "task_work"] as const)(
+  it.each(["material", "misc", "rental", "tea", "task_work", "subcontract"] as const)(
     "routes a %s-linked spend to cascade reverse",
     (sourceType) => {
       expect(spendReverseMode({ ...base, sourceType })).toBe("cascade");
     }
   );
+
+  it("routes a section payment to cascade even when its description reads as a contract", () => {
+    // recordSubcontractPayment describes the spend "Contract <title> (<type>)", so a
+    // contract titled e.g. "payment block A" makes classifySpend return 'contract'.
+    // The DB-resolved sourceType is authoritative and must win: a section payment has
+    // no settlement group, so 'settlement' would reverse nothing.
+    expect(
+      spendReverseMode({ ...base, kind: "contract", sourceType: "subcontract" })
+    ).toBe("cascade");
+  });
+
+  it("keeps a settlement-group-backed spend on the settlement path", () => {
+    // Guard the precedence added above: a real salary settlement that happens to
+    // carry a group id must still route to reverse_settlement.
+    expect(
+      spendReverseMode({ ...base, kind: "contract", settlementGroupId: "grp-1", sourceType: "salary" })
+    ).toBe("settlement");
+  });
 
   it("returns 'none' for a return transaction", () => {
     expect(spendReverseMode({ ...base, transactionType: "return" })).toBe("none");
