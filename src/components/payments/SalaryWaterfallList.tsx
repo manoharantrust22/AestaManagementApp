@@ -11,6 +11,9 @@ interface SalaryWaterfallListProps {
   isLoading: boolean;
   onRowClick: (week: WaterfallWeek) => void;
   onSettleClick: (week: WaterfallWeek) => void;
+  /** Crew-pay sites: excess money counts toward the mesthri, not future weeks. */
+  crewMode?: boolean;
+  mesthriName?: string | null;
 }
 
 function formatINR(n: number): string {
@@ -41,7 +44,7 @@ function StatusChip({ status, paid, wagesDue }: {
 }
 
 export function SalaryWaterfallList({
-  weeks, futureCredit, isLoading, onRowClick, onSettleClick,
+  weeks, futureCredit, isLoading, onRowClick, onSettleClick, crewMode, mesthriName,
 }: SalaryWaterfallListProps) {
   const theme = useTheme();
 
@@ -176,6 +179,14 @@ export function SalaryWaterfallList({
                           borderRadius: 0.5, px: 0.75, mx: 0.25,
                         }}>{f.ref}</Box>
                         {formatINR(f.amount)}
+                        {/* Crew mode: say WHO the money reached, not just which receipt. */}
+                        {f.laborerName ? (
+                          <Box component="span" sx={{ fontWeight: 600 }}> → {f.laborerName}</Box>
+                        ) : f.kind === "commission" ? (
+                          <Box component="span" sx={{ fontWeight: 600 }}> → commission</Box>
+                        ) : f.kind === "pool" && crewMode ? (
+                          <Box component="span" sx={{ fontWeight: 600 }}> → mesthri</Box>
+                        ) : null}
                         {i < w.filledBy.length - 1 ? " + " : ""}
                       </React.Fragment>
                     ))}
@@ -227,7 +238,9 @@ export function SalaryWaterfallList({
               }} />
             </Box>
             <Typography sx={{ fontSize: 11.5, color: "info.dark", mt: 0.5 }}>
-              {formatINR(futureCredit)} paid in advance · will absorb future weeks once worked
+              {crewMode
+                ? `${formatINR(futureCredit)} paid in advance · counts toward ${mesthriName ?? "the mesthri"}'s own wages + commission as he works`
+                : `${formatINR(futureCredit)} paid in advance · will absorb future weeks once worked`}
             </Typography>
           </Box>
         )}

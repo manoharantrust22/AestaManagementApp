@@ -12,6 +12,10 @@ export interface WaterfallFilledBy {
    *  return this — falls back to `amount`. */
   grossAmount: number;
   settledAt: string;
+  /** Crew mode only: how this money entered the week. Absent pre-crew. */
+  kind?: "laborer" | "pool" | "commission";
+  /** Crew mode only: set when the fill is a targeted per-laborer payment. */
+  laborerName?: string;
 }
 
 export interface WaterfallWeek {
@@ -81,6 +85,8 @@ export function useSalaryWaterfall(args: UseSalaryWaterfallArgs) {
                 amount,
                 grossAmount: f.gross_amount != null ? Number(f.gross_amount) : amount,
                 settledAt:   String(f.settled_at),
+                kind:        f.kind ?? undefined,
+                laborerName: f.laborer_name ?? undefined,
               };
             })
           : [],

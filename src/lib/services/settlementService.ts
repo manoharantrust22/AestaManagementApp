@@ -1247,6 +1247,175 @@ export async function settleContractLaborer(
 }
 
 /**
+ * Pay ONE company laborer their week's wages from the Salary Settlements crew view
+ * (crew_pay mode). Creates a settlement_group tagged to the crew subcontract, then
+ * records the amount via settle_company_week_laborer — which clamps server-side to
+ * the crew-aware remaining (NET of the mesthri's commission for crew, own gross for
+ * the mesthri after pool absorption), writes the labor_payments + pwa pair (so the
+ * payment FILLS the waterfall with laborer attribution), stamps the commission
+ * snapshot, and marks the group as targeted per-laborer money.
+ */
+export async function payCrewLaborerWeek(
+  supabase: SupabaseClient,
+  config: {
+    siteId: string;
+    /** The crew-pay Civil parent — tags the group into the Civil slice pool. */
+    crewSubcontractId: string;
+    laborerId: string;
+    laborerName?: string;
+    weekStart: string; // Sunday, YYYY-MM-DD
+    weekEnd: string;   // Saturday, YYYY-MM-DD
+    amount: number;    // net owed from the crew ledger; server re-clamps.
+    settlementDate?: string;
+    paymentMode: PaymentMode;
+    paymentChannel: PaymentChannel;
+    payerSource: PayerSource;
+    customPayerName?: string;
+    engineerId?: string;
+    proofUrl?: string;
+    notes?: string;
+    userId: string;
+    userName: string;
+  },
+): Promise<SettlementResult> {
+  try {
+    const paymentDate = config.settlementDate || dayjs().format("YYYY-MM-DD");
+    let engineerTransactionId: string | null = null;
+
+    const idempotencyKey = await deterministicSettlementKey({
+      siteId: config.siteId,
+      recordIds: [],
+      amount: config.amount,
+      paymentChannel: config.paymentChannel,
+      date: paymentDate,
+      extra: `crew:${config.laborerId}:${config.weekStart}`,
+    });
+
+    // 1. The settlement group — a rupee credit against the laborer's week.
+    const { data: groupResult, error: groupError } = await supabase.rpc(
+      "create_settlement_group",
+      {
+        p_site_id: config.siteId,
+        p_settlement_date: paymentDate,
+        p_total_amount: config.amount,
+        p_laborer_count: 1,
+        p_payment_channel: config.paymentChannel,
+        p_payment_mode: config.paymentMode,
+        p_payer_source: config.payerSource,
+        p_payer_name: requiresPayerName(config.payerSource) ? config.customPayerName : null,
+        p_proof_url: config.proofUrl || null,
+        p_notes: config.notes
+          ? `Crew wages: ${config.notes}`
+          : `Paid ${config.laborerName ?? "laborer"} — week ${dayjs(config.weekStart).format("D MMM")}`,
+        p_subcontract_id: config.crewSubcontractId,
+        p_engineer_transaction_id: null,
+        p_created_by: config.userId,
+        p_created_by_name: config.userName,
+        p_payment_type: "salary",
+        p_idempotency_key: idempotencyKey,
+      },
+    );
+    if (groupError) throw groupError;
+    const groupData = Array.isArray(groupResult) ? groupResult[0] : groupResult;
+    if (!groupData?.id) throw new Error("Failed to create settlement group");
+    const settlementGroupId = groupData.id as string;
+    const settlementReference = groupData.settlement_reference as string;
+
+    // 2. Server-authoritative clamp + lp/pwa + snapshots + targeted marker.
+    const { data: recordData, error: recordError } = await supabase.rpc(
+      "settle_company_week_laborer",
+      {
+        p_site_id: config.siteId,
+        p_laborer_id: config.laborerId,
+        p_week_start: config.weekStart,
+        p_week_end: config.weekEnd,
+        p_settlement_group_id: settlementGroupId,
+        p_amount: config.amount,
+        p_payment_date: paymentDate,
+        p_payment_mode: config.paymentMode,
+        p_payer_source: config.payerSource,
+        p_payer_name: requiresPayerName(config.payerSource) ? config.customPayerName : null,
+        p_recorded_by_name: config.userName,
+        p_recorded_by_user_id: config.userId,
+      },
+    );
+    if (recordError) {
+      await supabase.rpc("reverse_settlement", {
+        p_settlement_group_id: settlementGroupId,
+        p_reason: "Crew week record failed",
+      });
+      throw recordError;
+    }
+    const amountRecorded =
+      Number(Array.isArray(recordData) ? recordData[0] : recordData) || 0;
+    if (amountRecorded <= 0) {
+      await supabase.rpc("reverse_settlement", {
+        p_settlement_group_id: settlementGroupId,
+        p_reason: "Nothing owed to settle",
+      });
+      return {
+        success: false,
+        error: "Nothing to record — this laborer is already fully paid for that week.",
+      };
+    }
+    if (amountRecorded < config.amount) {
+      // Server clamped (someone else paid part of the week meanwhile) — keep the
+      // group's total honest so every expense/waterfall reader sees the real money.
+      await supabase
+        .from("settlement_groups")
+        .update({ total_amount: amountRecorded })
+        .eq("id", settlementGroupId);
+    }
+
+    // 3. Engineer-wallet debit (optional) — debit the AUTHORITATIVE recorded amount.
+    if (config.paymentChannel === "engineer_wallet" && config.engineerId) {
+      const walletPaymentMode: "cash" | "upi" | "bank_transfer" =
+        config.paymentMode === "upi"
+          ? "upi"
+          : config.paymentMode === "net_banking"
+            ? "bank_transfer"
+            : "cash";
+      try {
+        const { id: txId } = await recordSpend(supabase, {
+          engineer_id: config.engineerId,
+          site_id: config.siteId,
+          amount: amountRecorded,
+          transaction_date: paymentDate,
+          payment_mode: walletPaymentMode,
+          proof_url: config.proofUrl || null,
+          notes: config.notes || null,
+          recorded_by: config.userName,
+          recorded_by_user_id: config.userId,
+          description: `Crew wages ${settlementReference}`,
+          settlement_group_id: settlementGroupId,
+        });
+        engineerTransactionId = txId;
+        await supabase
+          .from("settlement_groups")
+          .update({ engineer_transaction_id: engineerTransactionId })
+          .eq("id", settlementGroupId);
+      } catch (walletErr: any) {
+        await supabase.rpc("reverse_settlement", {
+          p_settlement_group_id: settlementGroupId,
+          p_reason: `Engineer wallet debit failed: ${walletErr?.message ?? walletErr}`,
+        });
+        throw walletErr;
+      }
+    }
+
+    return {
+      success: true,
+      settlementReference,
+      settlementGroupId,
+      engineerTransactionId: engineerTransactionId || undefined,
+    };
+  } catch (err: any) {
+    console.error("Crew laborer week settle error:", err);
+    return { success: false, error: err.message || "Failed to pay the laborer." };
+  }
+}
+
+/**
  * Build a description string for the expense record
  */
 function buildExpenseDescription(config: SettlementConfig, laborerCount: number): string {

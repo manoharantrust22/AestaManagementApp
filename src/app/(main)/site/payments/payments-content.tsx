@@ -47,6 +47,7 @@ import { SalarySliceHero } from "@/components/payments/SalarySliceHero";
 import { DailyMarketHero } from "@/components/payments/DailyMarketHero";
 import { AllSettlementsHero } from "@/components/payments/AllSettlementsHero";
 import { SalaryWaterfallList } from "@/components/payments/SalaryWaterfallList";
+import CrewLedgerView from "@/components/payments/crew/CrewLedgerView";
 import { AdvancesList } from "@/components/payments/AdvancesList";
 import { DailyMarketLedger } from "@/components/payments/DailyMarketLedger";
 import { DailyMarketWeeklyList } from "@/components/payments/DailyMarketWeeklyList";
@@ -111,7 +112,9 @@ type ActiveTab = "all" | "contract" | "daily-market";
 //                    contract experience but with per-date settlement
 //                    granularity.
 // "by-date"        — daily-market only: legacy flat per-date list.
-type ViewMode = "default" | "by-settlement" | "by-week" | "by-date";
+// "by-laborer"     — contract tab, crew-pay sites only: per-laborer weekly
+//                    earnings (net of mesthri commission) with direct Pay.
+type ViewMode = "default" | "by-settlement" | "by-week" | "by-date" | "by-laborer";
 
 /** Adapter: SettlementDetails (loaded by SettlementRefDetailDialog) →
  *  DateWiseSettlement (the legacy shape ContractSettlementEditDialog accepts).
@@ -189,6 +192,8 @@ function invalidateSettlementsCaches(
   queryClient.invalidateQueries({ queryKey: ["settlements-list"] });
   queryClient.invalidateQueries({ queryKey: ["salary-waterfall"] });
   queryClient.invalidateQueries({ queryKey: ["salary-slice-summary"] });
+  queryClient.invalidateQueries({ queryKey: ["salary-crew-ledger"] });
+  queryClient.invalidateQueries({ queryKey: ["weekly-payout-console"] });
   queryClient.invalidateQueries({ queryKey: ["payments-ledger"] });
   queryClient.invalidateQueries({ queryKey: ["payment-summary"] });
   queryClient.invalidateQueries({ queryKey: ["advances"] });
@@ -443,6 +448,17 @@ export default function PaymentsContent() {
     );
     return soleTopLevelSubcontractId(civilRows);
   }, [scopeTradeId, sitTradesForChip, siteSubcontractsQuery.data]);
+  // Crew weekly pay (the "By laborer" view): on when a top-level contract carries
+  // crew_pay_enabled (the Civil parent — get_salary_crew_ledger validates server-side).
+  // Only offered in the plain Civil view; trade workspaces keep their own money flow.
+  const crewContract = useMemo(() => {
+    if (scopeTradeId) return null;
+    return (
+      (siteSubcontractsQuery.data ?? []).find(
+        (s) => s.crew_pay_enabled && !s.parent_subcontract_id
+      ) ?? null
+    );
+  }, [scopeTradeId, siteSubcontractsQuery.data]);
   // Inter-site "Move to another site": available only with edit permission AND at
   // least one sibling site in the same group to move to.
   const groupMembership = useSiteGroupMembership(selectedSite?.id);
@@ -1207,6 +1223,16 @@ export default function PaymentsContent() {
                   longLabel: "📊 Weekly waterfall",
                   ariaLabel: "Weekly waterfall",
                 },
+                ...(crewContract
+                  ? [
+                      {
+                        value: "by-laborer",
+                        shortLabel: "👷 Crew",
+                        longLabel: "👷 By laborer",
+                        ariaLabel: "By laborer",
+                      },
+                    ]
+                  : []),
                 {
                   value: "by-settlement",
                   shortLabel: "📜 Settled",
@@ -1232,12 +1258,20 @@ export default function PaymentsContent() {
                 siteId={selectedSite.id}
                 onRowClick={(row) => setRefDetail(row.ref)}
               />
-              {viewMode === "default" ? (
+              {viewMode === "by-laborer" && crewContract ? (
+                <CrewLedgerView
+                  siteId={selectedSite.id}
+                  subcontractId={crewContract.id}
+                  canPay={canEditSettlements}
+                />
+              ) : viewMode === "default" ? (
                 <>
                   <SalaryWaterfallList
                     weeks={waterfallQuery.data ?? []}
                     futureCredit={salarySummaryQuery.data?.futureCredit ?? 0}
                     isLoading={waterfallQuery.isLoading}
+                    crewMode={Boolean(crewContract)}
+                    mesthriName={crewContract?.laborer_name ?? null}
                     onRowClick={(week) => {
                       pane.open({
                         kind: "weekly-aggregate",

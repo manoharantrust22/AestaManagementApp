@@ -14,6 +14,9 @@ export interface Subcontract {
   created_at: string;
   /** Self-reference: set when this contract is a child (floor) of a combined parent. */
   parent_subcontract_id: string | null;
+  /** Crew weekly pay (Salary Settlements "By laborer" view) — see 20260717120000. */
+  crew_pay_enabled: boolean;
+  crew_pay_effective_from: string | null;
 }
 
 /**
@@ -39,6 +42,8 @@ export function useSiteSubcontracts(siteId: string | undefined) {
           laborer_id,
           trade_category_id,
           parent_subcontract_id,
+          crew_pay_enabled,
+          crew_pay_effective_from,
           laborer:laborers(name)
         `)
         .eq("site_id", siteId)
@@ -62,6 +67,8 @@ export function useSiteSubcontracts(siteId: string | undefined) {
         total_value: item.total_value,
         created_at: item.created_at,
         parent_subcontract_id: item.parent_subcontract_id ?? null,
+        crew_pay_enabled: Boolean(item.crew_pay_enabled),
+        crew_pay_effective_from: item.crew_pay_effective_from ?? null,
       })) as Subcontract[];
     }, { operationName: "useSiteSubcontracts" }),
     enabled: !!siteId,

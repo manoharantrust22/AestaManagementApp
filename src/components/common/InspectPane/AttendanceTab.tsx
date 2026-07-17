@@ -1115,6 +1115,9 @@ function WeeklyAggregateShape({
           </span>
         </Box>
       </Box>
+
+      {/* Crew-pay sites: per-laborer earned/paid for this week (renders nothing elsewhere). */}
+      <CrewWeekInspectSummary siteId={entity.siteId} weekStart={entity.weekStart} />
     </Box>
   );
 }
@@ -1129,6 +1132,7 @@ import type { WeekHoliday } from "@/hooks/queries/useWeekAggregateAttendance";
 import { useDailyMarketWeekAggregate } from "@/hooks/queries/useDailyMarketWeekAggregate";
 import { useWorkUpdates } from "@/hooks/queries/useWorkUpdates";
 import PhotoFullscreenDialog from "@/components/attendance/work-updates/PhotoFullscreenDialog";
+import CrewWeekInspectSummary from "@/components/payments/crew/CrewWeekInspectSummary";
 import type { WorkPhoto } from "@/types/work-updates.types";
 
 interface DayLightboxState {
