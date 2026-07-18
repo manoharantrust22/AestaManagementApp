@@ -415,6 +415,9 @@ export default function QuickRequestPage() {
           material_id: c.material_id,
           requested_qty: c.qty,
           notes: c.size_note ?? undefined,
+          // Keep the slab dimensions, not just the flattened note — the PO
+          // seeds its editor from these so the office never re-keys them.
+          granite_lines: c.granite_lines?.length ? c.granite_lines : undefined,
           pack_id: c.pack_id ?? null,
           pack_count: c.pack_count ?? null,
         })),

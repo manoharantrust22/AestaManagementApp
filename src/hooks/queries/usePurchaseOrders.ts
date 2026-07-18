@@ -361,6 +361,9 @@ export function useCreatePurchaseOrder() {
           // Pack-only materials: can size + count (quantity stays base-unit).
           pack_id: item.pack_id ?? null,
           pack_count: item.pack_count ?? null,
+          // Area materials: the slabs actually bought. quantity is their derived
+          // sq.ft, which is what the vendor gets paid on.
+          granite_lines: item.granite_lines ?? [],
         };
       });
 
@@ -386,7 +389,12 @@ export function useCreatePurchaseOrder() {
               requestItemLinks.push({
                 po_item_id: insertedItem.id,
                 request_item_id: originalItem.request_item_id as string,
-                quantity_allocated: originalItem.quantity,
+                // Area lines may order MORE than the request needs (bigger slabs
+                // cut to fit), but the allocation is capped at what was asked
+                // for — the caller pre-computes that. Falls back to quantity for
+                // every other line, where qty <= remaining already holds.
+                quantity_allocated:
+                  originalItem.quantity_allocated ?? originalItem.quantity,
               });
             }
           }

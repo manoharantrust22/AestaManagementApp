@@ -89,6 +89,8 @@ export default function MaterialThreadRow({
 
   return (
     <Box
+      // Anchor for notification deep-links (?focusThread=… → scrollIntoView).
+      id={`thread-${thread.source_row_id}`}
       sx={{
         background: hubTokens.card,
         position: "relative",

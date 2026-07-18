@@ -89,7 +89,6 @@ import SiteSelector from "@/components/layout/SiteSelector";
 import { useSelectedSite } from "@/contexts/SiteContext";
 import NotificationBell from "@/components/notifications/NotificationBell";
 import ActiveSectionChip from "@/components/layout/ActiveSectionChip";
-import SettlementDialogManager from "@/components/settlement/SettlementDialogManager";
 import ChatAssistant from "@/components/chat-assistant/ChatAssistant";
 import StaleStateSnackbar from "@/components/layout/StaleStateSnackbar";
 import ConnectionDegradedSnackbar from "@/components/layout/ConnectionDegradedSnackbar";
@@ -1530,9 +1529,6 @@ export default function MainLayout({
 
       {/* Journey overlay — pill tag or full drawer, persists across navigation */}
       <JourneyOverlay />
-
-      {/* Settlement Dialogs (managed via NotificationContext) */}
-      <SettlementDialogManager />
 
       {/* Chat Assistant */}
       <ChatAssistant open={chatOpen} onClose={() => setChatOpen(false)} />

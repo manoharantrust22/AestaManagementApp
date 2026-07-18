@@ -46,6 +46,7 @@ import type {
 import { formatCurrency } from "@/lib/formatters";
 import { PRIORITY_LABELS, PRIORITY_COLORS } from "@/types/material.types";
 import { useToast } from "@/contexts/ToastContext";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface ConvertToPODialogProps {
   open: boolean;
@@ -62,6 +63,7 @@ export default function ConvertToPODialog({
 }: ConvertToPODialogProps) {
   const isMobile = useIsMobile();
   const { showSuccess, showError } = useToast();
+  const { userProfile } = useAuth();
 
   const { data: requestItems = [], isLoading: isLoadingItems } = useRequestItemsForConversion(
     open ? request.id : undefined
@@ -220,6 +222,7 @@ export default function ConvertToPODialog({
       const result = await convertToPO.mutateAsync({
         request_id: request.id,
         vendor_id: selectedVendor.id,
+        approver_user_id: userProfile?.id,
         items: selectedItems.map((item) => ({
           request_item_id: item.id,
           material_id: item.material_id,

@@ -5,12 +5,6 @@ import {
   Box,
   Paper,
   Typography,
-  Switch,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  ListItemSecondaryAction,
   Select,
   MenuItem,
   FormControl,
@@ -21,7 +15,6 @@ import {
 } from "@mui/material";
 import {
   Palette as PaletteIcon,
-  Notifications as NotificationsIcon,
   Schedule as ScheduleIcon,
   CalendarMonth as CalendarIcon,
   Language as LanguageIcon,
@@ -61,7 +54,6 @@ export default function PreferencesTab({ onSuccess, onError }: PreferencesTabPro
   const [loading, setLoading] = useState(false);
   const [preferences, setPreferences] = useState({
     theme_preference: "light" as ThemePreference,
-    email_notifications: true,
     timezone: "Asia/Kolkata",
     date_format: "DD/MM/YYYY",
   });
@@ -73,7 +65,6 @@ export default function PreferencesTab({ onSuccess, onError }: PreferencesTabPro
     if (userProfile) {
       setPreferences({
         theme_preference: (userProfile.theme_preference as ThemePreference) || "light",
-        email_notifications: userProfile.email_notifications ?? true,
         timezone: userProfile.timezone || "Asia/Kolkata",
         date_format: userProfile.date_format || "DD/MM/YYYY",
       });
@@ -92,23 +83,6 @@ export default function PreferencesTab({ onSuccess, onError }: PreferencesTabPro
           .eq("id", userProfile.id);
       } catch (error) {
         console.error("Failed to save theme preference:", error);
-      }
-    }
-  };
-
-  const handleNotificationToggle = async () => {
-    const newValue = !preferences.email_notifications;
-    setPreferences((prev) => ({ ...prev, email_notifications: newValue }));
-
-    // Save to database
-    if (userProfile) {
-      try {
-        await (supabase.from("users") as any)
-          .update({ email_notifications: newValue })
-          .eq("id", userProfile.id);
-        onSuccess?.(`Email notifications ${newValue ? "enabled" : "disabled"}`);
-      } catch (error) {
-        onError?.("Failed to update notification settings");
       }
     }
   };
@@ -214,37 +188,6 @@ export default function PreferencesTab({ onSuccess, onError }: PreferencesTabPro
             </Typography>
           </Paper>
         </Box>
-      </Paper>
-
-      {/* Notifications */}
-      <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
-        <Typography
-          variant="h6"
-          fontWeight={600}
-          sx={{ display: "flex", alignItems: "center", mb: 2 }}
-        >
-          <NotificationsIcon sx={{ mr: 1 }} />
-          Notifications
-        </Typography>
-
-        <List disablePadding>
-          <ListItem disablePadding sx={{ py: 1 }}>
-            <ListItemIcon>
-              <NotificationsIcon color="action" />
-            </ListItemIcon>
-            <ListItemText
-              primary="Email Notifications"
-              secondary="Receive email alerts for important updates"
-            />
-            <ListItemSecondaryAction>
-              <Switch
-                edge="end"
-                checked={preferences.email_notifications}
-                onChange={handleNotificationToggle}
-              />
-            </ListItemSecondaryAction>
-          </ListItem>
-        </List>
       </Paper>
 
       {/* Regional Settings */}

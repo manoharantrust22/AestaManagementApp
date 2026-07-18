@@ -4,7 +4,8 @@
  * MaterialHubStageStepper — the Hub's hero filter.
  *
  * A compact, clickable stepper of the condensed actionable steps
- * (APPROVE · PO · DELIVER · SETTLE · IN USE). Each node IS the bucket count and
+ * (PO · DELIVER · SETTLE · IN USE — Approve + PO are one combined office
+ * step). Each node IS the bucket count and
  * is tinted by the role on the hook (admin → pink, engineer → blue, office →
  * amber); a small caption reads "N to <verb>" when work is waiting. Click a step
  * to filter the list to threads sitting there; click it again to clear.

@@ -403,9 +403,14 @@ export default function PODetailsDrawer({
                     <Typography variant="caption" color="text.secondary">
                       {item.material?.code} • {item.material?.unit}
                     </Typography>
+                    {item.notes && (
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        {item.notes}
+                      </Typography>
+                    )}
                   </TableCell>
                   <TableCell align="right">
-                    {item.quantity} pcs
+                    {item.quantity} {item.material?.unit ?? "pcs"}
                     {item.pricing_mode === 'per_kg' && (item.actual_weight ?? item.calculated_weight) && (
                       <Typography variant="caption" color="text.secondary" display="block">
                         {((item.actual_weight ?? item.calculated_weight) || 0).toFixed(1)} kg

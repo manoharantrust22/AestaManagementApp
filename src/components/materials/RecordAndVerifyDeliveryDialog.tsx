@@ -64,6 +64,8 @@ interface RecordAndVerifyDeliveryDialogProps {
 interface DeliveryItemRow extends DeliveryItemFormData {
   materialName?: string;
   unit?: string;
+  /** Area materials: the slab sizes from the PO line. Display only. */
+  sizeNote?: string;
   orderedQty: number;
   pendingQty: number;
   pricing_mode?: "per_piece" | "per_kg";
@@ -167,6 +169,9 @@ export default function RecordAndVerifyDeliveryDialog({
           unit_price: item.unit_price,
           materialName: item.material?.name,
           unit: item.material?.unit,
+          // Area materials: the slab sizes bought, so the engineer can check the
+          // pieces against the order. Read-only here — sizes are set at the PO.
+          sizeNote: item.notes || undefined,
           orderedQty: item.quantity,
           pendingQty: item.quantity - (item.received_qty || 0),
           pricing_mode: item.pricing_mode,
@@ -884,6 +889,11 @@ export default function RecordAndVerifyDeliveryDialog({
                                 item.pricing_mode === "per_kg" ? "kg" : "unit"
                               }`}
                           </Typography>
+                          {item.sizeNote && (
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              {item.sizeNote}
+                            </Typography>
+                          )}
                         </TableCell>
                         <TableCell align="right">
                           {item.orderedQty}

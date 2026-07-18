@@ -66,6 +66,9 @@ export function loadHubFilters(siteId: string): HubFilterSnapshot | null {
     const raw = window.sessionStorage.getItem(hubFilterStorageKey(siteId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
+    // The APPROVE step was merged into PO (combined Approve+PO stage) — map
+    // snapshots persisted before the merge instead of discarding them.
+    if (parsed.stageStep === "approve") parsed.stageStep = "po";
     if (
       !isValidStageStep(parsed.stageStep ?? null) ||
       !KIND_FILTERS.includes((parsed.kindFilter ?? "all") as HubKindFilter) ||

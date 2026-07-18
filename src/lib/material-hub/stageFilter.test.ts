@@ -51,8 +51,8 @@ function makeThread(overrides: Partial<MaterialThread> = {}): MaterialThread {
 }
 
 describe("threadCurrentStep", () => {
-  it("maps requested → approve", () => {
-    expect(threadCurrentStep(makeThread({ stage: "requested", po: undefined }))).toBe("approve");
+  it("maps requested → po (combined Approve+PO step)", () => {
+    expect(threadCurrentStep(makeThread({ stage: "requested", po: undefined }))).toBe("po");
   });
 
   it("maps approved → po", () => {
@@ -117,8 +117,7 @@ describe("stageStepCounts", () => {
       makeThread({ id: "g", stage: "rejected" }), // excluded
     ];
     const c = stageStepCounts(threads);
-    expect(c.approve.total).toBe(1);
-    expect(c.po.total).toBe(1);
+    expect(c.po.total).toBe(2); // requested + approved share the combined PO step
     expect(c.deliver.total).toBe(1);
     expect(c.settle.total).toBe(1);
     expect(c.inuse.total).toBe(2);
@@ -126,15 +125,14 @@ describe("stageStepCounts", () => {
 
   it("counts action-required threads by responsible role", () => {
     const threads = [
-      makeThread({ id: "a", stage: "requested", po: undefined }), // admin
-      makeThread({ id: "b", stage: "approved", po: undefined }), // admin
+      makeThread({ id: "a", stage: "requested", po: undefined }), // office (create PO)
+      makeThread({ id: "b", stage: "approved", po: undefined }), // office (create PO)
       makeThread({ id: "c", stage: "ordered", po: makePO({ received_qty: 0 }) }), // engineer
       makeThread({ id: "d", stage: "delivered" }), // office (settle)
       makeThread({ id: "e", stage: "in-use" }), // engineer (log usage)
     ];
     const c = stageStepCounts(threads);
-    expect(c.approve.action.admin).toBe(1);
-    expect(c.po.action.admin).toBe(1);
+    expect(c.po.action.office).toBe(2);
     expect(c.deliver.action.engineer).toBe(1);
     expect(c.settle.action.office).toBe(1);
     expect(c.inuse.action.engineer).toBe(1);

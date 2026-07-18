@@ -74,6 +74,9 @@ import type {
   RequestItemForConversion,
 } from "@/types/material.types";
 import { formatCurrency } from "@/lib/formatters";
+import { graniteSizeNote, graniteQuantityAllocated } from "@/lib/materials/granite";
+import { graniteSqft, isAreaUnit } from "@/lib/spaces/measurements";
+import type { GraniteLine } from "@/types/spaces.types";
 import {
   calculatePieceWeight,
   computeLineAmount,
@@ -82,6 +85,8 @@ import {
 } from "@/lib/weightCalculation";
 import { PRIORITY_LABELS, PRIORITY_COLORS } from "@/types/material.types";
 import { useToast } from "@/contexts/ToastContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { StaleStateError } from "@/lib/utils/staleState";
 import FileUploader from "@/components/common/FileUploader";
 import DraftRestoreBanner from "@/components/common/DraftRestoreBanner";
 import { BillPreviewButton } from "@/components/common/BillViewerDialog";
@@ -227,6 +232,7 @@ export default function UnifiedPurchaseOrderDialog({
   const removeItem = useRemovePOItem();
   const updateItem = useUpdatePOItem();
   const approveRequest = useApproveMaterialRequest();
+  const { userProfile } = useAuth();
 
   // ============================================================================
   // Form state
@@ -953,7 +959,13 @@ export default function UnifiedPurchaseOrderDialog({
     setRequestItemsState((prev) =>
       prev.map((item) => {
         if (item.id !== itemId) return item;
-        const validQty = Math.min(Math.max(0, qty), item.remaining_qty);
+        // Area materials (granite/marble) may legitimately exceed the request:
+        // the vendor's slabs are never the exact size, so you buy bigger and cut
+        // to fit. Capping that would silently rewrite what was actually bought.
+        // Everything else keeps the original cap.
+        const validQty = isAreaUnit(item.unit)
+          ? Math.max(0, qty)
+          : Math.min(Math.max(0, qty), item.remaining_qty);
 
         // Recalculate weight when quantity changes
         const calculatedWeight =
@@ -970,6 +982,22 @@ export default function UnifiedPurchaseOrderDialog({
           actual_weight: null,
         };
       })
+    );
+  };
+
+  /**
+   * Area materials: the office revised the slabs being bought. The area is
+   * derived from the dimensions, never typed, so it can't drift from the sizes
+   * we bill on. The request's own granite_lines are untouched — the gap between
+   * the two is the offcut.
+   */
+  const handleRequestItemGraniteLinesChange = (itemId: string, next: GraniteLine[]) => {
+    setRequestItemsState((prev) =>
+      prev.map((item) =>
+        item.id === itemId
+          ? { ...item, actual_granite_lines: next, quantity_to_order: graniteSqft(next) }
+          : item
+      )
     );
   };
 
@@ -1299,6 +1327,16 @@ export default function UnifiedPurchaseOrderDialog({
         // Pack-priced variants: carry the can size + count (quantity stays base-unit).
         pack_id: item.pack_id ?? null,
         pack_count: item.pack_count ?? null,
+        // Area materials: the slabs actually bought + their flattened summary,
+        // so the PO records the sizes and not just an area.
+        granite_lines: isAreaUnit(item.unit) ? (item.actual_granite_lines ?? []) : [],
+        notes: isAreaUnit(item.unit)
+          ? graniteSizeNote(item.actual_granite_lines ?? []) || undefined
+          : undefined,
+        // Buying bigger slabs than asked for must not claim more of the request
+        // than it ever needed — see graniteQuantityAllocated. A no-op for
+        // non-area lines, where the clamp already guarantees qty <= remaining.
+        quantity_allocated: graniteQuantityAllocated(item.quantity_to_order, item.remaining_qty),
         // Track request item linkage
         request_item_id: item.id,
       }));
@@ -1359,6 +1397,27 @@ export default function UnifiedPurchaseOrderDialog({
         onClose();
         showSuccess(`Purchase Order ${purchaseOrder!.po_number} updated successfully!`);
         return;
+      }
+
+      // Approve + PO are one combined office step: creating a PO from a
+      // still-pending request implicitly approves it. Stamp the approval
+      // (approved_by / approved_at + per-item approved_qty) before the PO
+      // insert so the audit trail matches the single "Create PO" click.
+      if (isRequestMode && request && request.status === "pending" && userProfile?.id) {
+        try {
+          await approveRequest.mutateAsync({
+            id: request.id,
+            userId: userProfile.id,
+            siteId,
+            approvedItems: selectedRequestItems.map((item) => ({
+              itemId: item.id,
+              approved_qty: item.quantity_to_order,
+            })),
+          });
+        } catch (approveErr) {
+          // A colleague approved it moments ago — the PO can still proceed.
+          if (!(approveErr instanceof StaleStateError)) throw approveErr;
+        }
       }
 
       // Create new PO
@@ -1832,6 +1891,9 @@ export default function UnifiedPurchaseOrderDialog({
                           }
                           onPackChange={(packId, packCount) =>
                             handleRequestItemPackChange(item.id, packId, packCount)
+                          }
+                          onGraniteLinesChange={(next) =>
+                            handleRequestItemGraniteLinesChange(item.id, next)
                           }
                           showPricingModeColumn={hasWeightBasedRequestItems}
                           priceIncludesGst={priceIncludesGst}

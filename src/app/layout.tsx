@@ -6,7 +6,6 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { SiteProvider } from "@/contexts/SiteContext";
 import { CompanyProvider } from "@/contexts/CompanyContext";
 import { DateRangeProvider } from "@/contexts/DateRangeContext";
-import { NotificationProvider } from "@/contexts/NotificationContext";
 import { ToastProvider } from "@/contexts/ToastContext";
 import QueryProvider from "@/providers/QueryProvider";
 import { TabProvider } from "@/providers/TabProvider";
@@ -56,11 +55,9 @@ export default function RootLayout({
                   <SiteProvider>
                   <DateRangeProvider>
                     <QueryProvider>
-                      <NotificationProvider>
-                        <ToastProvider>
-                          {children}
-                        </ToastProvider>
-                      </NotificationProvider>
+                      <ToastProvider>
+                        {children}
+                      </ToastProvider>
                     </QueryProvider>
                   </DateRangeProvider>
                 </SiteProvider>

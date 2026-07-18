@@ -1,7 +1,34 @@
 import type { MaterialThread } from "./threadTypes";
 import { advanceAwaitingSettle } from "./stageHelpers";
+import type { UserRole } from "@/lib/permissions";
 
 export type NextActionWho = "admin" | "engineer" | "office";
+
+/**
+ * Which user roles may actually PERFORM an action tagged with each `who`.
+ * Admin is a super-role and may act everywhere; office handles the back-office
+ * steps (PO, vendor/inter-site settlement); site engineers own the on-site
+ * steps (delivery, usage). Office does NOT perform engineer actions — the
+ * ownership ladder is SE → office → SE → SE → office.
+ *
+ * NOTE: do NOT gate with `hasAdminPermission()` — it is a dev bypass that
+ * returns true for everyone. This map + `canActOnNext` is the client-side
+ * mirror of the RLS rules (same split as `canCreatePurchaseOrders`).
+ */
+export const WHO_ALLOWED_ROLES: Record<NextActionWho, UserRole[]> = {
+  admin: ["admin", "office"],
+  office: ["admin", "office"],
+  engineer: ["site_engineer", "admin"],
+};
+
+/** True when a user with `role` is allowed to perform `next`. */
+export function canActOnNext(
+  next: NextAction | null,
+  role: UserRole | string | undefined | null
+): boolean {
+  if (!next) return false;
+  return WHO_ALLOWED_ROLES[next.who].includes(role as UserRole);
+}
 
 export interface NextAction {
   who: NextActionWho;
@@ -34,8 +61,11 @@ export function nextAction(t: MaterialThread): NextAction | null {
   }
 
   if (t.stage === "rejected") return null;
-  if (t.stage === "requested") return { who: "admin", label: "Approve →", verb: "Approve" };
-  if (t.stage === "approved") return { who: "admin", label: "Create PO →", verb: "Create PO" };
+  // Approve + PO are ONE combined office step: creating the PO from a pending
+  // request implicitly approves it (approval is stamped during PO creation).
+  // Reject / approve-without-PO live in the row's kebab menu.
+  if (t.stage === "requested") return { who: "office", label: "Create PO →", verb: "Create PO" };
+  if (t.stage === "approved") return { who: "office", label: "Create PO →", verb: "Create PO" };
 
   // Advance (bulk) POs are paid BEFORE the vendor delivers — the money goes out
   // first, then the goods arrive part-by-part. Until the advance is recorded the

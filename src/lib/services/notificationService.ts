@@ -84,92 +84,6 @@ export interface TransactionWithLaborers {
 }
 
 /**
- * Create a payment settlement notification for a site engineer
- * Called when admin sends money to engineer via engineer wallet
- */
-export async function createPaymentSettlementNotification(
-  supabase: SupabaseClient<Database>,
-  transactionId: string,
-  engineerId: string,
-  amount: number,
-  laborerDetails: LaborerDetails,
-  siteName?: string
-): Promise<{ error: Error | null }> {
-  try {
-    const laborerText =
-      laborerDetails.dailyCount + laborerDetails.marketCount > 0
-        ? `${laborerDetails.dailyCount + laborerDetails.marketCount} laborers (${laborerDetails.dailyCount} daily, ${laborerDetails.marketCount} market)`
-        : "laborers";
-
-    const message = siteName
-      ? `₹${amount.toLocaleString("en-IN")} received for ${laborerText} at ${siteName}. Tap to settle.`
-      : `₹${amount.toLocaleString("en-IN")} received for ${laborerText}. Tap to settle.`;
-
-    const { error } = await supabase.from("notifications").insert({
-      user_id: engineerId,
-      title: "Payment Received for Settlement",
-      message,
-      notification_type: "payment_settlement_pending",
-      related_id: transactionId,
-      related_table: "site_engineer_transactions",
-      is_read: false,
-    });
-
-    if (error) throw error;
-    return { error: null };
-  } catch (err) {
-    console.error("Error creating payment settlement notification:", err);
-    return { error: err as Error };
-  }
-}
-
-/**
- * Create notifications for all admin and office users when engineer completes settlement
- */
-export async function createSettlementCompletedNotifications(
-  supabase: SupabaseClient<Database>,
-  transactionId: string,
-  engineerName: string,
-  amount: number,
-  settlementMode: "upi" | "cash",
-  siteName?: string
-): Promise<{ error: Error | null }> {
-  try {
-    // Get all admin and office users
-    const adminOfficeUserIds = await getAdminOfficeUserIds(supabase);
-
-    if (adminOfficeUserIds.length === 0) {
-      console.warn("No admin/office users found to notify");
-      return { error: null };
-    }
-
-    const modeText = settlementMode === "upi" ? "UPI" : "Cash";
-    const message = siteName
-      ? `${engineerName} settled ₹${amount.toLocaleString("en-IN")} via ${modeText} at ${siteName}. Tap to review.`
-      : `${engineerName} settled ₹${amount.toLocaleString("en-IN")} via ${modeText}. Tap to review.`;
-
-    // Create notifications for each admin/office user
-    const notifications = adminOfficeUserIds.map((userId) => ({
-      user_id: userId,
-      title: "Payment Settlement Completed",
-      message,
-      notification_type: "payment_settlement_completed",
-      related_id: transactionId,
-      related_table: "site_engineer_transactions",
-      is_read: false,
-    }));
-
-    const { error } = await supabase.from("notifications").insert(notifications);
-
-    if (error) throw error;
-    return { error: null };
-  } catch (err) {
-    console.error("Error creating settlement completed notifications:", err);
-    return { error: err as Error };
-  }
-}
-
-/**
  * Get all admin and office user IDs for notification distribution
  */
 export async function getAdminOfficeUserIds(
@@ -316,7 +230,7 @@ export async function getTransactionWithLaborers(
 }
 
 /**
- * Submit settlement - update transaction and create notifications for admin/office
+ * Submit settlement - update transaction and create the pending expense
  */
 export async function submitSettlement(
   supabase: SupabaseClient<Database>,
@@ -325,8 +239,7 @@ export async function submitSettlement(
   settledByUserId: string,
   settledByName: string,
   proofUrl?: string,
-  reason?: string,
-  siteName?: string
+  reason?: string
 ): Promise<{ error: Error | null }> {
   try {
     // Update the transaction
@@ -376,26 +289,6 @@ export async function submitSettlement(
       } catch (expenseErr) {
         console.warn("Failed to create pending expense (non-critical):", expenseErr);
       }
-    }
-
-    // Create notifications for admin/office users (non-blocking)
-    // Note: This may fail due to RLS policies if engineer doesn't have permission
-    // to insert notifications for other users - that's okay, settlement still succeeds
-    try {
-      const { error: notifError } = await createSettlementCompletedNotifications(
-        supabase,
-        transactionId,
-        settledByName,
-        transaction?.amount || 0,
-        settlementMode,
-        siteName
-      );
-
-      if (notifError) {
-        console.warn("Failed to create settlement notifications (non-critical):", notifError);
-      }
-    } catch (notifErr) {
-      console.warn("Exception creating settlement notifications (non-critical):", notifErr);
     }
 
     return { error: null };
@@ -785,50 +678,6 @@ export async function disputeSettlement(
     return { error: null };
   } catch (err) {
     console.error("Error disputing settlement:", err);
-    return { error: err as Error };
-  }
-}
-
-/**
- * Send a reminder notification to engineer about pending settlement
- * Used when admin clicks "Notify Engineer" button
- */
-export async function notifyEngineerPaymentReminder(
-  supabase: SupabaseClient<Database>,
-  engineerId: string,
-  transactionId: string,
-  amount: number,
-  laborerCount: number,
-  siteName?: string,
-  paymentDate?: string
-): Promise<{ error: Error | null }> {
-  try {
-    const dateText = paymentDate
-      ? new Date(paymentDate).toLocaleDateString("en-IN", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-        })
-      : "recent";
-
-    const message = siteName
-      ? `Reminder: Please settle ₹${amount.toLocaleString("en-IN")} for ${laborerCount} ${laborerCount === 1 ? "laborer" : "laborers"} at ${siteName} (${dateText}).`
-      : `Reminder: Please settle ₹${amount.toLocaleString("en-IN")} for ${laborerCount} ${laborerCount === 1 ? "laborer" : "laborers"} (${dateText}).`;
-
-    const { error } = await supabase.from("notifications").insert({
-      user_id: engineerId,
-      title: "Payment Settlement Reminder",
-      message,
-      notification_type: "payment_settlement_reminder",
-      related_id: transactionId,
-      related_table: "site_engineer_transactions",
-      is_read: false,
-    });
-
-    if (error) throw error;
-    return { error: null };
-  } catch (err) {
-    console.error("Error creating payment reminder notification:", err);
     return { error: err as Error };
   }
 }

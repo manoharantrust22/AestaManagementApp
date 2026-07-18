@@ -1,11 +1,12 @@
 "use client";
 
 /**
- * Per-row mini timeline. Seven visible stages horizontally: Req · Approve ·
- * PO · Deliver · Stock · Settle · In use — except advance-paid POs, where the
- * vendor is settled upfront so the order becomes Req · Approve · PO · Settle ·
- * Deliver · Stock · In use. Spot purchases render a shorter 2- or 3-stage
- * pipeline in warn colour.
+ * Per-row mini timeline. Six visible stages horizontally: Req · PO · Deliver ·
+ * Stock · Settle · In use (Approve + PO are one combined office step — creating
+ * the PO implicitly approves the request) — except advance-paid POs, where the
+ * vendor is settled upfront so the order becomes Req · PO · Settle · Deliver ·
+ * Stock · In use. Spot purchases render a shorter 2- or 3-stage pipeline in
+ * warn colour.
  *
  * This file owns only the STATE derivation; the visuals come from the shared
  * {@link HubPipelineStepper} ("Material rail"). INTER-SITE is no longer a rail
@@ -96,7 +97,7 @@ export function buildMaterialPipeline(thread: MaterialThread): MaterialPipelineM
     };
   }
 
-  // Standard flow: 7-stage pipeline.
+  // Standard flow: 6-stage pipeline.
   // `done` = stage already completed · `current` = the NEXT pending stage
   // (pulsing) · `progress` = 0..1 partial (DELIVER when partially delivered).
   // Terminal states (rejected/in-use/exhausted) have no "next" pulse.
@@ -117,6 +118,11 @@ export function buildMaterialPipeline(thread: MaterialThread): MaterialPipelineM
     isInterSiteOutstanding(interSiteStatus) && thread.stage === "exhausted";
   let nextKey =
     !isTerminal && idx + 1 < M_STAGES.length ? M_STAGES[idx + 1] : null;
+
+  // Approve + PO are one combined visible node (the APPROVE stage was removed
+  // from the rail): a `requested` thread's next step is the PO node, so remap
+  // the pulse from the hidden `approved` stage onto `ordered`.
+  if (nextKey === "approved") nextKey = "ordered";
 
   const po = thread.po;
   const orderedQty = po?.qty ?? 0;

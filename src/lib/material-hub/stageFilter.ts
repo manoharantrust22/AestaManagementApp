@@ -1,8 +1,9 @@
 /**
  * Stage-stepper filter for the Material Hub.
  *
- * The Hub's per-row pipeline (REQ → APPROVE → PO → DELIVER → STOCK → SETTLE →
- * IN USE) shows where each thread sits. This module turns that into a *filter*:
+ * The Hub's per-row pipeline (REQ → PO → DELIVER → STOCK → SETTLE → IN USE;
+ * Approve + PO are one combined office step) shows where each thread sits.
+ * This module turns that into a *filter*:
  * a condensed set of the steps that actually hold work, the function that buckets
  * a thread into its current step, and the per-step counts (total + how many need
  * action, broken down by who must act).
@@ -19,7 +20,7 @@ import type { MaterialThread } from "./threadTypes";
 import type { HubTone } from "./tokens";
 import { nextAction, type NextActionWho } from "./nextAction";
 
-export type StageStepKey = "approve" | "po" | "deliver" | "settle" | "inuse";
+export type StageStepKey = "po" | "deliver" | "settle" | "inuse";
 
 /** Who's on the hook at a step — same vocabulary as `nextAction().who`. */
 export type StepRole = NextActionWho; // "admin" | "engineer" | "office"
@@ -36,10 +37,10 @@ export interface StageStepDef {
   verb: string;
 }
 
-/** The condensed actionable steps, in pipeline order. */
+/** The condensed actionable steps, in pipeline order. Approve + PO are one
+ *  combined office step — a pending request's next action IS "Create PO". */
 export const STAGE_STEPS: StageStepDef[] = [
-  { key: "approve", label: "APPROVE", role: "admin", tone: "pink", verb: "approve" },
-  { key: "po", label: "PO", role: "admin", tone: "pink", verb: "order" },
+  { key: "po", label: "PO", role: "office", tone: "warn", verb: "order" },
   { key: "deliver", label: "DELIVER", role: "engineer", tone: "primary", verb: "deliver" },
   { key: "settle", label: "SETTLE", role: "office", tone: "warn", verb: "settle" },
   { key: "inuse", label: "IN USE", role: "engineer", tone: "primary", verb: "log usage" },
@@ -65,8 +66,9 @@ export function threadCurrentStep(t: MaterialThread): StageStepKey | null {
   if (t.purchase_type === "spot") return "inuse";
 
   switch (t.stage) {
+    // Approve + PO are one combined step: a pending request and an approved-
+    // but-unordered request both sit at the PO node waiting on the office.
     case "requested":
-      return "approve";
     case "approved":
       return "po";
     case "ordered":
@@ -117,7 +119,6 @@ function emptyStepCount(): StepCount {
  */
 export function stageStepCounts(threads: MaterialThread[]): StageStepCounts {
   const counts: StageStepCounts = {
-    approve: emptyStepCount(),
     po: emptyStepCount(),
     deliver: emptyStepCount(),
     settle: emptyStepCount(),

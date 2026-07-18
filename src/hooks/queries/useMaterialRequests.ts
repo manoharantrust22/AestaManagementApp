@@ -11,6 +11,8 @@ import {
   createAddItemUpdater,
 } from "@/lib/optimistic/updaters";
 import { calculatePieceWeight } from "@/lib/weightCalculation";
+import { graniteSqft, isAreaUnit } from "@/lib/spaces/measurements";
+import type { GraniteLine } from "@/types/spaces.types";
 import type {
   MaterialRequest,
   MaterialRequestWithDetails,
@@ -324,6 +326,9 @@ export function useCreateMaterialRequest() {
         // already the base-unit total = contents × count).
         pack_id: item.pack_id || null,
         pack_count: item.pack_count ?? null,
+        // Area materials: the slab dimensions behind requested_qty. Empty for
+        // everything else (column is NOT NULL DEFAULT '[]').
+        granite_lines: item.granite_lines ?? [],
       }));
 
       console.log("[useCreateMaterialRequest] Inserting", requestItems.length, "items...");
@@ -1192,7 +1197,7 @@ export function useRequestItemsForConversion(requestId: string | undefined) {
         .select(
           `
           id, material_id, brand_id, requested_qty, approved_qty, fulfilled_qty, estimated_cost,
-          suggested_vendor_id, suggested_unit_price, pack_id, pack_count,
+          suggested_vendor_id, suggested_unit_price, pack_id, pack_count, notes, granite_lines,
           material:materials(id, name, code, unit, gst_rate, parent_id, weight_per_unit, weight_unit, length_per_piece, length_unit, image_url),
           brand:material_brands(id, brand_name, image_url),
           suggested_vendor:vendors!material_request_items_suggested_vendor_id_fkey(id, name)
@@ -1308,6 +1313,18 @@ export function useRequestItemsForConversion(requestId: string | undefined) {
             ? standardPieceWeight * remainingQty
             : null;
 
+        // Area materials (granite/marble): the slabs the site asked for. The
+        // PO's editable copy MUST be a deep copy — sharing the array would let
+        // an edit in the PO dialog mutate the request's own lines inside the
+        // query cache, destroying the "what was asked for" reference we compare
+        // against (and it would look fine until the dialog is reopened).
+        const requestedLines: GraniteLine[] = Array.isArray(item.granite_lines)
+          ? (item.granite_lines as GraniteLine[])
+          : [];
+        const actualLines = requestedLines.map((l) => ({ ...l }));
+        const isArea = isAreaUnit(material?.unit);
+        const seededAreaSqft = isArea ? graniteSqft(actualLines) : 0;
+
         return {
           id: item.id,
           material_id: item.material_id,
@@ -1323,7 +1340,12 @@ export function useRequestItemsForConversion(requestId: string | undefined) {
           estimated_cost: item.estimated_cost,
           // Default form state
           selected: remainingQty > 0,
-          quantity_to_order: remainingQty,
+          // Area lines derive their qty from the seeded slabs, so the office
+          // starts from the sizes the site actually asked for rather than a
+          // bare number. Legacy rows (saved before granite_lines existed) have
+          // no slabs to seed from, so they fall back to remaining — without
+          // this guard they would silently default to 0.
+          quantity_to_order: seededAreaSqft > 0 ? seededAreaSqft : remainingQty,
           unit_price: 0,
           tax_rate: material?.weight_per_unit ? 18 : 0, // Default 18% GST for TMT/weight-based materials
           // Enhanced fields for variant/brand selection
@@ -1351,6 +1373,13 @@ export function useRequestItemsForConversion(requestId: string | undefined) {
           // Pack-only materials: carry the can size + count to the PO line.
           pack_id: item.pack_id ?? null,
           pack_count: item.pack_count ?? null,
+          // Area materials: what the site asked for (read-only reference) and
+          // the editable copy the office revises to the slabs actually bought.
+          // notes carries the flattened summary, which is the ONLY record of
+          // sizes on rows created before granite_lines existed.
+          notes: item.notes ?? null,
+          granite_lines: requestedLines,
+          actual_granite_lines: actualLines,
         } as RequestItemForConversion;
       });
     },
@@ -1380,8 +1409,49 @@ export function useConvertRequestToPO() {
 
       if (requestError) throw requestError;
       if (!request) throw new Error("Material request not found");
-      if (request.status !== "approved" && request.status !== "ordered" && request.status !== "partial_fulfilled") {
-        throw new Error("Material request must be approved before converting to PO");
+      if (
+        request.status !== "pending" &&
+        request.status !== "approved" &&
+        request.status !== "ordered" &&
+        request.status !== "partial_fulfilled"
+      ) {
+        throw new Error("Material request must be pending or approved before converting to PO");
+      }
+
+      // Approve + PO are one combined office step: converting a still-pending
+      // request implicitly approves it. Stamp approval + per-item approved_qty
+      // before creating the PO so the audit trail matches the single click.
+      let effectiveStatus: string = request.status;
+      if (request.status === "pending") {
+        if (!data.approver_user_id) {
+          throw new Error("Missing approver — cannot convert a pending request");
+        }
+        const { data: approved, error: approveError } = await supabase
+          .from("material_requests")
+          .update({
+            status: "approved",
+            approved_by: data.approver_user_id,
+            approved_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", data.request_id)
+          .eq("status", "pending")
+          .select("id")
+          .maybeSingle();
+        if (approveError) throw approveError;
+        // A colleague may have approved it a moment ago (0 rows matched) —
+        // conversion can still proceed either way.
+        if (approved) {
+          await Promise.all(
+            data.items.map((item) =>
+              supabase
+                .from("material_request_items")
+                .update({ approved_qty: item.quantity })
+                .eq("id", item.request_item_id)
+            )
+          );
+        }
+        effectiveStatus = "approved";
       }
 
       // Calculate totals
@@ -1514,7 +1584,7 @@ export function useConvertRequestToPO() {
         });
 
         // Update request status to "ordered" if all items are converted
-        if (allFullyAllocated && request.status === "approved") {
+        if (allFullyAllocated && effectiveStatus === "approved") {
           await supabase
             .from("material_requests")
             .update({

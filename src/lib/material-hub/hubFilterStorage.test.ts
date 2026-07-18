@@ -49,7 +49,7 @@ describe("hubFilterStorage", () => {
     window.sessionStorage.setItem(
       hubFilterStorageKey("site-1"),
       JSON.stringify({
-        stageStep: "approve",
+        stageStep: "deliver",
         kindFilter: "own",
         selectedFilter: null,
         dateStart: null,
@@ -58,6 +58,14 @@ describe("hubFilterStorage", () => {
       })
     );
     expect(loadHubFilters("site-1")?.search).toBe("");
+  });
+
+  it("migrates the retired 'approve' step to 'po' (combined Approve+PO stage)", () => {
+    window.sessionStorage.setItem(
+      hubFilterStorageKey("site-1"),
+      JSON.stringify({ ...snapshot, stageStep: "approve" })
+    );
+    expect(loadHubFilters("site-1")?.stageStep).toBe("po");
   });
 
   it("keys snapshots per site", () => {

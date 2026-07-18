@@ -4,6 +4,7 @@
  */
 
 import type { Database } from "./database.types";
+import type { GraniteLine } from "./spaces.types";
 
 // ============================================
 // TABLE TYPE ALIASES
@@ -806,6 +807,13 @@ export interface PurchaseOrderItem {
    */
   pack_id: string | null;
   pack_count: number | null;
+  /**
+   * Area materials (sqft/sqm): the slabs ACTUALLY bought, which routinely differ
+   * from what the request asked for — vendor stock is never the exact size, so
+   * bigger slabs get cut to fit. quantity is the derived sq.ft the vendor is paid
+   * on; the gap vs the request's lines is offcut. Empty for other materials.
+   */
+  granite_lines: GraniteLine[];
 }
 
 export interface Delivery {
@@ -962,6 +970,12 @@ export interface MaterialRequestItem {
    */
   pack_id: string | null;
   pack_count: number | null;
+  /**
+   * Area materials (sqft/sqm): the finished pieces the site asked for.
+   * requested_qty is the derived sq.ft (graniteSqft), never stored twice, and
+   * notes is the flattened graniteSizeNote summary. Empty for other materials.
+   */
+  granite_lines: GraniteLine[];
 }
 
 // ============================================
@@ -1184,6 +1198,21 @@ export interface RequestItemForConversion {
   // Pack-only materials: carried from the request so the PO line stays in whole cans.
   pack_id?: string | null;
   pack_count?: number | null;
+  /**
+   * The request item's note. For area materials this is the flattened slab
+   * summary the site asked for — the read-only reference shown at PO time, and
+   * the only record of sizes for rows created before granite_lines existed.
+   */
+  notes?: string | null;
+  /** Area materials: the finished pieces the site asked for. Never edited here. */
+  granite_lines?: GraniteLine[];
+  /**
+   * Form state — the slabs ACTUALLY being bought. Seeded as a deep copy of
+   * granite_lines (never an alias: sharing the array would mutate the request's
+   * lines in the query cache and destroy the reference we're comparing against).
+   * quantity_to_order = graniteSqft(actual_granite_lines).
+   */
+  actual_granite_lines?: GraniteLine[];
 }
 
 /**
@@ -1192,6 +1221,9 @@ export interface RequestItemForConversion {
 export interface ConvertRequestToPOFormData {
   request_id: string;
   vendor_id: string;
+  /** public.users.id of the acting user. Required to auto-approve a still-
+   *  pending request during conversion (Approve + PO are one combined step). */
+  approver_user_id?: string;
   items: Array<{
     request_item_id: string;
     material_id: string;
@@ -1592,6 +1624,11 @@ export interface MaterialRequestItemFormData {
   /** Pack-only materials: chosen can size + count. requested_qty = contents × count. */
   pack_id?: string | null;
   pack_count?: number | null;
+  /**
+   * Area materials (sqft/sqm): the finished pieces needed, entered by dimension.
+   * requested_qty = graniteSqft(granite_lines) and notes = graniteSizeNote(...).
+   */
+  granite_lines?: GraniteLine[];
 }
 
 export interface PurchaseOrderFormData {
@@ -1634,6 +1671,16 @@ export interface PurchaseOrderItemFormData {
   // Pack-only materials: can size + count. quantity = contents × pack_count.
   pack_id?: string | null;
   pack_count?: number | null;
+  /** Area materials (sqft/sqm): the slabs actually bought. quantity = graniteSqft(...). */
+  granite_lines?: GraniteLine[];
+  /**
+   * Request-linked lines: how much of the request item this PO consumes.
+   * Defaults to `quantity`. Area units may order MORE than remaining (bigger
+   * slabs → offcut), but the allocation must never exceed what the request still
+   * needs, or the fulfilment trigger's LEAST(received, allocated) leaves the
+   * request permanently short-fulfilled.
+   */
+  quantity_allocated?: number;
 }
 
 export interface DeliveryFormData {

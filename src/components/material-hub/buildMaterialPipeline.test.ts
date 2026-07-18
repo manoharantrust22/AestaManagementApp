@@ -59,7 +59,6 @@ describe("buildMaterialPipeline", () => {
     const { steps } = buildMaterialPipeline(makeThread());
     expect(steps.map((s) => s.key)).toEqual([
       "requested",
-      "approved",
       "ordered",
       "delivered",
       "inventory",
@@ -94,7 +93,6 @@ describe("buildMaterialPipeline", () => {
     );
     expect(steps.map((s) => s.key)).toEqual([
       "requested",
-      "approved",
       "ordered",
       "settled",
       "delivered",

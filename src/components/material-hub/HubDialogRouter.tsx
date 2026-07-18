@@ -9,17 +9,21 @@
  * spot batch id) that the dialog expects.
  *
  * Wires the prototype's reducer actions onto existing production dialogs:
- *   approve / reject     → RequestApprovalDialog
- *   create-po            → UnifiedPurchaseOrderDialog (request mode)
+ *   create-po            → UnifiedPurchaseOrderDialog (request mode; creating a
+ *                          PO from a pending request implicitly approves it —
+ *                          Approve + PO are one combined office step)
  *   record-delivery      → RecordAndVerifyDeliveryDialog
  *   settle-vendor        → MaterialSettlementDialog
  *   log-usage            → WaterfallUsageDialog (material-scoped, oldest→newest)
  *   finalize-allocation  → SpotPurchaseAllocatorDialog
+ *
+ * Role-gated: `openForThread` no-ops when the current user's role can't perform
+ * the thread's next action (defense-in-depth behind ThreadActionButton's
+ * passive "Waiting for …" chip; RLS is the real enforcement).
  */
 
 import { forwardRef, useImperativeHandle, useState } from "react";
 import { Backdrop, CircularProgress, Snackbar, Alert, Button } from "@mui/material";
-import RequestApprovalDialog from "@/components/materials/RequestApprovalDialog";
 import UnifiedPurchaseOrderDialog from "@/components/materials/UnifiedPurchaseOrderDialog";
 import RecordAndVerifyDeliveryDialog from "@/components/materials/RecordAndVerifyDeliveryDialog";
 import MaterialSettlementDialog from "@/components/materials/MaterialSettlementDialog";
@@ -27,12 +31,13 @@ import WaterfallUsageDialog from "@/components/materials/WaterfallUsageDialog";
 import OwnSiteUsageDialog from "@/components/material-hub/OwnSiteUsageDialog";
 import { SpotPurchaseAllocatorDialog } from "@/components/materials/SpotPurchaseAllocatorDialog";
 import { usePurchaseOrder } from "@/hooks/queries/usePurchaseOrders";
+import { useAuth } from "@/contexts/AuthContext";
 import { advanceAwaitingSettle } from "@/lib/material-hub/stageHelpers";
+import { canActOnNext, nextAction } from "@/lib/material-hub/nextAction";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 import type { MaterialRequestWithDetails } from "@/types/material.types";
 
 type OpenDialog =
-  | { kind: "approve"; mr: MaterialRequestWithDetails }
   | { kind: "create-po"; mr: MaterialRequestWithDetails }
   // record-delivery / settle carry only the PO id — the FULL PurchaseOrder is
   // fetched fresh by id (usePurchaseOrder) when the dialog opens. The Hub's
@@ -83,6 +88,7 @@ export const HubDialogRouter = forwardRef<
   ref
 ) {
   const [dialog, setDialog] = useState<OpenDialog | null>(null);
+  const { userProfile } = useAuth();
 
   // Fetch the full PO on demand for the two dialogs that need it. Disabled
   // (id undefined) for every other dialog kind, so no extra request fires.
@@ -97,6 +103,11 @@ export const HubDialogRouter = forwardRef<
 
   useImperativeHandle(ref, () => ({
     openForThread(thread) {
+      // Role gate: never open an action dialog the current user can't submit.
+      // ThreadActionButton already renders a passive chip in this case; this
+      // guards other entry points (and future callers) too.
+      if (!canActOnNext(nextAction(thread), userProfile?.role)) return;
+
       // Spot — provisional group needs finalize.
       if (thread.purchase_type === "spot") {
         if (thread.kind === "group" && thread.spot_stage === "provisional") {
@@ -110,13 +121,11 @@ export const HubDialogRouter = forwardRef<
         return;
       }
 
-      // Standard flow — route by stage.
-      if (thread.stage === "requested") {
-        const mr = materialRequestById.get(thread.source_row_id);
-        if (mr) setDialog({ kind: "approve", mr });
-        return;
-      }
-      if (thread.stage === "approved") {
+      // Standard flow — route by stage. Approve + PO are one combined office
+      // step: a pending request goes straight to the Create-PO dialog, which
+      // stamps the approval as part of PO creation. (Reject / approve-without-
+      // PO live in the row's kebab menu.)
+      if (thread.stage === "requested" || thread.stage === "approved") {
         const mr = materialRequestById.get(thread.source_row_id);
         if (mr) setDialog({ kind: "create-po", mr });
         return;
@@ -191,12 +200,6 @@ export const HubDialogRouter = forwardRef<
 
   return (
     <>
-      <RequestApprovalDialog
-        open={dialog?.kind === "approve"}
-        onClose={close}
-        request={dialog?.kind === "approve" ? dialog.mr : null}
-      />
-
       <UnifiedPurchaseOrderDialog
         open={dialog?.kind === "create-po"}
         onClose={close}

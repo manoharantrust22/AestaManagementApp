@@ -2,8 +2,13 @@
 
 /**
  * Right-side action button on a thread row. Renders the next-action verb
- * (e.g., "Approve →") in the row's accent color, or "All clear ✓" when the
+ * (e.g., "Create PO →") in the row's accent color, or "All clear ✓" when the
  * thread has nothing pending.
+ *
+ * Role-aware: when the next action belongs to a role the current user doesn't
+ * hold (e.g. a site engineer looking at a request that's waiting on the office
+ * to create the PO), the active button is replaced by a passive amber
+ * "Waiting for …" chip — no fake-actionable click target.
  *
  * Mirrors the action-button block inside `ProtoThreadRow`.
  */
@@ -11,9 +16,11 @@
 import { Box, Tooltip } from "@mui/material";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import CheckIcon from "@mui/icons-material/Check";
+import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import { useAuth } from "@/contexts/AuthContext";
 import { hubTokens } from "@/lib/material-hub/tokens";
-import { nextAction } from "@/lib/material-hub/nextAction";
+import { canActOnNext, nextAction } from "@/lib/material-hub/nextAction";
 import type { MaterialThread } from "@/lib/material-hub/threadTypes";
 
 export interface ThreadActionButtonProps {
@@ -30,6 +37,7 @@ export default function ThreadActionButton({
   fullWidth,
   onAction,
 }: ThreadActionButtonProps) {
+  const { userProfile } = useAuth();
   const next = nextAction(thread);
 
   // Mirror threads (cluster-mate's group POs surfaced read-only on this site).
@@ -85,6 +93,43 @@ export default function ThreadActionButton({
         <CheckIcon sx={{ fontSize: 13 }} />
         All clear
       </Box>
+    );
+  }
+
+  // The next step belongs to another role — show a passive waiting indicator
+  // instead of a clickable button. (The server would reject the action anyway;
+  // this stops e.g. a site engineer from filling a whole dialog only to hit a
+  // confusing RLS failure.)
+  if (!canActOnNext(next, userProfile?.role)) {
+    const waitingOn =
+      next.who === "engineer" ? "site engineer" : "office";
+    return (
+      <Tooltip
+        title={`This step (${next.verb.toLowerCase()}) is done by the ${
+          next.who === "engineer" ? "site engineer" : "office/admin team"
+        }`}
+        arrow
+      >
+        <Box
+          component="span"
+          sx={{
+            fontSize: 11.5,
+            color: hubTokens.warn,
+            fontWeight: 600,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "5px",
+            padding: "8px 12px",
+            background: hubTokens.warnSoft,
+            borderRadius: "8px",
+            width: fullWidth ? "100%" : undefined,
+            justifyContent: fullWidth ? "center" : "flex-start",
+          }}
+        >
+          <HourglassEmptyIcon sx={{ fontSize: 13 }} />
+          Waiting for {waitingOn}
+        </Box>
+      </Tooltip>
     );
   }
 

@@ -5760,10 +5760,12 @@ export type Database = {
         Row: {
           action_url: string | null
           created_at: string
+          event_key: string | null
           expires_at: string | null
           id: string
           is_read: boolean
           message: string
+          needs_action: boolean
           notification_type: string
           read_at: string | null
           related_id: string | null
@@ -5775,10 +5777,12 @@ export type Database = {
         Insert: {
           action_url?: string | null
           created_at?: string
+          event_key?: string | null
           expires_at?: string | null
           id?: string
           is_read?: boolean
           message: string
+          needs_action?: boolean
           notification_type: string
           read_at?: string | null
           related_id?: string | null
@@ -5790,10 +5794,12 @@ export type Database = {
         Update: {
           action_url?: string | null
           created_at?: string
+          event_key?: string | null
           expires_at?: string | null
           id?: string
           is_read?: boolean
           message?: string
+          needs_action?: boolean
           notification_type?: string
           read_at?: string | null
           related_id?: string | null

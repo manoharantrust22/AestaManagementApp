@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Alert,
   Box,
@@ -356,6 +356,58 @@ export default function MaterialHubPage() {
     () => filteredThreads.find((t) => t.source_row_id === expandedId) ?? null,
     [filteredThreads, expandedId]
   );
+
+  // Notification deep-link: /site/materials/hub?focusThread=<request_id|po_id>
+  // (the bell's action_url). Once threads are loaded: clear any filters that
+  // could hide the row (one-shot, without persisting over the user's saved
+  // snapshot), expand the card (on mobile this opens the detail sheet), scroll
+  // it into view, then strip the param from the URL.
+  const searchParams = useSearchParams();
+  const focusThread = searchParams?.get("focusThread") ?? "";
+  const focusHandledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusThread) {
+      // Param stripped (or never present) — re-arm so clicking the same
+      // notification again later in this session re-focuses the card.
+      focusHandledRef.current = null;
+      return;
+    }
+    if (focusHandledRef.current === focusThread) return;
+    if (isLoading || threads.length === 0) return;
+    focusHandledRef.current = focusThread;
+
+    const target = threads.find(
+      (t) => t.source_row_id === focusThread || t.po?.id === focusThread
+    );
+    if (target) {
+      skipNextSaveRef.current = true;
+      setStageStep(null);
+      setKindFilter("all");
+      setSelectedFilter(null);
+      setSearch("");
+      setDateStart(null);
+      setDateEnd(null);
+      setExpandedId(target.source_row_id);
+      // The full (unfiltered) list can take several frames to render and its
+      // layout keeps shifting as rows/images stream in — keep nudging until
+      // the row actually sits in the viewport (capped), instead of a single
+      // fire-and-forget scroll that lands mid-list.
+      const scrollToRow = (attempt: number) => {
+        const el = document.getElementById(`thread-${target.source_row_id}`);
+        const rect = el?.getBoundingClientRect();
+        const inView =
+          !!rect && rect.top >= 0 && rect.top < window.innerHeight * 0.8;
+        if (el && !inView) el.scrollIntoView({ block: "center" });
+        if (!inView && attempt < 12) {
+          setTimeout(() => scrollToRow(attempt + 1), 250);
+        }
+      };
+      setTimeout(() => scrollToRow(0), 150);
+    }
+    // scroll: false — the App Router resets scroll on replace by default,
+    // which would undo the scrollIntoView above.
+    router.replace("/site/materials/hub", { scroll: false });
+  }, [focusThread, threads, isLoading, router]);
 
   if (!selectedSite) {
     return (

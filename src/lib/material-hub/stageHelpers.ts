@@ -59,9 +59,12 @@ export const M_STAGES: ThreadStage[] = [
  */
 export type VisibleStageKey = ThreadStage | "inventory" | "inter-site";
 
+// NOTE: `approved` is deliberately NOT a visible node. Approve + PO are one
+// combined office step (creating the PO implicitly approves the request), so
+// the rail shows a single PO node; `approved` remains a real internal
+// ThreadStage in M_STAGES for stage math and legacy approved-but-no-PO threads.
 export const VISIBLE_STAGES: { key: VisibleStageKey; label: string }[] = [
   { key: "requested", label: "REQ" },
-  { key: "approved", label: "APPROVE" },
   { key: "ordered", label: "PO" },
   { key: "delivered", label: "DELIVER" },
   { key: "inventory", label: "STOCK" },
@@ -78,7 +81,6 @@ export const VISIBLE_STAGES: { key: VisibleStageKey; label: string }[] = [
  */
 const ADVANCE_VISIBLE_STAGES: { key: VisibleStageKey; label: string }[] = [
   { key: "requested", label: "REQ" },
-  { key: "approved", label: "APPROVE" },
   { key: "ordered", label: "PO" },
   { key: "settled", label: "SETTLE" },
   { key: "delivered", label: "DELIVER" },

@@ -15,6 +15,7 @@ import {
   IconButton,
   Collapse,
   MenuItem,
+  Chip,
 } from "@mui/material";
 import { Warning as WarningIcon, ShowChart as ShowChartIcon } from "@mui/icons-material";
 import MiniPriceChart from "./MiniPriceChart";
@@ -22,6 +23,10 @@ import { useVendorMaterialBrands, useVendorMaterialPrice } from "@/hooks/queries
 import { useBrandVariantLinks } from "@/hooks/queries/useMaterials";
 import { useMaterialPacks } from "@/hooks/queries/useMaterialPacks";
 import { activePacks, representativePack, packUnitPrice } from "@/lib/materials/packs";
+import { graniteAreaVariance } from "@/lib/materials/granite";
+import { isAreaUnit } from "@/lib/spaces/measurements";
+import GraniteLinesEditor from "@/components/spaces/GraniteLinesEditor";
+import type { GraniteLine } from "@/types/spaces.types";
 import type { RequestItemForConversion, MaterialBrand } from "@/types/material.types";
 import { formatCurrency } from "@/lib/formatters";
 
@@ -36,6 +41,8 @@ interface RequestItemRowProps {
   onBrandChange: (brandId: string | null, brandName: string | null) => void;
   onPricingModeChange: (value: "per_piece" | "per_kg") => void;
   onPackChange?: (packId: string | null, packCount: number | null) => void;
+  /** Area materials only: the slabs actually being bought changed. */
+  onGraniteLinesChange?: (next: GraniteLine[]) => void;
   showPricingModeColumn: boolean; // Whether to show the pricing mode column (for table alignment)
   priceIncludesGst?: boolean; // Whether the unit price input is in GST-inclusive mode
 }
@@ -51,6 +58,7 @@ export default function RequestItemRow({
   onBrandChange,
   onPricingModeChange,
   onPackChange,
+  onGraniteLinesChange,
   showPricingModeColumn,
   priceIncludesGst = false,
 }: RequestItemRowProps) {
@@ -414,6 +422,16 @@ export default function RequestItemRow({
   // Calculate total column count for chart row span
   const totalColumns = 10 + (showPricingModeColumn ? 1 : 0);
 
+  // Area materials (granite/marble): bought by slab size, so the qty is derived
+  // from the dimensions rather than typed. Packs and area units never coexist.
+  const isArea = isAreaUnit(item.unit) && !showPackUi;
+  const actualLines = item.actual_granite_lines ?? [];
+  // Compare against what this PO is meant to cover. On a first PO that IS the
+  // full request; on a follow-up it is what's left, so label it honestly.
+  const varianceBaseline = item.remaining_qty;
+  const areaVariance = graniteAreaVariance(varianceBaseline, item.quantity_to_order);
+  const baselineLabel = item.already_ordered_qty > 0 ? "Remaining" : "Requested";
+
   return (
     <>
     <TableRow
@@ -685,6 +703,19 @@ export default function RequestItemRow({
               </Typography>
             )}
           </Box>
+        ) : isArea ? (
+          // Derived from the slab dimensions below — typing a bare area here
+          // would just drift out of sync with the sizes we bill on.
+          <Box sx={{ textAlign: "right" }}>
+            <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>
+              {item.quantity_to_order || 0} {item.unit}
+            </Typography>
+            {item.selected && !isDisabled && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                from slab sizes ↓
+              </Typography>
+            )}
+          </Box>
         ) : (
           <TextField
             type="number"
@@ -910,6 +941,58 @@ export default function RequestItemRow({
         )}
       </TableCell>
     </TableRow>
+    {isArea && item.selected && !isDisabled && (
+      <TableRow>
+        <TableCell colSpan={totalColumns} sx={{ py: 1.5, bgcolor: "action.hover" }}>
+          {/* What the site asked for — never edited here. Reads notes, not the
+              structured lines, so requests made before granite_lines existed
+              still show their sizes. */}
+          <Box sx={{ mb: 1.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+              Site asked for
+            </Typography>
+            <Typography variant="body2">
+              {item.requested_qty} {item.unit}
+              {item.notes ? ` — ${item.notes}` : ""}
+            </Typography>
+          </Box>
+
+          {/* The slabs actually available from the vendor. Usually bigger than
+              asked for; the extra gets cut off on site. */}
+          <GraniteLinesEditor
+            value={actualLines}
+            onChange={(next) => onGraniteLinesChange?.(next)}
+            disabled={!onGraniteLinesChange}
+          />
+
+          <Box sx={{ mt: 1.5, display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+            <Chip
+              size="small"
+              variant="outlined"
+              color={areaVariance.isLarge ? "error" : "default"}
+              icon={areaVariance.isLarge ? <WarningIcon /> : undefined}
+              label={
+                actualLines.length === 0
+                  ? `${baselineLabel} ${areaVariance.requestedSqft} ${item.unit} — add the slabs you're buying`
+                  : areaVariance.diffSqft === 0
+                    ? `${baselineLabel} ${areaVariance.requestedSqft} · Buying ${areaVariance.actualSqft} ${item.unit} — exact match`
+                    : `${baselineLabel} ${areaVariance.requestedSqft} · Buying ${areaVariance.actualSqft} ${item.unit} · ` +
+                      `${areaVariance.diffSqft > 0 ? "+" : ""}${areaVariance.diffSqft} ${item.unit}` +
+                      (areaVariance.diffPct != null
+                        ? ` (${areaVariance.diffPct > 0 ? "+" : ""}${areaVariance.diffPct}%)`
+                        : "") +
+                      (areaVariance.diffSqft > 0 ? " offcut" : " short")
+              }
+            />
+            {areaVariance.isLarge && (
+              <Typography variant="caption" color="error">
+                Check the dimensions — that is a long way off what was asked for.
+              </Typography>
+            )}
+          </Box>
+        </TableCell>
+      </TableRow>
+    )}
     {showChart && (
       <TableRow>
         <TableCell colSpan={totalColumns} sx={{ py: 0, borderBottom: showChart ? 1 : 0, borderColor: "divider" }}>

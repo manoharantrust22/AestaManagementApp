@@ -20,6 +20,11 @@ export const queryKeys = {
     list: () => ['sites', 'list'] as const,
   },
 
+  notifications: {
+    all: ['notifications'] as const,
+    byUser: (userId: string) => ['notifications', userId] as const,
+  },
+
   teams: {
     all: ['teams'] as const,
     bySite: (siteId: string) => ['teams', 'site', siteId] as const,

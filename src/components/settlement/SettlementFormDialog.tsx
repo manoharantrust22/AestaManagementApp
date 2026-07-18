@@ -100,8 +100,7 @@ export default function SettlementFormDialog({
         params.userId,
         params.userName,
         params.proofUrl,
-        params.reason,
-        params.siteName
+        params.reason
       );
 
       // Transform error format to match mutation expectations
