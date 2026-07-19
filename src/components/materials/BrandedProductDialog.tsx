@@ -26,6 +26,10 @@ import {
 import CategoryAutocomplete from "@/components/common/CategoryAutocomplete";
 import VendorAutocomplete from "@/components/common/VendorAutocomplete";
 import FileUploader from "@/components/common/FileUploader";
+import ContainerSizesEditor, {
+  type ContainerSizeRow,
+  suggestContainerLabel,
+} from "@/components/materials/ContainerSizesEditor";
 import { SaveButton } from "@/components/common/SaveButton";
 import { InlineErrorBanner } from "@/components/common/InlineErrorBanner";
 import { useToast } from "@/contexts/ToastContext";
@@ -41,6 +45,7 @@ import type {
   MaterialCategory,
   MaterialUnit,
   VariantFormData,
+  ParentPackInput,
 } from "@/types/material.types";
 
 /** A flat material being converted into a branded parent-with-variants. */
@@ -133,7 +138,12 @@ export default function BrandedProductDialog({
   const [gstRate, setGstRate] = useState<string>("0");
 
   const [soldInCans, setSoldInCans] = useState(true);
-  const [canContents, setCanContents] = useState<string>("20");
+  // Standard container sizes the generic parent is sold in. The FIRST size is
+  // the one the per-variant price below is quoted for; extra sizes are recorded
+  // on the parent as size-only (price filled per vendor at grading).
+  const [containerSizes, setContainerSizes] = useState<ContainerSizeRow[]>([
+    { label: "", contents_qty: "20", price: "" },
+  ]);
 
   const [rows, setRows] = useState<VariantRow[]>([blankRow(), blankRow()]);
 
@@ -153,7 +163,7 @@ export default function BrandedProductDialog({
     setPriceIncludesGst(false);
     setGstRate("0");
     setSoldInCans(true);
-    setCanContents("20");
+    setContainerSizes([{ label: "", contents_qty: "20", price: "" }]);
     setRows([blankRow(), blankRow()]);
     setError("");
     setIsTimeoutError(false);
@@ -173,11 +183,23 @@ export default function BrandedProductDialog({
         : [{ value: unit, label: String(unit) }, ...UNIT_OPTIONS],
     [unit]
   );
-  const canLabel = useMemo(() => {
-    const n = parseFloat(canContents);
-    return Number.isFinite(n) && n > 0 ? `${n} ${unitLabel} can` : "can";
-  }, [canContents, unitLabel]);
+  // Valid, parsed container sizes for the parent (size-only; prices come from
+  // the vendor at grading, so they're stored null on the parent packs).
+  const parentPacks = useMemo<ParentPackInput[]>(
+    () =>
+      containerSizes
+        .map((s) => ({
+          contents: parseFloat(s.contents_qty),
+          label: s.label.trim() || suggestContainerLabel(s.contents_qty, unitLabel),
+        }))
+        .filter((s) => Number.isFinite(s.contents) && s.contents > 0)
+        .map((s) => ({ label: s.label, contents_qty: s.contents, price: null })),
+    [containerSizes, unitLabel]
+  );
 
+  // The primary container the per-variant price is quoted for (first valid size).
+  const primaryPack = parentPacks[0] ?? null;
+  const canLabel = primaryPack?.label ?? "can";
   const priceSuffix = soldInCans ? `/ ${canLabel}` : `/ ${unitLabel}`;
 
   const updateRow = (i: number, patch: Partial<VariantRow>) =>
@@ -205,9 +227,8 @@ export default function BrandedProductDialog({
       setIsTimeoutError(false);
       return;
     }
-    const contents = parseFloat(canContents);
-    if (soldInCans && (!Number.isFinite(contents) || contents <= 0)) {
-      setError("Enter a valid can size (e.g. 20)");
+    if (soldInCans && parentPacks.length === 0) {
+      setError("Add at least one container size (e.g. 20 Litre can)");
       setIsTimeoutError(false);
       return;
     }
@@ -228,15 +249,18 @@ export default function BrandedProductDialog({
           image_url: r.imageUrl || null,
         };
         if (hasPrice) base.initial_vendor_id = resolvedVendorId;
-        if (soldInCans) {
-          base.pack_label = canLabel;
-          base.pack_contents_qty = contents;
+        if (soldInCans && primaryPack) {
+          // The entered price is per the primary container.
+          base.pack_label = primaryPack.label;
+          base.pack_contents_qty = primaryPack.contents_qty;
           if (hasPrice) base.pack_price = price;
         } else if (hasPrice) {
           base.initial_vendor_price = price;
         }
         return base;
       });
+
+      const parent_packs = soldInCans ? parentPacks : undefined;
 
       const gst = parseFloat(gstRate) || 0;
       const firstImage = namedRows.find((r) => r.imageUrl)?.imageUrl || undefined;
@@ -250,6 +274,7 @@ export default function BrandedProductDialog({
           price_includes_gst: priceIncludesGst,
           quote_recorded_date: quoteDate,
           variants,
+          parent_packs,
         });
       } else {
         await createMaterialWithVariants.mutateAsync({
@@ -258,13 +283,15 @@ export default function BrandedProductDialog({
           unit,
           gst_rate: gst,
           min_order_qty: 1,
-          // Parent stays requestable as a generic product; packs live on variants.
-          sold_in_packs: false,
+          // Container sizes on the parent make it request-in-cans; the hook sets
+          // sold_in_packs when parent_packs are present.
+          sold_in_packs: soldInCans,
           image_url: firstImage,
           brand_name: brandName.trim(),
           price_includes_gst: priceIncludesGst,
           quote_recorded_date: quoteDate,
           variants,
+          parent_packs,
         });
       }
 
@@ -423,24 +450,24 @@ export default function BrandedProductDialog({
                 />
               </Box>
               <Divider />
-              <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center" }}>
+              <Box>
                 <FormControlLabel
                   control={
                     <Switch size="small" checked={soldInCans} onChange={(e) => setSoldInCans(e.target.checked)} />
                   }
-                  label={<Typography sx={{ fontSize: 12 }}>Sold in fixed cans / containers</Typography>}
+                  label={<Typography sx={{ fontSize: 12 }}>Sold only in fixed cans / containers</Typography>}
                 />
                 {soldInCans && (
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                    <Typography sx={{ fontSize: 12, color: "text.secondary" }}>Can size</Typography>
-                    <TextField
-                      type="number"
-                      value={canContents}
-                      onChange={(e) => setCanContents(e.target.value)}
-                      size="small"
-                      inputProps={{ min: 0, step: "any", style: { width: 56, textAlign: "right" } }}
+                  <Box sx={{ mt: 1 }}>
+                    <Typography sx={{ fontSize: 11, color: "text.secondary", mb: 1 }}>
+                      Standard sizes engineers request in. The first size is what the price below is
+                      quoted for; other vendors&apos; per-can prices are filled at PO grading.
+                    </Typography>
+                    <ContainerSizesEditor
+                      sizes={containerSizes}
+                      onChange={setContainerSizes}
+                      unitLabel={unitLabel}
                     />
-                    <Typography sx={{ fontSize: 12, color: "text.secondary" }}>{unitLabel} / can</Typography>
                   </Box>
                 )}
               </Box>

@@ -228,8 +228,22 @@ export default function RequestItemRow({
   const showPackUi = packOptions.length > 0 && !isWeightBased;
   const activePack = useMemo(() => {
     if (packOptions.length === 0) return null;
-    return packOptions.find((p) => p.id === item.pack_id) ?? representativePack(packOptions);
-  }, [packOptions, item.pack_id]);
+    // Exact carried pack (same-material grading).
+    const byId = packOptions.find((p) => p.id === item.pack_id);
+    if (byId) return byId;
+    // Cross-level handoff: the request was raised against the generic PARENT, so
+    // its pack_id/pack_count reference the parent's can. Once a variant is picked
+    // here, match the variant's pack by the implied can size (base qty ÷ cans) so
+    // "2 × 20 L" carried from the request survives the variant switch.
+    if (item.pack_count && item.pack_count > 0 && item.quantity_to_order) {
+      const impliedContents = item.quantity_to_order / item.pack_count;
+      const byContents = packOptions.find(
+        (p) => Math.abs((p.contents_qty || 0) - impliedContents) < 0.001,
+      );
+      if (byContents) return byContents;
+    }
+    return representativePack(packOptions);
+  }, [packOptions, item.pack_id, item.pack_count, item.quantity_to_order]);
   const packContents = activePack?.contents_qty || 0;
   const cans = packContents ? Math.round((item.quantity_to_order || 0) / packContents) : 0;
 

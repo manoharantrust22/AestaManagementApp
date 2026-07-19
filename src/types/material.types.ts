@@ -1538,11 +1538,31 @@ export interface MaterialDesignFormData {
   display_order?: number;
 }
 
+/**
+ * A standard container/can size the generic PARENT material is sold in — the
+ * "menu" engineers request from (e.g. a 20 L can). Distinct from a variant's
+ * priced pack: the parent pack carries the SIZE (and drives the request picker
+ * + catalog per-can price); the exact per-can price for a chosen brand/variant
+ * is filled at PO grading from the vendor's quote. Leave `price` null so the
+ * catalog card shows an estimate from the cheapest variant's landed cost.
+ */
+export interface ParentPackInput {
+  label: string;
+  contents_qty: number;
+  price?: number | null;
+}
+
 // Extended form data for creating a material with variants in one operation
 export interface CreateMaterialWithVariantsData extends MaterialFormData {
   variants?: VariantFormData[];
   // Shared visual designs attached to the parent material (e.g. tile patterns).
   designs?: MaterialDesignFormData[];
+  /**
+   * Standard container/can sizes the generic PARENT is sold in. When present the
+   * parent is marked `sold_in_packs` and these become `material_packs` rows on
+   * the parent — the request picker and catalog card key off them.
+   */
+  parent_packs?: ParentPackInput[];
   /**
    * Branded-product flow: when set, a `material_brands` row is created on the
    * parent (and auto-linked to every variant). Presence of this OR a variant

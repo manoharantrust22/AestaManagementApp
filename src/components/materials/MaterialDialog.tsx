@@ -41,6 +41,11 @@ import {
 import CategoryAutocomplete from "@/components/common/CategoryAutocomplete";
 import DraftRestoreBanner from "@/components/common/DraftRestoreBanner";
 import FileUploader from "@/components/common/FileUploader";
+import ContainerSizesEditor, {
+  type ContainerSizeRow,
+  blankContainerSize,
+  suggestContainerLabel,
+} from "@/components/materials/ContainerSizesEditor";
 import { EntityImageAvatar } from "@/components/common/EntityImageAvatar";
 import { SaveButton } from "@/components/common/SaveButton";
 import { InlineErrorBanner } from "@/components/common/InlineErrorBanner";
@@ -63,6 +68,7 @@ import {
   useCreateMaterialCategory,
   useAddVariantToMaterial,
 } from "@/hooks/queries/useMaterials";
+import { useCreateMaterialPack } from "@/hooks/queries/useMaterialPacks";
 import type {
   MaterialWithDetails,
   MaterialCategory,
@@ -70,6 +76,7 @@ import type {
   MaterialUnit,
   MaterialBrand,
   VariantFormData,
+  ParentPackInput,
 } from "@/types/material.types";
 import VariantInlineTable from "./VariantInlineTable";
 import BrandVariantEditor from "./BrandVariantEditor";
@@ -118,6 +125,7 @@ export default function MaterialDialog({
 
   const createMaterial = useCreateMaterial();
   const createMaterialWithVariants = useCreateMaterialWithVariants();
+  const createMaterialPack = useCreateMaterialPack();
   const updateMaterial = useUpdateMaterial();
   const createBrand = useCreateMaterialBrand();
   const updateBrand = useUpdateMaterialBrand();
@@ -159,6 +167,10 @@ export default function MaterialDialog({
   const [newVariantName, setNewVariantName] = useState("");
   const [newVariantWeight, setNewVariantWeight] = useState<string>("");
   const [newVariantLength, setNewVariantLength] = useState<string>("");
+  // Container/can sizes captured inline when adding a pack-restricted material.
+  const [containerSizes, setContainerSizes] = useState<ContainerSizeRow[]>([
+    blankContainerSize(),
+  ]);
   const supabase = createClient();
 
   const initialFormData = useMemo<MaterialFormData>(
@@ -220,6 +232,7 @@ export default function MaterialDialog({
         setShowImageUpload(false);
       }
       setVariants([]);
+      setContainerSizes([blankContainerSize()]);
       setError("");
       setNewBrandName("");
       const hasBrands = (material?.brands?.filter(b => b.is_active)?.length || 0) > 0;
@@ -231,6 +244,36 @@ export default function MaterialDialog({
   const parentCategories = useMemo(
     () => categories.filter((c) => !c.parent_id),
     [categories]
+  );
+
+  // Concise unit word for the container-size labels, e.g. "Kilogram (kg)" → "kg".
+  const unitShort = useMemo(() => {
+    const u = UNITS.find((x) => x.value === formData.unit);
+    if (!u) return String(formData.unit);
+    const m = u.label.match(/\(([^)]+)\)/);
+    return m ? m[1] : u.label;
+  }, [formData.unit]);
+
+  // Inline container-size capture is mandatory only when ADDING a new top-level
+  // pack-restricted material. Edits manage sizes via the Packs tab.
+  const showContainerSizes = !isEdit && !isVariant && !!formData.sold_in_packs;
+
+  // Valid, parsed container sizes → parent packs (with optional reference price).
+  const parentPacks = useMemo<ParentPackInput[]>(
+    () =>
+      containerSizes
+        .map((s) => ({
+          contents: parseFloat(s.contents_qty),
+          price: parseFloat(s.price),
+          label: s.label.trim() || suggestContainerLabel(s.contents_qty, unitShort),
+        }))
+        .filter((s) => Number.isFinite(s.contents) && s.contents > 0)
+        .map((s) => ({
+          label: s.label,
+          contents_qty: s.contents,
+          price: Number.isFinite(s.price) && s.price > 0 ? s.price : null,
+        })),
+    [containerSizes, unitShort]
   );
 
   // Note: subCategories computed but not currently surfaced in the new UI — the
@@ -319,6 +362,13 @@ export default function MaterialDialog({
       setIsTimeoutError(false);
       return;
     }
+    // Container-restricted materials must declare at least one size up-front,
+    // otherwise requests silently fall back to a free-quantity field.
+    if (showContainerSizes && parentPacks.length === 0) {
+      setError("Add at least one container size (e.g. 20 Litre can)");
+      setIsTimeoutError(false);
+      return;
+    }
     // Reset error state when a fresh attempt starts. Important so the
     // InlineErrorBanner from a previous timeout doesn't linger while the
     // user is mid-retry — the SaveButton's saving state is the only
@@ -340,12 +390,31 @@ export default function MaterialDialog({
         ...formData,
         parent_id: isVariant ? formData.parent_id : null,
       };
+      const parentPacksForSubmit = showContainerSizes ? parentPacks : undefined;
       if (isEdit) {
         await updateMaterial.mutateAsync({ id: material.id, data: dataToSubmit });
       } else if (variants.length > 0 && !isVariant) {
-        await createMaterialWithVariants.mutateAsync({ ...dataToSubmit, variants });
+        await createMaterialWithVariants.mutateAsync({
+          ...dataToSubmit,
+          variants,
+          parent_packs: parentPacksForSubmit,
+        });
       } else {
-        await createMaterial.mutateAsync(dataToSubmit);
+        const created = await createMaterial.mutateAsync(dataToSubmit);
+        // Flat pack-restricted material: attach its declared container sizes.
+        if (parentPacksForSubmit && parentPacksForSubmit.length > 0 && created?.id) {
+          for (let i = 0; i < parentPacksForSubmit.length; i++) {
+            const p = parentPacksForSubmit[i];
+            await createMaterialPack.mutateAsync({
+              material_id: created.id,
+              label: p.label,
+              contents_qty: p.contents_qty,
+              price: p.price ?? null,
+              gst_rate: dataToSubmit.gst_rate ?? 0,
+              display_order: i,
+            });
+          }
+        }
       }
       // Success path: flash a checkmark on the button + green toast.
       // 700ms is long enough to register as positive feedback, short enough
@@ -835,9 +904,10 @@ export default function MaterialDialog({
             </Box>
 
             {/* Pack-only: products sold only in fixed standard cans/containers
-                (e.g. a 5 L can). Add the can sizes from the material's "Packs"
-                tab after saving; requests/POs are then constrained to whole cans
-                while stock/usage stay free-form in the primary unit. */}
+                (e.g. a 5 L can). New top-level materials capture the sizes inline
+                (mandatory — at least one); edits manage them in the Packs tab.
+                Requests/POs are then constrained to whole cans while stock/usage
+                stay free-form in the primary unit. */}
             <Box sx={{ mt: 1 }}>
               <FormControlLabel
                 control={
@@ -850,17 +920,31 @@ export default function MaterialDialog({
                 label={
                   <Box component="span">
                     <Typography component="span" sx={{ fontSize: 13 }}>
-                      Sold in fixed cans / containers
+                      Sold only in fixed cans / containers
                     </Typography>
                     <Typography
                       component="span"
                       sx={{ display: "block", fontSize: 11, color: "text.secondary" }}
                     >
-                      Bought in whole cans (e.g. 5 L can). Define sizes in the Packs tab.
+                      {showContainerSizes
+                        ? "Bought in whole cans — enter at least one size below."
+                        : isEdit
+                          ? "Bought in whole cans (e.g. 5 L can). Define sizes in the Packs tab."
+                          : "Bought in whole cans (e.g. 5 L can)."}
                     </Typography>
                   </Box>
                 }
               />
+              {showContainerSizes && (
+                <Box sx={{ mt: 1, pl: 0.5 }}>
+                  <ContainerSizesEditor
+                    sizes={containerSizes}
+                    onChange={setContainerSizes}
+                    unitLabel={unitShort}
+                    showPrice
+                  />
+                </Box>
+              )}
             </Box>
 
             {/* What a vendor's price depends on. Seeded from the category on

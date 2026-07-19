@@ -267,6 +267,10 @@ export default function MaterialRequestDialog({
     [selectedMaterial],
   );
   const isPack = !!selectedMaterial?.sold_in_packs && packOptions.length > 0;
+  // Flagged container-restricted but no sizes configured — block the request
+  // rather than silently falling back to a free-quantity entry.
+  const restrictedNoSizes =
+    !!selectedMaterial?.sold_in_packs && packOptions.length === 0;
   const [selectedPackId, setSelectedPackId] = useState<string>("");
   const [packCount, setPackCount] = useState(1);
   const selectedPack = packOptions.find((p) => p.id === selectedPackId) ?? null;
@@ -461,6 +465,12 @@ export default function MaterialRequestDialog({
   const handleAddItem = () => {
     if (!selectedMaterial) {
       setError("Please select a material");
+      return;
+    }
+    if (restrictedNoSizes) {
+      setError(
+        "This material is sold only in fixed containers, but no sizes are set up yet — ask the office to add them.",
+      );
       return;
     }
 

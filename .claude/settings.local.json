@@ -834,7 +834,14 @@
       "PowerShell(Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $p = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; \"$\\($_.LocalPort\\) -> $\\($p.ProcessName\\) \\(PID $\\($p.Id\\)\\)\" })",
       "PowerShell(npx vitest run src/lib/material-hub/stageFilter.test.ts src/lib/material-hub/hubFilterStorage.test.ts 2>&1)",
       "Bash(curl -s -o /dev/null -w \"HTTP %{http_code} in %{time_total}s\\\\n\" http://localhost:3000/site/quick-request --max-time 30)",
-      "PowerShell(npx supabase functions delete generate-attendance-notifications --project-ref ocutbpoaibjxtyjkrnda 2>&1)"
+      "PowerShell(npx supabase functions delete generate-attendance-notifications --project-ref ocutbpoaibjxtyjkrnda 2>&1)",
+      "Bash(xargs -I{} sh -c 'echo \"=== {} ===\"; grep -iE \"error|warning|exception\" \"{}\" | grep -viE \"favicon|download the React|Slow network|preload\" | head -20; echo \"\\(end\\)\"')",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/site/dashboard --max-time 5)",
+      "Bash(timeout 90 bash -c 'until grep -qiE \"ready in|✓ ready\" \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\53ede732-28c7-44ac-9c23-34c6d1bc2833\\\\tasks\\\\byw9te94f.output\" 2>/dev/null; do sleep 1; done')",
+      "Bash(git status *)",
+      "Bash(git show *)",
+      "Bash(git rebase *)",
+      "Bash(git merge *)"
     ],
     "deny": [],
     "ask": [],

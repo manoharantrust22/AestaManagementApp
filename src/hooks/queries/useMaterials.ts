@@ -15,6 +15,7 @@ import type {
   MaterialBrandFormData,
   VariantFormData,
   CreateMaterialWithVariantsData,
+  ParentPackInput,
   MaterialSearchOption,
   BrandWithVariantLinks,
   MaterialBrandVariantLink,
@@ -1581,6 +1582,36 @@ export function useDeleteMaterialBrand() {
  * behave identically. The tile flow (no brand, no pack) is unaffected: no
  * packs, per-piece vendor price, and no price_history row.
  */
+/**
+ * Insert the generic PARENT's standard container/can sizes as `material_packs`
+ * rows. These drive the request picker (order in whole cans) and the catalog
+ * per-can price. Prices are left as passed (usually null → the card shows an
+ * estimate from the cheapest variant's landed cost). Caller is responsible for
+ * setting the parent's `sold_in_packs` flag.
+ */
+async function insertParentPacks(
+  supabase: any,
+  parentId: string,
+  packs: { label?: string | null; contents_qty: number; price?: number | null }[],
+  gstRate?: number
+): Promise<void> {
+  const rows = packs
+    .filter((p) => p.contents_qty && p.contents_qty > 0)
+    .map((p, i) => ({
+      material_id: parentId,
+      label: p.label?.trim() || `${p.contents_qty}`,
+      contents_qty: p.contents_qty,
+      price: p.price ?? null,
+      price_includes_gst: true,
+      gst_rate: gstRate ?? 0,
+      display_order: i,
+      is_active: true,
+    }));
+  if (rows.length === 0) return;
+  const { error } = await supabase.from("material_packs").insert(rows);
+  if (error) throw error;
+}
+
 async function insertBrandedVariants(
   supabase: any,
   params: {
@@ -1784,6 +1815,7 @@ export function useCreateMaterialWithVariants() {
         brand_name,
         price_includes_gst,
         quote_recorded_date,
+        parent_packs,
         ...parentData
       } = data;
 
@@ -1793,10 +1825,15 @@ export function useCreateMaterialWithVariants() {
         code = await generateMaterialCode(supabase, parentData.name);
       }
 
+      // Standard container sizes on the parent make it a pack-restricted
+      // (requested-in-cans) material regardless of the passed flag.
+      const hasParentPacks = !!(parent_packs && parent_packs.length > 0);
+
       // Clean parent data
       const cleanParentData = {
         ...parentData,
         code,
+        sold_in_packs: hasParentPacks ? true : parentData.sold_in_packs,
         local_name: parentData.local_name?.trim() || null,
         category_id: parentData.category_id?.trim() || null,
         parent_id: null, // Parent materials should not have a parent
@@ -1813,6 +1850,13 @@ export function useCreateMaterialWithVariants() {
         .single();
 
       if (parentError) throw parentError;
+
+      // Standard container sizes on the generic parent (the request/catalog
+      // menu). Prices are left null → the card estimates the can price from the
+      // cheapest variant's landed cost.
+      if (hasParentPacks) {
+        await insertParentPacks(supabase, parent.id, parent_packs!, parentData.gst_rate);
+      }
 
       // Branded-product flow: create the brand on the parent up-front so the
       // variant auto-link below (which links all active parent brands) picks it
@@ -1887,6 +1931,12 @@ export interface ConvertMaterialToBrandedData {
   price_includes_gst?: boolean;
   quote_recorded_date?: string;
   variants: VariantFormData[];
+  /**
+   * Standard container/can sizes for the parent. When present the parent is
+   * marked `sold_in_packs` and these become `material_packs` rows on the parent
+   * (skipped if the parent already has active packs, so re-converting is safe).
+   */
+  parent_packs?: ParentPackInput[];
 }
 
 /**
@@ -1914,17 +1964,40 @@ export function useConvertMaterialToBranded() {
         throw new Error("This material is already a variant — pick its parent instead.");
       }
 
-      // Optional rename + GST update; keep it a top-level parent.
+      const hasParentPacks = !!(data.parent_packs && data.parent_packs.length > 0);
+
+      // Optional rename + GST update; keep it a top-level parent. Declaring
+      // container sizes also makes the parent pack-restricted (requested in cans).
       const updates: Record<string, unknown> = {};
       if (data.name?.trim() && data.name.trim() !== parent.name) {
         updates.name = data.name.trim();
       }
       if (data.gst_rate != null) updates.gst_rate = data.gst_rate;
+      if (hasParentPacks) updates.sold_in_packs = true;
       if (Object.keys(updates).length > 0) {
         const { error: upErr } = await (supabase.from("materials") as any)
           .update(updates)
           .eq("id", parent.id);
         if (upErr) throw upErr;
+      }
+
+      // Standard container sizes for the parent — only add them if it has none
+      // active yet, so re-converting the same material stays idempotent.
+      if (hasParentPacks) {
+        const { data: existingPacks } = await (supabase as any)
+          .from("material_packs")
+          .select("id")
+          .eq("material_id", parent.id)
+          .eq("is_active", true)
+          .limit(1);
+        if (!existingPacks || existingPacks.length === 0) {
+          await insertParentPacks(
+            supabase,
+            parent.id,
+            data.parent_packs!,
+            data.gst_rate ?? parent.gst_rate
+          );
+        }
       }
 
       // Reuse an existing active brand of the same name, else create it.

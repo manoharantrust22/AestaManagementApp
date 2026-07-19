@@ -16,6 +16,7 @@ import {
   RadioGroup,
   FormControlLabel,
   Radio,
+  Checkbox,
   Select,
   MenuItem,
   Divider,
@@ -155,17 +156,6 @@ export default function MaterialSettlementDialog({
   // Get the effective PO (either passed directly or from purchase)
   const effectivePO = purchaseOrder || purchase?.purchase_order;
 
-  // The Hub "Settle vendor" only appears for a DELIVERED PO (nextAction.ts gates
-  // it on stage === "delivered") and always opens this dialog with the PO alone
-  // (isPOAdvancePayment). Such a settlement is FINAL even when the engineer
-  // bargained below the PO total — so it must mark the row fully paid, not be
-  // treated as a partial advance. Match only "delivered": a "partial_delivered"
-  // PO settled via the advance path is a genuine pre-delivery partial.
-  // isPOAdvancePayment already guarantees purchaseOrder is set (and purchase is
-  // null), so read status off it directly — the lighter purchase.purchase_order
-  // projection has no `status`.
-  const isFinalDeliveredSettlement =
-    isPOAdvancePayment && purchaseOrder?.status === "delivered";
   const hasBill = !!effectivePO?.vendor_bill_url;
   const billVerified = !!effectivePO?.bill_verified;
 
@@ -186,6 +176,9 @@ export default function MaterialSettlementDialog({
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
   const [amountPaid, setAmountPaid] = useState<string>(""); // Bargained amount
+  // Whether a bargained-down amount should close out the PO as fully settled
+  // vs. leave the gap as a genuine partial advance to be paid later.
+  const [markAsFinalSettlement, setMarkAsFinalSettlement] = useState(true);
   const [payingSiteId, setPayingSiteId] = useState<string>("");
   // Optional subcontract this material was bought under. null = unlinked.
   const [subcontractId, setSubcontractId] = useState<string | null>(null);
@@ -242,6 +235,7 @@ export default function MaterialSettlementDialog({
         setNotes(purchase.notes || "");
         setError("");
         setAmountPaid(String(purchase.amount_paid ?? purchaseAmount));
+        setMarkAsFinalSettlement(true);
         setPayingSiteId(purchase.paying_site_id || purchase.site_id || "");
         setSubcontractId(purchase.subcontract_id ?? null);
         resetVerification();
@@ -257,6 +251,7 @@ export default function MaterialSettlementDialog({
       setNotes("");
       setError("");
       setAmountPaid(purchaseAmount.toString());
+      setMarkAsFinalSettlement(true);
       setPayingSiteId(purchase?.paying_site_id || purchase?.site_id || "");
       setSubcontractId(purchase?.subcontract_id ?? null);
       resetVerification();
@@ -326,9 +321,10 @@ export default function MaterialSettlementDialog({
           payer_name: advancePayerRpc.p_payer_name || undefined,
           payer_source_split: advancePayerRpc.p_payer_source_split,
           subcontract_id: subcontractId,
-          // A delivered-PO settlement is final → force complete so a bargained
-          // amount (below total) still marks the row settled, not a partial advance.
-          is_complete: isGroupStockAdvancePO || isFinalDeliveredSettlement,
+          // Defaults to true (a bargained amount closes out the PO) but is
+          // user-overridable via the "full & final" checkbox whenever the
+          // amount paid is below the PO total.
+          is_complete: isGroupStockAdvancePO || effectiveIsFinalSettlement,
           actor_is_site_engineer: isSiteEngineer,
           // Pass wallet fields so EVERY site-engineer settlement debits the
           // engineer wallet — NOT just group_stock. Own-site advances used to be
@@ -471,6 +467,16 @@ export default function MaterialSettlementDialog({
   const purchaseAmount = purchase?.purchase_order?.total_amount
     ? Number(purchase.purchase_order.total_amount)
     : Number(record!.total_amount || 0);
+  // Bargained below the original PO amount? Then "full vs. partial" is
+  // ambiguous and the user needs to say which one this payment is.
+  // Group-stock bulk-advance POs are excluded — that flow always forces a
+  // full settlement via its own "Confirm Full Settlement" button.
+  const hasBargainGap =
+    isPOAdvancePayment &&
+    !isGroupStockAdvancePO &&
+    Number(amountPaid) > 0 &&
+    Number(amountPaid) < purchaseAmount;
+  const effectiveIsFinalSettlement = hasBargainGap ? markAsFinalSettlement : true;
   const vendorName = record!.vendor?.name || (purchase?.vendor_name) || "Unknown Vendor";
   const vendorQrCodeUrl = record!.vendor?.qr_code_url || null;
   const vendorUpiId = record!.vendor?.upi_id || null;
@@ -791,6 +797,35 @@ export default function MaterialSettlementDialog({
             }}
             helperText="Enter the final amount you agreed to pay after bargaining"
           />
+          {hasBargainGap && (
+            <Box sx={{ mt: 1.5 }}>
+              <FormControlLabel
+                sx={{ mr: 0 }}
+                control={
+                  <Checkbox
+                    size="small"
+                    checked={markAsFinalSettlement}
+                    onChange={(e) => setMarkAsFinalSettlement(e.target.checked)}
+                  />
+                }
+                label="This is the full & final amount"
+              />
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                display="block"
+                sx={{ ml: 4, mt: -0.5 }}
+              >
+                {markAsFinalSettlement
+                  ? `Marks this PO as fully settled — ${formatCurrency(
+                      purchaseAmount - Number(amountPaid || 0)
+                    )} less than the original ${formatCurrency(purchaseAmount)} due to bargaining.`
+                  : `${formatCurrency(
+                      purchaseAmount - Number(amountPaid || 0)
+                    )} will remain due — you can settle it later from this PO.`}
+              </Typography>
+            </Box>
+          )}
         </Box>
 
         {/* Payment Date */}
@@ -1020,7 +1055,7 @@ export default function MaterialSettlementDialog({
         >
           {(settleMutation.isPending || advancePaymentMutation.isPending)
             ? (isEditMode ? "Saving..." : isGroupStockAdvancePO ? "Processing..." : isPOAdvancePayment ? "Recording..." : isGroupStockParent ? "Recording..." : "Settling...")
-            : (isEditMode ? "Save Changes" : isGroupStockAdvancePO ? "Confirm Full Settlement" : isPOAdvancePayment ? "Confirm Advance Payment" : isGroupStockParent ? "Confirm Vendor Payment" : "Confirm Settlement")}
+            : (isEditMode ? "Save Changes" : isGroupStockAdvancePO ? "Confirm Full Settlement" : isPOAdvancePayment ? (hasBargainGap && !markAsFinalSettlement ? "Confirm Advance Payment" : "Confirm Full Payment") : isGroupStockParent ? "Confirm Vendor Payment" : "Confirm Settlement")}
         </Button>
       </DialogActions>
 

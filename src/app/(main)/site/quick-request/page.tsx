@@ -258,6 +258,10 @@ export default function QuickRequestPage() {
   );
   const selectedPickerPack =
     pickerPacks.find((p) => p.id === pickerPackId) ?? null;
+  // Material is flagged container-restricted but has no sizes configured yet —
+  // don't let it fall back to a free-quantity order (office must set sizes up).
+  const pickerRestrictedNoSizes =
+    !!pickerMaterial?.sold_in_packs && pickerPacks.length === 0;
 
   const openPicker = (material: MaterialWithDetails) => {
     const existing = cartByMaterial.get(material.id);
@@ -1036,11 +1040,13 @@ export default function QuickRequestPage() {
                 </Typography>
                 {pickerMaterial.unit && (
                   <Typography variant="caption" color="text.secondary">
-                    {isPickerPack
-                      ? "Number of cans"
-                      : isPickerArea
-                        ? "Enter the sizes needed"
-                        : `Quantity in ${pickerMaterial.unit}`}
+                    {pickerRestrictedNoSizes
+                      ? "Sold in fixed containers"
+                      : isPickerPack
+                        ? "Number of cans"
+                        : isPickerArea
+                          ? "Enter the sizes needed"
+                          : `Quantity in ${pickerMaterial.unit}`}
                   </Typography>
                 )}
               </Box>
@@ -1068,7 +1074,26 @@ export default function QuickRequestPage() {
               </TextField>
             )}
 
-            {isPickerArea ? (
+            {pickerRestrictedNoSizes ? (
+              <Box
+                sx={{
+                  my: 2,
+                  p: 2,
+                  borderRadius: 1.5,
+                  bgcolor: "warning.50",
+                  border: 1,
+                  borderColor: "warning.200",
+                }}
+              >
+                <Typography variant="body2" sx={{ fontWeight: 600, color: "warning.dark" }}>
+                  Container sizes not set up
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  This material is sold only in fixed containers, but no sizes have been added
+                  yet. Ask the office to set up its can/bag sizes before requesting.
+                </Typography>
+              </Box>
+            ) : isPickerArea ? (
               <Box sx={{ my: 2 }}>
                 <GraniteLinesEditor
                   value={pickerGraniteLines}
@@ -1171,9 +1196,11 @@ export default function QuickRequestPage() {
               size="large"
               variant="contained"
               disabled={
-                isPickerArea
-                  ? pickerAreaSqft <= 0
-                  : pickerQty <= 0 || (isPickerPack && !selectedPickerPack)
+                pickerRestrictedNoSizes
+                  ? true
+                  : isPickerArea
+                    ? pickerAreaSqft <= 0
+                    : pickerQty <= 0 || (isPickerPack && !selectedPickerPack)
               }
               onClick={addOrUpdateCart}
               sx={{ height: 52, fontSize: 16, fontWeight: 600 }}
