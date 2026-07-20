@@ -1505,15 +1505,14 @@ export interface VariantFormData {
    */
   initial_vendor_bill_url?: string | null;
   /**
-   * Optional pack (can/container) this variant is sold in — e.g. a 20 L can.
-   * When set, the create hook marks the variant `sold_in_packs` and writes a
-   * `material_packs` row. `pack_price` is the per-can price; the vendor quote
-   * (`vendor_inventory.current_price`) is derived as pack_price / contents so
-   * all downstream money math stays per-base-unit.
+   * Every standard pack/container size this variant is sold in — e.g. a 20kg
+   * bag AND a 40kg bag, each with its own price. When present, the create hook
+   * marks the variant `sold_in_packs` and writes one `material_packs` row per
+   * entry. The vendor quote (`vendor_inventory.current_price`) is derived from
+   * a single "representative" pack (smallest priced contents_qty) so
+   * downstream money math stays per-base-unit even with multiple sizes.
    */
-  pack_label?: string | null;
-  pack_contents_qty?: number | null;
-  pack_price?: number | null;
+  packs?: ParentPackInput[];
 }
 
 // A "design" is a purely-visual pattern/colour belonging to the PARENT

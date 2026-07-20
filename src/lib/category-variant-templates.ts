@@ -236,6 +236,46 @@ export const CATEGORY_VARIANT_TEMPLATES: Record<string, CategoryVariantTemplate>
   },
 
   // ============================================
+  // Adhesives & Chemicals
+  // ============================================
+  adhesives: {
+    fields: [
+      {
+        key: 'shade',
+        name: 'Shade / Color',
+        type: 'text',
+        required: false,
+        placeholder: 'White, Grey, Ivory...',
+        columnWidth: 130,
+      },
+      {
+        key: 'adhesive_type',
+        name: 'Type',
+        type: 'select',
+        required: false,
+        options: [
+          { value: 'tile_adhesive', label: 'Tile Adhesive' },
+          { value: 'grout', label: 'Grout' },
+          { value: 'epoxy', label: 'Epoxy Adhesive' },
+          { value: 'silicone', label: 'Silicone Sealant' },
+          { value: 'pu_sealant', label: 'PU Sealant' },
+          { value: 'construction_adhesive', label: 'Construction Adhesive' },
+        ],
+        columnWidth: 150,
+      },
+      {
+        key: 'coverage',
+        name: 'Coverage',
+        type: 'text',
+        required: false,
+        placeholder: 'sqft/bag, sqm/kg...',
+        columnWidth: 100,
+      },
+    ],
+    defaultUnit: 'bag',
+  },
+
+  // ============================================
   // PVC/CPVC Pipes
   // ============================================
   pipes: {
@@ -759,6 +799,8 @@ export const CATEGORY_CODE_MAP: Record<string, string> = {
   CEM: 'cement',
   'CEM-PPC': 'cement',
   'CEM-OPC53': 'cement',
+  ADH: 'adhesives',
+  'ADH-TIL': 'adhesives',
   STL: 'tmt',
   'STL-TMT': 'tmt',
   'STL-WIRE': 'wire',
@@ -849,6 +891,9 @@ const CATEGORY_PATTERNS: Array<{ pattern: RegExp; templateKey: string }> = [
   { pattern: /\b(wire|cable|electrical\s*wire)\b/i, templateKey: 'wire' },
   // Sand (standalone)
   { pattern: /\b(sand|m-sand|msand|river\s*sand)\b/i, templateKey: 'sand' },
+  // Adhesives & Chemicals — MUST come before Tiles: "Tile Adhesive" would
+  // otherwise match the tile pattern first and lose its shade/type fields.
+  { pattern: /\b(adhesive|grout|sealant|epoxy)\b/i, templateKey: 'adhesives' },
   // Tiles
   { pattern: /\b(tile|flooring|ceramic|vitrified|porcelain)\b/i, templateKey: 'tiles' },
   // Paint

@@ -841,7 +841,9 @@
       "Bash(git status *)",
       "Bash(git show *)",
       "Bash(git rebase *)",
-      "Bash(git merge *)"
+      "Bash(git merge *)",
+      "Bash(xargs -I{} echo {})",
+      "Bash(taskkill //PID 33432 //F)"
     ],
     "deny": [],
     "ask": [],

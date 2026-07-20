@@ -125,6 +125,37 @@ export function useMaterialCategoryTree() {
 }
 
 /**
+ * Distinct brand names already used anywhere in the catalog. `material_brands`
+ * is scoped per-material (no global brand table), so without this a user who
+ * typed "MCP Tixolite" for one product gets no suggestion when adding another
+ * — risking silent duplicates ("MCP Tixolite" vs "MCP-Tixolite"). Powers a
+ * freeSolo Autocomplete; not a source of truth, just a typing aid.
+ */
+export function useDistinctBrandNames() {
+  const supabase = createClient();
+
+  return useQuery({
+    queryKey: ["materials", "brands", "distinct-names"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("material_brands")
+        .select("brand_name")
+        .eq("is_active", true)
+        .order("brand_name");
+
+      if (error) throw error;
+      const names = new Set<string>();
+      for (const row of (data ?? []) as { brand_name: string }[]) {
+        const n = row.brand_name?.trim();
+        if (n) names.add(n);
+      }
+      return Array.from(names);
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
  * Create a new material category
  */
 export function useCreateMaterialCategory() {
@@ -1612,6 +1643,21 @@ async function insertParentPacks(
   if (error) throw error;
 }
 
+/**
+ * Per-base-unit price implied by a variant's packs, for the vendor_inventory/
+ * price_history headline price. Picks the smallest priced pack (mirrors the
+ * display-side rule in src/lib/materials/packs.ts's representativePack) so a
+ * variant sold in both 20kg and 40kg bags still gets one coherent per-kg rate.
+ */
+function representativePackUnitPrice(packs?: ParentPackInput[] | null): number | null {
+  const priced = (packs ?? []).filter(
+    (p) => p.price != null && p.price > 0 && p.contents_qty > 0
+  );
+  if (priced.length === 0) return null;
+  const rep = priced.reduce((best, p) => (p.contents_qty < best.contents_qty ? p : best));
+  return rep.price! / rep.contents_qty;
+}
+
 async function insertBrandedVariants(
   supabase: any,
   params: {
@@ -1671,7 +1717,7 @@ async function insertBrandedVariants(
       image_url: v.image_url ?? null,
       specifications: v.specifications || null,
       // Pack-priced branded variants are sold in fixed cans.
-      sold_in_packs: !!(v.pack_contents_qty && v.pack_contents_qty > 0),
+      sold_in_packs: !!(v.packs && v.packs.length > 0),
     };
   });
 
@@ -1703,27 +1749,24 @@ async function insertBrandedVariants(
   const recordedDate = quoteRecordedDate || nowIso.slice(0, 10);
   const incGst = priceIncludesGst ?? true;
 
-  // Per-variant packs (branded products sold in fixed cans). The entered
-  // per-can price becomes a material_packs row; the vendor quote below is
-  // stored per-base-unit so all downstream money math stays per-base-unit.
-  const packRows = (createdVariants as { id: string; code: string }[])
-    .map((cv) => {
-      const src = codeToVariant.get(cv.code);
-      if (src?.pack_contents_qty && src.pack_contents_qty > 0) {
-        return {
-          material_id: cv.id,
-          label: src.pack_label?.trim() || `${src.pack_contents_qty} ${unit}`,
-          contents_qty: src.pack_contents_qty,
-          price: src.pack_price ?? null,
-          price_includes_gst: incGst,
-          gst_rate: gstRate ?? 0,
-          display_order: 0,
-          is_active: true,
-        };
-      }
-      return null;
-    })
-    .filter(Boolean);
+  // Per-variant packs (branded products sold in fixed cans). Each entered
+  // pack size becomes its own material_packs row; the vendor quote below is
+  // derived from a single representative pack so downstream money math stays
+  // per-base-unit even when a variant has multiple priced sizes.
+  const packRows = (createdVariants as { id: string; code: string }[]).flatMap((cv) => {
+    const src = codeToVariant.get(cv.code);
+    const packs = (src?.packs ?? []).filter((p) => p.contents_qty > 0);
+    return packs.map((p, j) => ({
+      material_id: cv.id,
+      label: p.label?.trim() || `${p.contents_qty} ${unit}`,
+      contents_qty: p.contents_qty,
+      price: p.price ?? null,
+      price_includes_gst: incGst,
+      gst_rate: gstRate ?? 0,
+      display_order: j,
+      is_active: true,
+    }));
+  });
   if (packRows.length > 0) {
     const { error: packErr } = await supabase.from("material_packs").insert(packRows);
     if (packErr) console.error("Failed to insert variant packs:", packErr);
@@ -1734,15 +1777,9 @@ async function insertBrandedVariants(
     .map((cv) => {
       const src = codeToVariant.get(cv.code);
       if (!src?.initial_vendor_id) return null;
-      const hasPack = !!(
-        src.pack_contents_qty &&
-        src.pack_contents_qty > 0 &&
-        src.pack_price &&
-        src.pack_price > 0
-      );
-      const perUnit = hasPack
-        ? src.pack_price! / src.pack_contents_qty!
-        : src.initial_vendor_price ?? null;
+      const packUnitPrice = representativePackUnitPrice(src.packs);
+      const hasPack = packUnitPrice != null;
+      const perUnit = hasPack ? packUnitPrice : src.initial_vendor_price ?? null;
       if (!perUnit || perUnit <= 0) return null;
 
       // Dated quote log — branded/pack flow only.

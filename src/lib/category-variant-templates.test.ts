@@ -120,6 +120,7 @@ describe("template integrity guards", () => {
       "BRK", "BRK-RED", "BRK-CMT", "BRK-AAC",
       "PLB", "ELC", "WOD", "WOD-PLY", "TIL", "PNT",
       "HRD", "GLS", "WPF", "MSC", "CTR", "PMP", "PMP-SUB", "PMP-PNL",
+      "ADH", "ADH-TIL",
     ];
     for (const code of ALL_CODES) {
       const mapped = Boolean(CATEGORY_CODE_MAP[code]);

@@ -99,7 +99,7 @@ interface MaterialInspectPaneProps {
   onEdit?: (material: MaterialWithDetails) => void;
   onOpenInPage?: (material: MaterialWithDetails) => void;
   onAddVendorQuote?: (material: MaterialWithDetails) => void;
-  /** Convert a flat material into a branded parent-with-variants (see BrandedProductDialog). */
+  /** Convert a flat material into a branded parent-with-variants (see BrandedMaterialWizard). */
   onConvertToBranded?: (material: MaterialWithDetails) => void;
   /** Click a vendor row (in the Vendors tab) → swap pane to that vendor */
   onVendorClick?: (vendorId: string, vendorName: string) => void;

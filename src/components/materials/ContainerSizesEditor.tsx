@@ -2,6 +2,7 @@
 
 import { Box, TextField, IconButton, Button, Typography } from "@mui/material";
 import { Add as AddIcon, DeleteOutline as DeleteIcon } from "@mui/icons-material";
+import type { ParentPackInput } from "@/types/material.types";
 
 /**
  * One standard container/can/bag size a pack-restricted material is sold in.
@@ -34,6 +35,30 @@ export function suggestContainerLabel(contents: string, unitLabel: string): stri
   const n = parseFloat(contents);
   if (!Number.isFinite(n) || n <= 0) return "";
   return `${n} ${unitLabel} ${containerNoun(unitLabel)}`;
+}
+
+/**
+ * Valid, parsed container-size rows -> pack inputs (with optional reference
+ * price). Shared parse logic — was duplicated identically across every dialog
+ * that uses this editor.
+ */
+export function parentPacksFromRows(
+  rows: ContainerSizeRow[],
+  unitLabel: string,
+  { includePrice = false }: { includePrice?: boolean } = {}
+): ParentPackInput[] {
+  return rows
+    .map((s) => ({
+      contents: parseFloat(s.contents_qty),
+      price: includePrice ? parseFloat(s.price) : NaN,
+      label: s.label.trim() || suggestContainerLabel(s.contents_qty, unitLabel),
+    }))
+    .filter((s) => Number.isFinite(s.contents) && s.contents > 0)
+    .map((s) => ({
+      label: s.label,
+      contents_qty: s.contents,
+      price: Number.isFinite(s.price) && s.price > 0 ? s.price : null,
+    }));
 }
 
 interface ContainerSizesEditorProps {

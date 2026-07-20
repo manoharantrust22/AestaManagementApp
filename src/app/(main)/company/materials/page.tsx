@@ -26,7 +26,6 @@ import {
   AutoAwesome as VariantsIcon,
   PriceChange as PriceMissingIcon,
   GridView as TileIcon,
-  Inventory2 as ProductIcon,
 } from "@mui/icons-material";
 import { useSitesData } from "@/contexts/SiteContext";
 import PageHeader from "@/components/layout/PageHeader";
@@ -59,10 +58,20 @@ import { VendorQuoteDialog } from "@/components/shared/VendorQuoteDialog";
 import { InspectPaneBreadcrumb } from "@/components/shared/InspectPaneBreadcrumb";
 import { useInspectStack } from "@/components/shared/useInspectStack";
 import type { MaterialWithDetails, VendorWithCategories } from "@/types/material.types";
-import type { BrandedSourceMaterial } from "@/components/materials/BrandedProductDialog";
+import type { BrandedSourceMaterial } from "@/components/materials/BrandedMaterialWizard";
 
 const MaterialDialog = dynamic(
   () => import("@/components/materials/MaterialDialog"),
+  { ssr: false }
+);
+
+const AddMaterialWizard = dynamic(
+  () => import("@/components/materials/AddMaterialWizard"),
+  { ssr: false }
+);
+
+const BrandedMaterialWizard = dynamic(
+  () => import("@/components/materials/BrandedMaterialWizard"),
   { ssr: false }
 );
 
@@ -78,11 +87,6 @@ const CatalogImageFillDialog = dynamic(
 
 const TileMaterialDialog = dynamic(
   () => import("@/components/materials/TileMaterialDialog"),
-  { ssr: false }
-);
-
-const BrandedProductDialog = dynamic(
-  () => import("@/components/materials/BrandedProductDialog"),
   { ssr: false }
 );
 
@@ -124,8 +128,9 @@ export default function MaterialsPage() {
   const [showDraftsOnly, setShowDraftsOnly] = useState(false);
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [addWizardOpen, setAddWizardOpen] = useState(false);
   const [tileDialogOpen, setTileDialogOpen] = useState(false);
-  const [brandedDialogOpen, setBrandedDialogOpen] = useState(false);
+  const [convertWizardOpen, setConvertWizardOpen] = useState(false);
   const [brandedSource, setBrandedSource] = useState<BrandedSourceMaterial | null>(null);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
   const [fillImagesOpen, setFillImagesOpen] = useState(false);
@@ -298,8 +303,7 @@ export default function MaterialsPage() {
   );
 
   const handleOpenAdd = useCallback(() => {
-    setEditingMaterial(null);
-    setDialogOpen(true);
+    setAddWizardOpen(true);
   }, []);
 
   const handleOpenEdit = useCallback((material: MaterialWithDetails) => {
@@ -398,16 +402,6 @@ export default function MaterialsPage() {
                 onClick={() => setTileDialogOpen(true)}
               >
                 New tile
-              </Button>
-              <Button
-                variant="outlined"
-                startIcon={<ProductIcon />}
-                onClick={() => {
-                  setBrandedSource(null);
-                  setBrandedDialogOpen(true);
-                }}
-              >
-                New product
               </Button>
               <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenAdd}>
                 Add Material
@@ -663,7 +657,7 @@ export default function MaterialsPage() {
               category_id: m.category_id,
               unit: m.unit,
             });
-            setBrandedDialogOpen(true);
+            setConvertWizardOpen(true);
             inspect.close();
           }}
           onVendorClick={(vendorId, vendorName) =>
@@ -707,11 +701,19 @@ export default function MaterialsPage() {
         />
       )}
 
-      {brandedDialogOpen && (
-        <BrandedProductDialog
-          open={brandedDialogOpen}
+      {addWizardOpen && (
+        <AddMaterialWizard
+          open={addWizardOpen}
+          onClose={() => setAddWizardOpen(false)}
+          categories={categories}
+        />
+      )}
+
+      {convertWizardOpen && (
+        <BrandedMaterialWizard
+          open={convertWizardOpen}
           onClose={() => {
-            setBrandedDialogOpen(false);
+            setConvertWizardOpen(false);
             setBrandedSource(null);
           }}
           categories={categories}

@@ -222,6 +222,12 @@ const CategoryAutocomplete = memo(function CategoryAutocomplete({
       size={size}
       getOptionLabel={(option) => option.name}
       isOptionEqualToValue={(option, val) => option.id === val.id}
+      groupBy={
+        parentOnly
+          ? undefined
+          : (option) =>
+              categories.find((c) => c.id === option.parent_id)?.name ?? option.name
+      }
       renderOption={(props, option) => {
         const { key, ...otherProps } = props;
         const isChild = !parentOnly && !!option.parent_id;

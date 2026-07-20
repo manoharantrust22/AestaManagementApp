@@ -28,6 +28,8 @@ describe("defaultsForCategoryCode", () => {
     ["PMP", true, true],
     ["PMP-SUB", true, true],
     ["PMP-PNL", true, false],
+    ["ADH", true, true],
+    ["ADH-TIL", true, true],
   ])("%s -> brand=%s variant=%s", (code, brand, variant) => {
     expect(defaultsForCategoryCode(code)).toEqual({
       price_varies_by_brand: brand,

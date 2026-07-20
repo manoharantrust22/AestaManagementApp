@@ -62,6 +62,10 @@ const DEFAULTS_BY_CODE: Record<string, PriceScopingDefaults> = {
   PMP: { price_varies_by_brand: true, price_varies_by_variant: true }, // HP
   'PMP-SUB': { price_varies_by_brand: true, price_varies_by_variant: true },
   'PMP-PNL': { price_varies_by_brand: true, price_varies_by_variant: false },
+
+  // MCP Tixolite vs MYK Laticrete differ, and so does shade/pack within a brand
+  ADH: { price_varies_by_brand: true, price_varies_by_variant: true },
+  'ADH-TIL': { price_varies_by_brand: true, price_varies_by_variant: true },
 };
 
 const NEITHER: PriceScopingDefaults = {
