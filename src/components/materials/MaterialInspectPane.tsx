@@ -103,6 +103,8 @@ interface MaterialInspectPaneProps {
   onConvertToBranded?: (material: MaterialWithDetails) => void;
   /** Click a vendor row (in the Vendors tab) → swap pane to that vendor */
   onVendorClick?: (vendorId: string, vendorName: string) => void;
+  /** Click a variant row (in the Variants tab) → swap pane to that variant (e.g. to reach its Packs tab) */
+  onOpenVariant?: (materialId: string, materialName: string) => void;
   /** Optional breadcrumb header — rendered above title when navigating a stack */
   breadcrumb?: React.ReactNode;
   canEdit?: boolean;
@@ -118,6 +120,7 @@ export function MaterialInspectPane({
   onAddVendorQuote,
   onConvertToBranded,
   onVendorClick,
+  onOpenVariant,
   breadcrumb,
   canEdit = false,
   zIndex,
@@ -397,6 +400,7 @@ export function MaterialInspectPane({
               variants={variants}
               canEdit={canEdit}
               parentMaterial={material}
+              onOpenVariant={onOpenVariant}
             />
           ) : activeTab === "packs" ? (
             <MaterialPacksTab
@@ -1468,11 +1472,13 @@ function VariantsTab({
   variants,
   canEdit = false,
   parentMaterial,
+  onOpenVariant,
 }: {
   isLoading: boolean;
   variants: MaterialWithDetails[];
   canEdit?: boolean;
   parentMaterial: MaterialWithDetails;
+  onOpenVariant?: (materialId: string, materialName: string) => void;
 }) {
   // Which row is in inline-edit mode (variantId), or "add" for the new-variant card
   const [editing, setEditing] = useState<string | "add" | null>(null);
@@ -1498,19 +1504,32 @@ function VariantsTab({
         </Box>
       )}
 
-      {variants.map((v) =>
-        editing === v.id ? (
-          <VariantInlineCard
-            key={v.id}
-            mode="edit"
-            parentMaterial={parentMaterial}
-            variant={v}
-            onCancel={() => setEditing(null)}
-            onSaved={() => setEditing(null)}
-          />
-        ) : (
+      {variants.map((v) => {
+        if (editing === v.id) {
+          return (
+            <VariantInlineCard
+              key={v.id}
+              mode="edit"
+              parentMaterial={parentMaterial}
+              variant={v}
+              onCancel={() => setEditing(null)}
+              onSaved={() => setEditing(null)}
+            />
+          );
+        }
+        const clickable = !!onOpenVariant;
+        return (
           <Box
             key={v.id}
+            role={clickable ? "button" : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            onClick={() => clickable && onOpenVariant(v.id, v.name)}
+            onKeyDown={(e) => {
+              if (clickable && (e.key === "Enter" || e.key === " ")) {
+                e.preventDefault();
+                onOpenVariant(v.id, v.name);
+              }
+            }}
             sx={{
               px: 1.5,
               py: 1,
@@ -1520,12 +1539,22 @@ function VariantsTab({
               display: "flex",
               gap: 1.25,
               alignItems: "center",
+              cursor: clickable ? "pointer" : "default",
+              ...(clickable && {
+                "&:hover": {
+                  borderColor: "primary.main",
+                  bgcolor: alpha("#1976d2", 0.04),
+                },
+              }),
             }}
           >
             <Box
               onClick={
                 v.image_url
-                  ? () => openImage({ src: v.image_url!, title: v.name })
+                  ? (e) => {
+                      e.stopPropagation();
+                      openImage({ src: v.image_url!, title: v.name });
+                    }
                   : undefined
               }
               sx={{ flexShrink: 0, cursor: v.image_url ? "zoom-in" : "default", display: "flex" }}
@@ -1553,14 +1582,20 @@ function VariantsTab({
             </Box>
             {canEdit && (
               <Tooltip title="Edit variant" placement="top">
-                <IconButton size="small" onClick={() => setEditing(v.id)}>
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditing(v.id);
+                  }}
+                >
                   <EditIcon sx={{ fontSize: 16 }} />
                 </IconButton>
               </Tooltip>
             )}
           </Box>
-        )
-      )}
+        );
+      })}
 
       {/* Add Variant: inline card or "+ Add" affordance */}
       {canEdit && editing === "add" && (

@@ -23,7 +23,7 @@ import type {
 } from "@/types/material.types";
 
 const MATERIAL_PACK_COLUMNS =
-  "id, material_id, label, contents_qty, price, price_includes_gst, gst_rate, is_active, display_order, created_at, updated_at";
+  "id, material_id, label, contents_qty, price, coverage, price_includes_gst, gst_rate, is_active, display_order, created_at, updated_at";
 
 /**
  * Attach active `packs` to each material via a single separate query.
@@ -1623,7 +1623,12 @@ export function useDeleteMaterialBrand() {
 async function insertParentPacks(
   supabase: any,
   parentId: string,
-  packs: { label?: string | null; contents_qty: number; price?: number | null }[],
+  packs: {
+    label?: string | null;
+    contents_qty: number;
+    price?: number | null;
+    coverage?: string | null;
+  }[],
   gstRate?: number
 ): Promise<void> {
   const rows = packs
@@ -1633,6 +1638,7 @@ async function insertParentPacks(
       label: p.label?.trim() || `${p.contents_qty}`,
       contents_qty: p.contents_qty,
       price: p.price ?? null,
+      coverage: p.coverage ?? null,
       price_includes_gst: true,
       gst_rate: gstRate ?? 0,
       display_order: i,
@@ -1761,6 +1767,7 @@ async function insertBrandedVariants(
       label: p.label?.trim() || `${p.contents_qty} ${unit}`,
       contents_qty: p.contents_qty,
       price: p.price ?? null,
+      coverage: p.coverage ?? null,
       price_includes_gst: incGst,
       gst_rate: gstRate ?? 0,
       display_order: j,

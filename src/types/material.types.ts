@@ -593,6 +593,7 @@ export interface MaterialPack {
   label: string; // e.g. "5 L can"
   contents_qty: number; // amount inside, in the material's base unit (e.g. 5 litres)
   price: number | null; // per-can price (e.g. 1620)
+  coverage: string | null; // free-form coverage claim for this pack size, e.g. "30-35 sqft/bag"
   price_includes_gst: boolean | null;
   gst_rate: number | null;
   is_active: boolean;
@@ -1549,6 +1550,7 @@ export interface ParentPackInput {
   label: string;
   contents_qty: number;
   price?: number | null;
+  coverage?: string | null;
 }
 
 // Extended form data for creating a material with variants in one operation

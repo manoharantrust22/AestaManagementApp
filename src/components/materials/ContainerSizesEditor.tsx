@@ -13,12 +13,15 @@ export interface ContainerSizeRow {
   contents_qty: string;
   /** Optional reference price per container (shown only when `showPrice`). */
   price: string;
+  /** Optional coverage claim, e.g. "30-35 sqft/bag" (shown only when `showCoverage`). */
+  coverage: string;
 }
 
 export const blankContainerSize = (): ContainerSizeRow => ({
   label: "",
   contents_qty: "",
   price: "",
+  coverage: "",
 });
 
 /** The noun used in the auto-suggested label, based on the material's unit. */
@@ -52,12 +55,14 @@ export function parentPacksFromRows(
       contents: parseFloat(s.contents_qty),
       price: includePrice ? parseFloat(s.price) : NaN,
       label: s.label.trim() || suggestContainerLabel(s.contents_qty, unitLabel),
+      coverage: s.coverage.trim() || null,
     }))
     .filter((s) => Number.isFinite(s.contents) && s.contents > 0)
     .map((s) => ({
       label: s.label,
       contents_qty: s.contents,
       price: Number.isFinite(s.price) && s.price > 0 ? s.price : null,
+      coverage: s.coverage,
     }));
 }
 
@@ -68,6 +73,8 @@ interface ContainerSizesEditorProps {
   unitLabel: string;
   /** Show an optional per-container reference price column (flat materials). */
   showPrice?: boolean;
+  /** Show an optional per-container coverage column (e.g. tile adhesive, waterproofing). */
+  showCoverage?: boolean;
   /** Currency symbol for the price column. */
   currency?: string;
 }
@@ -82,6 +89,7 @@ export default function ContainerSizesEditor({
   onChange,
   unitLabel,
   showPrice = false,
+  showCoverage = false,
   currency = "₹",
 }: ContainerSizesEditorProps) {
   const updateRow = (i: number, patch: Partial<ContainerSizeRow>) =>
@@ -129,6 +137,16 @@ export default function ContainerSizesEditor({
             size="small"
             sx={{ flex: 1, minWidth: 120 }}
           />
+          {showCoverage && (
+            <TextField
+              label="Coverage"
+              placeholder="e.g. 30-35 sqft/bag"
+              value={row.coverage}
+              onChange={(e) => updateRow(i, { coverage: e.target.value })}
+              size="small"
+              sx={{ flex: 1, minWidth: 140 }}
+            />
+          )}
           {showPrice && (
             <TextField
               label="Price / container"

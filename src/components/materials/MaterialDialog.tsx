@@ -929,7 +929,7 @@ export default function MaterialDialog({
                       {showContainerSizes
                         ? "Bought in whole cans — enter at least one size below."
                         : isEdit
-                          ? "Bought in whole cans (e.g. 5 L can). Define sizes in the Packs tab."
+                          ? "Bought in whole cans (e.g. 5 L can). Close this dialog and open the material's Packs tab to manage sizes — for a variant, open it from the parent's Variants tab first."
                           : "Bought in whole cans (e.g. 5 L can)."}
                     </Typography>
                   </Box>

@@ -663,6 +663,9 @@ export default function MaterialsPage() {
           onVendorClick={(vendorId, vendorName) =>
             inspect.push({ kind: "vendor", id: vendorId, title: vendorName })
           }
+          onOpenVariant={(materialId, materialName) =>
+            inspect.push({ kind: "material", id: materialId, title: materialName })
+          }
           breadcrumb={breadcrumb}
           canEdit={canEdit}
         />

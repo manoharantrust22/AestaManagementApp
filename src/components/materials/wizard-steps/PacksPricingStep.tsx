@@ -62,7 +62,12 @@ export default function PacksPricingStep({
     const next = variants.map((_, idx) =>
       idx === fromIndex
         ? source
-        : source.map((r) => ({ label: r.label, contents_qty: r.contents_qty, price: "" }))
+        : source.map((r) => ({
+            label: r.label,
+            contents_qty: r.contents_qty,
+            price: "",
+            coverage: "",
+          }))
     );
     onPacksByVariantChange(next);
   };
@@ -129,6 +134,7 @@ export default function PacksPricingStep({
               onChange={(rows) => setRowsFor(i, rows)}
               unitLabel={unitLabel}
               showPrice
+              showCoverage
             />
           </Box>
         ))}

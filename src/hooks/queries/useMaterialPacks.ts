@@ -16,6 +16,7 @@ export interface MaterialPackInput {
   label: string;
   contents_qty: number;
   price?: number | null;
+  coverage?: string | null;
   price_includes_gst?: boolean | null;
   gst_rate?: number | null;
   display_order?: number;
@@ -69,6 +70,7 @@ export function useCreateMaterialPack() {
           label: input.label,
           contents_qty: input.contents_qty,
           price: input.price ?? null,
+          coverage: input.coverage ?? null,
           price_includes_gst: input.price_includes_gst ?? false,
           gst_rate: input.gst_rate ?? null,
           display_order: input.display_order ?? 0,

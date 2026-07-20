@@ -102,6 +102,7 @@ export function MaterialPacksTab({ materialId, unitLabel, canEdit = false }: Mat
                 {pack.price != null
                   ? ` · ${formatCurrency(packUnitPrice(pack) ?? 0)} / ${unitLabel}`
                   : ""}
+                {pack.coverage ? ` · Coverage: ${pack.coverage}` : ""}
               </Typography>
             </Box>
             {canEdit && (
@@ -166,6 +167,7 @@ function PackForm({
   const [label, setLabel] = useState(pack?.label ?? "");
   const [contents, setContents] = useState(pack ? String(pack.contents_qty) : "");
   const [price, setPrice] = useState(pack?.price != null ? String(pack.price) : "");
+  const [coverage, setCoverage] = useState(pack?.coverage ?? "");
   const [gstIncluded, setGstIncluded] = useState(pack?.price_includes_gst ?? false);
 
   const contentsNum = parseFloat(contents);
@@ -183,6 +185,7 @@ function PackForm({
       label: label.trim(),
       contents_qty: contentsNum,
       price: priceNum,
+      coverage: coverage.trim() || null,
       price_includes_gst: gstIncluded,
     };
     if (pack) {
@@ -248,6 +251,14 @@ function PackForm({
           sx={{ flex: 1 }}
         />
       </Box>
+      <TextField
+        size="small"
+        label="Coverage (optional)"
+        placeholder="e.g. 30-35 sqft/bag"
+        value={coverage}
+        onChange={(e) => setCoverage(e.target.value)}
+        fullWidth
+      />
       <FormControlLabel
         control={
           <Switch

@@ -54,15 +54,22 @@ export default function ReviewStep({
                     const price = parseFloat(r.price);
                     const hasPrice = Number.isFinite(price) && price > 0;
                     return (
-                      <Stack key={j} direction="row" justifyContent="space-between">
-                        <Typography sx={{ fontSize: 13 }}>
-                          {r.label || `${r.contents_qty} ${unitLabel}`}
-                        </Typography>
-                        <Typography
-                          sx={{ fontSize: 13, fontWeight: 600, color: hasPrice ? "text.primary" : "text.secondary" }}
-                        >
-                          {hasPrice ? formatCurrencyFull(price) : "No price yet"}
-                        </Typography>
+                      <Stack key={j} gap={0.25}>
+                        <Stack direction="row" justifyContent="space-between">
+                          <Typography sx={{ fontSize: 13 }}>
+                            {r.label || `${r.contents_qty} ${unitLabel}`}
+                          </Typography>
+                          <Typography
+                            sx={{ fontSize: 13, fontWeight: 600, color: hasPrice ? "text.primary" : "text.secondary" }}
+                          >
+                            {hasPrice ? formatCurrencyFull(price) : "No price yet"}
+                          </Typography>
+                        </Stack>
+                        {r.coverage.trim() && (
+                          <Typography sx={{ fontSize: 11, color: "text.secondary" }}>
+                            Coverage: {r.coverage.trim()}
+                          </Typography>
+                        )}
                       </Stack>
                     );
                   })}
