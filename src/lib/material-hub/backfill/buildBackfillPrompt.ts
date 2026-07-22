@@ -18,6 +18,8 @@ export interface BackfillCatalogMaterial {
   name: string;
   unit: string | null;
   description?: string | null;
+  /** Vernacular / bill name (Tamil etc.) — also matched against parsed rows. */
+  local_name?: string | null;
 }
 
 export interface BackfillCatalogSite {
@@ -39,7 +41,8 @@ export function buildBackfillPrompt(input: BuildBackfillPromptInput): string {
   const materialLines = input.materials
     .map((m) => {
       const spec = m.description ? ` · ${m.description}` : "";
-      return `  - ${m.name}${spec} (id: ${m.id}, unit: ${m.unit ?? "piece"})`;
+      const local = m.local_name ? ` [also known as: ${m.local_name}]` : "";
+      return `  - ${m.name}${spec}${local} (id: ${m.id}, unit: ${m.unit ?? "piece"})`;
     })
     .join("\n");
 
@@ -58,6 +61,7 @@ Return ONLY a JSON array. Each object MUST have these fields:
 {
   "vendor": "string — vendor name as shown on bill",
   "material": "string — material name as shown on bill",
+  "material_id": "string — the exact catalog id from the material catalog below IF you are confident this line is one of those materials/variants; otherwise omit",
   "material_spec": "string — spec like '50kg bag · OPC 53 grade' (optional)",
   "qty": number,
   "unit": "string — bag | kg | cft | tonne | nos | piece | m | unit",
@@ -76,7 +80,7 @@ Return ONLY a JSON array. Each object MUST have these fields:
 
 ${vendorLines || "  (no vendors yet)"}
 
-# Material catalog — match to existing IDs where possible. New material? Use bill name as-is.
+# Material catalog — match to existing IDs where possible. Bills often print the vernacular / "also known as" name, or a size variant (e.g. 1", 2", 8mm) — match those to the catalog entry and return its id in "material_id". New material? Use bill name as-is and omit material_id.
 
 ${materialLines || "  (no materials yet)"}
 

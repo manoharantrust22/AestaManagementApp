@@ -25,13 +25,25 @@ import {
   TextField,
   MenuItem,
   CircularProgress,
+  Autocomplete,
+  Chip,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckIcon from "@mui/icons-material/Check";
+import LinkIcon from "@mui/icons-material/Link";
 import { hubTokens } from "@/lib/material-hub/tokens";
 import { useVendors } from "@/hooks/queries/useVendors";
-import { useMaterials } from "@/hooks/queries/useMaterials";
+import {
+  useMaterials,
+  useMaterialSearchOptions,
+  filterMaterialSearchOptions,
+} from "@/hooks/queries/useMaterials";
+import {
+  matchMaterialClientSide,
+  matchVendorClientSide,
+} from "@/lib/ai-ingestion/fuzzyMatch";
+import type { MaterialSearchOption, Vendor } from "@/types/material.types";
 import { useSiteGroupMembership } from "@/hooks/queries/useSiteGroups";
 import { buildBackfillPrompt } from "@/lib/material-hub/backfill/buildBackfillPrompt";
 import {
@@ -63,9 +75,35 @@ export default function BackfillAIDialog({
 }: BackfillAIDialogProps) {
   const { data: vendors = [] } = useVendors({ includeDrafts: true });
   const { data: materials = [] } = useMaterials({ includeDrafts: true });
+  // Flat option list (material / variant / brand) for the Step-3 link picker.
+  const { data: materialOptions = [] } = useMaterialSearchOptions();
   const { data: groupMembership } = useSiteGroupMembership(siteId);
 
   const mutation = useRecordHistoricalBatch();
+
+  // Lightweight catalogs for the fuzzy "suggested match" chips in the preview.
+  const materialCatalog = useMemo(
+    () =>
+      materials.map((m: any) => ({
+        id: m.id,
+        name: m.name,
+        local_name: m.local_name ?? null,
+        category_id: m.category_id ?? null,
+        unit: m.unit,
+      })),
+    [materials]
+  );
+  const vendorCatalog = useMemo(
+    () =>
+      vendors.map((v: any) => ({
+        id: v.id,
+        name: v.name,
+        city: v.city ?? null,
+        phone: v.phone ?? null,
+        gst_number: v.gst_number ?? null,
+      })),
+    [vendors]
+  );
 
   const sites = useMemo(() => {
     const others = groupMembership?.otherSites ?? [];
@@ -83,6 +121,7 @@ export default function BackfillAIDialog({
           name: m.name,
           unit: m.unit,
           description: m.description,
+          local_name: m.local_name,
         })),
         sites,
       }),
@@ -104,6 +143,7 @@ export default function BackfillAIDialog({
           name: m.name,
           unit: m.unit,
           description: m.description,
+          local_name: m.local_name,
         }))
       );
       setRows(normalized);
@@ -260,6 +300,10 @@ export default function BackfillAIDialog({
             onUpdate={updateRow}
             onRemove={removeRow}
             draftsCount={draftsCount}
+            materialOptions={materialOptions}
+            materialCatalog={materialCatalog}
+            vendors={vendors}
+            vendorCatalog={vendorCatalog}
           />
         )}
 
@@ -469,12 +513,31 @@ function Step2PasteJson({
 // Step 3
 // ----------------------------------------------------------------------------
 
+type MaterialCatalogRow = {
+  id: string;
+  name: string;
+  local_name: string | null;
+  category_id: string | null;
+  unit: string;
+};
+type VendorCatalogRow = {
+  id: string;
+  name: string;
+  city: string | null;
+  phone: string | null;
+  gst_number: string | null;
+};
+
 interface Step3PreviewProps {
   rows: BackfillPreviewRow[];
   sites: { id: string; name: string }[];
   onUpdate: (idx: number, patch: Partial<BackfillPreviewRow>) => void;
   onRemove: (idx: number) => void;
   draftsCount: number;
+  materialOptions: MaterialSearchOption[];
+  materialCatalog: MaterialCatalogRow[];
+  vendors: Vendor[];
+  vendorCatalog: VendorCatalogRow[];
 }
 
 function Step3Preview({
@@ -483,6 +546,10 @@ function Step3Preview({
   onUpdate,
   onRemove,
   draftsCount,
+  materialOptions,
+  materialCatalog,
+  vendors,
+  vendorCatalog,
 }: Step3PreviewProps) {
   const included = rows.filter((r) => r._include).length;
 
@@ -569,6 +636,10 @@ function Step3Preview({
                   sites={sites}
                   onUpdate={(p) => onUpdate(i, p)}
                   onRemove={() => onRemove(i)}
+                  materialOptions={materialOptions}
+                  materialCatalog={materialCatalog}
+                  vendors={vendors}
+                  vendorCatalog={vendorCatalog}
                 />
               ))}
             </tbody>
@@ -601,11 +672,19 @@ function PreviewRow({
   sites,
   onUpdate,
   onRemove,
+  materialOptions,
+  materialCatalog,
+  vendors,
+  vendorCatalog,
 }: {
   r: BackfillPreviewRow;
   sites: { id: string; name: string }[];
   onUpdate: (patch: Partial<BackfillPreviewRow>) => void;
   onRemove: () => void;
+  materialOptions: MaterialSearchOption[];
+  materialCatalog: MaterialCatalogRow[];
+  vendors: Vendor[];
+  vendorCatalog: VendorCatalogRow[];
 }) {
   const cellSx = {
     padding: "7px 10px",
@@ -660,32 +739,22 @@ function PreviewRow({
         />
       </Box>
       <Box component="td" sx={cellSx}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: "5px" }}>
-          <input
-            value={r.vendor}
-            onChange={(e) => onUpdate({ vendor: e.target.value })}
-            style={inlineInput(140)}
-          />
-          {r._vendorIsDraft && (
-            <Box component="span" sx={draftTag} title="New vendor — will save as draft">
-              +V
-            </Box>
-          )}
-        </Box>
+        <VendorLinkCell
+          r={r}
+          vendors={vendors}
+          catalog={vendorCatalog}
+          onUpdate={onUpdate}
+          draftTag={draftTag}
+        />
       </Box>
       <Box component="td" sx={cellSx}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: "5px" }}>
-          <input
-            value={r.material}
-            onChange={(e) => onUpdate({ material: e.target.value })}
-            style={inlineInput(140)}
-          />
-          {r._materialIsDraft && (
-            <Box component="span" sx={draftTag} title="New material — will save as draft">
-              +M
-            </Box>
-          )}
-        </Box>
+        <MaterialLinkCell
+          r={r}
+          options={materialOptions}
+          catalog={materialCatalog}
+          onUpdate={onUpdate}
+          draftTag={draftTag}
+        />
       </Box>
       <Box component="td" sx={cellSx}>
         <Box sx={{ display: "flex", alignItems: "center", gap: "4px" }}>
@@ -758,6 +827,261 @@ function PreviewRow({
           <CloseIcon sx={{ fontSize: 12, color: hubTokens.muted }} />
         </IconButton>
       </Box>
+    </Box>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Link-to-existing pickers (material + vendor) for the Step-3 preview.
+// A picker lets the user attach a row to an existing catalog entry (by name,
+// local name, brand or size variant) before ingest, instead of minting a
+// duplicate draft. Exact matches are auto-linked at parse time; anything left
+// as a draft (+M / +V) gets a one-tap fuzzy "Link → …" suggestion here.
+// ----------------------------------------------------------------------------
+
+function MaterialLinkCell({
+  r,
+  options,
+  catalog,
+  onUpdate,
+  draftTag,
+}: {
+  r: BackfillPreviewRow;
+  options: MaterialSearchOption[];
+  catalog: MaterialCatalogRow[];
+  onUpdate: (patch: Partial<BackfillPreviewRow>) => void;
+  draftTag: any;
+}) {
+  const selectedOption = useMemo(
+    () =>
+      r.material_id
+        ? options.find((o) => (o.variant?.id ?? o.material.id) === r.material_id) ??
+          null
+        : null,
+    [r.material_id, options]
+  );
+
+  const suggestion = useMemo(() => {
+    if (!r._materialIsDraft || !r.material.trim()) return null;
+    const res = matchMaterialClientSide(r.material, catalog, { limit: 1 });
+    if (res.status === "matched") return res.entity;
+    if (res.status === "ambiguous") return res.candidates[0] ?? null;
+    return null;
+  }, [r._materialIsDraft, r.material, catalog]);
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: "3px", minWidth: 200 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: "5px" }}>
+        <Autocomplete
+          freeSolo
+          fullWidth
+          size="small"
+          options={options}
+          value={selectedOption}
+          inputValue={r.material}
+          getOptionLabel={(o) => (typeof o === "string" ? o : o.displayName)}
+          getOptionKey={(o) => (typeof o === "string" ? o : o.id)}
+          isOptionEqualToValue={(o, v) =>
+            typeof o !== "string" && typeof v !== "string" && o.id === v.id
+          }
+          filterOptions={(opts, state) =>
+            filterMaterialSearchOptions(opts as MaterialSearchOption[], state.inputValue)
+          }
+          onInputChange={(_, value, reason) => {
+            if (reason === "input") {
+              onUpdate({
+                material: value,
+                material_id: null,
+                _materialIsDraft: !!value.trim(),
+              });
+            }
+          }}
+          onChange={(_, val) => {
+            if (val && typeof val !== "string") {
+              onUpdate({
+                material_id: val.variant?.id ?? val.material.id,
+                material: val.displayName,
+                unit: val.unit || r.unit,
+                _materialIsDraft: false,
+              });
+            } else if (val === null) {
+              onUpdate({ material_id: null, material: "", _materialIsDraft: false });
+            }
+          }}
+          slotProps={{ popper: { disablePortal: false } }}
+          renderOption={(props, o) => {
+            const { key, ...rest } = props as any;
+            return (
+              <Box component="li" key={key} {...rest}>
+                <Box>
+                  <Typography sx={{ fontSize: 12, color: hubTokens.text }}>
+                    {o.displayName}
+                  </Typography>
+                  <Typography sx={{ fontSize: 10, color: hubTokens.muted }}>
+                    {o.contextLabel}
+                  </Typography>
+                </Box>
+              </Box>
+            );
+          }}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              variant="standard"
+              placeholder="Search material / variant…"
+              sx={{ "& .MuiInputBase-input": { fontSize: 11.5, padding: "2px 0" } }}
+            />
+          )}
+        />
+        {r._materialIsDraft && (
+          <Box component="span" sx={draftTag} title="New material — will save as draft">
+            +M
+          </Box>
+        )}
+      </Box>
+      {suggestion && (
+        <Chip
+          size="small"
+          icon={<LinkIcon sx={{ fontSize: 12 }} />}
+          label={`Link → ${suggestion.name}`}
+          onClick={() =>
+            onUpdate({
+              material_id: suggestion.id,
+              material: suggestion.name,
+              unit: suggestion.unit || r.unit,
+              _materialIsDraft: false,
+            })
+          }
+          sx={{
+            alignSelf: "flex-start",
+            height: 20,
+            fontSize: 10,
+            fontWeight: 600,
+            cursor: "pointer",
+            background: hubTokens.primarySoft,
+            color: hubTokens.primary,
+            "& .MuiChip-icon": { color: hubTokens.primary },
+          }}
+        />
+      )}
+    </Box>
+  );
+}
+
+function VendorLinkCell({
+  r,
+  vendors,
+  catalog,
+  onUpdate,
+  draftTag,
+}: {
+  r: BackfillPreviewRow;
+  vendors: Vendor[];
+  catalog: VendorCatalogRow[];
+  onUpdate: (patch: Partial<BackfillPreviewRow>) => void;
+  draftTag: any;
+}) {
+  const selectedVendor = useMemo(
+    () => (r.vendor_id ? vendors.find((v) => v.id === r.vendor_id) ?? null : null),
+    [r.vendor_id, vendors]
+  );
+
+  const suggestion = useMemo(() => {
+    if (!r._vendorIsDraft || !r.vendor.trim()) return null;
+    const res = matchVendorClientSide(r.vendor, catalog, { limit: 1 });
+    if (res.status === "matched") return res.entity;
+    if (res.status === "ambiguous") return res.candidates[0] ?? null;
+    return null;
+  }, [r._vendorIsDraft, r.vendor, catalog]);
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: "3px", minWidth: 180 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: "5px" }}>
+        <Autocomplete
+          freeSolo
+          fullWidth
+          size="small"
+          options={vendors}
+          value={selectedVendor}
+          inputValue={r.vendor}
+          getOptionLabel={(v) => (typeof v === "string" ? v : v.name)}
+          getOptionKey={(v) => (typeof v === "string" ? v : v.id)}
+          isOptionEqualToValue={(o, v) =>
+            typeof o !== "string" && typeof v !== "string" && o.id === v.id
+          }
+          onInputChange={(_, value, reason) => {
+            if (reason === "input") {
+              onUpdate({
+                vendor: value,
+                vendor_id: null,
+                _vendorIsDraft: !!value.trim(),
+              });
+            }
+          }}
+          onChange={(_, val) => {
+            if (val && typeof val !== "string") {
+              onUpdate({ vendor_id: val.id, vendor: val.name, _vendorIsDraft: false });
+            } else if (val === null) {
+              onUpdate({ vendor_id: null, vendor: "", _vendorIsDraft: false });
+            }
+          }}
+          slotProps={{ popper: { disablePortal: false } }}
+          renderOption={(props, v) => {
+            const { key, ...rest } = props as any;
+            return (
+              <Box component="li" key={key} {...rest}>
+                <Box>
+                  <Typography sx={{ fontSize: 12, color: hubTokens.text }}>
+                    {v.name}
+                  </Typography>
+                  {(v.city || v.phone) && (
+                    <Typography sx={{ fontSize: 10, color: hubTokens.muted }}>
+                      {[v.city, v.phone].filter(Boolean).join(" · ")}
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+            );
+          }}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              variant="standard"
+              placeholder="Search vendor…"
+              sx={{ "& .MuiInputBase-input": { fontSize: 11.5, padding: "2px 0" } }}
+            />
+          )}
+        />
+        {r._vendorIsDraft && (
+          <Box component="span" sx={draftTag} title="New vendor — will save as draft">
+            +V
+          </Box>
+        )}
+      </Box>
+      {suggestion && (
+        <Chip
+          size="small"
+          icon={<LinkIcon sx={{ fontSize: 12 }} />}
+          label={`Link → ${suggestion.name}`}
+          onClick={() =>
+            onUpdate({
+              vendor_id: suggestion.id,
+              vendor: suggestion.name,
+              _vendorIsDraft: false,
+            })
+          }
+          sx={{
+            alignSelf: "flex-start",
+            height: 20,
+            fontSize: 10,
+            fontWeight: 600,
+            cursor: "pointer",
+            background: hubTokens.primarySoft,
+            color: hubTokens.primary,
+            "& .MuiChip-icon": { color: hubTokens.primary },
+          }}
+        />
+      )}
     </Box>
   );
 }

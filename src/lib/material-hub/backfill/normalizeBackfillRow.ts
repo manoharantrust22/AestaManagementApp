@@ -108,10 +108,12 @@ export function normalizeBackfillRow(
     raw?.material_name,
     raw?.item
   );
+  const materialQuery = materialName.toLowerCase();
   const matchedMaterial = materialName
     ? materials.find(
         (m) =>
-          m.name.toLowerCase() === materialName.toLowerCase() ||
+          m.name.toLowerCase() === materialQuery ||
+          (!!m.local_name && m.local_name.toLowerCase() === materialQuery) ||
           m.id === raw?.material_id
       )
     : undefined;
