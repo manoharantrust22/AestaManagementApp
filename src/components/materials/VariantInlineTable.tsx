@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import {
+  Alert,
   Box,
   Table,
   TableHead,
@@ -24,7 +25,7 @@ import {
 import type { VariantFormData } from "@/types/material.types";
 import type { MaterialCategory } from "@/types/material.types";
 import type { CategoryVariantTemplate } from "@/types/category-variant-fields.types";
-import { getCategoryTemplate } from "@/lib/category-variant-templates";
+import { getCategoryTemplate, renderNameTemplate } from "@/lib/category-variant-templates";
 import DynamicVariantField from "./DynamicVariantField";
 
 interface VariantInlineTableProps {
@@ -80,11 +81,23 @@ export default function VariantInlineTable({
   }, [template]);
 
   const [newVariant, setNewVariant] = useState<Partial<VariantFormData>>(getEmptyVariant);
+  // Once the user types a name themselves, stop deriving it from the specs below.
+  const [newNameTouched, setNewNameTouched] = useState(false);
 
   // Update new variant state when template changes
   useMemo(() => {
     setNewVariant(getEmptyVariant());
+    setNewNameTouched(false);
   }, [getEmptyVariant]);
+
+  // Derive the draft row's name from its specs (e.g. Shade "Gray" -> Name "Gray"),
+  // same mechanism as VariantInlineCard's edit-mode form. Only touches the name
+  // while the user hasn't typed one directly, so it never fights manual input.
+  useEffect(() => {
+    if (newNameTouched || !template.nameTemplate) return;
+    const derived = renderNameTemplate(template.nameTemplate, newVariant.specifications ?? {});
+    if (derived) setNewVariant((prev) => ({ ...prev, name: derived }));
+  }, [newVariant.specifications, newNameTouched, template.nameTemplate]);
 
   const handleAddVariant = useCallback(() => {
     if (!newVariant.name?.trim()) return;
@@ -111,6 +124,7 @@ export default function VariantInlineTable({
     ]);
 
     setNewVariant(getEmptyVariant());
+    setNewNameTouched(false);
   }, [newVariant, variants, parentCode, onVariantsChange, getEmptyVariant]);
 
   const handleRemoveVariant = useCallback(
@@ -292,9 +306,10 @@ export default function VariantInlineTable({
                   fullWidth
                   placeholder="New variant name..."
                   value={newVariant.name || ""}
-                  onChange={(e) =>
-                    setNewVariant((prev) => ({ ...prev, name: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    setNewNameTouched(true);
+                    setNewVariant((prev) => ({ ...prev, name: e.target.value }));
+                  }}
                   variant="standard"
                   onKeyDown={(e) => e.key === "Enter" && handleAddVariant()}
                 />
@@ -347,6 +362,13 @@ export default function VariantInlineTable({
         >
           Add variants for different sizes or specifications
         </Typography>
+      )}
+
+      {variants.length === 1 && template.fields.some((f) => f.key === "shade") && (
+        <Alert severity="info" sx={{ mt: 1 }}>
+          Only one variant added. If this product also comes in another color, add it
+          as its own row — each variant gets independently priced packs on the next step.
+        </Alert>
       )}
 
       {variants.length > 0 && (

@@ -265,6 +265,7 @@ export const CATEGORY_VARIANT_TEMPLATES: Record<string, CategoryVariantTemplate>
       },
     ],
     defaultUnit: 'bag',
+    nameTemplate: '{shade}',
   },
 
   // ============================================
