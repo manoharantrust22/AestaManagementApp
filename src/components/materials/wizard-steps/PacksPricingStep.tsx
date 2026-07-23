@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   Box,
   Button,
@@ -51,6 +52,25 @@ export default function PacksPricingStep({
 }: PacksPricingStepProps) {
   const rowsFor = (i: number): ContainerSizeRow[] =>
     packsByVariant[i]?.length ? packsByVariant[i] : [blankContainerSize()];
+
+  // Variants that share a name (e.g. two rows both left as "M1010 Bond Plus")
+  // would otherwise render identical card titles here — disambiguate with an
+  // index so pricing never gets entered against the wrong color/size by mistake.
+  const nameCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const v of variants) {
+      const key = v.name.trim().toLowerCase();
+      if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [variants]);
+
+  const cardTitle = (variant: VariantFormData, i: number): string => {
+    const name = variant.name.trim() || `Variant ${i + 1}`;
+    const key = variant.name.trim().toLowerCase();
+    const isDuplicate = key && (nameCounts.get(key) ?? 0) > 1;
+    return isDuplicate ? `${name} (#${i + 1})` : name;
+  };
 
   const setRowsFor = (i: number, rows: ContainerSizeRow[]) => {
     const next = variants.map((_, idx) => (idx === i ? rows : rowsFor(idx)));
@@ -116,7 +136,7 @@ export default function PacksPricingStep({
           >
             <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.25 }}>
               <Typography sx={{ fontSize: 14, fontWeight: 700 }}>
-                {variant.name || `Variant ${i + 1}`}
+                {cardTitle(variant, i)}
               </Typography>
               {i === 0 && variants.length > 1 && (
                 <Button

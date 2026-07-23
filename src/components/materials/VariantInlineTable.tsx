@@ -197,6 +197,24 @@ export default function VariantInlineTable({
   // Check if auto-generate is available
   const hasAutoGenerate = template.autoGenerateConfig?.enabled ?? false;
 
+  // Names that appear on more than one variant (trimmed, case-insensitive) — these
+  // render identically as Pack Sizes & Pricing card titles, making the cards
+  // impossible to tell apart even though each one prices independently underneath.
+  const duplicateVariantNames = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const v of variants) {
+      const key = v.name.trim().toLowerCase();
+      if (!key) continue;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const dupes = new Set<string>();
+    for (const v of variants) {
+      const key = v.name.trim().toLowerCase();
+      if (key && (counts.get(key) ?? 0) > 1) dupes.add(v.name.trim());
+    }
+    return dupes;
+  }, [variants]);
+
   // Get value from variant (check specifications first, then legacy fields)
   const getVariantValue = (variant: VariantFormData, fieldKey: string): unknown => {
     // First check specifications
@@ -368,6 +386,14 @@ export default function VariantInlineTable({
         <Alert severity="info" sx={{ mt: 1 }}>
           Only one variant added. If this product also comes in another color, add it
           as its own row — each variant gets independently priced packs on the next step.
+        </Alert>
+      )}
+
+      {duplicateVariantNames.size > 0 && (
+        <Alert severity="warning" sx={{ mt: 1 }}>
+          Two or more variants are named &ldquo;{Array.from(duplicateVariantNames)[0]}
+          &rdquo; — give each a distinct name (e.g. by color or size) so their pricing
+          stays easy to tell apart on the next step.
         </Alert>
       )}
 
