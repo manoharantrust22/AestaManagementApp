@@ -843,7 +843,27 @@
       "Bash(git rebase *)",
       "Bash(git merge *)",
       "Bash(xargs -I{} echo {})",
-      "Bash(taskkill //PID 33432 //F)"
+      "Bash(taskkill //PID 33432 //F)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:3000 --max-time 5)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code} time=%{time_total}s\\\\n\" http://localhost:3000/dev-login --max-time 30)",
+      "Bash(curl -s http://localhost:3000/dev-login --max-time 30)",
+      "Bash(curl -s -X POST http://localhost:3000/api/dev-ensure-password -H \"Content-Type: application/json\" --max-time 30 -w \"\\\\nHTTP %{http_code}\\\\n\")",
+      "PowerShell($conns = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($conns\\) { $conns | Select-Object -First 1 | ForEach-Object { \"Port 3000 LISTEN by PID $\\($_.OwningProcess\\)\" }; try { $r = Invoke-WebRequest -Uri \"http://localhost:3000/\" -TimeoutSec 8 -UseBasicParsing; \"HTTP $\\($r.StatusCode\\)\" } catch { \"HTTP request error: $\\($_.Exception.Message\\)\" } } else { \"Nothing listening on port 3000\" })",
+      "Bash(tasklist //FI \"IMAGENAME eq node.exe\")",
+      "Bash(find /c \"node.exe\")",
+      "Bash(tasklist //FI \"IMAGENAME eq chrome.exe\")",
+      "Bash(find /c \"chrome.exe\")",
+      "PowerShell(Get-Process node -ErrorAction SilentlyContinue | Select-Object Id, StartTime, @{n='MemMB';e={[math]::Round\\($_.WorkingSet/1MB\\)}} | Sort-Object StartTime)",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.ProcessId -in @\\(45532,44376,10548,43900,9228,46360,37732,49896\\) } | Select-Object ProcessId, CommandLine | Format-List)",
+      "PowerShell(Get-Process chrome,chromium,msedge -ErrorAction SilentlyContinue)",
+      "Bash(curl -s -o /dev/null -w \"materials page: %{http_code}\\\\n\" http://localhost:3000/company/materials --max-time 10)",
+      "Bash(ls -la \"C:\\\\Users\\\\Haribabu\\\\.claude\\\\projects\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\tool-results\\\\bxw7gtmor.txt\" 2>&1)",
+      "Read(//c/Users/Haribabu/.claude/projects/c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp/tool-results/**)",
+      "Bash(rm -f \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\eb2d7d1f-17f4-47e7-bd9c-189e969434c1\\\\tasks\\\\bjpx1rumc.output\" && echo \"deleted\")",
+      "PowerShell($p = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($p\\) { \"port 3000 IN USE by pid \" + $p.OwningProcess } else { \"port 3000 free\" })",
+      "PowerShell(\"wiped\")",
+      "PowerShell(npx vitest run --reporter=dot 2>&1)",
+      "Bash(git commit -q -m ' *)"
     ],
     "deny": [],
     "ask": [],
@@ -854,7 +874,8 @@
       "c:\\Users\\Haribabu\\Documents\\AppsCopilot\\AestaManagementApp\\docs\\superpowers\\specs",
       "c:\\tmp\\brainstorm\\content",
       "c:\\Users\\Haribabu\\Documents\\AppsCopilot\\AestaManagementApp",
-      "C:\\Users\\Haribabu\\AppData\\Local\\ms-playwright-mcp\\mcp-chrome-8c851e6"
+      "C:\\Users\\Haribabu\\AppData\\Local\\ms-playwright-mcp\\mcp-chrome-8c851e6",
+      "C:\\Users\\Haribabu\\AppData\\Local\\Temp\\claude\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\eb2d7d1f-17f4-47e7-bd9c-189e969434c1\\tasks"
     ]
   }
 }
