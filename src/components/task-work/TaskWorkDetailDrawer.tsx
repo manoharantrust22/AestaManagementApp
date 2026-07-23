@@ -580,6 +580,10 @@ export default function TaskWorkDetailDrawer({ open, onClose, pkg, onEdit }: Pro
           siteId={pkg.site_id}
           laborCategoryId={pkg.labor_category_id}
           canEdit={canEdit}
+          packageTitle={pkg.title}
+          totalValue={pkg.total_value || 0}
+          alreadyPaid={paid}
+          startDateHint={pkg.actual_start_date ?? pkg.planned_start_date}
         />
       )}
 

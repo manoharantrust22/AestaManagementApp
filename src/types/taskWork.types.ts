@@ -210,7 +210,16 @@ export interface TaskWorkProfitability {
   actual_end_date: string | null;
   actual_man_days: number;
   actual_working_days: number;
+  /** Lump task_work_payments + per-laborer crew settlements booked to this package. */
   paid: number;
+  /**
+   * Daily wages ALREADY settled on attendance days that were later pulled onto this
+   * package. That money reached the crew for this work, so it counts against the
+   * fixed price instead of being paid again. Derived — un-pulling a day removes it.
+   */
+  wages_prepaid: number;
+  /** paid + wages_prepaid. `balance` is total_value - total_paid. */
+  total_paid: number;
   balance: number;
   retention_held: number;
   daywage_benchmark_cost: number;

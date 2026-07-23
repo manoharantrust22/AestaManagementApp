@@ -93,11 +93,18 @@ export function PackageDetailPane({
   const crewOwed = ledger?.totalNetUnpaid ?? 0;
   const crewTotal = ledger?.totalNet ?? 0;
 
+  // `paid` = money paid FOR this package (lump payments + crew settlements).
+  // `wagesPrepaid` = daily wages already settled on days that were later pulled onto
+  // this package — the crew already has that money for this work, so it counts
+  // against the price rather than being paid a second time. Derived in
+  // v_task_work_profitability, so it disappears again if the days are un-pulled.
   const paid = prof?.paid ?? pkg.paid ?? 0;
+  const wagesPrepaid = prof?.wages_prepaid ?? 0;
+  const totalPaid = prof?.total_paid ?? paid + wagesPrepaid;
   const baseAgreed = pkg.total_value || 0;
-  const balanceDue = prof?.balance ?? baseAgreed - paid;
+  const balanceDue = prof?.balance ?? baseAgreed - totalPaid;
   const isClosed = pkg.status === "completed" || pkg.status === "cancelled";
-  const paidPct = baseAgreed > 0 ? Math.round((paid / baseAgreed) * 100) : 0;
+  const paidPct = baseAgreed > 0 ? Math.round((totalPaid / baseAgreed) * 100) : 0;
 
   // Money vs work — agreed (incl. approved extras) against logged work value & paid.
   const approvedExtras = variations
@@ -105,7 +112,9 @@ export function PackageDetailPane({
     .reduce((s, v) => s + Number(v.amount || 0), 0);
   const effectiveAgreed = baseAgreed + approvedExtras;
   const workValue = sumDayLogValue(dayLogs);
-  const costStatus = computeCostStatus({ effectiveAgreed, workValue, paid });
+  // Uses totalPaid: money that reached the crew as wages is just as spent as money
+  // paid to the maistry, so "paid ahead of / behind the work logged" must see both.
+  const costStatus = computeCostStatus({ effectiveAgreed, workValue, paid: totalPaid });
   const verdict = VERDICT_META[costStatus.verdict];
 
   const pill = STATUS_PILL[pkg.status] ?? STATUS_PILL.active;
@@ -236,9 +245,24 @@ export function PackageDetailPane({
             />
           </Box>
         ) : (
-          <Box sx={{ display: "flex", gap: 1 }}>
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
             <StatCard label="Agreed price" value={formatCurrencyFull(baseAgreed)} />
-            <StatCard label="Paid out" value={formatCurrencyFull(paid)} valueColor={wsColors.primary} sub={`${paidPct}% of price`} />
+            <StatCard
+              label="Paid out"
+              value={formatCurrencyFull(paid)}
+              valueColor={wsColors.primary}
+              sub={`${paidPct}% of price`}
+            />
+            {/* Shown only when it exists, so packages that never had wage days keep
+                the familiar three-card row. */}
+            {wagesPrepaid > 0 && (
+              <StatCard
+                label="Wages already paid"
+                value={formatCurrencyFull(wagesPrepaid)}
+                valueColor={wsColors.green}
+                sub="counts toward price"
+              />
+            )}
             <StatCard
               label={balanceDue >= 0 ? "Balance" : "Overpaid"}
               value={formatCurrencyFull(Math.abs(balanceDue))}
@@ -340,7 +364,7 @@ export function PackageDetailPane({
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <CheckCircleRounded sx={{ fontSize: 18, color: wsColors.green }} />
               <Typography sx={{ fontSize: 13, fontWeight: 700, color: wsColors.ink }}>
-                Completed{pkg.actual_end_date ? ` on ${dayjs(pkg.actual_end_date).format("DD MMM YYYY")}` : ""} · {formatCurrencyFull(paid)} paid
+                Completed{pkg.actual_end_date ? ` on ${dayjs(pkg.actual_end_date).format("DD MMM YYYY")}` : ""} · {formatCurrencyFull(totalPaid)} paid
               </Typography>
             </Box>
             {balanceDue > 0 && (
@@ -366,7 +390,16 @@ export function PackageDetailPane({
         <TaskWorkVariationsSection packageId={pkg.id} siteId={pkg.site_id} canEdit={canEdit} />
 
         <SectionTitle>Day log</SectionTitle>
-        <TaskWorkEffortPanel packageId={pkg.id} siteId={pkg.site_id} laborCategoryId={pkg.labor_category_id} canEdit={canEdit} />
+        <TaskWorkEffortPanel
+          packageId={pkg.id}
+          siteId={pkg.site_id}
+          laborCategoryId={pkg.labor_category_id}
+          canEdit={canEdit}
+          packageTitle={pkg.title}
+          totalValue={baseAgreed}
+          alreadyPaid={paid}
+          startDateHint={pkg.actual_start_date ?? pkg.planned_start_date}
+        />
 
         <SectionTitle>Crew earnings &amp; commission</SectionTitle>
         <ContractLaborLedger

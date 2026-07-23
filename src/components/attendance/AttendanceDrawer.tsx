@@ -100,6 +100,27 @@ interface LaborerWithCategory {
   laborer_type: string;
 }
 
+/**
+ * Is this attendance row already settled (paid)? Returns the settlement reference
+ * for the UI chip, "paid" for legacy rows flagged paid without a settlement group,
+ * or null when the row is free to edit.
+ *
+ * This is the SAME predicate the drawer used to apply to the whole date — it is
+ * now applied per row, so one settled laborer no longer freezes the day for the
+ * rest of the crew. Deleting a settled row is refused by the DB trigger
+ * block_delete_settled_{daily,market}_attendance regardless, which is the real
+ * backstop; this only decides what the save touches.
+ */
+function settledRef(record: {
+  is_paid?: boolean | null;
+  settlement_group_id?: string | null;
+  settlement_groups?: { settlement_reference?: string | null } | null;
+}): string | null {
+  const settled = record.is_paid === true || record.settlement_group_id != null;
+  if (!settled) return null;
+  return record.settlement_groups?.settlement_reference || "paid";
+}
+
 // Extended to include time tracking
 interface SelectedLaborer {
   laborerId: string;
@@ -120,6 +141,15 @@ interface SelectedLaborer {
   // Optional link to the task-work package this laborer worked on that day.
   // ATTRIBUTION ONLY — pay is unchanged; the package day-log derives from this.
   taskWorkPackageId?: string | null;
+  // Set only for rows loaded from the DB. Needed so a settled (locked) row can be
+  // status-updated in place instead of deleted + re-inserted.
+  attendanceId?: string | null;
+  // Non-null when this laborer's day is already settled/paid. Locked rows are
+  // read-only here and are never deleted or re-inserted by the save — their money
+  // (is_paid / settlement_group_id / earnings) must stay exactly as settled.
+  // Holds the settlement reference (e.g. "SET-260720-001") for the UI chip, or
+  // "paid" for legacy rows marked paid with no settlement group.
+  lockedRef?: string | null;
 }
 
 // Extended to include time tracking and individual worker tracking
@@ -148,6 +178,9 @@ interface MarketLaborerEntry {
   // ATTRIBUTION ONLY — pay is unchanged; the package day-log derives from this
   // and the day leaves the daily salary settlement. Mirrors SelectedLaborer.
   taskWorkPackageId?: string | null;
+  // Already-settled crew row: read-only, never deleted/re-inserted. Mirrors
+  // SelectedLaborer.lockedRef.
+  lockedRef?: string | null;
 }
 
 interface LaborRole {
@@ -502,6 +535,12 @@ export default function AttendanceDrawer({
   const [marketLaborers, setMarketLaborers] = useState<MarketLaborerEntry[]>(
     []
   );
+  // Snapshot of which laborers arrived already settled, taken at load time. Kept
+  // separate from selectedLaborers so removing a locked laborer from the roster is
+  // still detectable at save time (see the per-row guard in executeSave).
+  const [lockedLoadedLaborers, setLockedLoadedLaborers] = useState<
+    Array<{ laborerId: string; lockedRef: string }>
+  >([]);
 
   // Default time tracking values (apply to all) - Updated to user preferences
   const [defaultInTime, setDefaultInTime] = useState("09:00");
@@ -684,6 +723,7 @@ export default function AttendanceDrawer({
   const resetForm = () => {
     setSelectedLaborers(new Map());
     setMarketLaborers([]);
+    setLockedLoadedLaborers([]);
     setDefaultInTime("09:00");
     setDefaultLunchOut("13:00");
     setDefaultLunchIn("14:00");
@@ -786,7 +826,7 @@ export default function AttendanceDrawer({
       let attendanceQuery: any = supabase
         .from("daily_attendance")
         .select(
-          "laborer_id, work_days, daily_rate_applied, section_id, in_time, lunch_out, lunch_in, out_time, work_hours, break_hours, total_hours, day_units, entered_by, recorded_by_user_id, attendance_status, work_progress_percent, salary_override, salary_override_reason, task_work_package_id"
+          "id, laborer_id, work_days, daily_rate_applied, section_id, in_time, lunch_out, lunch_in, out_time, work_hours, break_hours, total_hours, day_units, entered_by, recorded_by_user_id, attendance_status, work_progress_percent, salary_override, salary_override_reason, task_work_package_id, is_paid, settlement_group_id, settlement_groups(settlement_reference)"
         )
         .eq("site_id", siteId)
         .eq("date", dateToLoad);
@@ -835,12 +875,19 @@ export default function AttendanceDrawer({
           salaryOverride: record.salary_override ?? null,
           salaryOverrideReason: record.salary_override_reason || "",
           taskWorkPackageId: record.task_work_package_id ?? null,
+          attendanceId: record.id ?? null,
+          lockedRef: settledRef(record),
         });
         if (!loadedSectionId && record.section_id) {
           loadedSectionId = record.section_id;
         }
       });
       setSelectedLaborers(existingSelected);
+      setLockedLoadedLaborers(
+        Array.from(existingSelected.values())
+          .filter((s) => s.lockedRef)
+          .map((s) => ({ laborerId: s.laborerId, lockedRef: s.lockedRef as string }))
+      );
 
       if (loadedSectionId) {
         setSectionId(loadedSectionId);
@@ -856,7 +903,7 @@ export default function AttendanceDrawer({
         supabase.from("market_laborer_attendance") as any
       )
         .select(
-          "id, role_id, worker_index, count, work_days, rate_per_person, in_time, lunch_out, lunch_in, out_time, work_hours, break_hours, total_hours, day_units, salary_override_per_person, salary_override_reason, task_work_package_id, labor_roles(name, category_id)"
+          "id, role_id, worker_index, count, work_days, rate_per_person, in_time, lunch_out, lunch_in, out_time, work_hours, break_hours, total_hours, day_units, salary_override_per_person, salary_override_reason, task_work_package_id, is_paid, settlement_group_id, labor_roles(name, category_id), settlement_groups(settlement_reference)"
         )
         .eq("site_id", siteId)
         .eq("date", dateToLoad)
@@ -891,6 +938,7 @@ export default function AttendanceDrawer({
             salaryOverridePerPerson: m.salary_override_per_person ?? null,
             salaryOverrideReason: m.salary_override_reason || "",
             taskWorkPackageId: m.task_work_package_id ?? null,
+            lockedRef: settledRef(m),
           })
         );
         setMarketLaborers(existingMarket);
@@ -1038,6 +1086,19 @@ export default function AttendanceDrawer({
       }))
     );
   }, [defaultWorkUnit]);
+
+  // How many of this date's workers are already paid (locked) vs still editable.
+  // Drives the info banner explaining why some cards are read-only.
+  const { settledCount, editableCount } = useMemo(() => {
+    const named = Array.from(selectedLaborers.values());
+    const locked =
+      named.filter((s) => s.lockedRef).length +
+      marketLaborers.filter((m) => m.lockedRef).length;
+    return {
+      settledCount: locked,
+      editableCount: named.length + marketLaborers.length - locked,
+    };
+  }, [selectedLaborers, marketLaborers]);
 
   // Calculate summary
   const summary = useMemo(() => {
@@ -1468,52 +1529,45 @@ export default function AttendanceDrawer({
 
       console.log("[AttendanceDrawer] Starting save process...");
 
-      // GUARD: never destroy attendance rows that are already settled/paid.
-      // The save below hard-deletes ALL rows for this site+date and re-inserts them as
-      // unpaid. If an existing row is linked to a settlement (settlement_group_id set) or
-      // marked paid, deleting it orphans the settlement_group and its engineer-wallet debit
-      // WITHOUT reversing the money — the date then re-surfaces as "unsettled" and gets
-      // settled (and charged) a second time. Require the user to reverse the settlement
-      // first (Delete settlement dialog), which resets is_paid/settlement_group_id and
-      // unlinks the wallet transaction, after which editing is safe.
-      try {
-        // In a trade workspace, only THIS contract's settled rows should block the edit —
-        // a settled Civil row on the same date must not lock the trade's own attendance.
-        let settledDailyQuery: any = supabase
-          .from("daily_attendance")
-          .select("id")
-          .eq("site_id", siteId)
-          .eq("date", selectedDate)
-          .or("is_paid.eq.true,settlement_group_id.not.is.null")
-          .limit(1);
-        if (tradeScopeActive) {
-          settledDailyQuery = settledDailyQuery.eq("subcontract_id", scopedContractId);
-        }
-        const [{ data: settledDaily, error: settledDailyErr }, { data: settledMarket, error: settledMarketErr }] =
-          await Promise.all([
-            settledDailyQuery,
-            supabase
-              .from("market_laborer_attendance")
-              .select("id")
-              .eq("site_id", siteId)
-              .eq("date", selectedDate)
-              .or("is_paid.eq.true,settlement_group_id.not.is.null")
-              .limit(1),
-          ]);
-        if (settledDailyErr || settledMarketErr) {
-          console.error("[AttendanceDrawer] Settled-attendance guard check failed:", settledDailyErr || settledMarketErr);
-          setError("Couldn't verify whether this date is already settled. Please try again.");
-          return;
-        }
-        if ((settledDaily && settledDaily.length > 0) || (settledMarket && settledMarket.length > 0)) {
-          setError(
-            "This date already has a settled (paid) attendance entry, so it can't be edited here. Reverse the settlement first (Payments → Salary Settlements → open the settlement → Delete settlement), then edit this date."
-          );
-          return;
-        }
-      } catch (guardErr) {
-        console.error("[AttendanceDrawer] Settled-attendance guard threw:", guardErr);
-        setError("Couldn't verify whether this date is already settled. Please try again.");
+      // GUARD (per row, not per date): never destroy attendance rows that are already
+      // settled/paid. The save below deletes this date's rows and re-inserts them as
+      // unpaid — doing that to a settled row would orphan its settlement_group and the
+      // engineer-wallet debit WITHOUT reversing the money, so the date would re-surface
+      // as "unsettled" and get charged a second time.
+      //
+      // This used to block the WHOLE date if ANY row on it was settled, which meant one
+      // paid laborer (e.g. a single crew settlement spanning three dates) froze the day
+      // for the entire crew — nobody could retag a contract or even close the day. Now
+      // the settled rows are simply left alone: the delete below skips them, the insert
+      // skips them, and only their two-phase status is updated in place. Everything else
+      // on the date stays freely editable.
+      const lockedLaborerIds = new Set(
+        Array.from(selectedLaborers.values())
+          .filter((s) => s.lockedRef)
+          .map((s) => s.laborerId)
+      );
+      const lockedAttendanceIds = Array.from(selectedLaborers.values())
+        .filter((s) => s.lockedRef && s.attendanceId)
+        .map((s) => s.attendanceId as string);
+      const lockedMarketIds = new Set(
+        marketLaborers.filter((m) => m.lockedRef).map((m) => m.id)
+      );
+
+      // A settled laborer removed from the roster can't be honoured — their row is
+      // protected. Name them so the user knows exactly which settlement to reverse.
+      const removedLocked = lockedLoadedLaborers.filter(
+        (l) => !selectedLaborers.has(l.laborerId)
+      );
+      if (removedLocked.length > 0) {
+        const names = removedLocked
+          .map((l) => {
+            const lab = laborers.find((x) => x.id === l.laborerId);
+            return `${lab?.name || "Laborer"} (${l.lockedRef})`;
+          })
+          .join(", ");
+        setError(
+          `Can't remove ${names} — that day is already settled (paid). Reverse the settlement first (Payments → Salary Settlements → open the settlement → Delete settlement), then remove this laborer.`
+        );
         return;
       }
 
@@ -1535,7 +1589,11 @@ export default function AttendanceDrawer({
       const attendanceStatus = statusOverride || (mode === "morning" ? "morning_entry" : "confirmed");
       const now = new Date().toISOString();
 
-      const namedRecords = Array.from(selectedLaborers.values()).map((s) => {
+      const namedRecords = Array.from(selectedLaborers.values())
+        // Settled rows are neither deleted nor re-inserted — they survive untouched
+        // and only get a status update below.
+        .filter((s) => !lockedLaborerIds.has(s.laborerId))
+        .map((s) => {
         // Use salary override if present, otherwise calculated
         const effectiveSalary = s.salaryOverride ?? (s.dayUnits * s.dailyRate);
         const record: Record<string, unknown> = {
@@ -1622,11 +1680,16 @@ export default function AttendanceDrawer({
       // Add timeout wrapper to detect hanging queries.
       // Trade workspace: delete ONLY this contract's rows — in lockstep with the scoped
       // load above — so saving a trade day never wipes Civil's same-day attendance.
+      // Settled rows are excluded: they are protected by the DB trigger
+      // block_delete_settled_daily_attendance (which would abort the WHOLE statement and
+      // leave us re-inserting duplicates), and their money must not be re-created.
       let deleteBuilder: any = supabase
         .from("daily_attendance")
         .delete()
         .eq("site_id", siteId)
-        .eq("date", selectedDate);
+        .eq("date", selectedDate)
+        .not("is_paid", "is", true)
+        .is("settlement_group_id", null);
       // Note: the auto-default (save payload) only fires when NOT trade-scoped,
       // so it never collides with this scoped delete.
       if (tradeScopeActive) {
@@ -1649,13 +1712,19 @@ export default function AttendanceDrawer({
             "[AttendanceDrawer] Error deleting existing attendance:",
             deleteError
           );
-          // Continue anyway - might not have existing records
+          // A failed delete followed by the insert below would duplicate the day.
+          // Only safe to continue when there is nothing to insert.
+          if (namedRecords.length > 0) {
+            throw deleteError;
+          }
         } else {
           console.log("[AttendanceDrawer] Delete completed successfully");
         }
       } catch (timeoutErr) {
         console.error("[AttendanceDrawer] Delete timed out:", timeoutErr);
-        // Continue anyway - the delete might still complete in background
+        if (namedRecords.length > 0) {
+          throw timeoutErr;
+        }
       }
 
       if (namedRecords.length > 0) {
@@ -1685,13 +1754,50 @@ export default function AttendanceDrawer({
         }
       }
 
-      // 2. Save market laborers
+      // 1b. Settled rows survived the delete/insert above untouched. Carry ONLY the
+      // two-phase status onto them so "closing the day" genuinely closes the whole day
+      // — a settled laborer must not leave the date stuck in morning_entry forever.
+      // Deliberately narrow: never work_days / day_units / daily_rate_applied /
+      // daily_earnings / salary_override / is_paid / settlement_group_id /
+      // task_work_package_id. Retagging a settled day to a contract is done from the
+      // package page ("Pull days from attendance"), not here.
+      if (lockedAttendanceIds.length > 0) {
+        const lockedStatusUpdate: Record<string, unknown> = {
+          attendance_status: attendanceStatus,
+          work_progress_percent: workProgressPercent,
+          ...(mode === "morning" ? { morning_entry_at: now } : {}),
+          ...(mode === "evening" || mode === "full" ? { confirmed_at: now } : {}),
+        };
+        if (userProfile?.id) {
+          lockedStatusUpdate.updated_by = userProfile.name;
+          lockedStatusUpdate.updated_by_user_id = userProfile.id;
+        }
+        const { error: lockedErr } = await (supabase.from("daily_attendance") as any)
+          .update(lockedStatusUpdate)
+          .in("id", lockedAttendanceIds);
+        if (lockedErr) {
+          // Non-fatal: the editable rows already saved. Log it rather than failing the
+          // whole day's save over a status stamp.
+          console.error(
+            "[AttendanceDrawer] Could not update status on settled rows:",
+            lockedErr
+          );
+        }
+      }
+
+      // 2. Save market laborers.
+      // Settled crew rows are skipped by the delete below and are not re-inserted.
+      const insertableMarket = marketLaborers.filter((m) => !lockedMarketIds.has(m.id));
       console.log("[AttendanceDrawer] Deleting existing market attendance...");
       let marketDeleteBuilder: any = supabase
         .from("market_laborer_attendance")
         .delete()
         .eq("site_id", siteId)
-        .eq("date", selectedDate);
+        .eq("date", selectedDate)
+        // Settled crew rows are protected (block_delete_settled_market_attendance) and
+        // are re-inserted by nobody — mirrors the daily delete above.
+        .not("is_paid", "is", true)
+        .is("settlement_group_id", null);
       // Trade workspace: delete only market rows whose role belongs to this trade's
       // category (market rows carry no subcontract_id). Sentinel guarantees an empty
       // roster is a provable no-op, never a delete-all.
@@ -1723,7 +1829,7 @@ export default function AttendanceDrawer({
             marketDeleteError
           );
           // If delete fails and we have market laborers to insert, throw error to prevent duplicates
-          if (marketLaborers.length > 0) {
+          if (insertableMarket.length > 0) {
             throw new Error("Failed to delete existing market attendance. Please try again.");
           }
         } else {
@@ -1732,14 +1838,14 @@ export default function AttendanceDrawer({
       } catch (marketTimeoutErr) {
         console.error("[AttendanceDrawer] Market delete timed out:", marketTimeoutErr);
         // If delete times out and we have market laborers to insert, throw error to prevent duplicates
-        if (marketLaborers.length > 0) {
+        if (insertableMarket.length > 0) {
           throw marketTimeoutErr;
         }
       }
 
-      if (marketLaborers.length > 0) {
+      if (insertableMarket.length > 0) {
         console.log("[AttendanceDrawer] Preparing market laborer records...");
-        const marketRecords = marketLaborers.map((m) => {
+        const marketRecords = insertableMarket.map((m) => {
           // Use salary override per person if present
           const effectiveRate = m.salaryOverridePerPerson ?? m.ratePerPerson;
           const record: Record<string, unknown> = {
@@ -2205,6 +2311,17 @@ export default function AttendanceDrawer({
           {success && (
             <Alert severity="success" sx={{ mb: 2 }}>
               {success}
+            </Alert>
+          )}
+          {/* Some of this day's workers are already paid. Their rows are locked, but the
+              rest of the day stays fully editable and closable — a single settled
+              laborer used to freeze the whole date for everyone. */}
+          {settledCount > 0 && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              {settledCount} of {settledCount + editableCount} worker
+              {settledCount + editableCount === 1 ? "" : "s"} on this date{" "}
+              {settledCount === 1 ? "is" : "are"} already paid, so their entries are
+              locked. You can still edit and close the rest.
             </Alert>
           )}
 
@@ -2943,6 +3060,9 @@ export default function AttendanceDrawer({
                           if (!laborer) return null;
 
                           const isHalfDay = selection.dayUnits === 0.5;
+                          // Already settled: money is fixed, so this card is read-only.
+                          // The rest of the crew stays fully editable.
+                          const isLocked = !!selection.lockedRef;
                           const preset = getPresetByValue(selection.dayUnits);
                           const alignmentStatus = getAlignmentStatus(
                             selection.workHours,
@@ -2959,11 +3079,12 @@ export default function AttendanceDrawer({
                                 borderColor: "divider",
                                 borderRadius: 2,
                                 borderLeft: 4,
-                                borderLeftColor:
-                                  laborer.laborer_type === "contract"
-                                    ? "info.main"
-                                    : "warning.main",
-                                bgcolor: "background.paper",
+                                borderLeftColor: isLocked
+                                  ? "success.main"
+                                  : laborer.laborer_type === "contract"
+                                  ? "info.main"
+                                  : "warning.main",
+                                bgcolor: isLocked ? "action.hover" : "background.paper",
                               }}
                             >
                               {/* Header Row */}
@@ -3041,15 +3162,45 @@ export default function AttendanceDrawer({
                                     >
                                       ₹{selection.dailyRate.toLocaleString()}/day
                                     </Typography>
+                                    {isLocked && (
+                                      <Chip
+                                        label={
+                                          selection.lockedRef === "paid"
+                                            ? "Paid"
+                                            : `Paid · ${selection.lockedRef}`
+                                        }
+                                        size="small"
+                                        color="success"
+                                        sx={{
+                                          height: 18,
+                                          fontSize: "0.6rem",
+                                          ml: 0.5,
+                                        }}
+                                      />
+                                    )}
                                   </Box>
                                 </Box>
-                                <IconButton
-                                  size="small"
-                                  onClick={() => handleLaborerToggle(laborer)}
-                                >
-                                  <DeleteIcon fontSize="small" />
-                                </IconButton>
+                                {!isLocked && (
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleLaborerToggle(laborer)}
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                )}
                               </Box>
+
+                              {isLocked && (
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                  sx={{ mb: 1.5, display: "block" }}
+                                >
+                                  Already settled — this day is locked. To move it onto a
+                                  fixed-price contract, use “Pull days from attendance” on
+                                  that contract&apos;s page.
+                                </Typography>
+                              )}
 
                               {/* Work Unit Selection - PRIMARY - Now visible in all modes */}
                               <Box sx={{ mb: 1.5 }}>
@@ -3063,6 +3214,7 @@ export default function AttendanceDrawer({
                                 <ToggleButtonGroup
                                   value={selection.dayUnits}
                                   exclusive
+                                  disabled={isLocked}
                                   onChange={(event, value) => {
                                     if (value !== null) {
                                       if (value === 1.5) {
@@ -3134,6 +3286,10 @@ export default function AttendanceDrawer({
                                     <Select
                                       value={selection.taskWorkPackageId ?? ""}
                                       displayEmpty
+                                      // Settled day: retagging happens on the package
+                                      // page, where the already-paid wages are shown
+                                      // and credited against the fixed price.
+                                      disabled={isLocked}
                                       onChange={(e) =>
                                         handleLaborerFieldChange(
                                           selection.laborerId,
@@ -3198,8 +3354,10 @@ export default function AttendanceDrawer({
                                 </Box>
                               )}
 
-                              {/* Enable Custom Time button - Morning mode only */}
-                              {mode === "morning" && (
+                              {/* Enable Custom Time button - Morning mode only.
+                                  Hidden on settled rows: the fields it reveals (times,
+                                  salary override) all feed the money we must not touch. */}
+                              {mode === "morning" && !isLocked && (
                                 <Box sx={{ mt: 1, display: "flex", justifyContent: "flex-end" }}>
                                   <Button
                                     size="small"
@@ -3286,7 +3444,8 @@ export default function AttendanceDrawer({
                                         </>
                                       )}
                                     </Typography>
-                                    {/* Settings button to expand time & salary fields */}
+                                    {/* Settings button to expand time & salary fields.
+                                        Settled rows keep it hidden — see above. */}
                                     <Tooltip
                                       title={
                                         expandedLaborerTimes.has(
@@ -3310,6 +3469,7 @@ export default function AttendanceDrawer({
                                           });
                                         }}
                                         sx={{
+                                          display: isLocked ? "none" : undefined,
                                           bgcolor: expandedLaborerTimes.has(
                                             selection.laborerId
                                           )
@@ -3636,6 +3796,9 @@ export default function AttendanceDrawer({
 
                     {marketLaborers.map((entry) => {
                   const isHalfDay = entry.dayUnits === 0.5;
+                  // Already settled crew: read-only, exactly like a settled named
+                  // laborer's card.
+                  const isLocked = !!entry.lockedRef;
                   const preset = getPresetByValue(entry.dayUnits);
                   const alignmentStatus = getAlignmentStatus(
                     entry.workHours,
@@ -3669,19 +3832,33 @@ export default function AttendanceDrawer({
                         <Typography variant="subtitle2" fontWeight={600} color="warning.dark">
                           {entry.roleName} {entry.count > 1 ? `(${entry.count})` : `#${entry.workerIndex || 1}`}
                         </Typography>
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => handleRemoveMarketLaborer(entry.id)}
-                          sx={{ ml: "auto" }}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
+                        {isLocked && (
+                          <Chip
+                            label={
+                              entry.lockedRef === "paid"
+                                ? "Paid"
+                                : `Paid · ${entry.lockedRef}`
+                            }
+                            size="small"
+                            color="success"
+                            sx={{ height: 18, fontSize: "0.6rem" }}
+                          />
+                        )}
+                        {!isLocked && (
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleRemoveMarketLaborer(entry.id)}
+                            sx={{ ml: "auto" }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        )}
                       </Box>
                       {/* Header Row with Role, Count, Rate */}
                       <Grid container spacing={{ xs: 1, sm: 2 }} alignItems="flex-start">
                         <Grid size={{ xs: 6, sm: 5 }}>
-                          <FormControl fullWidth size="small">
+                          <FormControl fullWidth size="small" disabled={isLocked}>
                             <InputLabel>Role</InputLabel>
                             <Select
                               value={entry.roleId}
@@ -3735,6 +3912,7 @@ export default function AttendanceDrawer({
                               size="small"
                               label="Rate/Person"
                               type="number"
+                              disabled={isLocked}
                               value={entry.ratePerPerson}
                               onChange={(e) =>
                                 handleMarketLaborerChange(
@@ -3794,6 +3972,7 @@ export default function AttendanceDrawer({
                           <ToggleButtonGroup
                             value={entry.dayUnits}
                             exclusive
+                            disabled={isLocked}
                             onChange={(_, value) => {
                               if (value !== null) {
                                 handleMarketLaborerChange(
@@ -3847,7 +4026,7 @@ export default function AttendanceDrawer({
                           >
                             WORKING ON (CONTRACT)
                           </Typography>
-                          <FormControl size="small" fullWidth>
+                          <FormControl size="small" fullWidth disabled={isLocked}>
                             <Select
                               value={entry.taskWorkPackageId ?? ""}
                               displayEmpty
@@ -3941,7 +4120,11 @@ export default function AttendanceDrawer({
                               return newSet;
                             });
                           }}
-                          sx={{ color: "text.secondary" }}
+                          // Settled crew: the fields behind this all feed the money.
+                          sx={{
+                            color: "text.secondary",
+                            display: isLocked ? "none" : undefined,
+                          }}
                         >
                           {expandedLaborerTimes.has(entry.id)
                             ? "Hide custom time"

@@ -26,6 +26,8 @@ function row(p: Partial<TaskWorkProfitability>): TaskWorkProfitability {
     actual_man_days: 0,
     actual_working_days: 0,
     paid: 0,
+    wages_prepaid: 0,
+    total_paid: 0,
     balance: 0,
     retention_held: 0,
     daywage_benchmark_cost: 0,

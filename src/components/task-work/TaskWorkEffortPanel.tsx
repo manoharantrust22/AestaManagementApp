@@ -12,7 +12,7 @@ import {
   Paper,
   Typography,
 } from "@mui/material";
-import { Add, Delete, Edit } from "@mui/icons-material";
+import { Add, Delete, Edit, PlaylistAdd } from "@mui/icons-material";
 import dayjs from "dayjs";
 import {
   useTaskWorkDayLogs,
@@ -25,12 +25,19 @@ import {
 } from "@/lib/taskWork/dayLogCost";
 import type { TaskWorkDayLog } from "@/types/taskWork.types";
 import TaskWorkDayLogDialog from "./TaskWorkDayLogDialog";
+import TaskWorkPullDaysDialog from "./TaskWorkPullDaysDialog";
 
 interface Props {
   packageId: string;
   siteId: string;
   laborCategoryId: string | null;
   canEdit: boolean;
+  /** Package title + money, for the "pull days" dialog's balance preview. */
+  packageTitle: string;
+  totalValue: number;
+  alreadyPaid: number;
+  /** Package start date, seeds the pull dialog's default range. */
+  startDateHint?: string | null;
 }
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
@@ -45,10 +52,15 @@ export default function TaskWorkEffortPanel({
   siteId,
   laborCategoryId,
   canEdit,
+  packageTitle,
+  totalValue,
+  alreadyPaid,
+  startDateHint,
 }: Props) {
   const { data: logs = [], isLoading } = useTaskWorkDayLogs(packageId);
   const deleteMut = useDeleteTaskWorkDayLog();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [pullOpen, setPullOpen] = useState(false);
   const [editing, setEditing] = useState<TaskWorkDayLog | null>(null);
 
   const totals = useMemo(() => {
@@ -97,16 +109,29 @@ export default function TaskWorkEffortPanel({
       </Paper>
 
       {canEdit && (
-        <Button
-          fullWidth
-          variant="outlined"
-          size="small"
-          startIcon={<Add />}
-          onClick={openNew}
-          sx={{ mb: 1 }}
-        >
-          Log a day
-        </Button>
+        <Box sx={{ display: "flex", gap: 1, mb: 1 }}>
+          <Button
+            fullWidth
+            variant="outlined"
+            size="small"
+            startIcon={<Add />}
+            onClick={openNew}
+          >
+            Log a day
+          </Button>
+          {/* The fast path when the work was recorded as ordinary attendance first
+              (including days already settled) — pull those days onto this package in
+              one go instead of retagging each date in the attendance drawer. */}
+          <Button
+            fullWidth
+            variant="outlined"
+            size="small"
+            startIcon={<PlaylistAdd />}
+            onClick={() => setPullOpen(true)}
+          >
+            Pull days from attendance
+          </Button>
+        </Box>
       )}
 
       <Divider />
@@ -198,6 +223,17 @@ export default function TaskWorkEffortPanel({
         siteId={siteId}
         laborCategoryId={laborCategoryId}
         editing={editing}
+      />
+
+      <TaskWorkPullDaysDialog
+        open={pullOpen}
+        onClose={() => setPullOpen(false)}
+        packageId={packageId}
+        packageTitle={packageTitle}
+        siteId={siteId}
+        totalValue={totalValue}
+        alreadyPaid={alreadyPaid}
+        startDateHint={startDateHint}
       />
     </Box>
   );
