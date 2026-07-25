@@ -863,7 +863,10 @@
       "PowerShell($p = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($p\\) { \"port 3000 IN USE by pid \" + $p.OwningProcess } else { \"port 3000 free\" })",
       "PowerShell(\"wiped\")",
       "PowerShell(npx vitest run --reporter=dot 2>&1)",
-      "Bash(git commit -q -m ' *)"
+      "Bash(git commit -q -m ' *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/site/attendance --max-time 5)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3001/site/attendance --max-time 5)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:3000/site/attendance --max-time 60)"
     ],
     "deny": [],
     "ask": [],
