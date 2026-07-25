@@ -164,7 +164,7 @@ import { useNonCivilTradeSubcontractIds } from "@/hooks/queries/useNonCivilTrade
 import { useAttendanceCommissionMap } from "@/hooks/queries/useAttendanceCommissionMap";
 import { TradeAttendanceView } from "@/components/attendance/trade-view/TradeAttendanceView";
 import { getTradeColor } from "@/theme/tradeColors";
-import { ThemeProvider } from "@mui/material/styles";
+import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { createTradeTheme } from "@/theme/theme";
 import { useSiteAuditState } from "@/hooks/queries/useSiteAuditState";
 import { LegacyAuditBanner } from "@/components/audit";
@@ -1032,6 +1032,28 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     tableContainerRef,
     { orientation: "landscape" }
   );
+
+  // While fullscreened, the native Fullscreen API only paints DOM descendants of
+  // the fullscreened element. MUI overlays (Drawer/Dialog/Popover/Menu/Tooltip)
+  // portal to document.body by default, which is OUTSIDE that subtree, so they
+  // render beneath the top-layer. Inject an in-tree portal target once, via theme
+  // defaultProps, so every overlay under this page mounts inside the fullscreened
+  // box when fullscreen and falls back to document.body otherwise. Layered on top
+  // of tradeTheme (or the base theme) so trade-color overrides survive.
+  //   MuiModal   → Modal, Dialog, Drawer
+  //   MuiPopover → Popover, Menu
+  //   MuiPopper  → Tooltip, Autocomplete popper
+  const fullscreenTheme = React.useMemo(() => {
+    const base = tradeTheme ?? theme;
+    const getContainer = () => (isFullscreen ? tableContainerRef.current : null);
+    return createTheme(base, {
+      components: {
+        MuiModal: { defaultProps: { container: getContainer } },
+        MuiPopover: { defaultProps: { container: getContainer } },
+        MuiPopper: { defaultProps: { container: getContainer } },
+      },
+    });
+  }, [tradeTheme, theme, isFullscreen]);
 
   // While fullscreened, register an in-tree portal target for the global
   // DateRangePicker. The native Fullscreen API only paints descendants of the
@@ -8278,9 +8300,5 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       />
     </Box>
   );
-  return tradeTheme ? (
-    <ThemeProvider theme={tradeTheme}>{content}</ThemeProvider>
-  ) : (
-    content
-  );
+  return <ThemeProvider theme={fullscreenTheme}>{content}</ThemeProvider>;
 }
