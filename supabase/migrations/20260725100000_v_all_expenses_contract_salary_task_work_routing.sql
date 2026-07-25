@@ -42,6 +42,13 @@ DECLARE
 BEGIN
   v_def := pg_get_viewdef('public.v_all_expenses'::regclass, true);
 
+  -- Idempotent: if the routing guards are already present (re-run, or a prod where
+  -- the patch was applied out-of-band), do nothing rather than fail on missing anchors.
+  IF v_def LIKE '%IS DISTINCT FROM ''task_work''::text%'
+     AND v_def LIKE '%contract_ref_kind = ''task_work''::text OR NOT%' THEN
+    RETURN;
+  END IF;
+
   -- (1) Daily Salary branch — its unique tail is the market_laborer_attendance
   -- EXISTS closed by three parens (the OR-wrapped pair). Append the contract_ref guard.
   v_new := regexp_replace(
