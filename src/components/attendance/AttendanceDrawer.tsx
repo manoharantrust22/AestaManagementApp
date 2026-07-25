@@ -31,6 +31,11 @@ import {
   Popover,
   Radio,
   RadioGroup,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -65,6 +70,7 @@ import { useGroupTeaShopAccount } from "@/hooks/queries/useGroupTeaShop";
 import { useQuery } from "@tanstack/react-query";
 import { useSubcontractMeta } from "@/hooks/queries/useSubcontractMeta";
 import { useTaskWorkPackages } from "@/hooks/queries/useTaskWorkPackages";
+import { useMoveSettledDayToPackage } from "@/hooks/mutations/useMoveSettledDayToPackage";
 import { scopedLaborerIds } from "@/lib/workforce/laborerScope";
 import AttendanceSaveConfirmDialog from "./AttendanceSaveConfirmDialog";
 import { WorkUpdatesSection } from "./work-updates";
@@ -181,6 +187,24 @@ interface MarketLaborerEntry {
   // Already-settled crew row: read-only, never deleted/re-inserted. Mirrors
   // SelectedLaborer.lockedRef.
   lockedRef?: string | null;
+}
+
+/**
+ * A pending move of a SETTLED (paid) named laborer's day onto (or off) a fixed-price
+ * package, awaiting the site engineer's confirmation. Because the day is already paid,
+ * the move re-attributes the whole settlement server-side (move_settled_day_to_package)
+ * the instant it is confirmed — it does NOT wait for the drawer's Save.
+ */
+interface PendingSettledMove {
+  laborerId: string;
+  laborerName: string;
+  attendanceId: string;
+  lockedRef: string | null;
+  /** Package currently attributed to (for a reversal / switch), or null. */
+  currentPackageId: string | null;
+  /** Package being moved onto, or null when reverting to General site work. */
+  targetPackageId: string | null;
+  targetPackageTitle: string | null;
 }
 
 interface LaborRole {
@@ -585,6 +609,13 @@ export default function AttendanceDrawer({
   const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Moving an already-settled (paid) named laborer's day onto/off a fixed-price
+  // package. Confirmed via a dialog, then applied immediately (re-attributes the
+  // whole settlement server-side) — independent of the drawer's Save button.
+  const moveSettledDay = useMoveSettledDayToPackage();
+  const [pendingSettledMove, setPendingSettledMove] =
+    useState<PendingSettledMove | null>(null);
   const [expandedSection, setExpandedSection] = useState<string | false>(
     "work"
   );
@@ -3196,9 +3227,10 @@ export default function AttendanceDrawer({
                                   color="text.secondary"
                                   sx={{ mb: 1.5, display: "block" }}
                                 >
-                                  Already settled — this day is locked. To move it onto a
-                                  fixed-price contract, use “Pull days from attendance” on
-                                  that contract&apos;s page.
+                                  Already paid — the day&apos;s attendance is locked. You can
+                                  still move it (and its settlement) onto a fixed-price
+                                  contract using the dropdown below; the paid wage moves
+                                  onto that contract in the expenses ledger.
                                 </Typography>
                               )}
 
@@ -3286,19 +3318,46 @@ export default function AttendanceDrawer({
                                     <Select
                                       value={selection.taskWorkPackageId ?? ""}
                                       displayEmpty
-                                      // Settled day: retagging happens on the package
-                                      // page, where the already-paid wages are shown
-                                      // and credited against the fixed price.
-                                      disabled={isLocked}
-                                      onChange={(e) =>
+                                      // A settled (paid) day stays selectable here: the
+                                      // whole settlement is re-attributed server-side on
+                                      // confirmation. A settled row with no DB id can't be
+                                      // targeted, so it stays disabled in that rare case.
+                                      disabled={isLocked && !selection.attendanceId}
+                                      onChange={(e) => {
+                                        const newVal =
+                                          e.target.value === ""
+                                            ? null
+                                            : (e.target.value as string);
+                                        if (isLocked) {
+                                          // Paid day: don't mutate local state or wait for
+                                          // Save — confirm, then move the settlement now.
+                                          if (
+                                            newVal ===
+                                            (selection.taskWorkPackageId ?? null)
+                                          )
+                                            return;
+                                          setPendingSettledMove({
+                                            laborerId: selection.laborerId,
+                                            laborerName: laborer.name,
+                                            attendanceId: selection.attendanceId as string,
+                                            lockedRef: selection.lockedRef ?? null,
+                                            currentPackageId:
+                                              selection.taskWorkPackageId ?? null,
+                                            targetPackageId: newVal,
+                                            targetPackageTitle: newVal
+                                              ? activePackages.find(
+                                                  (p) => p.id === newVal
+                                                )?.title ?? "the contract"
+                                              : null,
+                                          });
+                                          return;
+                                        }
                                         handleLaborerFieldChange(
                                           selection.laborerId,
                                           "taskWorkPackageId",
-                                          e.target.value === ""
-                                            ? null
-                                            : (e.target.value as string)
-                                        )
-                                      }
+                                          newVal
+                                        );
+                                      }}
                                       renderValue={(val) => {
                                         if (!val)
                                           return (
@@ -3347,8 +3406,9 @@ export default function AttendanceDrawer({
                                       color="text.secondary"
                                       sx={{ mt: 0.5, display: "block" }}
                                     >
-                                      Still paid their daily wage — this just records
-                                      their work against the contract.
+                                      {isLocked
+                                        ? "The paid wage for this day is booked against this contract in the ledger."
+                                        : "Still paid their daily wage — this just records their work against the contract."}
                                     </Typography>
                                   )}
                                 </Box>
@@ -4565,6 +4625,108 @@ export default function AttendanceDrawer({
       hasExistingAttendance={hasExistingAttendance}
       saving={saving}
     />
+
+    {/* Confirm moving a SETTLED (paid) day onto / off a fixed-price contract.
+        Applied immediately server-side (re-attributes the whole settlement) — it
+        does not wait for the Save button. */}
+    <Dialog
+      open={!!pendingSettledMove}
+      onClose={() => {
+        if (!moveSettledDay.isPending) setPendingSettledMove(null);
+      }}
+      maxWidth="xs"
+      fullWidth
+    >
+      <DialogTitle>
+        {pendingSettledMove?.targetPackageId
+          ? "Move this paid day to the contract?"
+          : "Remove this paid day from the contract?"}
+      </DialogTitle>
+      <DialogContent>
+        <DialogContentText component="div">
+          {pendingSettledMove?.targetPackageId ? (
+            <>
+              <strong>{pendingSettledMove?.laborerName}</strong>&apos;s day is already
+              paid
+              {pendingSettledMove?.lockedRef &&
+              pendingSettledMove.lockedRef !== "paid"
+                ? ` (${pendingSettledMove.lockedRef})`
+                : ""}
+              . Moving it onto{" "}
+              <strong>{pendingSettledMove?.targetPackageTitle}</strong> will move that
+              whole settlement onto the contract: the wage stays paid, but in the
+              expenses ledger it is booked against this contract instead of its current
+              booking. You can undo this later.
+            </>
+          ) : (
+            <>
+              Move <strong>{pendingSettledMove?.laborerName}</strong>&apos;s paid day off
+              the contract and restore its original booking? The wage stays paid.
+            </>
+          )}
+        </DialogContentText>
+      </DialogContent>
+      <DialogActions>
+        <Button
+          onClick={() => setPendingSettledMove(null)}
+          disabled={moveSettledDay.isPending}
+        >
+          Cancel
+        </Button>
+        <Button
+          variant="contained"
+          disabled={moveSettledDay.isPending}
+          onClick={() => {
+            const move = pendingSettledMove;
+            if (!move) return;
+            moveSettledDay.mutate(
+              {
+                siteId,
+                laborerId: move.laborerId,
+                attendanceIds: [move.attendanceId],
+                packageId: move.targetPackageId,
+                affectedPackageIds: [move.currentPackageId].filter(
+                  Boolean
+                ) as string[],
+              },
+              {
+                onSuccess: (res) => {
+                  // Reflect the change on the card (money already moved server-side).
+                  handleLaborerFieldChange(
+                    move.laborerId,
+                    "taskWorkPackageId",
+                    move.targetPackageId
+                  );
+                  const refs = res.settlement_refs?.join(", ");
+                  setSuccess(
+                    move.targetPackageId
+                      ? `Moved ${move.laborerName}'s paid day${
+                          refs ? ` (${refs})` : ""
+                        } onto ${move.targetPackageTitle}.`
+                      : `Moved ${move.laborerName}'s paid day back to its original booking.`
+                  );
+                  setTimeout(() => setSuccess(null), 4000);
+                  setPendingSettledMove(null);
+                },
+                onError: (err: unknown) => {
+                  setError(
+                    (err as { message?: string })?.message ||
+                      "Couldn't move the settled day. Please try again."
+                  );
+                  setPendingSettledMove(null);
+                },
+              }
+            );
+          }}
+        >
+          {moveSettledDay.isPending
+            ? "Moving…"
+            : pendingSettledMove?.targetPackageId
+            ? "Move it"
+            : "Remove it"}
+        </Button>
+      </DialogActions>
+    </Dialog>
     </>
   );
 }
