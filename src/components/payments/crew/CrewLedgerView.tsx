@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Box, Skeleton, Typography } from "@mui/material";
+import { Box, Skeleton, Tooltip, Typography } from "@mui/material";
+import WarningAmberRounded from "@mui/icons-material/WarningAmberRounded";
 import dayjs from "dayjs";
 import { useSalaryCrewLedger } from "@/hooks/queries/useSalaryCrewLedger";
 import type { CrewLedgerRow, CrewLedgerWeek } from "@/lib/payments/crewLedger";
@@ -51,6 +52,34 @@ export default function CrewLedgerView({
       }
     }
     return map;
+  }, [ledger]);
+
+  // The three named sources of money that reached nobody's week. Their sum is
+  // the hero's EXCESS PAID, which otherwise looks like it contradicts the
+  // arrears below it.
+  const unapplied = useMemo(() => {
+    const pool = ledger?.pool;
+    const parts = [
+      {
+        key: "mesthri",
+        amount: pool?.futureCredit ?? 0,
+        label: `credit with ${ledger?.config.mesthriName ?? "the mesthri"}`,
+        help: `Lump money paid to ${ledger?.config.mesthriName ?? "the mesthri"} that no week can absorb any more — his own wages and commission are fully covered, and since the crew cutover pool money can no longer pay laborers. It rolls forward to future work.`,
+      },
+      {
+        key: "ahead",
+        amount: pool?.laborerCredit ?? 0,
+        label: "laborers paid ahead",
+        help: "Per-laborer payments that came to more than that laborer's net wages for the week they were recorded against — hand cash given in advance of the work. The surplus stays as credit until they earn it.",
+      },
+      {
+        key: "offweek",
+        amount: pool?.paidAhead ?? 0,
+        label: "on a week with no salary days",
+        help: "Money recorded against a week in which that laborer has no company salary days — usually because they were on a task-work package all week, which is paid separately. It no longer offsets that week's arrears.",
+      },
+    ].filter((p) => p.amount > 0.5);
+    return { parts, total: parts.reduce((s, p) => s + p.amount, 0) };
   }, [ledger]);
 
   if (isLoading) {
@@ -115,6 +144,54 @@ export default function CrewLedgerView({
           {formatCurrencyFull(ledger.totals.laborersUnpaid)}
         </Typography>
       </Box>
+
+      {/* Unapplied money — the other side of the hero's EXCESS PAID. Wages can be
+          owed and money over-paid at the same time because the two belong to
+          different people; naming the three sources is what makes that readable. */}
+      {unapplied.total > 0.5 && (
+        <Box
+          sx={{
+            px: 1.25, py: 1,
+            borderRadius: `${wsRadius.input}px`,
+            border: `1px solid ${wsColors.hairline}`,
+            bgcolor: wsColors.surface,
+          }}
+        >
+          <Box sx={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 1 }}>
+            <Typography sx={{ fontSize: 11.5, fontWeight: 700, color: wsColors.muted, textTransform: "uppercase", letterSpacing: ".04em" }}>
+              Paid but not on any week
+            </Typography>
+            <Typography sx={{ fontSize: 16, fontWeight: 900, color: wsColors.ink, ...num }}>
+              {formatCurrencyFull(unapplied.total)}
+            </Typography>
+          </Box>
+          <Typography sx={{ fontSize: 11, color: wsColors.muted, mt: 0.25, ...num }}>
+            {unapplied.parts.map((p, i) => (
+              <Tooltip key={p.key} title={p.help}>
+                <Box component="span" sx={{ cursor: "help", borderBottom: `1px dotted ${wsColors.hairline}` }}>
+                  {i > 0 && " · "}
+                  {formatCurrencyFull(p.amount)} {p.label}
+                </Box>
+              </Tooltip>
+            ))}
+          </Typography>
+
+          {ledger.pool.paidAheadRows.map((r) => (
+            <Box
+              key={`${r.laborerId}-${r.weekStart}`}
+              sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.5 }}
+            >
+              <WarningAmberRounded sx={{ fontSize: 15, color: wsColors.amber }} />
+              <Typography sx={{ fontSize: 11, color: wsColors.ink2, ...num }}>
+                <b>{r.name}</b> · {formatCurrencyFull(r.amount)} recorded on{" "}
+                {dayjs(r.weekStart).format("D MMM")}–
+                {dayjs(r.weekStart).add(6, "day").format("D MMM")}, a week with no
+                salary days for them (task-work?) — check it is not paid twice.
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      )}
 
       {payTarget && (
         <CrewLaborerPayDialog

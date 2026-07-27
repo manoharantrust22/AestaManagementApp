@@ -66,7 +66,7 @@ export default function CrewMesthriStrip({
         </Typography>
         {view.poolAbsorbed > 0 && (
           <Tooltip
-            title={`Money paid earlier without a laborer (lumps / excess) counts toward ${name} first — ${formatCurrencyFull(view.poolAbsorbed)} already absorbed into his wages and commission.`}
+            title={`Money paid earlier without a laborer (lumps / excess) counts toward ${name} first — ${formatCurrencyFull(view.poolAbsorbed)} has already been USED UP against his own wages and commission. This is money now accounted for, not money still spare: what is left over is shown as "Paid but not on any week" below.`}
           >
             <Chip
               icon={<SouthEastRounded sx={{ fontSize: 14 }} />}

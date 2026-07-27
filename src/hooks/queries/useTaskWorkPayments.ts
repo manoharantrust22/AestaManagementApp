@@ -51,6 +51,10 @@ function invalidate(
     queryKey: queryKeys.taskWork.profitability(packageId),
   });
   queryClient.invalidateQueries({ queryKey: queryKeys.taskWork.byId(packageId) });
+  // The Payments panel renders from get_contract_payment_history, keyed
+  // separately from the legacy task-work payments list above — without this,
+  // a recorded/deleted payment only shows up after a full page refresh.
+  queryClient.invalidateQueries({ queryKey: ["contract-payment-history"] });
   // Package money rolls up into the parent section's spend breakdown.
   queryClient.invalidateQueries({ queryKey: ["section-spend"] });
   if (siteId) {

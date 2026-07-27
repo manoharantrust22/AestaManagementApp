@@ -21,6 +21,13 @@ export interface MobileCollapsibleHeroProps {
   statusLabel: string;
   statusValue: string;
   statusVariant: KpiTileVariant;
+  /**
+   * Optional second headline for tabs where two figures are true at once (crew
+   * pay can owe wages AND hold unapplied excess). Rendered as a muted chip so
+   * the collapsed bar never hides half the story.
+   */
+  secondaryLabel?: string;
+  secondaryValue?: string;
   progressPct: number;
   progressColor: string;
   children: React.ReactNode;
@@ -54,6 +61,8 @@ export function MobileCollapsibleHero({
   statusLabel,
   statusValue,
   statusVariant,
+  secondaryLabel,
+  secondaryValue,
   progressPct,
   progressColor,
   children,
@@ -136,6 +145,24 @@ export function MobileCollapsibleHero({
         >
           {statusValue}
         </Typography>
+        {secondaryLabel && secondaryValue && (
+          <Typography
+            sx={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: "text.secondary",
+              fontVariantNumeric: "tabular-nums",
+              flexShrink: 0,
+              px: 0.75,
+              py: 0.125,
+              borderRadius: 0.75,
+              bgcolor: alpha(theme.palette.text.primary, 0.06),
+              display: { xs: "none", sm: "block" },
+            }}
+          >
+            {secondaryLabel} {secondaryValue}
+          </Typography>
+        )}
 
         <Box sx={{ flex: 1, display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
           <Box

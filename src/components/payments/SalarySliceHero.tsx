@@ -51,7 +51,6 @@ export function SalarySliceHero({ summary, isLoading }: SalarySliceHeroProps) {
     );
   }
 
-  const totalPaid = summary.settlementsTotal + summary.advancesTotal;
   const progressPct =
     summary.wagesDue > 0
       ? Math.min(100, Math.round((summary.paidToWeeks / summary.wagesDue) * 100))
@@ -63,25 +62,35 @@ export function SalarySliceHero({ summary, isLoading }: SalarySliceHeroProps) {
         ? theme.palette.warning.main
         : theme.palette.success.main;
 
+  // Below this a residue is float noise, not real money (mirrors SETTLED_EPSILON
+  // in crewLedger.ts) — a ₹0.30 rounding tail must not colour a tile red.
+  const EPSILON = 0.5;
+  const hasOwed = summary.mestriOwed > EPSILON;
+  const hasExcess = summary.futureCredit > EPSILON;
+
+  // The collapsed bar has room for one headline + one chip. Owed leads when it
+  // exists (it is the actionable half); excess rides along as the secondary.
   let statusLabel: string;
   let statusVariant: KpiTileProps["variant"];
   let statusValue: string;
-  let statusSub: string;
-  if (summary.futureCredit > 0) {
+  let secondaryLabel: string | undefined;
+  let secondaryValue: string | undefined;
+  if (hasOwed) {
+    statusLabel = "Still Owed";
+    statusVariant = "error";
+    statusValue = formatINR(summary.mestriOwed);
+    if (hasExcess) {
+      secondaryLabel = "Excess";
+      secondaryValue = formatINR(summary.futureCredit);
+    }
+  } else if (hasExcess) {
     statusLabel = "Excess Paid";
     statusVariant = "info";
     statusValue = formatINR(summary.futureCredit);
-    statusSub = "rolls forward to future work";
-  } else if (summary.mestriOwed > 0) {
-    statusLabel = "Mestri Owed";
-    statusVariant = "error";
-    statusValue = formatINR(summary.mestriOwed);
-    statusSub = "due based on work done";
   } else {
     statusLabel = "Settled";
     statusVariant = "success";
     statusValue = "₹0";
-    statusSub = "fully paid up";
   }
 
   return (
@@ -90,6 +99,8 @@ export function SalarySliceHero({ summary, isLoading }: SalarySliceHeroProps) {
       statusLabel={statusLabel}
       statusValue={statusValue}
       statusVariant={statusVariant}
+      secondaryLabel={secondaryLabel}
+      secondaryValue={secondaryValue}
       progressPct={progressPct}
       progressColor={progressColor}
     >
@@ -126,28 +137,35 @@ export function SalarySliceHero({ summary, isLoading }: SalarySliceHeroProps) {
           variant="neutral"
         />
         <KpiTile
-          label="Paid (waterfall)"
-          value={formatINR(summary.settlementsTotal)}
-          sub={`${summary.settlementCount} settlements`}
+          label="Applied to weeks"
+          value={formatINR(summary.paidToWeeks)}
+          sub="covers the weeks above"
+          formula={`${progressPct}% of wages due`}
           variant="success"
         />
         <KpiTile
-          label="Advances"
-          value={formatINR(summary.advancesTotal)}
-          sub={`${summary.advanceCount} records · separate`}
-          variant="warning"
+          label="Still Owed"
+          value={formatINR(summary.mestriOwed)}
+          sub={hasOwed ? "wages not yet covered" : "all weeks covered"}
+          variant={hasOwed ? "error" : "success"}
         />
         <KpiTile
-          label="Total Paid"
-          value={formatINR(totalPaid)}
-          sub="waterfall + advance"
+          label="Excess Paid"
+          value={formatINR(summary.futureCredit)}
+          sub={hasExcess ? "paid, not on any week" : "nothing unapplied"}
+          formula={hasExcess ? "rolls forward to future work" : undefined}
+          variant={hasExcess ? "info" : "neutral"}
+        />
+        <KpiTile
+          label="Paid Out"
+          value={formatINR(summary.settlementsTotal)}
+          sub={`${summary.settlementCount} settlements`}
+          formula={
+            summary.advancesTotal > 0
+              ? `+ ${formatINR(summary.advancesTotal)} advances (separate)`
+              : undefined
+          }
           variant="info"
-        />
-        <KpiTile
-          label={statusLabel}
-          value={statusValue}
-          sub={statusSub}
-          variant={statusVariant}
         />
       </Box>
 
@@ -187,6 +205,27 @@ export function SalarySliceHero({ summary, isLoading }: SalarySliceHeroProps) {
           {progressPct}%
         </Typography>
       </Box>
+
+      {/* The bridge. Without it "Paid Out − Wages Due" looks like it should equal
+          Excess Paid, and it never does: money that landed on no week is in Paid
+          Out but not in Applied, while uncovered wages sit on the other side. */}
+      {(hasExcess || hasOwed) && (
+        <Typography
+          sx={{
+            fontSize: 11,
+            color: "text.secondary",
+            mt: 0.75,
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {formatINR(summary.settlementsTotal)} paid out ={" "}
+          {formatINR(summary.paidToWeeks)} applied to weeks
+          {hasExcess && <> + {formatINR(summary.futureCredit)} not on any week</>}
+          {hasOwed && (
+            <> · {formatINR(summary.mestriOwed)} of wages still uncovered</>
+          )}
+        </Typography>
+      )}
     </MobileCollapsibleHero>
   );
 }

@@ -36,35 +36,63 @@ describe("SalarySliceHero", () => {
     render(<SalarySliceHero summary={baseSummary} isLoading={false} />);
     expand();
     expect(screen.getByText("Wages Due")).toBeInTheDocument();
-    expect(screen.getByText("Paid (waterfall)")).toBeInTheDocument();
-    expect(screen.getByText("Advances")).toBeInTheDocument();
-    expect(screen.getByText("Total Paid")).toBeInTheDocument();
-    // "Mestri Owed" appears in both the collapsed header status label AND in the KPI tile
-    expect(screen.getAllByText("Mestri Owed").length).toBeGreaterThan(0);
+    expect(screen.getByText("Applied to weeks")).toBeInTheDocument();
+    expect(screen.getByText("Excess Paid")).toBeInTheDocument();
+    expect(screen.getByText("Paid Out")).toBeInTheDocument();
+    // "Still Owed" appears in both the collapsed header status label AND the tile
+    expect(screen.getAllByText("Still Owed").length).toBeGreaterThan(0);
     expect(screen.getByText("₹2,34,400")).toBeInTheDocument();
   });
 
-  it("shows 'Excess Paid' label when futureCredit > 0", () => {
+  it("shows advances as a separate line on the Paid Out tile", () => {
+    render(<SalarySliceHero summary={baseSummary} isLoading={false} />);
+    expand();
+    expect(
+      screen.getByText("+ ₹43,400 advances (separate)")
+    ).toBeInTheDocument();
+  });
+
+  it("renders BOTH Still Owed and Excess Paid when the two coexist", () => {
+    // Crew pay makes this the normal case: pool money that can no longer fill a
+    // laborer week sits as excess while those laborers are still owed.
     render(
       <SalarySliceHero
-        summary={{ ...baseSummary, futureCredit: 4000, mestriOwed: 0 }}
+        summary={{
+          ...baseSummary,
+          wagesDue: 680025,
+          settlementsTotal: 690470,
+          advancesTotal: 0,
+          advanceCount: 0,
+          paidToWeeks: 676150,
+          futureCredit: 14320,
+          mestriOwed: 3875,
+        }}
         isLoading={false}
       />
     );
     expand();
-    expect(screen.getAllByText("Excess Paid").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Mestri Owed")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Still Owed").length).toBeGreaterThan(0);
+    expect(screen.getByText("Excess Paid")).toBeInTheDocument();
+    expect(screen.getAllByText("₹3,875").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("₹14,320").length).toBeGreaterThan(0);
+    // The bridge line — the whole point of the strip.
+    expect(
+      screen.getByText(/₹6,90,470 paid out = ₹6,76,150 applied to weeks/)
+    ).toBeInTheDocument();
   });
 
-  it("shows 'Settled' label when both mestriOwed and futureCredit are zero", () => {
+  it("shows 'Settled' in the collapsed bar when nothing is owed or unapplied", () => {
     render(
       <SalarySliceHero
         summary={{ ...baseSummary, mestriOwed: 0, futureCredit: 0 }}
         isLoading={false}
       />
     );
+    expect(screen.getByText("Settled")).toBeInTheDocument();
     expand();
-    expect(screen.getAllByText("Settled").length).toBeGreaterThan(0);
+    // Both zero-state tiles still render, so the row always reconciles.
+    expect(screen.getByText("all weeks covered")).toBeInTheDocument();
+    expect(screen.getByText("nothing unapplied")).toBeInTheDocument();
   });
 
   it("renders skeleton placeholders when isLoading", () => {

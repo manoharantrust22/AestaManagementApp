@@ -84,8 +84,28 @@ export interface CrewLedger {
     commissionCashTotal: number;
     absorbedPre: number;
     absorbedMesthri: number;
+    /** Lump money the mesthri holds that no week can absorb any more. */
     futureCredit: number;
+    targetedTotal: number;
+    targetedApplied: number;
+    /** Per-laborer payments beyond that laborer's net for the week they hit. */
+    laborerCredit: number;
+    /** Targeted money pinned to a week the laborer has no salary days in. */
+    paidAhead: number;
+    paidAheadRows: CrewPaidAheadRow[];
   };
+}
+
+/**
+ * A payment stamped to a week the laborer did not work in the salary slice —
+ * usually because they spent that week on a task-work package, which is paid by
+ * the package. Surfaced so the money can be re-pointed instead of being paid twice.
+ */
+export interface CrewPaidAheadRow {
+  laborerId: string;
+  name: string;
+  weekStart: string;
+  amount: number;
 }
 
 export type CrewLedgerResult = CrewLedger | { enabled: false };
@@ -161,6 +181,19 @@ export function mapCrewLedger(raw: unknown): CrewLedgerResult {
       absorbedPre: num(r.pool?.absorbed_pre),
       absorbedMesthri: num(r.pool?.absorbed_mesthri),
       futureCredit: num(r.pool?.future_credit),
+      targetedTotal: num(r.pool?.targeted_total),
+      targetedApplied: num(r.pool?.targeted_applied),
+      laborerCredit: num(r.pool?.laborer_credit),
+      paidAhead: num(r.pool?.paid_ahead),
+      paidAheadRows: (Array.isArray(r.pool?.paid_ahead_rows)
+        ? r.pool.paid_ahead_rows
+        : []
+      ).map((row: any): CrewPaidAheadRow => ({
+        laborerId: str(row.laborer_id),
+        name: str(row.name),
+        weekStart: str(row.week_start),
+        amount: num(row.amount),
+      })),
     },
   };
 }

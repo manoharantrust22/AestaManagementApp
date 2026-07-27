@@ -866,7 +866,14 @@
       "Bash(git commit -q -m ' *)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/site/attendance --max-time 5)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3001/site/attendance --max-time 5)",
-      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:3000/site/attendance --max-time 60)"
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:3000/site/attendance --max-time 60)",
+      "PowerShell(npx vitest run src/components/payments src/lib/payments src/hooks/queries/useSalarySliceSummary.test.tsx --reporter=basic 2>&1)",
+      "PowerShell($c = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in 3000,3001,3002 }; if \\($c\\) { $c | Select-Object LocalPort, OwningProcess } else { \"no dev server listening on 3000-3002\" })",
+      "PowerShell(npx playwright test tests/salary-hero-reconciles.spec.ts --reporter=list 2>&1)",
+      "PowerShell(git add .claude/settings.local.json src/components/payments/MobileCollapsibleHero.tsx src/components/payments/SalarySliceHero.test.tsx src/components/payments/SalarySliceHero.tsx src/components/payments/crew/CrewLedgerView.tsx src/components/payments/crew/CrewMesthriStrip.tsx src/hooks/queries/useTaskWorkPayments.ts src/lib/payments/crewLedger.ts test-results/.last-run.json supabase/migrations/20260727120000_crew_unapplied_money_and_matched_fills.sql tests/salary-hero-reconciles.spec.ts)",
+      "PowerShell(git commit -F \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\43947c6f-836c-4f54-a45e-8ae7e99f2784\\\\scratchpad\\\\commitmsg.txt\")",
+      "PowerShell(git add .claude/settings.local.json)",
+      "PowerShell(git commit -F \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\43947c6f-836c-4f54-a45e-8ae7e99f2784\\\\scratchpad\\\\commitmsg.txt\" 2>&1)"
     ],
     "deny": [],
     "ask": [],
