@@ -2,14 +2,20 @@ import type { MaterialThread } from "./threadTypes";
 import { advanceAwaitingSettle } from "./stageHelpers";
 import type { UserRole } from "@/lib/permissions";
 
-export type NextActionWho = "admin" | "engineer" | "office";
+export type NextActionWho = "admin" | "engineer" | "office" | "either";
 
 /**
  * Which user roles may actually PERFORM an action tagged with each `who`.
  * Admin is a super-role and may act everywhere; office handles the back-office
- * steps (PO, vendor/inter-site settlement); site engineers own the on-site
- * steps (delivery, usage). Office does NOT perform engineer actions — the
- * ownership ladder is SE → office → SE → SE → office.
+ * steps (PO, inter-site settlement); site engineers own the on-site steps
+ * (delivery, usage). Office does NOT perform engineer actions.
+ *
+ * `either` = a step BOTH sides genuinely perform, so neither may be told to
+ * wait on the other. Paying the vendor is the only such step: the office
+ * settles some bills directly from company funds, and the site engineer settles
+ * others out of the float in his wallet (MaterialSettlementDialog forces
+ * `payment_channel='engineer_wallet'` for him). Tagging it `office` made the
+ * Hub show the engineer holding the cash a passive "Waiting for office" chip.
  *
  * NOTE: do NOT gate with `hasAdminPermission()` — it is a dev bypass that
  * returns true for everyone. This map + `canActOnNext` is the client-side
@@ -19,6 +25,7 @@ export const WHO_ALLOWED_ROLES: Record<NextActionWho, UserRole[]> = {
   admin: ["admin", "office"],
   office: ["admin", "office"],
   engineer: ["site_engineer", "admin"],
+  either: ["admin", "office", "site_engineer"],
 };
 
 /** True when a user with `role` is allowed to perform `next`. */
@@ -74,7 +81,7 @@ export function nextAction(t: MaterialThread): NextAction | null {
   // advance is paid (advance_paid > 0) or a settlement row exists this is false
   // and we fall through to the normal delivery flow below.
   if (advanceAwaitingSettle(t)) {
-    return { who: "office", label: "Settle vendor →", verb: "Settle" };
+    return { who: "either", label: "Settle vendor →", verb: "Settle" };
   }
 
   // 'ordered' covers both no-delivery-yet AND partial-delivered. The next
@@ -98,7 +105,8 @@ export function nextAction(t: MaterialThread): NextAction | null {
     if (isAdvancePaid || t.settlement?.status === "settled") {
       return { who: "engineer", label: "Log usage →", verb: "Log usage" };
     }
-    return { who: "office", label: "Settle vendor →", verb: "Settle" };
+    // Either side pays the vendor — see WHO_ALLOWED_ROLES.either.
+    return { who: "either", label: "Settle vendor →", verb: "Settle" };
   }
 
   if (t.stage === "settled") {

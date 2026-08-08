@@ -13,6 +13,7 @@
  * Mirrors the action-button block inside `ProtoThreadRow`.
  */
 
+import React from "react";
 import { Box, Tooltip } from "@mui/material";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import CheckIcon from "@mui/icons-material/Check";
@@ -101,8 +102,9 @@ export default function ThreadActionButton({
   // this stops e.g. a site engineer from filling a whole dialog only to hit a
   // confusing RLS failure.)
   if (!canActOnNext(next, userProfile?.role)) {
-    const waitingOn =
-      next.who === "engineer" ? "site engineer" : "office";
+    // `either` steps (vendor payment) are open to every role, so they never
+    // reach this branch — the labels below cover the single-owner steps only.
+    const waitingOn = next.who === "engineer" ? "site engineer" : "office";
     return (
       <Tooltip
         title={`This step (${next.verb.toLowerCase()}) is done by the ${

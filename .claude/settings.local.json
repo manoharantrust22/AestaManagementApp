@@ -873,7 +873,9 @@
       "PowerShell(git add .claude/settings.local.json src/components/payments/MobileCollapsibleHero.tsx src/components/payments/SalarySliceHero.test.tsx src/components/payments/SalarySliceHero.tsx src/components/payments/crew/CrewLedgerView.tsx src/components/payments/crew/CrewMesthriStrip.tsx src/hooks/queries/useTaskWorkPayments.ts src/lib/payments/crewLedger.ts test-results/.last-run.json supabase/migrations/20260727120000_crew_unapplied_money_and_matched_fills.sql tests/salary-hero-reconciles.spec.ts)",
       "PowerShell(git commit -F \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\43947c6f-836c-4f54-a45e-8ae7e99f2784\\\\scratchpad\\\\commitmsg.txt\")",
       "PowerShell(git add .claude/settings.local.json)",
-      "PowerShell(git commit -F \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\43947c6f-836c-4f54-a45e-8ae7e99f2784\\\\scratchpad\\\\commitmsg.txt\" 2>&1)"
+      "PowerShell(git commit -F \"C:\\\\Users\\\\Haribabu\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Haribabu-Documents-AppsCopilot-AestaManagementApp\\\\43947c6f-836c-4f54-a45e-8ae7e99f2784\\\\scratchpad\\\\commitmsg.txt\" 2>&1)",
+      "PowerShell(gh api repos/manoharantrust22/AestaManagementApp/commits/9f408f8/status --jq '.state, \\(.statuses[] | \"\\\\\\(.context\\): \\\\\\(.state\\) \\\\\\(.target_url\\)\"\\)' 2>&1)",
+      "PowerShell(gh api \"repos/manoharantrust22/AestaManagementApp/commits/9f408f8/status\" | ConvertFrom-Json | ForEach-Object { \"overall: $\\($_.state\\)\"; $_.statuses | ForEach-Object { \"$\\($_.context\\): $\\($_.state\\)  $\\($_.target_url\\)\" } })"
     ],
     "deny": [],
     "ask": [],

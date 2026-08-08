@@ -22,8 +22,9 @@ import { nextAction, type NextActionWho } from "./nextAction";
 
 export type StageStepKey = "po" | "deliver" | "settle" | "inuse";
 
-/** Who's on the hook at a step — same vocabulary as `nextAction().who`. */
-export type StepRole = NextActionWho; // "admin" | "engineer" | "office"
+/** Who's on the hook at a step — same vocabulary as `nextAction().who`.
+ *  "either" = office or site engineer (vendor payment). */
+export type StepRole = NextActionWho;
 
 export interface StageStepDef {
   key: StageStepKey;
@@ -52,6 +53,7 @@ export const ROLE_LABEL: Record<StepRole, string> = {
   admin: "Admin",
   engineer: "Engineer",
   office: "Office",
+  either: "Office or engineer",
 };
 
 /**
@@ -96,6 +98,10 @@ export interface StepActionCounts {
   admin: number;
   engineer: number;
   office: number;
+  /** Steps either side may perform — vendor payment (office direct or engineer
+   *  wallet). Kept separate from `office` so the tint never implies the site
+   *  engineer is blocked on the back office. */
+  either: number;
   /** Total threads at this step that currently need *someone's* action. */
   total: number;
 }
@@ -110,7 +116,7 @@ export interface StepCount {
 export type StageStepCounts = Record<StageStepKey, StepCount>;
 
 function emptyStepCount(): StepCount {
-  return { total: 0, action: { admin: 0, engineer: 0, office: 0, total: 0 } };
+  return { total: 0, action: { admin: 0, engineer: 0, office: 0, either: 0, total: 0 } };
 }
 
 /**
@@ -144,10 +150,11 @@ export function stageStepCounts(threads: MaterialThread[]): StageStepCounts {
  * idle SETTLE step still reads "office", an idle IN USE still reads "engineer").
  */
 export function dominantRole(step: StageStepDef, count: StepCount): StepRole {
-  const { admin, engineer, office } = count.action;
-  const max = Math.max(admin, engineer, office);
+  const { admin, engineer, office, either } = count.action;
+  const max = Math.max(admin, engineer, office, either);
   if (max === 0) return step.role;
   if (office === max) return "office";
+  if (either === max) return "either";
   if (engineer === max) return "engineer";
   return "admin";
 }

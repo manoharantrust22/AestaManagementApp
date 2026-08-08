@@ -128,13 +128,15 @@ describe("stageStepCounts", () => {
       makeThread({ id: "a", stage: "requested", po: undefined }), // office (create PO)
       makeThread({ id: "b", stage: "approved", po: undefined }), // office (create PO)
       makeThread({ id: "c", stage: "ordered", po: makePO({ received_qty: 0 }) }), // engineer
-      makeThread({ id: "d", stage: "delivered" }), // office (settle)
+      makeThread({ id: "d", stage: "delivered" }), // either (settle vendor)
       makeThread({ id: "e", stage: "in-use" }), // engineer (log usage)
     ];
     const c = stageStepCounts(threads);
     expect(c.po.action.office).toBe(2);
     expect(c.deliver.action.engineer).toBe(1);
-    expect(c.settle.action.office).toBe(1);
+    // Paying the vendor belongs to office AND site engineer (wallet float).
+    expect(c.settle.action.either).toBe(1);
+    expect(c.settle.action.office).toBe(0);
     expect(c.inuse.action.engineer).toBe(1);
     expect(c.inuse.action.total).toBe(1);
   });
@@ -155,13 +157,31 @@ describe("stageStepCounts", () => {
 describe("dominantRole", () => {
   it("falls back to the step's canonical role when nothing is actionable", () => {
     const settle = STAGE_STEPS.find((s) => s.key === "settle")!;
-    expect(dominantRole(settle, { total: 3, action: { admin: 0, engineer: 0, office: 0, total: 0 } })).toBe("office");
+    expect(
+      dominantRole(settle, {
+        total: 3,
+        action: { admin: 0, engineer: 0, office: 0, either: 0, total: 0 },
+      })
+    ).toBe("office");
   });
 
   it("picks the role with the most pending actions", () => {
     const inuse = STAGE_STEPS.find((s) => s.key === "inuse")!;
     expect(
-      dominantRole(inuse, { total: 5, action: { admin: 0, engineer: 1, office: 3, total: 4 } })
+      dominantRole(inuse, {
+        total: 5,
+        action: { admin: 0, engineer: 1, office: 3, either: 0, total: 4 },
+      })
     ).toBe("office");
+  });
+
+  it("reads a pending vendor payment as shared, not office-blocked", () => {
+    const settle = STAGE_STEPS.find((s) => s.key === "settle")!;
+    expect(
+      dominantRole(settle, {
+        total: 4,
+        action: { admin: 0, engineer: 0, office: 0, either: 4, total: 4 },
+      })
+    ).toBe("either");
   });
 });

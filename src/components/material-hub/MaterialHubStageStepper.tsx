@@ -34,6 +34,9 @@ const ROLE_TONE: Record<StepRole, HubTone> = {
   admin: "pink",
   engineer: "primary",
   office: "warn",
+  // Vendor payment (office direct or engineer wallet) keeps the amber it had
+  // when it was tagged office-only — the tint means "money still owed".
+  either: "warn",
 };
 
 export interface MaterialHubStageStepperProps {
