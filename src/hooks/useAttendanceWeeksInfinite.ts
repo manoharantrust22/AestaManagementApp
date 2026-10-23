@@ -24,6 +24,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useSelectedSite } from "@/contexts/SiteContext";
 import { cacheTTL } from "@/lib/cache/keys";
 import { weekStartStr, weekEndStr } from "@/lib/utils/weekUtils";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 import type { RawAttendanceData } from "@/hooks/useAttendanceData";
 
 export interface AttendanceWeekPage {
@@ -132,6 +133,12 @@ async function fetchAttendanceWeek(
     .gte("date", from)
     .lte("date", to);
 
+  // Hard timeout so a stalled connection (e.g. a saturated Cloudflare proxy
+  // pool) rejects instead of leaving this page's promise pending forever —
+  // an indefinitely-pending queryFn freezes isFetchingNextPage, which in
+  // turn stalls the IntersectionObserver/auto-paginate/"Load earlier"
+  // guards that all wait on it. Mirrors useAttendanceData.ts's identical
+  // query set.
   const [
     attendanceResult,
     marketResult,
@@ -139,14 +146,18 @@ async function fetchAttendanceWeek(
     teaShopResult,
     teaShopAllocationsResult,
     holidaysResult,
-  ] = await Promise.all([
-    attendanceQuery,
-    marketQuery,
-    summaryQuery,
-    teaShopQuery,
-    teaShopAllocationsQuery,
-    holidaysQuery,
-  ]);
+  ] = await withTimeout(
+    Promise.all([
+      attendanceQuery,
+      marketQuery,
+      summaryQuery,
+      teaShopQuery,
+      teaShopAllocationsQuery,
+      holidaysQuery,
+    ]),
+    TIMEOUTS.QUERY,
+    "Attendance week fetch timed out. Please retry."
+  );
 
   if (attendanceResult.error) {
     throw new Error(

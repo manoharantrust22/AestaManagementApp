@@ -17,6 +17,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { cacheTTL } from "@/lib/cache/keys";
+import { withTimeout, TIMEOUTS } from "@/lib/utils/timeout";
 
 export interface UseAttendanceDateCoverageOptions {
   siteId: string | undefined;
@@ -45,9 +46,22 @@ export function useAttendanceDateCoverage({
     staleTime: cacheTTL.transactional,
     gcTime: cacheTTL.transactional * 2,
     queryFn: async (): Promise<Set<string>> => {
-      const { data, error } = await (supabase.rpc as any)(
-        "get_site_attendance_dates",
-        { p_site_id: siteId, p_from: from, p_to: to }
+      // Timeout (not caught below) propagates as a thrown error so isError
+      // flips and the global QueryCache pool-recovery handler engages —
+      // without this, a stalled connection leaves this set permanently
+      // empty, which mislabels real attendance as "unfilled" on the
+      // attendance sheet instead of surfacing a "Load earlier" prompt.
+      const rpcPromise: Promise<{ data: any; error: any }> = (
+        supabase.rpc as any
+      )("get_site_attendance_dates", {
+        p_site_id: siteId,
+        p_from: from,
+        p_to: to,
+      });
+      const { data, error } = await withTimeout(
+        rpcPromise,
+        TIMEOUTS.QUERY,
+        "Attendance date coverage timed out. Please retry."
       );
       if (error) {
         console.warn("Attendance date coverage failed:", error);

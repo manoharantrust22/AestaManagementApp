@@ -1605,6 +1605,10 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       while (pagesTried < 8 && weeksWithAttendance < 4) {
         const result = await weeksQuery.fetchNextPage();
         pagesTried += 1;
+        // Fail fast on a broken page instead of retrying the same failure
+        // up to 8x — fetchNextPage resolves (doesn't reject) even when the
+        // underlying fetch errored, so this has to be checked explicitly.
+        if (result.isError) break;
         const pages = result.data?.pages ?? [];
         const last = pages[pages.length - 1];
         if (
@@ -6686,7 +6690,25 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                     </TableRow>
                   )}
                   {combinedDateEntries.length > 0 && (
-                    <TableRow>
+                    <TableRow
+                      onClick={
+                        !weeksQuery.isFetchingNextPage && weeksQuery.hasNextPage
+                          ? () => weeksQuery.fetchNextPage()
+                          : undefined
+                      }
+                      sx={
+                        !weeksQuery.isFetchingNextPage && weeksQuery.hasNextPage
+                          ? {
+                              cursor: "pointer",
+                              "&:hover": {
+                                bgcolor: weeksQuery.isError
+                                  ? alpha(theme.palette.warning.main, 0.08)
+                                  : alpha(theme.palette.action.hover, 1),
+                              },
+                            }
+                          : undefined
+                      }
+                    >
                       <TableCell
                         colSpan={13}
                         align="center"
@@ -6700,10 +6722,20 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                               Loading older weeks…
                             </Typography>
                           </Box>
+                        ) : weeksQuery.isError ? (
+                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1 }}>
+                            <WarningAmberIcon fontSize="small" color="warning" />
+                            <Typography variant="body2" color="warning.main">
+                              Couldn&apos;t load more attendance — tap to retry
+                            </Typography>
+                          </Box>
                         ) : weeksQuery.hasNextPage ? (
-                          <Typography variant="caption" color="text.secondary">
-                            Scroll to load more
-                          </Typography>
+                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5 }}>
+                            <ExpandMore fontSize="small" color="action" />
+                            <Typography variant="body2" color="text.secondary">
+                              Load more
+                            </Typography>
+                          </Box>
                         ) : (
                           <Typography variant="caption" color="text.disabled">
                             End of records
