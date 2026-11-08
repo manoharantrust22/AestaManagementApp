@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -24,6 +24,8 @@ import {
   FormControlLabel,
   RadioGroup,
   Radio,
+  Switch,
+  Stack,
 } from "@mui/material";
 import {
   EventBusy as HolidayIcon,
@@ -32,11 +34,18 @@ import {
   Warning as WarningIcon,
   Delete as DeleteIcon,
   CheckCircle as CheckIcon,
+  Save as SaveIcon,
 } from "@mui/icons-material";
 import dayjs from "dayjs";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { holidayInScope } from "@/lib/utils/holidayUtils";
+import {
+  holidayInScope,
+  enumerateDates,
+  formatHolidayDateRange,
+  parseHolidayError,
+  type HolidayGroup,
+} from "@/lib/utils/holidayUtils";
 
 export interface SiteHoliday {
   id: string;
@@ -58,7 +67,7 @@ interface Site {
 export interface HolidayConfirmDialogProps {
   open: boolean;
   onClose: () => void;
-  mode: "mark" | "revoke" | "list";
+  mode: "mark" | "revoke" | "list" | "edit";
   site: Site;
   existingHoliday?: SiteHoliday | null;
   recentHolidays?: SiteHoliday[];
@@ -68,6 +77,18 @@ export interface HolidayConfirmDialogProps {
   tradeCategoryId?: string | null;
   /** Active trade display name — passed from T3; shown in T4 confirm copy. */
   tradeName?: string | null;
+  /** mark mode: open with the "Multiple days" range toggle on (planning). */
+  defaultMultiDay?: boolean;
+  /** edit mode: the holiday group (one or more consecutive days) being edited. */
+  editGroup?: HolidayGroup | null;
+  /**
+   * Which attendance blocks marking a date as holiday.
+   * "civil" (default) = any daily_attendance row for the site (Civil page).
+   * "none" = skip that query; trade views pass their own `recordedDates`.
+   */
+  attendanceCheck?: "civil" | "none";
+  /** Dates that already have attendance in this workspace (trade views). */
+  recordedDates?: string[];
 }
 
 export default function HolidayConfirmDialog({
@@ -81,6 +102,10 @@ export default function HolidayConfirmDialog({
   date,
   tradeCategoryId = null,
   tradeName,
+  defaultMultiDay = false,
+  editGroup = null,
+  attendanceCheck = "civil",
+  recordedDates,
 }: HolidayConfirmDialogProps) {
   const supabase = createClient();
   const { userProfile } = useAuth();
@@ -91,15 +116,44 @@ export default function HolidayConfirmDialog({
   // Scope of the holiday being marked: the active workspace only, or all
   // workspaces (trade_category_id NULL).
   const [applyToAll, setApplyToAll] = useState(false);
+  // Date selection (mark mode). Single day uses fromDate; range uses both.
+  const [multiDay, setMultiDay] = useState(defaultMultiDay);
+  const [fromDate, setFromDate] = useState(date || dayjs().format("YYYY-MM-DD"));
+  const [toDate, setToDate] = useState(date || dayjs().format("YYYY-MM-DD"));
+  const [confirmRevokeGroup, setConfirmRevokeGroup] = useState(false);
 
-  // Use provided date or default to today
-  const targetDate = date || dayjs().format("YYYY-MM-DD");
-  const targetDateFormatted = dayjs(targetDate).format("dddd, DD MMMM YYYY");
-  const isToday = dayjs(targetDate).isSame(dayjs(), "day");
+  // Re-seed the form every time the dialog opens (date / mode / group may differ).
+  useEffect(() => {
+    if (!open) return;
+    const seed = date || dayjs().format("YYYY-MM-DD");
+    setFromDate(seed);
+    setToDate(seed);
+    setMultiDay(defaultMultiDay);
+    setReason(mode === "edit" && editGroup ? editGroup.reason : "");
+    setError(null);
+    setConfirmRevokeGroup(false);
+  }, [open, date, defaultMultiDay, mode, editGroup]);
+
+  const isToday = !multiDay && dayjs(fromDate).isSame(dayjs(), "day");
+  const rangeInvalid = multiDay && dayjs(toDate).isBefore(dayjs(fromDate), "day");
+  const selectedDates = rangeInvalid
+    ? []
+    : multiDay
+      ? enumerateDates(fromDate, toDate)
+      : [fromDate];
+  const tooManyDays = selectedDates.length > 62;
 
   const handleMarkHoliday = async () => {
     if (!reason.trim()) {
       setError("Please provide a reason for the holiday");
+      return;
+    }
+    if (rangeInvalid) {
+      setError("End date must be on or after the start date");
+      return;
+    }
+    if (selectedDates.length === 0 || tooManyDays) {
+      setError("Pick a range of at most 62 days");
       return;
     }
 
@@ -118,56 +172,118 @@ export default function HolidayConfirmDialog({
     setError(null);
 
     try {
-      // Already a holiday for this date IN THE SAME SCOPE? (partial unique index => <=1 row)
+      // Dates already a holiday IN THE SAME SCOPE (partial unique index => <=1 row/date)
       let existQuery = supabase
         .from("site_holidays")
-        .select("id")
+        .select("date")
         .eq("site_id", site.id)
-        .eq("date", targetDate);
+        .in("date", selectedDates);
       existQuery = targetTradeCategoryId
         ? existQuery.eq("trade_category_id", targetTradeCategoryId)
         : existQuery.is("trade_category_id", null);
-      const { data: existingHolidayData } = await existQuery.maybeSingle();
+      const { data: existingRows } = await existQuery;
+      const taken = new Set((existingRows || []).map((r: { date: string }) => r.date));
+      const newDates = selectedDates.filter((d) => !taken.has(d));
 
-      if (existingHolidayData) {
-        setError("This date is already marked as a holiday. Use the revoke option to remove it first.");
+      if (newDates.length === 0) {
+        setError(
+          selectedDates.length === 1
+            ? "This date is already marked as a holiday. Use the revoke option to remove it first."
+            : "All selected dates are already holidays."
+        );
         setSaving(false);
         return;
       }
 
-      // Check if attendance exists for this date
-      const { data: existingAttendance } = await supabase
-        .from("daily_attendance")
-        .select("date")
-        .eq("site_id", site.id)
-        .eq("date", targetDate)
-        .limit(1);
+      // Block dates that already have attendance recorded
+      let blockedDate: string | null =
+        newDates.find((d) => recordedDates?.includes(d)) ?? null;
+      if (!blockedDate && attendanceCheck === "civil") {
+        const { data: existingAttendance } = await supabase
+          .from("daily_attendance")
+          .select("date")
+          .eq("site_id", site.id)
+          .in("date", newDates)
+          .limit(1);
+        blockedDate = existingAttendance?.[0]?.date ?? null;
+      }
 
-      if (existingAttendance && existingAttendance.length > 0) {
-        setError("Cannot mark as holiday - attendance already recorded for this date");
+      if (blockedDate) {
+        setError(
+          `Cannot mark ${dayjs(blockedDate).format("DD MMM YYYY")} as holiday - attendance already recorded for this date`
+        );
         setSaving(false);
         return;
       }
 
-      const { data: insertedHoliday, error: insertError } = await supabase
+      const { data: inserted, error: insertError } = await supabase
         .from("site_holidays")
-        .insert({
-          site_id: site.id,
-          date: targetDate,
-          reason: reason.trim(),
-          created_by: userProfile?.id,
-          trade_category_id: targetTradeCategoryId,
-        })
-        .select()
-        .single();
+        .insert(
+          newDates.map((d) => ({
+            site_id: site.id,
+            date: d,
+            reason: reason.trim(),
+            created_by: userProfile?.id,
+            trade_category_id: targetTradeCategoryId,
+          }))
+        )
+        .select();
 
       if (insertError) throw insertError;
 
-      onSuccess(insertedHoliday);
+      onSuccess(inserted && inserted.length === 1 ? inserted[0] : undefined);
       handleClose();
     } catch (err) {
       console.error("Error marking holiday:", err);
-      setError("Failed to mark holiday. Please try again.");
+      setError(parseHolidayError(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editGroup) return;
+    if (!reason.trim()) {
+      setError("Please provide a reason for the holiday");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const { error: updateError } = await supabase
+        .from("site_holidays")
+        .update({ reason: reason.trim() })
+        .in("id", editGroup.holidays.map((h) => h.id));
+      if (updateError) throw updateError;
+      onSuccess();
+      handleClose();
+    } catch (err) {
+      console.error("Error updating holiday:", err);
+      setError(parseHolidayError(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRevokeGroup = async () => {
+    if (!editGroup) return;
+    if (!confirmRevokeGroup) {
+      setConfirmRevokeGroup(true);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const { error: deleteError } = await supabase
+        .from("site_holidays")
+        .delete()
+        .in("id", editGroup.holidays.map((h) => h.id));
+      if (deleteError) throw deleteError;
+      onSuccess();
+      handleClose();
+    } catch (err) {
+      console.error("Error revoking holidays:", err);
+      setError("Failed to revoke holiday. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -222,6 +338,7 @@ export default function HolidayConfirmDialog({
     setReason("");
     setError(null);
     setApplyToAll(false);
+    setConfirmRevokeGroup(false);
     onClose();
   };
 
@@ -260,20 +377,57 @@ export default function HolidayConfirmDialog({
                 {site.name}
               </Typography>
             </Box>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <CalendarIcon fontSize="small" color="action" />
-              <Typography variant="body2" color="text.secondary">
-                {targetDateFormatted}
-              </Typography>
-              {isToday && <Chip label="Today" size="small" color="success" sx={{ ml: 1 }} />}
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 1.5 }}>
+              <TextField
+                type="date"
+                size="small"
+                label={multiDay ? "From" : "Date"}
+                value={fromDate}
+                onChange={(e) => {
+                  setFromDate(e.target.value);
+                  if (dayjs(toDate).isBefore(dayjs(e.target.value), "day")) setToDate(e.target.value);
+                }}
+                InputLabelProps={{ shrink: true }}
+                sx={{ flex: 1, bgcolor: "background.paper" }}
+              />
+              {multiDay && (
+                <TextField
+                  type="date"
+                  size="small"
+                  label="To"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  inputProps={{ min: fromDate }}
+                  error={rangeInvalid}
+                  sx={{ flex: 1, bgcolor: "background.paper" }}
+                />
+              )}
+            </Stack>
+            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mt: 1, flexWrap: "wrap" }}>
+              <FormControlLabel
+                control={
+                  <Switch size="small" checked={multiDay} onChange={(e) => setMultiDay(e.target.checked)} />
+                }
+                label={<Typography variant="body2" component="span">Multiple days</Typography>}
+              />
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <CalendarIcon fontSize="small" color="action" />
+                <Typography variant="body2" color="text.secondary">
+                  {multiDay
+                    ? `${selectedDates.length} day${selectedDates.length === 1 ? "" : "s"}`
+                    : dayjs(fromDate).format("dddd")}
+                </Typography>
+                {isToday && <Chip label="Today" size="small" color="success" sx={{ ml: 0.5 }} />}
+              </Box>
             </Box>
           </Box>
 
           <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
             <Typography variant="body2">
               {tradeName
-                ? `This will mark ${isToday ? "today" : "this date"} as a holiday for ${tradeName}.`
-                : `Marking ${isToday ? "today" : "this date"} as a holiday will prevent attendance reminder notifications for this site.`}
+                ? `This will mark ${multiDay ? "these dates" : isToday ? "today" : "this date"} as a holiday for ${tradeName}.`
+                : `Marking ${multiDay ? "these dates" : isToday ? "today" : "this date"} as a holiday will prevent attendance reminder notifications for this site.`}
             </Typography>
           </Alert>
 
@@ -329,11 +483,15 @@ export default function HolidayConfirmDialog({
             onClick={handleMarkHoliday}
             variant="contained"
             color="success"
-            disabled={saving || !reason.trim()}
+            disabled={saving || !reason.trim() || rangeInvalid || tooManyDays}
             startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <CheckIcon />}
             sx={{ minWidth: 140 }}
           >
-            {saving ? "Marking..." : "Mark Holiday"}
+            {saving
+              ? "Marking..."
+              : selectedDates.length > 1
+                ? `Mark ${selectedDates.length} days`
+                : "Mark Holiday"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -418,6 +576,109 @@ export default function HolidayConfirmDialog({
             sx={{ minWidth: 140 }}
           >
             {saving ? "Revoking..." : "Revoke Holiday"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    );
+  }
+
+  // Edit Mode - edit reason / revoke a whole holiday group
+  if (mode === "edit" && editGroup) {
+    return (
+      <Dialog
+        open={open}
+        onClose={handleClose}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ pb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+          <HolidayIcon color="warning" />
+          <Typography variant="h6" component="span" fontWeight={600}>
+            Edit Holiday
+          </Typography>
+        </DialogTitle>
+
+        <DialogContent sx={{ pt: 2 }}>
+          <Box
+            sx={{
+              bgcolor: "warning.50",
+              borderRadius: 2,
+              p: 2,
+              mb: 2,
+              border: 2,
+              borderColor: "warning.200",
+            }}
+          >
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+              <LocationIcon fontSize="small" color="warning" />
+              <Typography variant="h6" fontWeight={700}>
+                {site.name}
+              </Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <CalendarIcon fontSize="small" color="action" />
+              <Typography variant="body2" color="text.secondary">
+                {formatHolidayDateRange(editGroup)}
+              </Typography>
+              <Chip
+                label={`${editGroup.dayCount} ${editGroup.dayCount === 1 ? "day" : "days"}`}
+                size="small"
+                color="warning"
+                sx={{ ml: 0.5, height: 20 }}
+              />
+            </Box>
+          </Box>
+
+          <TextField
+            fullWidth
+            label="Reason for Holiday"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            required
+            sx={{ mb: 1, mt: 1 }}
+            autoFocus
+          />
+
+          {confirmRevokeGroup && (
+            <Alert severity="warning" icon={<WarningIcon />} sx={{ mt: 2, borderRadius: 2 }}>
+              <Typography variant="body2" fontWeight={500}>
+                Revoke {editGroup.dayCount === 1 ? "this holiday" : `all ${editGroup.dayCount} days`}?
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Attendance can then be recorded for {editGroup.dayCount === 1 ? "this date" : "these dates"}.
+              </Typography>
+            </Alert>
+          )}
+
+          {error && (
+            <Alert severity="error" sx={{ mt: 2, borderRadius: 2 }}>
+              {error}
+            </Alert>
+          )}
+        </DialogContent>
+
+        <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
+          <Button
+            onClick={handleRevokeGroup}
+            color="error"
+            variant={confirmRevokeGroup ? "contained" : "text"}
+            disabled={saving}
+            startIcon={<DeleteIcon />}
+            sx={{ mr: "auto" }}
+          >
+            {confirmRevokeGroup ? "Confirm revoke" : "Revoke"}
+          </Button>
+          <Button onClick={handleClose} color="inherit" disabled={saving}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSaveEdit}
+            variant="contained"
+            disabled={saving || !reason.trim() || reason.trim() === editGroup.reason.trim()}
+            startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+          >
+            Save
           </Button>
         </DialogActions>
       </Dialog>

@@ -1,16 +1,12 @@
-"use client";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-import { Suspense } from "react";
-import HolidaysContent from "./holidays-content";
-
-// HolidaysContent reads ?contractId= via useSearchParams (workspace scope), which
-// requires a Suspense boundary above it.
-export default function HolidaysPage() {
-  return (
-    <Suspense fallback={null}>
-      <HolidaysContent />
-    </Suspense>
-  );
+// Holidays are now managed inside Attendance (mark / plan / edit / revoke).
+// Keep this route so old links and bookmarks land on the right page.
+export default async function HolidaysPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ contractId?: string }>;
+}) {
+  const { contractId } = await searchParams;
+  redirect(contractId ? `/site/attendance?contractId=${encodeURIComponent(contractId)}` : "/site/attendance");
 }

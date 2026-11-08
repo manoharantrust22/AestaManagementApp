@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Box,
@@ -17,6 +17,7 @@ import {
   WbSunny,
   EventNote,
   EventBusy as HolidayIcon,
+  BeachAccess as BeachAccessIcon,
   Close as CloseIcon,
 } from "@mui/icons-material";
 import { useQueryClient } from "@tanstack/react-query";
@@ -36,6 +37,13 @@ import { MidAttendanceEntryDrawer } from "./MidAttendanceEntryDrawer";
 import { useContractMidEntries } from "@/hooks/queries/useContractMidEntries";
 import { RecordPaymentDialog } from "@/components/trades/RecordPaymentDialog";
 import MiscExpenseDialog from "@/components/expenses/MiscExpenseDialog";
+import HolidayConfirmDialog from "@/components/attendance/HolidayConfirmDialog";
+import UpcomingHolidaysStrip from "@/components/attendance/UpcomingHolidaysStrip";
+import { useSiteHolidays } from "@/hooks/queries/useSiteHolidays";
+import { useContractHeadcount } from "@/hooks/queries/useContractHeadcount";
+import { useAuth } from "@/contexts/AuthContext";
+import { hasEditPermission } from "@/lib/permissions";
+import { groupHolidays, type HolidayGroup } from "@/lib/utils/holidayUtils";
 
 interface TradeAttendanceViewProps {
   selection: Extract<TradeChipSelection, { kind: "trade" }>;
@@ -97,6 +105,75 @@ export function TradeAttendanceView({
     open: boolean;
     message: string;
   }>({ open: false, message: "" });
+
+  // ── Holidays (scoped to this trade + "all workspaces") ──────────────────
+  const { userProfile } = useAuth();
+  const canEdit = hasEditPermission(userProfile?.role);
+  const holidaysQuery = useSiteHolidays(siteId, selection.categoryId);
+  const tradeHolidays = useMemo(() => holidaysQuery.data ?? [], [holidaysQuery.data]);
+  const today = dayjs().format("YYYY-MM-DD");
+  const todayHoliday = tradeHolidays.find((h) => h.date === today) ?? null;
+  const upcomingHolidayGroups = useMemo(
+    () =>
+      groupHolidays(tradeHolidays.filter((h) => h.date > today)).sort((a, b) =>
+        a.startDate.localeCompare(b.startDate)
+      ),
+    [tradeHolidays, today]
+  );
+  const holidaysByDate = useMemo(
+    () => new Map(tradeHolidays.map((h) => [h.date, h])),
+    [tradeHolidays]
+  );
+  // Dates this contract already has attendance on — a holiday can't be marked there.
+  const { data: headcountData } = useContractHeadcount(
+    contract?.laborTrackingMode === "headcount" ? contract.id : undefined
+  );
+  const recordedDates = useMemo(() => {
+    if (contract?.laborTrackingMode === "headcount") {
+      return (headcountData?.recent ?? []).filter((e) => e.units > 0).map((e) => e.attendanceDate);
+    }
+    if (contract?.laborTrackingMode === "mid") {
+      return (midEntries ?? []).map((e) => e.attendanceDate);
+    }
+    return [];
+  }, [contract?.laborTrackingMode, headcountData, midEntries]);
+
+  const [holidayDialog, setHolidayDialog] = useState<{
+    open: boolean;
+    mode: "mark" | "revoke" | "edit";
+    date?: string;
+    multiDay?: boolean;
+    group?: HolidayGroup | null;
+  }>({ open: false, mode: "mark" });
+
+  const openEditHoliday = useCallback(
+    (group: HolidayGroup) => setHolidayDialog({ open: true, mode: "edit", group }),
+    []
+  );
+  const openPlanHoliday = useCallback(
+    () =>
+      setHolidayDialog({
+        open: true,
+        mode: "mark",
+        date: dayjs().add(1, "day").format("YYYY-MM-DD"),
+        multiDay: true,
+      }),
+    []
+  );
+  /** Table row click on a holiday date → edit the consecutive group it belongs to. */
+  const openHolidayForDate = useCallback(
+    (date: string) => {
+      const group = groupHolidays(tradeHolidays).find((g) =>
+        g.holidays.some((h) => h.date === date)
+      );
+      if (group) openEditHoliday(group);
+    },
+    [tradeHolidays, openEditHoliday]
+  );
+  const onHolidaySaved = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["site-holidays", siteId] });
+    setSnackbar({ open: true, message: "Holidays updated" });
+  }, [queryClient, siteId]);
 
   // Cross-page sync: if /site/trades or another tab writes, refresh KPI + tables
   useEffect(() => {
@@ -190,18 +267,28 @@ export function TradeAttendanceView({
         },
         {
           icon: <HolidayIcon />,
-          name: "Mark as Holiday",
+          name: todayHoliday ? "Revoke Holiday" : "Mark as Holiday",
           onClick: () =>
-            setSnackbar({
-              open: true,
-              message:
-                "Holiday for trade contracts is coming soon — record headcount = 0 for now",
-            }),
+            todayHoliday
+              ? setHolidayDialog({ open: true, mode: "revoke" })
+              : setHolidayDialog({ open: true, mode: "mark", date: today }),
           tooltipSx: {
             "& .MuiSpeedDialAction-staticTooltipLabel": {
               whiteSpace: "nowrap",
-              bgcolor: "success.main",
-              color: "success.contrastText",
+              bgcolor: todayHoliday ? "error.main" : "success.main",
+              color: todayHoliday ? "error.contrastText" : "success.contrastText",
+            },
+          },
+        },
+        {
+          icon: <BeachAccessIcon />,
+          name: "Plan Holiday",
+          onClick: openPlanHoliday,
+          tooltipSx: {
+            "& .MuiSpeedDialAction-staticTooltipLabel": {
+              whiteSpace: "nowrap",
+              bgcolor: "warning.main",
+              color: "warning.contrastText",
             },
           },
         },
@@ -249,6 +336,12 @@ export function TradeAttendanceView({
       {(contract.laborTrackingMode === "headcount" ||
         contract.laborTrackingMode === "mid") ? (
         <>
+          <UpcomingHolidaysStrip
+            groups={upcomingHolidayGroups}
+            canEdit={canEdit}
+            onEdit={openEditHoliday}
+            onPlan={openPlanHoliday}
+          />
           <CivilStyleTradeKpiStrip
             summary={summary}
             tradeColor={tradeColor}
@@ -267,6 +360,8 @@ export function TradeAttendanceView({
             tradeColor={tradeColor}
             onPickDate={handlePickDate}
             mode={contract.laborTrackingMode}
+            holidaysByDate={holidaysByDate}
+            onHolidayClick={canEdit ? openHolidayForDate : undefined}
           />
         </>
       ) : (
@@ -341,6 +436,25 @@ export function TradeAttendanceView({
           contractTitle={contractTitle}
           date={entryDate}
           tradeColor={tradeColor}
+        />
+      )}
+
+      {/* Holiday dialog — same component as Civil, scoped to this trade */}
+      {holidayDialog.open && (
+        <HolidayConfirmDialog
+          open={true}
+          onClose={() => setHolidayDialog({ open: false, mode: "mark" })}
+          mode={holidayDialog.mode}
+          site={{ id: selectedSite.id, name: selectedSite.name }}
+          existingHoliday={holidayDialog.mode === "revoke" ? todayHoliday : null}
+          onSuccess={onHolidaySaved}
+          date={holidayDialog.date}
+          defaultMultiDay={holidayDialog.multiDay ?? false}
+          editGroup={holidayDialog.group ?? null}
+          tradeCategoryId={selection.categoryId}
+          tradeName={selection.tradeName}
+          attendanceCheck="none"
+          recordedDates={recordedDates}
         />
       )}
 

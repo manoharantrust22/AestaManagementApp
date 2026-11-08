@@ -30,6 +30,7 @@ import { useContractMidEntries } from "@/hooks/queries/useContractMidEntries";
 import { useQueryClient } from "@tanstack/react-query";
 import { WeeklyHeadcountSettleDialog } from "@/components/trades/WeeklyHeadcountSettleDialog";
 import type { TradeColor } from "@/theme/tradeColors";
+import type { SiteHoliday } from "@/lib/utils/holidayUtils";
 
 interface CivilStyleTradeTableProps {
   siteId: string;
@@ -44,6 +45,10 @@ interface CivilStyleTradeTableProps {
    * identical across modes so supervisors see one consistent shell.
    */
   mode?: "headcount" | "mid";
+  /** In-scope holidays keyed by date — those rows get a holiday tag + tint. */
+  holidaysByDate?: Map<string, SiteHoliday>;
+  /** Click on a holiday tag (edit / revoke). Omit for read-only users. */
+  onHolidayClick?: (date: string) => void;
 }
 
 interface DayRow {
@@ -89,6 +94,8 @@ export function CivilStyleTradeTable({
   tradeColor,
   onPickDate,
   mode = "headcount",
+  holidaysByDate,
+  onHolidayClick,
 }: CivilStyleTradeTableProps) {
   const queryClient = useQueryClient();
   const headcountQuery = useContractHeadcount(
@@ -314,13 +321,19 @@ export function CivilStyleTradeTable({
                     const isToday = dayJs.isSame(dayjs(), "day");
                     const isFuture = dayJs.isAfter(dayjs(), "day");
                     const isSunday = dayJs.day() === 0;
+                    const holiday = holidaysByDate?.get(day.date) ?? null;
                     return (
                       <TableRow
                         key={day.date}
                         hover
                         sx={{
                           opacity: isFuture ? 0.45 : 1,
-                          bgcolor: isToday
+                          bgcolor: holiday
+                            ? (theme) =>
+                                theme.palette.mode === "light"
+                                  ? "rgba(237, 108, 2, 0.08)"
+                                  : "rgba(255, 152, 0, 0.12)"
+                            : isToday
                             ? (theme) =>
                                 theme.palette.mode === "light"
                                   ? "warning.50"
@@ -344,6 +357,17 @@ export function CivilStyleTradeTable({
                             <Typography variant="caption" color="warning.dark" sx={{ display: "block" }}>
                               today
                             </Typography>
+                          )}
+                          {holiday && (
+                            <Tooltip title={onHolidayClick ? "Edit or revoke holiday" : ""}>
+                              <Chip
+                                size="small"
+                                color="warning"
+                                label={holiday.reason ? `Holiday · ${holiday.reason}` : "Holiday"}
+                                onClick={onHolidayClick ? () => onHolidayClick(day.date) : undefined}
+                                sx={{ mt: 0.5, height: 20, fontSize: "0.65rem", maxWidth: 160 }}
+                              />
+                            </Tooltip>
                           )}
                         </TableCell>
                         <CountCell value={0} variant="warning" />

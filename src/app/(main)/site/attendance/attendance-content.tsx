@@ -83,6 +83,7 @@ import {
   ContentCopy as ContentCopyIcon,
 } from "@mui/icons-material";
 import { type SiteHoliday } from "@/components/attendance/HolidayConfirmDialog";
+import UpcomingHolidaysStrip from "@/components/attendance/UpcomingHolidaysStrip";
 
 // OPTIMIZATION: Lazy load heavy dialog/drawer components (code splitting)
 // These are only shown when user triggers specific actions
@@ -1138,8 +1139,14 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   // Holiday management state
   const [holidayDialogOpen, setHolidayDialogOpen] = useState(false);
   const [holidayDialogMode, setHolidayDialogMode] = useState<
-    "mark" | "revoke" | "list"
+    "mark" | "revoke" | "list" | "edit"
   >("mark");
+  /** Holiday group being edited (edit mode) — set by clicking a holiday row / upcoming chip. */
+  const [holidayEditGroup, setHolidayEditGroup] = useState<HolidayGroup | null>(null);
+  /** Open the mark dialog in range ("Multiple days") mode — used by "Plan Holiday". */
+  const [holidayPlanMode, setHolidayPlanMode] = useState(false);
+  /** Future holidays (after today) for the "Upcoming" strip, independent of the date filter. */
+  const [upcomingHolidays, setUpcomingHolidays] = useState<SiteHoliday[]>([]);
   const [todayHoliday, setTodayHoliday] = useState<{
     id: string;
     site_id: string;
@@ -1196,6 +1203,15 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
   const scopedHolidays = useMemo(
     () => recentHolidays.filter((h) => holidayInScope(h, scopeTradeCategoryId)),
     [recentHolidays, scopeTradeCategoryId]
+  );
+
+  /** Upcoming (after today) holidays in scope, grouped, soonest first. */
+  const upcomingHolidayGroups = useMemo(
+    () =>
+      groupHolidays(
+        upcomingHolidays.filter((h) => holidayInScope(h, scopeTradeCategoryId))
+      ).sort((a, b) => a.startDate.localeCompare(b.startDate)),
+    [upcomingHolidays, scopeTradeCategoryId]
   );
 
   /** Today's holiday, scoped to the current view. When tradeScope is null, this equals todayHoliday
@@ -2718,6 +2734,19 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
         console.error("Error fetching holidays:", holidaysError);
       }
       setRecentHolidays(holidaysData || []);
+
+      // Upcoming holidays (next 120 days) for the planning strip — not tied to the date filter.
+      const { data: upcomingData, error: upcomingError } = await supabase
+        .from("site_holidays")
+        .select("*")
+        .eq("site_id", selectedSite.id)
+        .gt("date", today)
+        .lte("date", dayjs().add(120, "day").format("YYYY-MM-DD"))
+        .order("date", { ascending: true });
+      if (upcomingError) {
+        console.error("Error fetching upcoming holidays:", upcomingError);
+      }
+      setUpcomingHolidays((upcomingData || []) as SiteHoliday[]);
     } catch (err) {
       console.error("Error checking holidays:", err);
     }
@@ -2737,9 +2766,28 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
     setHolidayDialogOpen(true);
   };
 
+  const handlePlanHoliday = () => {
+    setSelectedHolidayDate(dayjs().add(1, "day").format("YYYY-MM-DD"));
+    setSelectedExistingHoliday(null);
+    setHolidayEditGroup(null);
+    setHolidayPlanMode(true);
+    setHolidayDialogMode("mark");
+    setHolidayDialogOpen(true);
+  };
+
+  const handleEditHolidayGroup = (group: HolidayGroup) => {
+    if (!canEdit) return;
+    setHolidayEditGroup(group);
+    setHolidayPlanMode(false);
+    setHolidayDialogMode("edit");
+    setHolidayDialogOpen(true);
+  };
+
   const handleHolidaySuccess = useCallback(async (newHoliday?: SiteHoliday) => {
     setSelectedHolidayDate(null);
     setSelectedExistingHoliday(null);
+    setHolidayEditGroup(null);
+    setHolidayPlanMode(false);
 
     // Immediately update state for instant UI feedback
     if (newHoliday) {
@@ -3906,6 +3954,12 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           summary={scopedMoneySummary}
           onOpenContract={(id) => router.push(`/site/trades?contract=${id}`)}
         />
+        <UpcomingHolidaysStrip
+          groups={upcomingHolidayGroups}
+          canEdit={canEdit}
+          onEdit={handleEditHolidayGroup}
+          onPlan={handlePlanHoliday}
+        />
       </Box>
 
       {/* Back button when coming from settlement page */}
@@ -4631,9 +4685,11 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                       {/* Grouped holiday row (no attendance data) */}
                       {entry.type === "holiday_group" && (
                         <TableRow
+                          onClick={canEdit ? () => handleEditHolidayGroup(entry.group) : undefined}
                           sx={{
                             bgcolor: alpha(theme.palette.warning.main, 0.08),
                             "&:hover": { bgcolor: alpha(theme.palette.warning.main, 0.15) },
+                            cursor: canEdit ? "pointer" : "default",
                           }}
                         >
                           <TableCell
@@ -4695,6 +4751,15 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
                                   }}
                                 >
                                   {entry.group.reason}
+                                </Typography>
+                              )}
+                              {canEdit && (
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                  sx={{ ml: "auto", display: { xs: "none", sm: "block" } }}
+                                >
+                                  Click to edit
                                 </Typography>
                               )}
                             </Box>
@@ -8144,6 +8209,22 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
               },
             }}
           />
+          <SpeedDialAction
+            icon={<BeachAccessIcon />}
+            tooltipTitle="Plan Holiday"
+            tooltipOpen
+            onClick={() => {
+              setSpeedDialOpen(false);
+              handlePlanHoliday();
+            }}
+            sx={{
+              "& .MuiSpeedDialAction-staticTooltipLabel": {
+                whiteSpace: "nowrap",
+                bgcolor: "warning.main",
+                color: "warning.contrastText",
+              },
+            }}
+          />
         </SpeedDial>
       )}
 
@@ -8151,7 +8232,7 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
       {selectedSite && (
         <HolidayConfirmDialog
           open={holidayDialogOpen}
-          onClose={() => { setSelectedHolidayDate(null); setSelectedExistingHoliday(null); setHolidayDialogOpen(false); }}
+          onClose={() => { setSelectedHolidayDate(null); setSelectedExistingHoliday(null); setHolidayEditGroup(null); setHolidayPlanMode(false); setHolidayDialogOpen(false); }}
           mode={holidayDialogMode}
           site={{ id: selectedSite.id, name: selectedSite.name }}
           existingHoliday={selectedExistingHoliday || scopedTodayHoliday}
@@ -8160,6 +8241,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           date={selectedHolidayDate || undefined}
           tradeCategoryId={scopeTradeCategoryId}
           tradeName={tradeScope ? contractMeta?.trade_name ?? null : null}
+          defaultMultiDay={holidayPlanMode}
+          editGroup={holidayEditGroup}
         />
       )}
 

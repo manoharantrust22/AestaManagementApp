@@ -46,7 +46,6 @@ import {
   AccountBalanceWallet as AccountBalanceWalletIcon,
   Description as DescriptionIcon,
   Assessment as AssessmentIcon,
-  EventBusy as EventBusyIcon,
   Notes as NotesIcon,
   Business as BusinessIcon,
   Domain as DomainIcon,
@@ -167,7 +166,6 @@ const siteNavCategories: NavCategory[] = [
         icon: <PaymentsIcon />,
         path: "/site/payments",
       },
-      { text: "Holidays", icon: <EventBusyIcon />, path: "/site/holidays" },
     ],
   },
   {

@@ -2,7 +2,7 @@
  * Single source of truth for "which trades earn an attendance/salary/holidays
  * workspace chip" on a site.
  *
- * This rule used to be inlined separately in TradeChipFilter and holidays-content,
+ * This rule used to be inlined separately in TradeChipFilter and the (removed) holidays page,
  * and the drift between the two copies caused a real bug (a ladder-only trade —
  * Workspace toggle OFF but holding a detailed contract — wrongly showed an
  * attendance chip). Centralising it here keeps every surface (attendance chips,

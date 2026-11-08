@@ -115,6 +115,40 @@ export function formatHolidayDayRange(group: HolidayGroup): string {
 }
 
 /**
+ * Every date from `from` to `to` inclusive, as YYYY-MM-DD strings.
+ * Returns [] if `to` is before `from`.
+ */
+export function enumerateDates(from: string, to: string): string[] {
+  const dates: string[] = [];
+  let current = dayjs(from);
+  const end = dayjs(to);
+  if (!current.isValid() || !end.isValid()) return dates;
+  while (current.isBefore(end, "day") || current.isSame(end, "day")) {
+    dates.push(current.format("YYYY-MM-DD"));
+    current = current.add(1, "day");
+  }
+  return dates;
+}
+
+/** User-facing message for a site_holidays write error. */
+export function parseHolidayError(error: unknown): string {
+  const message =
+    (error as { message?: string } | null)?.message || String(error ?? "");
+  if (
+    message.includes("duplicate key") ||
+    message.includes("unique constraint") ||
+    message.includes("uq_site_holiday_sitewide") ||
+    message.includes("uq_site_holiday_per_trade")
+  ) {
+    return "A holiday already exists for this date in this workspace.";
+  }
+  if (message.includes("permission") || message.includes("policy")) {
+    return "You don't have permission to modify holidays.";
+  }
+  return "Failed to save holiday. Please try again.";
+}
+
+/**
  * Whether a holiday is visible in the current view. Whole-site holidays
  * (trade_category_id null) show everywhere; a trade-scoped holiday shows only
  * when that trade's workspace is active. (No scope = site/Civil view.)
