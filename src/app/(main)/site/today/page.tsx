@@ -23,9 +23,12 @@ import {
   Splitscreen as SplitIcon,
   FactCheck as ChecklistIcon,
   LocalCafe as CafeIcon,
+  Mic as MicIcon,
 } from "@mui/icons-material";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSelectedSite } from "@/contexts/SiteContext";
+import MyTasksTodayCard from "@/components/tasks/MyTasksTodayCard";
+import EnablePushCard from "@/components/notifications/EnablePushCard";
 import { useMaterialRequests } from "@/hooks/queries/useMaterialRequests";
 import { usePOsAwaitingDelivery } from "@/hooks/queries/useDeliveryVerification";
 import { useSiteStock } from "@/hooks/queries/useStockInventory";
@@ -123,6 +126,43 @@ export default function SiteTodayPage() {
             Pick a site from the menu to get started.
           </Alert>
         )}
+
+        <Stack spacing={1.5} sx={{ mt: 3 }}>
+          <EnablePushCard />
+          <Card variant="outlined" sx={{ borderColor: "primary.main" }}>
+            <CardActionArea
+              onClick={() => window.dispatchEvent(new CustomEvent("aesta:open-assistant"))}
+              sx={{ p: 2 }}
+            >
+              <Stack direction="row" spacing={2} alignItems="center">
+                <Box
+                  sx={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: "50%",
+                    bgcolor: "primary.main",
+                    color: "primary.contrastText",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  <MicIcon />
+                </Box>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="subtitle1" fontWeight={600}>
+                    Talk to assistant
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Tamil or English — update tasks, report problems, ask anything
+                  </Typography>
+                </Box>
+              </Stack>
+            </CardActionArea>
+          </Card>
+          <MyTasksTodayCard />
+        </Stack>
 
         <Stack spacing={1.5} sx={{ mt: 3 }}>
           {tiles.map((tile) => (

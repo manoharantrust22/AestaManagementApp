@@ -72,7 +72,7 @@ export default function TodayByTradeCard({ siteId }: TodayByTradeCardProps) {
   const jumps = [
     { label: "Attendance", icon: <AttendanceIcon />, href: `/site/attendance${contractSuffix}` },
     { label: "Salary", icon: <PaymentsIcon />, href: `/site/payments${contractSuffix}` },
-    { label: "Contracts", icon: <ContractsIcon />, href: "/site/trades" },
+    { label: "Subcontracts", icon: <ContractsIcon />, href: "/site/trades" },
     { label: "Material Hub", icon: <HubIcon />, href: "/site/materials/hub" },
   ];
 

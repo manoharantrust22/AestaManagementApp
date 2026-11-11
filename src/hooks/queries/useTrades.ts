@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { wrapQueryFn } from "@/lib/utils/timeout";
 import type {
+  ContractClosure,
+  ContractClosureHandover,
   ContractStatus,
   LaborTrackingMode,
   Trade,
@@ -73,6 +75,44 @@ export function groupContractsByTrade(
   return nodes;
 }
 
+const numOrNull = (v: number | string | null | undefined): number | null =>
+  v == null || v === "" ? null : Number(v);
+
+/** Narrow the early-closure columns into the UI shape (null when the contract is open). */
+export function toClosure(
+  r: Pick<
+    RawContractRow,
+    | "closure_type"
+    | "closure_reason"
+    | "closure_note"
+    | "actual_end_date"
+    | "original_total_value"
+    | "handed_over_to_subcontract_id"
+    | "closure_meta"
+  >
+): ContractClosure | null {
+  if (r.closure_type !== "ended_early") return null;
+  const meta = r.closure_meta ?? null;
+  const handovers: ContractClosureHandover[] = (meta?.handovers ?? []).map((h) => ({
+    from: h.from,
+    to: h.to,
+    title: h.title ?? "",
+    amount: Number(h.amount ?? 0),
+  }));
+  return {
+    type: "ended_early",
+    reason: r.closure_reason ?? null,
+    note: r.closure_note ?? null,
+    endDate: r.actual_end_date ?? null,
+    originalValue: numOrNull(r.original_total_value),
+    handedOverToId: r.handed_over_to_subcontract_id ?? null,
+    writtenOff: numOrNull(meta?.written_off ?? null),
+    handedOverTotal: numOrNull(meta?.handed_over_total ?? null),
+    inHouseId: meta?.in_house_id ?? null,
+    handovers,
+  };
+}
+
 interface RawCategoryRow {
   id: string;
   name: string;
@@ -103,6 +143,18 @@ interface RawContractRow {
   parent_subcontract_id: string | null;
   mesthri_commission_enabled: boolean | null;
   mesthri_commission_applies: boolean | null;
+  closure_type: string | null;
+  closure_reason: string | null;
+  closure_note: string | null;
+  actual_end_date: string | null;
+  original_total_value: number | string | null;
+  handed_over_to_subcontract_id: string | null;
+  closure_meta: {
+    written_off?: number | string | null;
+    handed_over_total?: number | string | null;
+    in_house_id?: string | null;
+    handovers?: Array<{ from: string; to: string; title?: string | null; amount?: number | string | null }> | null;
+  } | null;
   team: { leader_name: string | null } | null;
   laborer: { name: string | null } | null;
 }
@@ -130,6 +182,8 @@ export function useSiteTrades(siteId: string | undefined) {
             measurement_unit, rate_per_unit, total_units,
             work_progress_percent, created_at, team_id, laborer_id, contractor_name,
             parent_subcontract_id, mesthri_commission_enabled, mesthri_commission_applies,
+            closure_type, closure_reason, closure_note, actual_end_date,
+            original_total_value, handed_over_to_subcontract_id, closure_meta,
             team:teams(leader_name),
             laborer:laborers(name)
           `
@@ -202,6 +256,7 @@ export function useSiteTrades(siteId: string | undefined) {
           // NULL predates the column (migration 20260710120000) => commission applies.
           mesthriCommissionApplies: r.mesthri_commission_applies ?? true,
           createdAt: r.created_at,
+          closure: toClosure(r),
         })
       );
 

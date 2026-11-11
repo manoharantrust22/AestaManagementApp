@@ -45,6 +45,8 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/login") ||
     request.nextUrl.pathname.startsWith("/dev-login") ||
     request.nextUrl.pathname.startsWith("/api/dev-ensure-password") ||
+    // Called by the DB (pg_net) with a shared secret — no user session.
+    request.nextUrl.pathname === "/api/push/dispatch" ||
     request.nextUrl.pathname.startsWith("/debug");
 
   // Check if this is an RSC (React Server Component) request

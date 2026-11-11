@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 
 const MAX_BYTES = 8 * 1024 * 1024; // 8MB
 const BUCKET = "work-updates";
@@ -33,6 +34,16 @@ function extFromContentType(ct: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  // This route writes storage and catalog rows with the service-role client,
+  // which bypasses RLS, so it must verify the caller itself.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  }
+
   let body: { imageUrl?: string; materialId?: string; materialBrandId?: string };
   try {
     body = await req.json();

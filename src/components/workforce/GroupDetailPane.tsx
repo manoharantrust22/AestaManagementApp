@@ -1,12 +1,16 @@
 "use client";
 
-import { Box, Typography, IconButton } from "@mui/material";
+import { useState } from "react";
+import { Box, Typography, IconButton, Menu, MenuItem, ListItemIcon, ListItemText } from "@mui/material";
 import ArrowBack from "@mui/icons-material/ArrowBack";
 import GroupWork from "@mui/icons-material/GroupWork";
 import PaymentsRounded from "@mui/icons-material/PaymentsRounded";
 import ChevronRight from "@mui/icons-material/ChevronRight";
 import EditOutlined from "@mui/icons-material/EditOutlined";
 import CallMerge from "@mui/icons-material/CallMerge";
+import MoreVert from "@mui/icons-material/MoreVert";
+import DoNotDisturbOnRounded from "@mui/icons-material/DoNotDisturbOnRounded";
+import { ContractClosureBanner } from "./ContractClosureBanner";
 import { computeInitials, isContractPaymentGated, type ContractMoneySplit, type ContractorGroup, type WorkspaceTask } from "@/lib/workforce/workspaceModel";
 import { rollupSeverity, type ExposureResult } from "@/lib/workforce/exposure";
 import { wsColors, wsRadius, wsShadow } from "@/lib/workforce/workspaceTokens";
@@ -36,6 +40,12 @@ export interface ParentMode {
   selfLabel?: string;
   /** Open the edit/rename dialog for the parent. */
   onEdit?: () => void;
+  /** Open "End contract early" (only offered for an active top-level contractor contract). */
+  onEndEarly?: () => void;
+  /** Site id — powers Reopen on an ended-early contract. */
+  siteId?: string;
+  /** Jump to another node (e.g. the In-house section that took over). */
+  onOpenNode?: (id: string) => void;
 }
 
 /**
@@ -77,6 +87,8 @@ export function GroupDetailPane({
   /** Virtual-group only: promote this group into a real named parent contract. */
   onMakeOneContract?: () => void;
 }) {
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const closure = parentMode?.parent.closure ?? null;
   const r = group.rollup;
   const tracked = r.trackedCount > 0;
   const isParent = !!parentMode;
@@ -148,6 +160,32 @@ export function GroupDetailPane({
           <IconButton size="small" onClick={parentMode.onEdit} aria-label="Rename contract">
             <EditOutlined sx={{ fontSize: 19, color: wsColors.muted }} />
           </IconButton>
+        )}
+        {isParent && canEdit && parentMode?.onEndEarly && (
+          <>
+            <IconButton size="small" onClick={(e) => setMenuAnchor(e.currentTarget)} aria-label="More actions">
+              <MoreVert sx={{ fontSize: 19, color: wsColors.muted }} />
+            </IconButton>
+            <Menu anchorEl={menuAnchor} open={!!menuAnchor} onClose={() => setMenuAnchor(null)}>
+              <MenuItem
+                onClick={() => {
+                  setMenuAnchor(null);
+                  parentMode.onEndEarly?.();
+                }}
+              >
+                <ListItemIcon>
+                  <DoNotDisturbOnRounded fontSize="small" sx={{ color: wsColors.amber }} />
+                </ListItemIcon>
+                <ListItemText
+                  primaryTypographyProps={{ fontSize: 14 }}
+                  secondaryTypographyProps={{ fontSize: 11.5 }}
+                  secondary="Contractor left — close it and hand over the rest"
+                >
+                  End contract early…
+                </ListItemText>
+              </MenuItem>
+            </Menu>
+          </>
         )}
       </Box>
 
@@ -222,7 +260,15 @@ export function GroupDetailPane({
 
         {/* Stat cards */}
         <Box sx={{ display: "flex", gap: 1 }}>
-          <StatCard label="Contract value" value={formatCurrencyFull(r.quoted)} />
+          <StatCard
+            label="Contract value"
+            value={formatCurrencyFull(r.quoted)}
+            sub={
+              closure?.originalValue != null
+                ? `was ${formatCurrencyFull(closure.originalValue)}`
+                : undefined
+            }
+          />
           <StatCard
             label="Work done"
             value={formatCurrencyFull(r.workValue)}
@@ -241,7 +287,18 @@ export function GroupDetailPane({
         <PaidSourceBreakdown split={group.moneySplit} />
 
         {/* Plain balance: what's still owed on the whole contract (agreed − paid). */}
-        <RemainingStrip quoted={r.quoted} paid={r.paid} remaining={remaining} />
+        {closure && parentMode ? (
+          <ContractClosureBanner
+            closure={closure}
+            contractId={parentMode.parent.id}
+            siteId={parentMode.siteId}
+            isRoot={!parentMode.parent.parentSubcontractId}
+            canEdit={canEdit}
+            onOpenNode={parentMode.onOpenNode}
+          />
+        ) : (
+          <RemainingStrip quoted={r.quoted} paid={r.paid} remaining={remaining} />
+        )}
 
         {/* Parts of this contract — listed first: the parts hold the money, and for a
             package-only section they are where payments get recorded. */}

@@ -14,7 +14,6 @@ import {
 import ArrowBack from "@mui/icons-material/ArrowBack";
 import PaymentsRounded from "@mui/icons-material/PaymentsRounded";
 import Groups from "@mui/icons-material/Groups";
-import OpenInNew from "@mui/icons-material/OpenInNew";
 import AccountTreeRounded from "@mui/icons-material/AccountTreeRounded";
 import CheckCircleRounded from "@mui/icons-material/CheckCircleRounded";
 import RequestQuoteRounded from "@mui/icons-material/RequestQuoteRounded";
@@ -22,6 +21,8 @@ import MoreVert from "@mui/icons-material/MoreVert";
 import EditOutlined from "@mui/icons-material/EditOutlined";
 import DeleteOutline from "@mui/icons-material/DeleteOutline";
 import Handshake from "@mui/icons-material/Handshake";
+import DoNotDisturbOnRounded from "@mui/icons-material/DoNotDisturbOnRounded";
+import { ContractClosureBanner } from "./ContractClosureBanner";
 import { isContractPaymentGated, type ContractTier, type WorkspaceTask } from "@/lib/workforce/workspaceModel";
 import type { ContractStatus } from "@/types/trade.types";
 import { modeMeta, tierMeta, wsColors, wsRadius, wsShadow } from "@/lib/workforce/workspaceTokens";
@@ -46,7 +47,7 @@ const STATUS_PILL: Record<ContractStatus, { label: string; color: string; bg: st
 
 /** Teaching legend for the empty pane — explains the Contract ▸ Section ▸ Task ladder. */
 const TIER_LEGEND: Array<{ tier: ContractTier; desc: string }> = [
-  { tier: "contract", desc: "The whole deal with one contractor — e.g. Jithin's civil contract." },
+  { tier: "contract", desc: "The whole deal you sub-let to one mesthri or specialist — e.g. Jithin's civil work." },
   { tier: "section", desc: "A floor or scope inside it, usually priced by square feet — e.g. Ground Floor, or external plastering across all floors." },
   { tier: "task", desc: "A single job you hand a labourer at a cost — e.g. footing grid." },
 ];
@@ -59,7 +60,8 @@ export function TaskDetailPane({
   onDelete,
   onConvertToPackage,
   onHandToCrew,
-  onOpenInDetails,
+  onEndEarly,
+  onOpenNode,
   canEdit,
   showBack = false,
   onBack,
@@ -77,7 +79,10 @@ export function TaskDetailPane({
   onConvertToPackage?: () => void;
   /** Hand a Future plan (draft) to a crew — activate as contract or convert to a package. */
   onHandToCrew?: () => void;
-  onOpenInDetails?: () => void;
+  /** Open "End contract early" (active top-level contractor contract only). */
+  onEndEarly?: () => void;
+  /** Jump to another node (e.g. the In-house section that took over). */
+  onOpenNode?: (id: string) => void;
   canEdit: boolean;
   showBack?: boolean;
   onBack?: () => void;
@@ -101,7 +106,7 @@ export function TaskDetailPane({
         <AccountTreeRounded sx={{ fontSize: 40, color: wsColors.hairline }} />
         <Box sx={{ textAlign: "center" }}>
           <Typography sx={{ fontSize: 15, fontWeight: 800, color: wsColors.ink }}>
-            How a contract is organised
+            How a subcontract is organised
           </Typography>
           <Typography sx={{ fontSize: 12.5, color: wsColors.muted, mt: 0.25, maxWidth: 320 }}>
             Three levels, from the whole deal down to a single labourer&apos;s job.
@@ -148,7 +153,10 @@ export function TaskDetailPane({
     );
   }
 
-  const pill = STATUS_PILL[task.status];
+  const closure = task.closure;
+  const pill = closure
+    ? { label: "Ended early", color: wsColors.amber, bg: wsColors.amberBg }
+    : STATUS_PILL[task.status];
   const ModeIcon = modeMeta[task.mode].icon;
   const paidPctOfValue = task.quoted > 0 ? Math.round((task.paid / task.quoted) * 100) : 0;
 
@@ -249,12 +257,7 @@ export function TaskDetailPane({
             </Button>
           </Box>
         )}
-        {onOpenInDetails && (
-          <IconButton size="small" onClick={onOpenInDetails} title="Open in Contract details">
-            <OpenInNew sx={{ fontSize: 18, color: wsColors.muted }} />
-          </IconButton>
-        )}
-        {canEdit && (onEdit || onDelete || onConvertToPackage || showHandToCrew) && (
+        {canEdit && (onEdit || onDelete || onConvertToPackage || showHandToCrew || onEndEarly) && (
           <>
             <IconButton size="small" onClick={(e) => setMenuAnchor(e.currentTarget)} title="More">
               <MoreVert sx={{ fontSize: 18, color: wsColors.muted }} />
@@ -308,6 +311,25 @@ export function TaskDetailPane({
                     secondary="Day Log + payments, like Barun's"
                   >
                     Convert to fixed-price package
+                  </ListItemText>
+                </MenuItem>
+              )}
+              {onEndEarly && (
+                <MenuItem
+                  onClick={() => {
+                    setMenuAnchor(null);
+                    onEndEarly();
+                  }}
+                >
+                  <ListItemIcon>
+                    <DoNotDisturbOnRounded fontSize="small" sx={{ color: wsColors.amber }} />
+                  </ListItemIcon>
+                  <ListItemText
+                    primaryTypographyProps={{ fontSize: 14 }}
+                    secondaryTypographyProps={{ fontSize: 11.5 }}
+                    secondary="Contractor left — close it and hand over the rest"
+                  >
+                    End contract early…
                   </ListItemText>
                 </MenuItem>
               )}
@@ -436,7 +458,11 @@ export function TaskDetailPane({
 
         {/* Stat cards */}
         <Box sx={{ display: "flex", gap: 1 }}>
-          <StatCard label="Contract value" value={formatCurrencyFull(task.quoted)} />
+          <StatCard
+            label="Contract value"
+            value={formatCurrencyFull(task.quoted)}
+            sub={closure?.originalValue != null ? `was ${formatCurrencyFull(closure.originalValue)}` : undefined}
+          />
           <StatCard
             label="Work done"
             value={formatCurrencyFull(task.exposure.workValue ?? 0)}
@@ -460,8 +486,18 @@ export function TaskDetailPane({
           }}
         />
 
-        {/* Plain balance: what's still owed (agreed − paid). */}
-        {(() => {
+        {/* Plain balance: what's still owed (agreed − paid) — or, once ended early,
+            what happened to the contract instead. */}
+        {closure ? (
+          <ContractClosureBanner
+            closure={closure}
+            contractId={task.id}
+            siteId={selectedSite?.id}
+            isRoot={!task.parentSubcontractId}
+            canEdit={canEdit}
+            onOpenNode={onOpenNode}
+          />
+        ) : (() => {
           const remaining = task.quoted - task.paid;
           const overpaid = remaining < 0;
           return (

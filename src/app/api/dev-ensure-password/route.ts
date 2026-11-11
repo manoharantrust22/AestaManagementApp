@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const DEV_EMAIL = "haribabu@nerasmclasses.onmicrosoft.com";
 const DEV_PASSWORD = "Padma@123";
@@ -9,11 +9,7 @@ export async function POST() {
     return NextResponse.json({ error: "Not available" }, { status: 403 });
   }
 
-  const adminClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  );
+  const adminClient = createAdminClient();
 
   // Look up the user by email
   const { data: listData, error: listError } =

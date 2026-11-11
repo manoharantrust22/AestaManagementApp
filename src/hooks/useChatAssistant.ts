@@ -14,6 +14,10 @@ import {
 } from "@/lib/chat-assistant/response-formatter";
 import { CONFIDENCE_THRESHOLDS } from "@/lib/chat-assistant/constants";
 import type { ChatMessage, ChatFilters, ConversationHistoryItem } from "@/lib/chat-assistant/types";
+import type { AssistantActionCard, AssistantRequest, AssistantResponse, ConfirmResponse } from "@/lib/assistant/types";
+import { blobToBase64 } from "@/hooks/useVoiceCapture";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/cache/keys";
 import { useSitesData } from "@/contexts/SiteContext";
 
 interface UseChatAssistantOptions {
@@ -23,6 +27,7 @@ interface UseChatAssistantOptions {
 export function useChatAssistant(options: UseChatAssistantOptions = {}) {
   const { initialSiteId } = options;
   const { sites } = useSitesData();
+  const queryClient = useQueryClient();
 
   // Chat messages state
   const [messages, setMessages] = useState<ChatMessage[]>([createWelcomeMessage()]);
@@ -56,11 +61,61 @@ export function useChatAssistant(options: UseChatAssistantOptions = {}) {
     [sites]
   );
 
-  const getCompanyId = useCallback((): string => {
-    return sites[0]?.company_id ?? "";
-  }, [sites]);
+  const buildContext = useCallback(() => {
+    const dateFrom = filters.dateFrom
+      ? dayjs(filters.dateFrom).format("YYYY-MM-DD")
+      : dayjs().subtract(30, "day").format("YYYY-MM-DD");
+    const dateTo = filters.dateTo ? dayjs(filters.dateTo).format("YYYY-MM-DD") : dayjs().format("YYYY-MM-DD");
+    return {
+      siteId: filters.siteId === "all" ? null : filters.siteId,
+      siteName: getSiteName(filters.siteId),
+      dateFrom,
+      dateTo,
+    };
+  }, [filters, getSiteName]);
 
-  // Send a message and get a response
+  /** POST to the Gemini agent. Throws on network/API failure. */
+  const callAssistant = useCallback(
+    async (payload: Partial<AssistantRequest>): Promise<AssistantResponse> => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60_000);
+      try {
+        const res = await fetch("/api/assistant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...buildContext(), history: conversationHistory, ...payload }),
+          signal: controller.signal,
+        });
+        const json = (await res.json().catch(() => ({}))) as AssistantResponse;
+        if (!res.ok || json.error) throw new Error(json.error || `API error: ${res.status}`);
+        return json;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    },
+    [buildContext, conversationHistory]
+  );
+
+  const pushAssistantReply = useCallback((userText: string, res: AssistantResponse) => {
+    const assistantMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      type: "assistant",
+      text: res.answer,
+      actions: res.actions?.length ? res.actions : undefined,
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, assistantMessage]);
+    const actionNote = res.actions?.length
+      ? `\n[Prepared for confirmation: ${res.actions.map((a) => a.summary).join(" | ")}]`
+      : "";
+    setConversationHistory((prev) => [
+      ...prev.slice(-18),
+      { role: "user", content: userText },
+      { role: "assistant", content: res.answer + actionNote },
+    ]);
+  }, []);
+
+  // Send a typed message and get a response
   const sendMessage = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
@@ -71,63 +126,11 @@ export function useChatAssistant(options: UseChatAssistantOptions = {}) {
       setIsLoading(true);
 
       try {
-        // --- Primary path: Groq API route ---
-        const dateFrom = filters.dateFrom
-          ? dayjs(filters.dateFrom).format("YYYY-MM-DD")
-          : dayjs().subtract(30, "day").format("YYYY-MM-DD");
-        const dateTo = filters.dateTo
-          ? dayjs(filters.dateTo).format("YYYY-MM-DD")
-          : dayjs().format("YYYY-MM-DD");
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30_000);
-        let response: Response;
-        try {
-          response = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              question: trimmed,
-              siteId: filters.siteId === "all" ? null : filters.siteId,
-              companyId: getCompanyId(),
-              siteName: getSiteName(filters.siteId),
-              dateFrom,
-              dateTo,
-              history: conversationHistory,
-            }),
-            signal: controller.signal,
-          });
-        } finally {
-          clearTimeout(timeoutId);
-        }
-
-        if (!response.ok) {
-          throw new Error(`API error: ${response.status}`);
-        }
-
-        const { answer, error: apiError } = await response.json();
-
-        if (apiError) {
-          throw new Error(apiError);
-        }
-
-        const assistantMessage: ChatMessage = {
-          id: crypto.randomUUID(),
-          type: "assistant",
-          text: answer,
-          timestamp: new Date(),
-        };
-
-        setMessages((prev) => [...prev, assistantMessage]);
-
-        setConversationHistory((prev) => [
-          ...prev.slice(-18),
-          { role: "user", content: trimmed },
-          { role: "assistant", content: answer },
-        ]);
+        const res = await callAssistant({ message: trimmed });
+        pushAssistantReply(trimmed, res);
       } catch (apiErr) {
         // --- Fallback path: keyword-based intent parser (when API is unavailable) ---
-        console.warn("Groq API unavailable, falling back to keyword parser:", apiErr);
+        console.warn("Assistant API unavailable, falling back to keyword parser:", apiErr);
         try {
           const parsedIntent = await parseIntentSmart(trimmed, filters);
 
@@ -156,7 +159,90 @@ export function useChatAssistant(options: UseChatAssistantOptions = {}) {
         setIsLoading(false);
       }
     },
-    [filters, isLoading, getSiteName, getCompanyId, conversationHistory]
+    [filters, isLoading, getSiteName, callAssistant, pushAssistantReply]
+  );
+
+  // Send a voice message (Tamil / English). The server transcribes it.
+  const sendVoice = useCallback(
+    async (blob: Blob, mime: string) => {
+      if (isLoading) return;
+      const placeholderId = crypto.randomUUID();
+      setMessages((prev) => [
+        ...prev,
+        { id: placeholderId, type: "user", text: "🎤 …", isVoice: true, timestamp: new Date() },
+      ]);
+      setIsLoading(true);
+      try {
+        const data = await blobToBase64(blob);
+        const res = await callAssistant({ audio: { data, mimeType: mime } });
+        const heard = res.transcript?.text ?? "";
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === placeholderId
+              ? {
+                  ...m,
+                  text: heard ? `🎤 ${heard}` : "🎤 (not clear)",
+                  translation:
+                    res.transcript && res.transcript.language !== "en" && res.transcript.text_en !== heard
+                      ? res.transcript.text_en
+                      : undefined,
+                }
+              : m
+          )
+        );
+        pushAssistantReply(heard || "(voice message)", res);
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev.map((m) => (m.id === placeholderId ? { ...m, text: "🎤 (failed to send)" } : m)),
+          formatErrorResponse(err as Error),
+        ]);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [isLoading, callAssistant, pushAssistantReply]
+  );
+
+  // Confirm / cancel a prepared action card.
+  const decideAction = useCallback(
+    async (messageId: string, actionId: string, decision: "confirm" | "cancel") => {
+      const patch = (fields: Partial<AssistantActionCard>) =>
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === messageId && m.actions
+              ? { ...m, actions: m.actions.map((a) => (a.id === actionId ? { ...a, ...fields } : a)) }
+              : m
+          )
+        );
+      patch({ status: "executing" });
+      try {
+        const res = await fetch("/api/assistant/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ actionId, decision }),
+        });
+        const json = (await res.json().catch(() => ({}))) as ConfirmResponse;
+        if (json.status === "executed" || json.status === "cancelled") {
+          patch({ status: json.status, resultMessage: json.message, url: json.url });
+          setConversationHistory((prev) => [
+            ...prev.slice(-19),
+            {
+              role: "assistant",
+              content:
+                json.status === "executed"
+                  ? `[User confirmed; done: ${json.message ?? "ok"}]`
+                  : "[User cancelled that action]",
+            },
+          ]);
+          if (json.status === "executed") queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all });
+        } else {
+          patch({ status: "failed", error: json.error || "Failed" });
+        }
+      } catch (err) {
+        patch({ status: "failed", error: err instanceof Error ? err.message : "Failed" });
+      }
+    },
+    [queryClient]
   );
 
   // Handle suggestion clicks (from message suggestions or quick actions)
@@ -186,6 +272,8 @@ export function useChatAssistant(options: UseChatAssistantOptions = {}) {
     setFilters,
     isLoading,
     sendMessage,
+    sendVoice,
+    decideAction,
     handleSuggestionClick,
     clearChat,
   };

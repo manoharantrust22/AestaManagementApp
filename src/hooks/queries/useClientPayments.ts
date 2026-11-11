@@ -18,6 +18,8 @@ export interface RecordClientPaymentInput {
   paymentPhaseId?: string | null;
   /** Optional — tag this payment to an additional work. Mutually exclusive with paymentPhaseId (DB-enforced). */
   taggedAdditionalWorkId?: string | null;
+  /** Optional — which of the site's clients (clients.id) paid. */
+  receivedFromClientId?: string | null;
 }
 
 export interface UpdateClientPaymentInput extends Partial<RecordClientPaymentInput> {
@@ -59,6 +61,7 @@ export function useCreateClientPayment() {
         receipt_url: input.receiptUrl ?? null,
         payment_phase_id: input.paymentPhaseId ?? null,
         tagged_additional_work_id: input.taggedAdditionalWorkId ?? null,
+        received_from_client_id: input.receivedFromClientId ?? null,
       };
       const { data, error } = await supabase
         .from("client_payments")
@@ -94,6 +97,7 @@ export function useUpdateClientPayment() {
       if (input.receiptUrl           !== undefined) patch.receipt_url = input.receiptUrl ?? null;
       if (input.paymentPhaseId       !== undefined) patch.payment_phase_id = input.paymentPhaseId ?? null;
       if (input.taggedAdditionalWorkId !== undefined) patch.tagged_additional_work_id = input.taggedAdditionalWorkId ?? null;
+      if (input.receivedFromClientId !== undefined) patch.received_from_client_id = input.receivedFromClientId ?? null;
 
       const { data, error } = await supabase
         .from("client_payments")

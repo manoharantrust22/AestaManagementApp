@@ -34,6 +34,8 @@ export default function ChatAssistant({ open, onClose }: ChatAssistantProps) {
     setFilters,
     isLoading,
     sendMessage,
+    sendVoice,
+    decideAction,
     handleSuggestionClick,
     clearChat,
   } = useChatAssistant({
@@ -107,13 +109,15 @@ export default function ChatAssistant({ open, onClose }: ChatAssistantProps) {
           messages={messages}
           isLoading={isLoading}
           onSuggestionClick={handleSuggestionClick}
+          onDecideAction={decideAction}
+          onNavigate={onClose}
         />
 
         {/* Quick Actions */}
         <QuickActionChips onSelect={sendMessage} />
 
         {/* Input */}
-        <ChatInput onSend={sendMessage} isLoading={isLoading} />
+        <ChatInput onSend={sendMessage} onSendVoice={sendVoice} isLoading={isLoading} />
       </Drawer>
     </>
   );

@@ -9,12 +9,16 @@ interface ChatMessageListProps {
   messages: ChatMessageType[];
   isLoading: boolean;
   onSuggestionClick?: (suggestion: string) => void;
+  onDecideAction?: (messageId: string, actionId: string, decision: "confirm" | "cancel") => void;
+  onNavigate?: () => void;
 }
 
 export default function ChatMessageList({
   messages,
   isLoading,
   onSuggestionClick,
+  onDecideAction,
+  onNavigate,
 }: ChatMessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -38,6 +42,8 @@ export default function ChatMessageList({
           key={message.id}
           message={message}
           onSuggestionClick={onSuggestionClick}
+          onDecideAction={onDecideAction}
+          onNavigate={onNavigate}
         />
       ))}
 

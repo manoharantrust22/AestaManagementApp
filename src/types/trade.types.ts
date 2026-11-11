@@ -75,6 +75,45 @@ export interface TradeContract {
    */
   parentSubcontractId: string | null;
   createdAt: string;
+  /**
+   * Set when the contract was closed via "End contract early" (contractor left before
+   * finishing). Null = open / normally completed. Optional so older callers/tests need
+   * not supply it. See migration 20261108130000_contract_early_closure.
+   */
+  closure?: ContractClosure | null;
+}
+
+/** How a contract was ended early — the reason chips in EndContractDialog. */
+export type ContractClosureReason =
+  | "contractor_left"
+  | "terminated"
+  | "mutual"
+  | "other";
+
+export interface ContractClosureHandover {
+  /** The ended section (or the contract itself = its direct remainder). */
+  from: string;
+  /** The new in-house section carrying the unfinished scope. */
+  to: string;
+  title: string;
+  amount: number;
+}
+
+export interface ContractClosure {
+  type: "ended_early";
+  reason: ContractClosureReason | string | null;
+  note: string | null;
+  /** YYYY-MM-DD — the contractor's last day. */
+  endDate: string | null;
+  /** Agreed value before the write-off (final value = what was paid). */
+  originalValue: number | null;
+  /** On a section: the in-house section that took over its unfinished scope. */
+  handedOverToId: string | null;
+  /** Root contract only. */
+  writtenOff: number | null;
+  handedOverTotal: number | null;
+  inHouseId: string | null;
+  handovers: ContractClosureHandover[];
 }
 
 /**

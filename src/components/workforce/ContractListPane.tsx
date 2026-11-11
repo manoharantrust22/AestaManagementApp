@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import React, { useMemo } from "react";
 import {
   Box,
   Typography,
@@ -40,6 +40,7 @@ export function ContractListPane({
   canEdit,
   onOpenTradeWorkspace,
   onToggleTradeWorkspace,
+  viewToggle,
 }: {
   siteId: string;
   siteName: string;
@@ -63,6 +64,8 @@ export function ContractListPane({
   onOpenTradeWorkspace?: (tradeCategoryId: string, tradeName: string, base: "/site/attendance" | "/site/payments") => void;
   /** Toggle this trade's workspace on/off from the trades page (runs the payment migration). */
   onToggleTradeWorkspace?: (tradeCategoryId: string, tradeName: string, currentlyOn: boolean) => void;
+  /** Tree | Table switch (owned by the layout). */
+  viewToggle?: React.ReactNode;
 }) {
   // Per-tab item counts (contracts + packages) for the segmented control badges.
   const tabCounts = useMemo(() => {
@@ -93,9 +96,12 @@ export function ContractListPane({
     >
       {/* Header */}
       <Box sx={{ px: 2, pt: 1.75, pb: 1.25, borderBottom: `1px solid ${wsColors.hairline2}` }}>
-        <Typography sx={{ fontSize: 11, fontWeight: 600, color: wsColors.muted, letterSpacing: ".02em" }}>
-          Workforce › Contracts
-        </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+          <Typography sx={{ fontSize: 11, fontWeight: 600, color: wsColors.muted, letterSpacing: ".02em" }}>
+            Workforce › Subcontracts
+          </Typography>
+          {viewToggle}
+        </Box>
         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, mt: 0.25 }}>
           <Typography sx={{ fontSize: 19, fontWeight: 800, color: wsColors.ink, letterSpacing: "-.02em" }} noWrap>
             {siteName}
@@ -202,7 +208,7 @@ export function ContractListPane({
           <InputBase
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Search task work, mesthri…"
+            placeholder="Search subcontracts, mesthri…"
             sx={{ flex: 1, fontSize: 13.5, color: wsColors.ink }}
           />
         </Box>

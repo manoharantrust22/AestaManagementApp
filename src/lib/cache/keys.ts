@@ -25,6 +25,15 @@ export const queryKeys = {
     byUser: (userId: string) => ['notifications', userId] as const,
   },
 
+  tasks: {
+    all: ['tasks'] as const,
+    list: (scope: string, userId: string) => ['tasks', 'list', scope, userId] as const,
+    byId: (id: string) => ['tasks', 'detail', id] as const,
+    updates: (id: string) => ['tasks', 'updates', id] as const,
+    attachments: (id: string) => ['tasks', 'attachments', id] as const,
+    assignableUsers: () => ['tasks', 'assignable-users'] as const,
+  },
+
   teams: {
     all: ['teams'] as const,
     bySite: (siteId: string) => ['teams', 'site', siteId] as const,

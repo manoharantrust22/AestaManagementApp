@@ -1,7 +1,7 @@
 // Service Worker for Aesta Construction Manager
 // Handles: PWA caching + offline fallback + push notifications
 
-const PWA_CACHE = "aesta-pwa-v2";
+const PWA_CACHE = "aesta-pwa-v3";
 
 // Assets to precache during install
 const PRECACHE_URLS = [
@@ -118,4 +118,63 @@ self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") {
     self.skipWaiting();
   }
+});
+
+// ---------------------------------------------------------------------------
+// Web push — payload sent by /api/push/dispatch:
+//   { title, body, url, tag, needsAction }
+// ---------------------------------------------------------------------------
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    data = { title: "Aesta", body: event.data ? event.data.text() : "" };
+  }
+  const title = data.title || "Aesta";
+  const options = {
+    body: data.body || "",
+    icon: "/icons/icon-192x192.png",
+    badge: "/icons/icon-192x192.png",
+    tag: data.tag || undefined,
+    renotify: !!data.tag,
+    requireInteraction: !!data.needsAction,
+    data: { url: data.url || "/site/dashboard" },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = new URL(
+    (event.notification.data && event.notification.data.url) || "/site/dashboard",
+    self.location.origin
+  ).href;
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      for (const w of wins) {
+        if (w.url.startsWith(self.location.origin) && "focus" in w) {
+          return w.focus().then((fw) => (fw && "navigate" in fw ? fw.navigate(target) : fw));
+        }
+      }
+      return clients.openWindow(target);
+    })
+  );
+});
+
+// Browser rotated the subscription — tell the server (best effort).
+self.addEventListener("pushsubscriptionchange", (event) => {
+  event.waitUntil(
+    self.registration.pushManager
+      .subscribe(event.oldSubscription ? event.oldSubscription.options : { userVisibleOnly: true })
+      .then((sub) =>
+        fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ subscription: sub.toJSON(), oldEndpoint: event.oldSubscription && event.oldSubscription.endpoint }),
+        })
+      )
+      .catch(() => undefined)
+  );
 });

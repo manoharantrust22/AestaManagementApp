@@ -76,6 +76,8 @@ import {
   Build as BuildIcon,
   Videocam as VideocamIcon,
   SmartToy as SmartToyIcon,
+  Checklist as TasksIcon,
+  BugReportOutlined as BugReportIcon,
   CalculateRounded as CalculateRoundedIcon,
   FactCheck as FactCheckIcon,
   SquareFoot as SquareFootIcon,
@@ -89,6 +91,8 @@ import { useSelectedSite } from "@/contexts/SiteContext";
 import NotificationBell from "@/components/notifications/NotificationBell";
 import ActiveSectionChip from "@/components/layout/ActiveSectionChip";
 import ChatAssistant from "@/components/chat-assistant/ChatAssistant";
+import BugReportProvider from "@/components/bug-report/BugReportProvider";
+import { useMyOpenTaskCount } from "@/hooks/queries/useTasks";
 import StaleStateSnackbar from "@/components/layout/StaleStateSnackbar";
 import ConnectionDegradedSnackbar from "@/components/layout/ConnectionDegradedSnackbar";
 import ThemeToggle from "@/components/common/ThemeToggle";
@@ -145,16 +149,12 @@ const siteNavCategories: NavCategory[] = [
     emoji: "👷",
     items: [
       {
-        // The unified home: each trade is a Contract holding Stages + Task Work.
-        text: "Contracts",
+        // Work Aesta sub-lets to mesthris / specialists, grouped by trade. Tree
+        // view (Subcontract ▸ Section ▸ Task) + a flat Table view for the money
+        // overview. The old /site/subcontracts page redirects here.
+        text: "Subcontracts",
         icon: <ConstructionIcon />,
         path: "/site/trades",
-      },
-      {
-        // Detailed flat list + full editing of the same contracts (task work).
-        text: "Contract details",
-        icon: <DescriptionIcon />,
-        path: "/site/subcontracts",
       },
       {
         text: "Attendance",
@@ -328,6 +328,12 @@ const companyNavCategories: NavCategory[] = [
         icon: <PaymentsIcon />,
         path: "/company/market-laborers",
       },
+      {
+        text: "Staff Pay",
+        icon: <PaymentsIcon />,
+        path: "/company/staff-pay",
+        adminOnly: true,
+      },
     ],
   },
   {
@@ -430,6 +436,12 @@ const companyNavCategories: NavCategory[] = [
     emoji: "🏗️",
     items: [
       {
+        text: "Review queue",
+        icon: <FactCheckIcon />,
+        path: "/company/review-queue",
+        adminOrOffice: true,
+      },
+      {
         text: "Sites",
         icon: <DomainIcon />,
         path: "/company/sites",
@@ -506,6 +518,13 @@ export default function MainLayout({
   );
   const [chatOpen, setChatOpen] = useState(false);
 
+  // Any page can open the assistant: window.dispatchEvent(new CustomEvent("aesta:open-assistant"))
+  useEffect(() => {
+    const open = () => setChatOpen(true);
+    window.addEventListener("aesta:open-assistant", open);
+    return () => window.removeEventListener("aesta:open-assistant", open);
+  }, []);
+
   // Snackbar state for refresh feedback
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
@@ -528,6 +547,8 @@ export default function MainLayout({
     activeTab === "site" && isMaterialsPath ? selectedSite?.id : undefined
   );
   const materialBadges = getBadgeCounts(workflowSummary);
+  const { data: openTaskCount = 0 } = useMyOpenTaskCount();
+  const tasksActive = pathname === "/tasks";
   const {
     startDate,
     endDate,
@@ -731,6 +752,27 @@ export default function MainLayout({
               }}
             >
               <DashboardIcon />
+            </ListItemButton>
+          </Tooltip>
+        </ListItem>
+
+        {/* Tasks Icon */}
+        <ListItem disablePadding sx={{ mb: 1 }}>
+          <Tooltip title="Tasks" placement="right">
+            <ListItemButton
+              onClick={() => handleNavigation("/tasks")}
+              selected={tasksActive}
+              sx={{
+                borderRadius: 2,
+                py: 1,
+                justifyContent: "center",
+                color: "primary.main",
+                "&:hover": { bgcolor: "action.hover" },
+              }}
+            >
+              <Badge badgeContent={openTaskCount} color="error" max={99}>
+                <TasksIcon />
+              </Badge>
             </ListItemButton>
           </Tooltip>
         </ListItem>
@@ -961,6 +1003,33 @@ export default function MainLayout({
                 fontSize: "0.875rem",
               }}
             />
+          </ListItemButton>
+        </ListItem>
+
+        {/* Tasks */}
+        <ListItem disablePadding sx={{ mb: 0.5 }}>
+          <ListItemButton
+            onClick={() => handleNavigation("/tasks")}
+            selected={tasksActive}
+            sx={{
+              borderRadius: 2,
+              py: 1.25,
+              "&:hover": { bgcolor: "action.hover" },
+            }}
+          >
+            <ListItemIcon sx={{ color: "primary.main", minWidth: 40 }}>
+              <TasksIcon />
+            </ListItemIcon>
+            <ListItemText
+              primary="Tasks"
+              primaryTypographyProps={{
+                fontWeight: tasksActive ? 600 : 500,
+                fontSize: "0.875rem",
+              }}
+            />
+            {openTaskCount > 0 && (
+              <Badge badgeContent={openTaskCount} color="error" max={99} sx={{ mr: 1.5 }} />
+            )}
           </ListItemButton>
         </ListItem>
 
@@ -1383,6 +1452,30 @@ export default function MainLayout({
               </ListItemIcon>
               <ListItemText>Settings</ListItemText>
             </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setAnchorEl(null);
+                window.dispatchEvent(new CustomEvent("aesta:report-bug"));
+              }}
+            >
+              <ListItemIcon>
+                <BugReportIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText secondary="or long-press anywhere">Report a problem</ListItemText>
+            </MenuItem>
+            {userProfile?.role !== "admin" && (
+              <MenuItem
+                onClick={() => {
+                  setAnchorEl(null);
+                  router.push("/site/my-pay");
+                }}
+              >
+                <ListItemIcon>
+                  <PaymentsIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>My Pay</ListItemText>
+              </MenuItem>
+            )}
             <MenuItem onClick={toggleTheme}>
               <ListItemIcon>
                 {mode === "dark" ? (
@@ -1530,6 +1623,9 @@ export default function MainLayout({
 
       {/* Chat Assistant */}
       <ChatAssistant open={chatOpen} onClose={() => setChatOpen(false)} />
+
+      {/* Bug reporter — long-press anywhere (or profile menu) → screenshot + voice */}
+      <BugReportProvider />
 
       {/* Stale-state toast — fires when a guarded mutation hits a row that
           no longer matches its expected state (e.g. dialog opened on stale

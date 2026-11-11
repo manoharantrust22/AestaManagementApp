@@ -15,7 +15,7 @@ envContent.split("\n").forEach((line) => {
 
 const supabase = createClient(
   env.NEXT_PUBLIC_SUPABASE_URL,
-  env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY
+  (env.SUPABASE_SERVICE_ROLE_KEY || env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY)
 );
 
 async function cleanupTeaShopSettlements() {

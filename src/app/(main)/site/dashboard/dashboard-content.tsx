@@ -46,6 +46,9 @@ import { useSiteAuditState } from "@/hooks/queries/useSiteAuditState";
 import { LegacyAuditBanner } from "@/components/audit";
 import SiteMoneyMiniCard from "@/components/site/SiteMoneyMiniCard";
 import TodayByTradeCard from "@/components/dashboard/TodayByTradeCard";
+import MyTasksTodayCard from "@/components/tasks/MyTasksTodayCard";
+import TeamTasksSummaryCard from "@/components/tasks/TeamTasksSummaryCard";
+import EnablePushCard from "@/components/notifications/EnablePushCard";
 import { createClient } from "@/lib/supabase/client";
 import dayjs from "dayjs";
 import {
@@ -294,6 +297,19 @@ export default function DashboardContent({
           {(statsError as Error).message}
         </Alert>
       )}
+
+      {/* Tasks — my open tasks for today + (admin) team status */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid size={{ xs: 12 }}>
+          <EnablePushCard />
+        </Grid>
+        <Grid size={{ xs: 12, md: 7 }}>
+          <MyTasksTodayCard />
+        </Grid>
+        <Grid size={{ xs: 12, md: 5 }}>
+          <TeamTasksSummaryCard />
+        </Grid>
+      </Grid>
 
       {/* Site Money Overview — condensed 3-tile rollup */}
       {siteId && (
@@ -623,7 +639,7 @@ export default function DashboardContent({
                   <Button
                     size="small"
                     sx={{ mt: 2 }}
-                    onClick={() => router.push("/site/subcontracts")}
+                    onClick={() => router.push("/site/trades?view=table")}
                   >
                     Link to Subcontracts
                   </Button>

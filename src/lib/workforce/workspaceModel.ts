@@ -16,6 +16,7 @@
  */
 import type {
   ContractActivity,
+  ContractClosure,
   ContractReconciliation,
   ContractStatus,
   LaborTrackingMode,
@@ -70,6 +71,8 @@ export interface WorkspaceTask {
   exposure: ExposureResult;
   /** paid as a fraction of quoted, clamped 0–1 (for the dual progress bar). */
   paidPctOfQuoted: number;
+  /** Set when the contract was ended early (contractor left). Null = open / normal. */
+  closure: ContractClosure | null;
 }
 
 /**
@@ -268,8 +271,13 @@ export function buildWorkspaceModel({
       // payments (Sections). Sum to `paid`. Powers the contract dashboard breakdown.
       const paidWorkspace = rec?.amountPaidSettlements ?? 0;
       const paidFixed = rec?.amountPaidSubcontractPayments ?? 0;
+      const closure = c.closure ?? null;
+      // An ended-early node is frozen at what was paid (value == paid), so a stale
+      // progress % must not invent an "at risk" verdict for work nobody will finish here.
       const work =
-        c.workProgressPercent == null ? null : clamp01(c.workProgressPercent / 100);
+        closure || c.workProgressPercent == null
+          ? null
+          : clamp01(c.workProgressPercent / 100);
       const act = activity?.get(c.id);
       const days = Math.max(act?.attendanceDays ?? 0, act?.paymentDays ?? 0);
 
@@ -324,6 +332,7 @@ export function buildWorkspaceModel({
         days,
         exposure: computeExposure({ quoted, paid, work }),
         paidPctOfQuoted: quoted > 0 ? clamp01(paid / quoted) : 0,
+        closure,
       };
     });
 

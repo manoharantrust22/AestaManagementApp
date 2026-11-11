@@ -553,6 +553,7 @@ export type Database = {
           payment_mode: string
           payment_phase_id: string | null
           receipt_url: string | null
+          received_from_client_id: string | null
           site_id: string
           tagged_additional_work_id: string | null
           transaction_reference: string | null
@@ -570,6 +571,7 @@ export type Database = {
           payment_mode: string
           payment_phase_id?: string | null
           receipt_url?: string | null
+          received_from_client_id?: string | null
           site_id: string
           tagged_additional_work_id?: string | null
           transaction_reference?: string | null
@@ -587,6 +589,7 @@ export type Database = {
           payment_mode?: string
           payment_phase_id?: string | null
           receipt_url?: string | null
+          received_from_client_id?: string | null
           site_id?: string
           tagged_additional_work_id?: string | null
           transaction_reference?: string | null
@@ -635,6 +638,7 @@ export type Database = {
           name: string
           notes: string | null
           phone: string | null
+          photo_url: string | null
           updated_at: string
         }
         Insert: {
@@ -646,6 +650,7 @@ export type Database = {
           name: string
           notes?: string | null
           phone?: string | null
+          photo_url?: string | null
           updated_at?: string
         }
         Update: {
@@ -657,6 +662,7 @@ export type Database = {
           name?: string
           notes?: string | null
           phone?: string | null
+          photo_url?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -7978,6 +7984,7 @@ export type Database = {
       site_additional_works: {
         Row: {
           client_approved_by: string | null
+          client_approved_by_id: string | null
           confirmation_date: string | null
           confirmed_amount: number | null
           created_at: string
@@ -7995,6 +8002,7 @@ export type Database = {
         }
         Insert: {
           client_approved_by?: string | null
+          client_approved_by_id?: string | null
           confirmation_date?: string | null
           confirmed_amount?: number | null
           created_at?: string
@@ -8012,6 +8020,7 @@ export type Database = {
         }
         Update: {
           client_approved_by?: string | null
+          client_approved_by_id?: string | null
           confirmation_date?: string | null
           confirmed_amount?: number | null
           created_at?: string
@@ -8053,6 +8062,7 @@ export type Database = {
           is_primary_client: boolean | null
           notes: string | null
           ownership_percentage: number | null
+          role: string | null
           site_id: string
           updated_at: string
         }
@@ -8064,6 +8074,7 @@ export type Database = {
           is_primary_client?: boolean | null
           notes?: string | null
           ownership_percentage?: number | null
+          role?: string | null
           site_id: string
           updated_at?: string
         }
@@ -8075,6 +8086,7 @@ export type Database = {
           is_primary_client?: boolean | null
           notes?: string | null
           ownership_percentage?: number | null
+          role?: string | null
           site_id?: string
           updated_at?: string
         }

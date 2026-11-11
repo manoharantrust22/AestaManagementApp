@@ -160,3 +160,4 @@ dev-server.log
 /verify2.yml
 /verify3.yml
 /wallet-card-after-fix.png
+.env*

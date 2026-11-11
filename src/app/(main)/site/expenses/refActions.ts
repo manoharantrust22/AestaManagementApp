@@ -71,9 +71,9 @@ export function resolveRefAction(row: ExpenseRow): RefAction {
     case "tea_shop_settlement":
       return { kind: "navigate", url: teaShopUrl(ref) };
     case "subcontract_payment":
-      // /site/subcontracts doesn't yet honour ?highlight=, so we land the
+      // The Subcontracts table doesn't yet honour ?highlight=, so we land the
       // user on the page without one. Add it here if/when the page supports it.
-      return { kind: "navigate", url: "/site/subcontracts" };
+      return { kind: "navigate", url: "/site/trades?view=table" };
     case "settlement":
       if (ref.startsWith("WS-")) return resolveWeekly(row, ref);
       return { kind: "daily-pane", date: row.date, ref };
@@ -89,7 +89,7 @@ export function resolveRefAction(row: ExpenseRow): RefAction {
   // bearing a settlement-style ref).
   if (ref.startsWith("MISC-")) return { kind: "navigate", url: miscUrl(ref) };
   if (ref.startsWith("TSS-")) return { kind: "navigate", url: teaShopUrl(ref) };
-  if (ref.startsWith("SCP-")) return { kind: "navigate", url: "/site/subcontracts" };
+  if (ref.startsWith("SCP-")) return { kind: "navigate", url: "/site/trades?view=table" };
   if (ref.startsWith("SELF-")) return { kind: "navigate", url: matRefUrl(ref) };
   if (ref.startsWith("RSET-") && row.source_id) {
     return { kind: "rental-pane", orderId: row.source_id };

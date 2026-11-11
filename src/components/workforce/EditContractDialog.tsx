@@ -18,7 +18,6 @@ import {
   Select,
   TextField,
 } from "@mui/material";
-import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { blurOnWheel } from "@/lib/utils/numberInput";
@@ -41,19 +40,20 @@ interface Props {
   siteId: string;
   task: WorkspaceTask;
   onSaved?: () => void;
+  /** Opens the full subcontract form (contractor, type, trade, rate, day-work fields). */
+  onMoreOptions?: () => void;
 }
 
 /**
  * In-context edit for a contract (subcontract) — title, description, scope of
  * work, agreed value, status, dates. Deliberately does NOT touch contractor or
  * labor_tracking_mode (mode lives in ChangeTrackingModeDialog; contractor
- * reassignment is an edge case handled on /site/subcontracts). Reuses the same
- * `subcontracts.update(...)` path the old Contracts page uses.
+ * reassignment is an edge case handled by the full SubcontractFormDialog via
+ * "More options").
  */
-export default function EditContractDialog({ open, onClose, siteId, task, onSaved }: Props) {
+export default function EditContractDialog({ open, onClose, siteId, task, onSaved, onMoreOptions }: Props) {
   const supabase = createClient();
   const queryClient = useQueryClient();
-  const router = useRouter();
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -105,6 +105,8 @@ export default function EditContractDialog({ open, onClose, siteId, task, onSave
   // A crew-less plan can't be activated here — the crew is required at handover.
   // (The DB's contract_party_check enforces this too; this is the friendly guard.)
   const crewless = !task.isInHouse && !task.teamId && !task.laborerId;
+  // An ended-early contract is frozen at what was paid; value/status change only via Reopen.
+  const ended = !!task.closure;
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -126,8 +128,7 @@ export default function EditContractDialog({ open, onClose, siteId, task, onSave
           title: title.trim(),
           description: description.trim() || null,
           scope_of_work: scope.trim() || null,
-          total_value: totalValue,
-          status,
+          ...(ended ? {} : { total_value: totalValue, status }),
           start_date: startDate || null,
           expected_end_date: endDate || null,
           updated_at: new Date().toISOString(),
@@ -205,11 +206,12 @@ export default function EditContractDialog({ open, onClose, siteId, task, onSave
                   onChange={(e) => setTotalValue(Number(e.target.value))}
                   onWheel={blurOnWheel}
                   fullWidth
+                  disabled={ended}
                   slotProps={{ input: { startAdornment: "₹" } }}
                 />
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
-                <FormControl fullWidth>
+                <FormControl fullWidth disabled={ended}>
                   <InputLabel>Status</InputLabel>
                   <Select
                     value={status}
@@ -246,7 +248,14 @@ export default function EditContractDialog({ open, onClose, siteId, task, onSave
               </Grid>
             </Grid>
 
-            {status === "completed" && missingAfter > 0 && (
+            {ended && (
+              <Alert severity="info">
+                This contract was ended early, so its value and status are locked at what was paid. Use{" "}
+                <strong>Reopen contract</strong> on the contract page to change them.
+              </Alert>
+            )}
+
+            {!ended && status === "completed" && missingAfter > 0 && (
               <Alert severity="warning">
                 Reminder: {missingAfter} work item{missingAfter === 1 ? "" : "s"} still{" "}
                 {missingAfter === 1 ? "has" : "have"} no &ldquo;after&rdquo; photo. You can close now
@@ -254,15 +263,20 @@ export default function EditContractDialog({ open, onClose, siteId, task, onSave
               </Alert>
             )}
 
-            <Link
-              component="button"
-              type="button"
-              underline="hover"
-              onClick={() => router.push(`/site/subcontracts?contractId=${task.id}`)}
-              sx={{ fontSize: 12.5, alignSelf: "flex-start" }}
-            >
-              More options (contractor, trade) → open in Contract details
-            </Link>
+            {onMoreOptions && (
+              <Link
+                component="button"
+                type="button"
+                underline="hover"
+                onClick={() => {
+                  onClose();
+                  onMoreOptions();
+                }}
+                sx={{ fontSize: 12.5, alignSelf: "flex-start" }}
+              >
+                More options (contractor, type, trade, rate) → edit all fields
+              </Link>
+            )}
 
             {error && (
               <Alert severity="error" onClose={() => setError("")}>

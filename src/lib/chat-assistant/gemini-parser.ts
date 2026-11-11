@@ -78,7 +78,10 @@ export async function parseWithGemini(
   input: string,
   defaultFilters: ChatFilters
 ): Promise<ParsedIntent | null> {
-  const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+  // Server-only key. This parser used to read NEXT_PUBLIC_GEMINI_API_KEY, which
+  // shipped the key to every browser. In the browser it now returns null and
+  // the caller falls back to the keyword parser.
+  const apiKey = getServerGeminiKey();
 
   if (!apiKey) {
     return null;
@@ -202,7 +205,13 @@ function parseGeminiResponse(response: string): {
  * Check if Gemini API is available
  */
 export function isGeminiAvailable(): boolean {
-  return !!process.env.NEXT_PUBLIC_GEMINI_API_KEY && !geminiDisabled;
+  return !!getServerGeminiKey() && !geminiDisabled;
+}
+
+/** GEMINI_API_KEY is only readable on the server; never use a NEXT_PUBLIC_ key. */
+function getServerGeminiKey(): string | undefined {
+  if (typeof window !== "undefined") return undefined;
+  return process.env.GEMINI_API_KEY || undefined;
 }
 
 /**

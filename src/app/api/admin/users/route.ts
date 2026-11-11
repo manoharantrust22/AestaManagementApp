@@ -13,11 +13,11 @@ const ERROR_MESSAGES: Record<string, string> = {
   "Signup requires a valid password":
     "Please provide a password for the new user.",
   "User not allowed":
-    "Admin privileges are required. Please ensure NEXT_PUBLIC_NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY is configured correctly.",
+    "Admin privileges are required. Please ensure SUPABASE_SERVICE_ROLE_KEY is configured correctly.",
   "Invalid API key":
     "Server configuration error. Please contact the administrator.",
   "service_role key is required":
-    "Server is not properly configured for admin operations. Please add NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY to your environment variables.",
+    "Server is not properly configured for admin operations. Please add SUPABASE_SERVICE_ROLE_KEY to your environment variables.",
 };
 
 function getReadableError(error: any): string {

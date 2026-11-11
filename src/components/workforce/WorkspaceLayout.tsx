@@ -24,7 +24,6 @@ import Add from "@mui/icons-material/Add";
 import Groups from "@mui/icons-material/Groups";
 import AccessTime from "@mui/icons-material/AccessTime";
 import PaymentsRounded from "@mui/icons-material/PaymentsRounded";
-import MoreHoriz from "@mui/icons-material/MoreHoriz";
 import TuneRounded from "@mui/icons-material/TuneRounded";
 import Handshake from "@mui/icons-material/Handshake";
 import type {
@@ -37,7 +36,10 @@ import type {
 import type { TaskWorkPackageWithMeta } from "@/types/taskWork.types";
 import { buildWorkspaceModel, contractorGroupFromNode, findContractNode, findTask } from "@/lib/workforce/workspaceModel";
 import type { WorkspacePackage, WorkspaceTask } from "@/lib/workforce/workspaceModel";
-import { DEFAULT_STATUS_TAB, type StatusTab } from "@/lib/workforce/statusTabs";
+import { DEFAULT_STATUS_TAB, statusBucket, type StatusTab } from "@/lib/workforce/statusTabs";
+import { canEndEarly } from "@/lib/workforce/earlyClosure";
+import { EndContractDialog } from "./EndContractDialog";
+import { formatCurrencyFull } from "@/lib/formatters";
 import {
   WS_MOBILE_BREAKPOINT,
   tradeIcon,
@@ -66,6 +68,73 @@ import { HandToCrewDialog } from "./HandToCrewDialog";
 import EditContractDialog from "./EditContractDialog";
 import DeleteContractDialog from "./DeleteContractDialog";
 import type { AddTaskWork } from "./ContractTree";
+import SubcontractFormDialog from "@/components/subcontracts/SubcontractFormDialog";
+import {
+  SubcontractsTableView,
+  type SubcontractTableRow,
+} from "@/components/subcontracts/SubcontractsTableView";
+import AccountTreeRounded from "@mui/icons-material/AccountTreeRounded";
+import TableRowsRounded from "@mui/icons-material/TableRowsRounded";
+import PostAddRounded from "@mui/icons-material/PostAddRounded";
+
+type WorkspaceView = "tree" | "table";
+const VIEW_STORAGE_KEY = "aesta.subcontracts.view";
+
+/** Compact Tree | Table switch shown in the workspace header. */
+function ViewToggle({ value, onChange }: { value: WorkspaceView; onChange: (v: WorkspaceView) => void }) {
+  const opts: Array<{ v: WorkspaceView; label: string; Icon: typeof AccountTreeRounded }> = [
+    { v: "tree", label: "Tree", Icon: AccountTreeRounded },
+    { v: "table", label: "Table", Icon: TableRowsRounded },
+  ];
+  return (
+    <Box
+      role="tablist"
+      aria-label="Subcontracts view"
+      sx={{
+        display: "inline-flex",
+        gap: 0.25,
+        p: 0.25,
+        bgcolor: wsColors.canvas,
+        border: `1px solid ${wsColors.hairline}`,
+        borderRadius: `${wsRadius.input}px`,
+        flexShrink: 0,
+      }}
+    >
+      {opts.map(({ v, label, Icon }) => {
+        const sel = v === value;
+        return (
+          <Box
+            key={v}
+            component="button"
+            type="button"
+            role="tab"
+            aria-selected={sel}
+            onClick={() => onChange(v)}
+            sx={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 0.4,
+              px: 0.9,
+              py: 0.3,
+              border: 0,
+              cursor: "pointer",
+              font: "inherit",
+              fontSize: 11.5,
+              fontWeight: sel ? 800 : 700,
+              borderRadius: `${wsRadius.input - 3}px`,
+              bgcolor: sel ? wsColors.surface : "transparent",
+              boxShadow: sel ? wsShadow.card : "none",
+              color: sel ? wsColors.primary : wsColors.muted,
+            }}
+          >
+            <Icon sx={{ fontSize: 15 }} />
+            {label}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
 
 export function WorkspaceLayout({
   siteId,
@@ -142,7 +211,31 @@ export function WorkspaceLayout({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [convertOpen, setConvertOpen] = useState(false);
   const [handOpen, setHandOpen] = useState(false);
+  const [endOpen, setEndOpen] = useState(false);
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null);
+  // Tree (hierarchy + detail pane) or Table (flat money overview). Remembered per browser.
+  const [view, setViewState] = useState<WorkspaceView>("tree");
+  useEffect(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      // A ?contract= / ?package= deep link targets the tree's detail pane.
+      const fromUrl = sp.get("contract") || sp.get("package") ? "tree" : sp.get("view");
+      const saved = fromUrl ?? window.localStorage.getItem(VIEW_STORAGE_KEY);
+      if (saved === "table" || saved === "tree") setViewState(saved);
+    } catch {
+      /* storage unavailable — default to tree */
+    }
+  }, []);
+  const setView = (v: WorkspaceView) => {
+    setViewState(v);
+    try {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, v);
+    } catch {
+      /* ignore */
+    }
+  };
+  // Full subcontract form: string = edit that id, "new" = create, null = closed.
+  const [fullEdit, setFullEdit] = useState<string | null>(null);
   // Per-trade workspace toggle (the trades-page shortcut) — runs the payment migration.
   const [toggleWsCtx, setToggleWsCtx] = useState<{ mode: "on" | "off"; tradeCategoryId: string; tradeName: string } | null>(null);
   const [wsUndoBatch, setWsUndoBatch] = useState<string | null>(null);
@@ -319,11 +412,45 @@ export function WorkspaceLayout({
     setSelectedTaskId(id);
     setSelectedPackageId(null);
   };
+  // Jump to any node (e.g. the In-house section that took over an ended contract's work):
+  // switch to the tab it lives in and expand its trade so the tree row is visible too.
+  const handleOpenNode = (id: string) => {
+    const found = findContractNode(model, id);
+    if (found) {
+      const tab = statusBucket(found.node.task.status);
+      if (tab) setActiveTab(tab);
+      setOpenTrades((m) => ({ ...m, [found.trade.category.id]: true }));
+    }
+    handleSelect(id);
+  };
   // Opening a fixed-price package selects it in-pane (clears any task selection).
   const handleOpenPackage = (pkg: TaskWorkPackageWithMeta) => {
     setSelectedPackageId(pkg.id);
     setSelectedTaskId(null);
   };
+
+  // Table row → open it in the tree's detail pane (record payment, photos, delete…).
+  // Cancelled rows aren't loaded into the tree, so those open the full edit form instead.
+  const handleOpenFromTable = (row: SubcontractTableRow) => {
+    if (findContractNode(model, row.id)) {
+      setView("tree");
+      handleOpenNode(row.id);
+    } else {
+      setFullEdit(row.id);
+    }
+  };
+
+  // Deep-link: /site/trades?edit=<id> opens the full subcontract form (used by
+  // Salary Settlements' "Assign one →" and the old /site/subcontracts redirect).
+  const didEditDeepLink = useRef(false);
+  useEffect(() => {
+    if (didEditDeepLink.current || typeof window === "undefined") return;
+    didEditDeepLink.current = true;
+    const editId = new URLSearchParams(window.location.search).get("edit");
+    if (editId) setFullEdit(editId);
+  }, []);
+
+  const viewToggle = <ViewToggle value={view} onChange={setView} />;
 
   const listPane = (
     <ContractListPane
@@ -346,6 +473,60 @@ export function WorkspaceLayout({
       canEdit={canEdit}
       onOpenTradeWorkspace={canEdit ? handleOpenTradeWorkspace : undefined}
       onToggleTradeWorkspace={canEdit ? handleToggleTradeWorkspace : undefined}
+      viewToggle={viewToggle}
+    />
+  );
+
+  // Flat money overview of every subcontract (incl. draft / cancelled).
+  const tablePane = (
+    <Box sx={{ height: "100%", overflowY: "auto", bgcolor: wsColors.canvas }}>
+      <Box sx={{ px: { xs: 1.5, md: 3 }, pt: 1.75, pb: 3, maxWidth: 1400, mx: "auto" }}>
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+          <Typography sx={{ fontSize: 11, fontWeight: 600, color: wsColors.muted, letterSpacing: ".02em" }}>
+            Workforce › Subcontracts
+          </Typography>
+          {viewToggle}
+        </Box>
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, mt: 0.25, mb: 1.5 }}>
+          <Typography sx={{ fontSize: 19, fontWeight: 800, color: wsColors.ink, letterSpacing: "-.02em" }} noWrap>
+            {siteName}
+          </Typography>
+          {canEdit && (
+            <Button
+              variant="contained"
+              startIcon={<Add />}
+              onClick={(e) => setAddAnchor(e.currentTarget)}
+              disableElevation
+              sx={{
+                bgcolor: wsColors.primary,
+                borderRadius: `${wsRadius.input}px`,
+                textTransform: "none",
+                fontWeight: 700,
+                boxShadow: wsShadow.raised,
+                "&:hover": { bgcolor: "#2a60d6" },
+              }}
+            >
+              Add
+            </Button>
+          )}
+        </Box>
+        <SubcontractsTableView
+          siteId={siteId}
+          canEdit={canEdit}
+          onOpen={handleOpenFromTable}
+          onEdit={(row) => setFullEdit(row.id)}
+        />
+      </Box>
+    </Box>
+  );
+
+  const fullEditDialog = (
+    <SubcontractFormDialog
+      open={!!fullEdit}
+      onClose={() => setFullEdit(null)}
+      siteId={siteId}
+      subcontractId={fullEdit === "new" ? null : fullEdit}
+      onSaved={() => notify(fullEdit === "new" ? "Subcontract created" : "Subcontract saved")}
     />
   );
 
@@ -396,6 +577,9 @@ export function WorkspaceLayout({
             : "package",
         selfLabel: selectedNode.node.tier,
         onEdit: () => setEditOpen(true),
+        onEndEarly: canEndEarly(selectedNode.node) ? () => setEndOpen(true) : undefined,
+        siteId,
+        onOpenNode: handleOpenNode,
       }}
       showBack={mobile}
       onBack={() => setSelectedTaskId(null)}
@@ -412,9 +596,8 @@ export function WorkspaceLayout({
       onHandToCrew={
         selectedTask?.status === "draft" ? () => setHandOpen(true) : undefined
       }
-      onOpenInDetails={
-        selectedTask ? () => router.push(`/site/subcontracts?contractId=${selectedTask.id}`) : undefined
-      }
+      onEndEarly={canEndEarly(selectedNode?.node) ? () => setEndOpen(true) : undefined}
+      onOpenNode={handleOpenNode}
       showBack={mobile}
       onBack={() => setSelectedTaskId(null)}
     />
@@ -490,6 +673,23 @@ export function WorkspaceLayout({
       <MenuItem
         onClick={() => {
           setAddAnchor(null);
+          setFullEdit("new");
+        }}
+      >
+        <ListItemIcon>
+          <PostAddRounded sx={{ fontSize: 20, color: wsColors.ink2 }} />
+        </ListItemIcon>
+        <ListItemText
+          primaryTypographyProps={{ fontSize: 14 }}
+          secondaryTypographyProps={{ fontSize: 11.5 }}
+          secondary="Day-work gang, specialist, rate × units…"
+        >
+          New subcontract — all fields
+        </ListItemText>
+      </MenuItem>
+      <MenuItem
+        onClick={() => {
+          setAddAnchor(null);
           router.push("/company/settings/trades");
         }}
       >
@@ -551,6 +751,7 @@ export function WorkspaceLayout({
         onClose={() => setEditOpen(false)}
         siteId={siteId}
         task={selectedTask}
+        onMoreOptions={canEdit ? () => setFullEdit(selectedTask.id) : undefined}
       />
       <DeleteContractDialog
         open={deleteOpen}
@@ -575,6 +776,24 @@ export function WorkspaceLayout({
       />
       {/* Hand a Future plan (draft) to a crew: activate as a contract, or convert
           to a fixed-price package. */}
+      {selectedNode && canEndEarly(selectedNode.node) && (
+        <EndContractDialog
+          open={endOpen}
+          onClose={() => setEndOpen(false)}
+          siteId={siteId}
+          node={selectedNode.node}
+          tradeName={selectedNode.trade.category.name}
+          onDone={(res) => {
+            // The contract now lives on the Completed tab — follow it there.
+            setActiveTab("completed");
+            notify(
+              res.handed_over_total > 0
+                ? `Contract ended. ${formatCurrencyFull(res.handed_over_total)} of work handed to In-house.`
+                : "Contract ended early."
+            );
+          }}
+        />
+      )}
       <HandToCrewDialog
         open={handOpen}
         onClose={() => setHandOpen(false)}
@@ -690,6 +909,8 @@ export function WorkspaceLayout({
                 </Paper>
               )}
             </>
+          ) : view === "table" ? (
+            tablePane
           ) : (
             listPane
           )}
@@ -725,17 +946,18 @@ export function WorkspaceLayout({
             >
               <BottomNavigation
                 showLabels
-                value={0}
+                value={view === "table" ? 3 : 0}
                 onChange={(_, v) => {
-                  if (v === 1) router.push("/site/attendance");
+                  if (v === 0) setView("tree");
+                  else if (v === 1) router.push("/site/attendance");
                   else if (v === 2) router.push("/site/payments");
-                  else if (v === 3) router.push("/site/subcontracts");
+                  else if (v === 3) setView("table");
                 }}
               >
-                <BottomNavigationAction label="Contracts" icon={<Groups />} />
+                <BottomNavigationAction label="Subcontracts" icon={<Groups />} />
                 <BottomNavigationAction label="Attendance" icon={<AccessTime />} />
                 <BottomNavigationAction label="Salary" icon={<PaymentsRounded />} />
-                <BottomNavigationAction label="More" icon={<MoreHoriz />} />
+                <BottomNavigationAction label="Table" icon={<TableRowsRounded />} />
               </BottomNavigation>
             </Paper>
           </>
@@ -745,21 +967,29 @@ export function WorkspaceLayout({
         {sheets}
         {modeDialog}
         {contractDialogs}
+        {fullEditDialog}
         {snackbar}
       </Box>
     );
   }
 
-  // ---- Desktop: two pane ----
+  // ---- Desktop: two pane (tree) or full-width table ----
   return (
     <Box sx={rootSx}>
       {fontLinks}
-      <Box sx={{ width: 400, flexShrink: 0, height: "100%" }}>{listPane}</Box>
-      <Box sx={{ flex: 1, minWidth: 0, height: "100%" }}>{detailPane}</Box>
+      {view === "table" ? (
+        <Box sx={{ flex: 1, minWidth: 0, height: "100%" }}>{tablePane}</Box>
+      ) : (
+        <>
+          <Box sx={{ width: 400, flexShrink: 0, height: "100%" }}>{listPane}</Box>
+          <Box sx={{ flex: 1, minWidth: 0, height: "100%" }}>{detailPane}</Box>
+        </>
+      )}
       {addMenu}
       {sheets}
       {modeDialog}
       {contractDialogs}
+      {fullEditDialog}
       {workspaceToggleDialog}
       {snackbar}
     </Box>

@@ -164,6 +164,29 @@ function StatusChip({ status }: { status: ContractStatus }) {
   );
 }
 
+/** Amber "Ended early" / "Handed over" pill on a contract (or section) whose contractor left. */
+function EndedEarlyChip({ handedOver }: { handedOver: boolean }) {
+  return (
+    <Box
+      component="span"
+      sx={{
+        flexShrink: 0,
+        fontSize: 9.5,
+        fontWeight: 800,
+        letterSpacing: ".02em",
+        lineHeight: 1.5,
+        px: 0.65,
+        borderRadius: 999,
+        color: wsColors.amber,
+        bgcolor: wsColors.amberBg,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {handedOver ? "Handed over" : "Ended early"}
+    </Box>
+  );
+}
+
 /** Tiny structural tag (CONTRACT / SECTION / TASK) so the row's level is unmistakable. */
 function TierTag({ tier }: { tier: ContractNode["tier"] }) {
   const m = tierMeta[tier];
@@ -608,6 +631,7 @@ function ContractRow({
               {t.title}
             </Typography>
             {t.status === "on_hold" && <StatusChip status={t.status} />}
+            {t.closure && <EndedEarlyChip handedOver={!!t.closure.handedOverToId} />}
           </Box>
           <Typography noWrap sx={{ fontSize: 11, color: wsColors.muted }}>
             {secondary}
@@ -946,8 +970,14 @@ export function ContractTree({
 
     // One parent contract per trade: once a top-level contract exists, "New contract"
     // becomes "Add a section" under it (many sections/task-works, one parent).
-    const nonCancelledContracts = node.contracts.filter((c) => c.task.status !== "cancelled");
-    const existingParent = nonCancelledContracts[0]?.task ?? null;
+    // Only an OPEN contractor contract can be that parent: a completed / ended-early one
+    // (e.g. a contractor who left) and the in-house daily-labour bucket never are — so
+    // after a contractor leaves, "Add" starts the next contractor's contract instead of
+    // piling new sections onto the closed one.
+    const openContracts = node.contracts.filter(
+      (c) => c.task.status !== "cancelled" && c.task.status !== "completed" && !c.task.isInHouse
+    );
+    const existingParent = openContracts[0]?.task ?? null;
     const hasParent = !!existingParent;
     const addContractOrSection = () =>
       hasParent && existingParent

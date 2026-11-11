@@ -8,10 +8,12 @@ import {
 import type { Database } from "@/types/database.types";
 import { formatINR } from "@/components/payments/KpiTile";
 import { formatDateDDMMMYY } from "@/lib/formatters";
+import SiteClientsCard from "@/components/clients/SiteClientsCard";
 
 type PaymentPhase = Database["public"]["Tables"]["payment_phases"]["Row"];
 
 export interface ContractTabProps {
+  siteId: string;
   baseContract: number;
   contractDocumentUrl: string | null;
   phases: PaymentPhase[];
@@ -19,6 +21,7 @@ export interface ContractTabProps {
 }
 
 export function ContractTab({
+  siteId,
   baseContract,
   contractDocumentUrl,
   phases,
@@ -40,6 +43,8 @@ export function ContractTab({
           Edit base contract amount on Company → Sites.
         </Typography>
       </Paper>
+
+      <SiteClientsCard siteId={siteId} />
 
       <Typography variant="subtitle1">Payment Phases ({phases.length})</Typography>
 

@@ -104,6 +104,7 @@ export default function ClientPaymentsPage() {
 
           {tab === "contract" && (
             <ContractTab
+              siteId={siteId}
               baseContract={summaryQ.data?.baseContract ?? 0}
               contractDocumentUrl={null}
               phases={phases}

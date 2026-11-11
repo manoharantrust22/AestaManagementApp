@@ -13,10 +13,13 @@ import {
   keyframes,
 } from "@mui/material";
 import type { ChatMessage as ChatMessageType } from "@/lib/chat-assistant/types";
+import ConfirmActionCard from "./ConfirmActionCard";
 
 interface ChatMessageProps {
   message: ChatMessageType;
   onSuggestionClick?: (suggestion: string) => void;
+  onDecideAction?: (messageId: string, actionId: string, decision: "confirm" | "cancel") => void;
+  onNavigate?: () => void;
 }
 
 // Typing indicator animation
@@ -28,6 +31,8 @@ const bounce = keyframes`
 export default function ChatMessage({
   message,
   onSuggestionClick,
+  onDecideAction,
+  onNavigate,
 }: ChatMessageProps) {
   const isUser = message.type === "user";
 
@@ -102,6 +107,21 @@ export default function ChatMessage({
         >
           {message.text}
         </Typography>
+        {message.translation && (
+          <Typography variant="caption" component="div" sx={{ mt: 0.5, opacity: 0.85, whiteSpace: "pre-line" }}>
+            EN: {message.translation}
+          </Typography>
+        )}
+
+        {/* Confirm cards for actions the assistant prepared */}
+        {message.actions?.map((a) => (
+          <ConfirmActionCard
+            key={a.id}
+            action={a}
+            onDecide={(decision) => onDecideAction?.(message.id, a.id, decision)}
+            onNavigate={onNavigate}
+          />
+        ))}
 
         {/* Highlight Value (big number display) */}
         {message.highlightValue && (

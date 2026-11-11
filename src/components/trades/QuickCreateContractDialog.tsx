@@ -162,7 +162,10 @@ export function QuickCreateContractDialog({
           .eq("site_id", siteId)
           .eq("trade_category_id", tradeCategoryId)
           .is("parent_subcontract_id", null)
-          .neq("status", "cancelled")
+          // Only an OPEN contractor contract blocks a new one — a completed / ended-early
+          // contract (contractor left) and the in-house daily-labour bucket do not.
+          .in("status", ["draft", "active", "on_hold"])
+          .eq("is_in_house", false)
           .limit(1);
         if (existErr) throw existErr;
         if (existing && existing.length > 0) {

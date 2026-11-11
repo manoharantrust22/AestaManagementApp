@@ -715,7 +715,7 @@ export default function ExpensesPageV2() {
       return;
     }
     if (row?.source_type === "subcontract_payment") {
-      router.push("/site/subcontracts");
+      router.push("/site/trades?view=table");
       return;
     }
     if (row?.source_type === "rental_settlement") {
@@ -808,7 +808,7 @@ export default function ExpensesPageV2() {
     if (row.source_type === "settlement") { setRedirectDialog({ open: true, expense: row }); return; }
     if (row.source_type === "subcontract_payment") {
       alert("Direct subcontract payments cannot be deleted here. Use the Subcontracts page.");
-      router.push("/site/subcontracts");
+      router.push("/site/trades?view=table");
       return;
     }
     if (row.source_type === "rental_settlement") {
@@ -2156,7 +2156,7 @@ export default function ExpensesPageV2() {
                       <Typography variant="subtitle2" fontWeight={600}>{sc.title}</Typography>
                       <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                         <Chip label={sc.status.toUpperCase()} size="small" color={sc.status === "active" ? "success" : "warning"} variant="outlined" />
-                        <IconButton size="small" onClick={() => router.push("/site/subcontracts")} title="View subcontract details"><OpenInNew fontSize="small" /></IconButton>
+                        <IconButton size="small" onClick={() => router.push("/site/trades?view=table")} title="View subcontract details"><OpenInNew fontSize="small" /></IconButton>
                       </Box>
                     </Box>
                     <Box sx={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
@@ -2177,7 +2177,7 @@ export default function ExpensesPageV2() {
                 ))}
               </Box>
               <Box sx={{ mt: 3 }}>
-                <Button fullWidth variant="outlined" endIcon={<OpenInNew />} onClick={() => router.push("/site/subcontracts")}>View All Subcontracts</Button>
+                <Button fullWidth variant="outlined" endIcon={<OpenInNew />} onClick={() => router.push("/site/trades?view=table")}>View All Subcontracts</Button>
               </Box>
             </>
           ) : (

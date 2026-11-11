@@ -11,6 +11,7 @@ import { ADDITIONAL_WORK_STATUS_LABELS } from "@/types/site.types";
 import { formatINR } from "@/components/payments/KpiTile";
 import { formatDateDDMMMYY } from "@/lib/formatters";
 import AdditionalWorkDialog from "./AdditionalWorkDialog";
+import SiteClientLabel from "@/components/clients/SiteClientLabel";
 
 const STATUS_COLOR: Record<AdditionalWorkStatus, "default" | "info" | "success" | "warning"> = {
   quoted: "default",
@@ -76,6 +77,17 @@ export function AdditionalWorksTab({ siteId, works, paidByWorkId }: AdditionalWo
                         <Typography variant="body2" sx={{ fontWeight: 600 }}>{w.title}</Typography>
                         {w.description && (
                           <Typography variant="caption" color="text.secondary">{w.description}</Typography>
+                        )}
+                        {(w.client_approved_by_id || w.client_approved_by) && (
+                          <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.5 }}>
+                            <Typography variant="caption" color="text.secondary">Approved by</Typography>
+                            <SiteClientLabel
+                              siteId={siteId}
+                              clientId={w.client_approved_by_id}
+                              fallbackName={w.client_approved_by}
+                              size={18}
+                            />
+                          </Stack>
                         )}
                       </Box>
                     </TableCell>

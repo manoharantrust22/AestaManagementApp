@@ -16,7 +16,7 @@ envContent.split("\n").forEach((line) => {
 
 const supabase = createClient(
   env.NEXT_PUBLIC_SUPABASE_URL,
-  env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY
+  (env.SUPABASE_SERVICE_ROLE_KEY || env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY)
 );
 
 const CUTOFF_DATE = "2024-11-14";

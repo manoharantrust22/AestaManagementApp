@@ -5,6 +5,7 @@ import { Box, Paper, Typography, Skeleton, Button, Stack } from "@mui/material";
 import Link from "next/link";
 import { KpiTile, formatINR } from "@/components/payments/KpiTile";
 import { useSiteFinancialSummary } from "@/hooks/queries/useSiteFinancialSummary";
+import { useSiteStaffCost } from "@/hooks/queries/useStaffPay";
 
 export interface SiteMoneyMiniCardProps {
   siteId: string;
@@ -17,6 +18,8 @@ export interface SiteMoneyMiniCardProps {
  */
 export function SiteMoneyMiniCard({ siteId }: SiteMoneyMiniCardProps) {
   const q = useSiteFinancialSummary(siteId);
+  // Admin-only (RLS + enabled flag): private staff pay charged to this site.
+  const staff = useSiteStaffCost(siteId);
 
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
@@ -54,6 +57,17 @@ export function SiteMoneyMiniCard({ siteId }: SiteMoneyMiniCardProps) {
             value={formatINR(q.data.netInHand)}
           />
         </Box>
+      )}
+      {!!staff.data && staff.data.total > 0 && (
+        <Stack direction="row" justifyContent="space-between" sx={{ mt: 1, px: 0.5 }}>
+          <Typography variant="caption" color="text.secondary">
+            Staff cost (admin only, not in site expenses)
+          </Typography>
+          <Typography variant="caption" sx={{ fontWeight: 600 }}>
+            {formatINR(staff.data.total)}
+            {staff.data.monthTotal > 0 ? ` · this month ${formatINR(staff.data.monthTotal)}` : ""}
+          </Typography>
+        </Stack>
       )}
     </Paper>
   );

@@ -19,6 +19,11 @@ export interface ChatMessage {
   suggestedActions?: string[];
   timestamp: Date;
   isLoading?: boolean;
+  /** Confirm cards for writes the assistant prepared (Phase 2 agent). */
+  actions?: import("@/lib/assistant/types").AssistantActionCard[];
+  /** Voice input: shown under the user's bubble. */
+  isVoice?: boolean;
+  translation?: string;
 }
 
 // ============================================================================

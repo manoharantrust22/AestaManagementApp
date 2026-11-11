@@ -565,7 +565,7 @@ export function MestriSettleDialog({
                     </Button>
                     <Box
                       component="a"
-                      href={`/site/subcontracts?edit=${subcontractId}`}
+                      href={`/site/trades?view=table&edit=${subcontractId}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       sx={{
@@ -589,7 +589,7 @@ export function MestriSettleDialog({
                   receive a salary payment.{" "}
                   <Box
                     component="a"
-                    href={`/site/subcontracts?edit=${subcontractId}`}
+                    href={`/site/trades?view=table&edit=${subcontractId}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     sx={{

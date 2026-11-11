@@ -113,7 +113,7 @@ describe("resolveRefAction", () => {
         settlement_reference: "SCP-260311-001",
       }),
     );
-    expect(action).toEqual({ kind: "navigate", url: "/site/subcontracts" });
+    expect(action).toEqual({ kind: "navigate", url: "/site/trades?view=table" });
   });
 
   it("routes salary settlement DLY- to the daily-pane action", () => {

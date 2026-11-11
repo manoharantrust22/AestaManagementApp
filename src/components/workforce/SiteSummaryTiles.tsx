@@ -72,8 +72,8 @@ function Tile({
  *  - Completed→ Completed value · Paid · Items.
  *  - Future   → Planned value · Paid · Items.
  *
- * All money figures use `model.siteByTab` (de-duped — a parent counts once) plus the
- * lump-sum packages that fall in the same tab.
+ * All money figures use `model.siteByTab` (de-duped — a parent counts once; fixed-price
+ * packages are already folded in).
  */
 export function SiteSummaryTiles({
   model,
@@ -86,17 +86,15 @@ export function SiteSummaryTiles({
 }) {
   const r = model.siteByTab[activeTab];
 
-  // Tab-scoped package totals + item count (contracts in this tab + packages in it).
-  let pkgValue = 0;
+  // Tab-scoped item count (contracts in this tab + packages in it). Package VALUE is
+  // already inside `siteByTab` (buildWorkspaceModel folds packages in) — adding it again
+  // here used to double-count every package on the Future / Completed tiles.
   let itemCount = 0;
   for (const node of model.trades)
     for (const t of node.tasks) if (statusBucket(t.status) === activeTab) itemCount += 1;
   for (const arr of packagesByTrade.values())
     for (const p of arr)
-      if (statusBucket(p.status) === activeTab) {
-        pkgValue += Number(p.total_value ?? 0);
-        itemCount += 1;
-      }
+      if (statusBucket(p.status) === activeTab) itemCount += 1;
 
   if (activeTab === "active") {
     const atRiskHigh = r.atRisk > AT_RISK_AMBER_THRESHOLD;
@@ -124,7 +122,7 @@ export function SiteSummaryTiles({
     <Box sx={{ display: "flex", gap: 1 }}>
       <Tile
         label={isCompleted ? "Completed value" : "Planned value"}
-        value={formatCompactINR(r.quoted + pkgValue)}
+        value={formatCompactINR(r.quoted)}
         valueColor={isCompleted ? wsColors.green : wsColors.ink}
         bg={isCompleted ? wsColors.greenBg : undefined}
       />

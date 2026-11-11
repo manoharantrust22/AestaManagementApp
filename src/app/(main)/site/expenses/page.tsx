@@ -449,7 +449,7 @@ function ExpensesPageV1() {
     }
     // Prevent editing of subcontract direct payments from this page
     if (expense?.source_type === "subcontract_payment") {
-      router.push(`/site/subcontracts`);
+      router.push(`/site/trades?view=table`);
       return;
     }
     // Rental settlements — open the rental detail pane
@@ -547,7 +547,7 @@ function ExpensesPageV1() {
     // Subcontract direct payments can't be deleted from here
     if (expense.source_type === "subcontract_payment") {
       alert("Direct subcontract payments cannot be deleted here. Please use the Subcontracts page to modify.");
-      router.push(`/site/subcontracts`);
+      router.push(`/site/trades?view=table`);
       return;
     }
 
@@ -785,7 +785,7 @@ function ExpensesPageV1() {
                   router.push(`/site/tea-shop?highlight=${encodeURIComponent(ref)}`);
                 } else if (ref.startsWith("SCP-") || sourceType === "subcontract_payment") {
                   // Navigate to subcontracts page for direct payments
-                  router.push(`/site/subcontracts`);
+                  router.push(`/site/trades?view=table`);
                 } else if (ref.startsWith("TW-") || sourceType === "task_work_payment") {
                   // Task-work payments — open the Task Work module
                   router.push(`/site/task-work`);
@@ -1726,7 +1726,7 @@ function ExpensesPageV1() {
                       />
                       <IconButton
                         size="small"
-                        onClick={() => router.push("/site/subcontracts")}
+                        onClick={() => router.push("/site/trades?view=table")}
                         title="View subcontract details"
                       >
                         <OpenInNew fontSize="small" />
@@ -1778,7 +1778,7 @@ function ExpensesPageV1() {
               fullWidth
               variant="outlined"
               endIcon={<OpenInNew />}
-              onClick={() => router.push("/site/subcontracts")}
+              onClick={() => router.push("/site/trades?view=table")}
             >
               View All Subcontracts
             </Button>
