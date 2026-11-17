@@ -2134,6 +2134,7 @@ export default function TeaShopPage() {
           upi_id: bestUpiId,
           qr_code_url: bestQrCode,
           notes: companyTeaShop.notes,
+          photo_url: (companyTeaShop as any).photo_url ?? null,
           is_active: companyTeaShop.is_active,
           is_group_shop: false,
           site_group_id: null,

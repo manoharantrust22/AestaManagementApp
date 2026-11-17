@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * 560px launcher modal for the Hub's "+ New entry" button. Three equal-billing
- * entry choices: Request material (standard 5-step flow), Bought at shop
- * (spot purchase post-facto), Record delivery (receives an arriving PO).
+ * 560px launcher modal for the Hub's "+ New entry" button. Entry choices:
+ * Snap a bill (Bill Inbox, photo-first), Request material (standard 5-step
+ * flow), Bought at shop (spot purchase post-facto), Backfill, Record delivery.
  *
- * "Bought at shop" is highlighted with a pink border and NEW pill.
+ * "Snap a bill" is highlighted with a pink border and NEW pill.
  *
  * Mirrors `NewEntryMenu` in docs/MaterialHub_Redesign/proto-spot.jsx.
  */
@@ -24,6 +24,7 @@ import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import CameraAltIcon from "@mui/icons-material/CameraAlt";
 import { useRouter } from "next/navigation";
 import { hubTokens, hubToneColors, type HubTone } from "@/lib/material-hub/tokens";
 
@@ -156,6 +157,17 @@ export default function NewEntryMenu({ open, onClose, onBackfill }: NewEntryMenu
 
   const choices: EntryChoiceSpec[] = [
     {
+      key: "bill",
+      title: "Snap a bill",
+      subtitle: "Bought something? Take a photo of the bill. Nothing else needed now; check and save it later.",
+      tag: "Photo first · works offline",
+      tone: "pink",
+      highlighted: true,
+      newPill: true,
+      icon: <CameraAltIcon />,
+      href: "/site/materials/bill-inbox",
+    },
+    {
       key: "request",
       title: "Request material",
       subtitle: "Tell office what to buy — they approve, place PO, schedule delivery.",
@@ -170,8 +182,6 @@ export default function NewEntryMenu({ open, onClose, onBackfill }: NewEntryMenu
       subtitle: "Record a small-quantity walk-in purchase you've already paid from your wallet.",
       tag: "Spot · post-facto · < 30 sec",
       tone: "pink",
-      highlighted: true,
-      newPill: true,
       icon: <ShoppingCartIcon />,
       href: "/site/spot-purchase",
     },
@@ -232,7 +242,7 @@ export default function NewEntryMenu({ open, onClose, onBackfill }: NewEntryMenu
             New entry
           </Typography>
           <Typography sx={{ fontSize: 12, color: hubTokens.muted }}>
-            Four ways material gets into the system.
+            Five ways material gets into the system.
           </Typography>
         </Box>
         <IconButton onClick={onClose} size="small">

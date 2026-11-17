@@ -3,6 +3,7 @@
 import { Suspense, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  Alert,
   Box,
   Chip,
   Fab,
@@ -14,7 +15,8 @@ import {
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import { useAuth } from "@/contexts/AuthContext";
-import { useTasks, useTasksRealtime, type TaskScope } from "@/hooks/queries/useTasks";
+import { useHubEventsSync, useTasks, useTasksRealtime, type TaskScope } from "@/hooks/queries/useTasks";
+import { isNotLinked } from "@/lib/neram-hub/browser";
 import TaskCard from "@/components/tasks/TaskCard";
 import TaskDetailDrawer from "@/components/tasks/TaskDetailDrawer";
 import TaskCreateDialog from "@/components/tasks/TaskCreateDialog";
@@ -44,6 +46,8 @@ function TasksPageInner() {
   const { userProfile } = useAuth();
   const isAdmin = userProfile?.role === "admin";
   useTasksRealtime();
+  // Hub mode: catch any task event whose push never arrived (no-op otherwise).
+  useHubEventsSync();
 
   const [scope, setScope] = useState<TaskScope>("mine");
   const [filter, setFilter] = useState<StatusFilter>("open");
@@ -58,7 +62,7 @@ function TasksPageInner() {
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
-  const { data: tasks = [], isLoading } = useTasks(scope, {
+  const { data: tasks = [], isLoading, error } = useTasks(scope, {
     statuses: statusesFor(filter),
     sourceBugOnly: filter === "bugs",
   });
@@ -100,7 +104,11 @@ function TasksPageInner() {
         ))}
       </Stack>
 
-      {isLoading ? (
+      {error ? (
+        <Alert severity={isNotLinked(error) ? "info" : "error"} sx={{ mt: 1 }}>
+          {error instanceof Error ? error.message : "Could not load tasks."}
+        </Alert>
+      ) : isLoading ? (
         <Stack spacing={1}>
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} variant="rounded" height={72} />

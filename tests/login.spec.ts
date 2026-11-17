@@ -28,6 +28,11 @@ test.describe("Login Page", () => {
   });
 
   test("should login successfully with valid credentials", async ({ page }) => {
+    // Credentials come from env (same vars as /dev-login), never from code.
+    const email = process.env.DEV_LOGIN_EMAIL;
+    const password = process.env.DEV_LOGIN_PASSWORD;
+    test.skip(!email || !password, "Set DEV_LOGIN_EMAIL and DEV_LOGIN_PASSWORD");
+
     // Navigate to login page
     await page.goto("/login");
 
@@ -35,11 +40,8 @@ test.describe("Login Page", () => {
     await page.waitForSelector('input[type="email"]', { timeout: 10000 });
 
     // Fill in credentials
-    await page.fill(
-      'input[type="email"]',
-      "Haribabu@nerasmclasses.onmicrosoft.com"
-    );
-    await page.fill('input[type="password"]', "Padma@123");
+    await page.fill('input[type="email"]', email!);
+    await page.fill('input[type="password"]', password!);
 
     // Click sign in
     await page.click('button[type="submit"]');

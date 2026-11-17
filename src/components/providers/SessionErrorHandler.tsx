@@ -97,6 +97,16 @@ export function SessionErrorHandler({
             handleSessionExpired();
           }
 
+          // Middleware refused this person (hasAccess) and already cleared
+          // the session cookies; take them to the explanation page.
+          if (
+            response.status === 403 &&
+            response.headers.get("X-No-Access") === "true" &&
+            !window.location.pathname.startsWith("/no-access")
+          ) {
+            window.location.href = "/no-access";
+          }
+
           return response;
         } catch (error) {
           throw error;

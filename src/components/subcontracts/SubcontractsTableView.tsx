@@ -176,16 +176,17 @@ export function SubcontractsTableView({
     [rows, filter]
   );
 
-  // Money totals exclude cancelled rows so a dropped contract doesn't inflate "value".
+  // Under "All", money totals skip cancelled rows so a dropped contract doesn't
+  // inflate "value". Any explicit status filter (incl. Cancelled) totals what's shown.
   const stats = useMemo(() => {
-    const live = visible.filter((r) => r.status !== "cancelled");
+    const live = filter === "all" ? visible.filter((r) => r.status !== "cancelled") : visible;
     return {
       value: live.reduce((s, r) => s + r.total_value, 0),
       paid: live.reduce((s, r) => s + r.total_paid, 0),
       due: live.reduce((s, r) => s + r.balance_due, 0),
       records: live.reduce((s, r) => s + r.record_count, 0),
     };
-  }, [visible]);
+  }, [visible, filter]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: rows.length };

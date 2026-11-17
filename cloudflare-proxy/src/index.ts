@@ -135,7 +135,11 @@ export default {
         body: request.method !== "GET" && request.method !== "HEAD"
           ? request.body
           : undefined,
-        redirect: "follow",
+        // Auth redirects belong to the browser: /auth/v1/authorize answers
+        // 302 to Google/Microsoft for "Continue with ...". Following it here
+        // would fetch the provider's sign-in page and serve it from this
+        // origin, which breaks the OAuth round trip.
+        redirect: url.pathname.startsWith("/auth/v1/") ? "manual" : "follow",
         signal: AbortSignal.timeout(UPSTREAM_HTTP_TIMEOUT_MS),
       });
 

@@ -1728,6 +1728,10 @@ export function useCreateMaterialUsageFIFO() {
                   {
                     p_batch_ref_code: inventory.batch_code,
                     p_usage_site_id: data.siteId,
+                    // The RPC is variant-aware and requires these (see the
+                    // single-stock call above). Without them every call failed.
+                    p_material_id: alloc.material_id,
+                    p_brand_id: alloc.brand_id || inventory.brand_id || null,
                     p_quantity: alloc.quantity,
                     p_usage_date: data.usageDate,
                     p_work_description: data.workDescription ?? undefined,

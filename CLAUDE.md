@@ -54,9 +54,8 @@ When the user says **"move to prod"** or similar (e.g., "push to production", "d
 - **Never commit secrets.** `.env.local` / `.env.cloud.local` are gitignored — put keys there for local and in Vercel (CLI/dashboard) for prod.
 
 ## Test Credentials (for Playwright testing)
-- **Email**: Haribabu@nerasmclasses.onmicrosoft.com
-- **Password**: Padma@123
-- **Note**: `/dev-login` sets this password automatically via the admin SDK before signing in — do NOT manually update `auth.users.encrypted_password` via SQL `crypt()`, it produces a hash GoTrue cannot verify.
+- The dev account comes from server-only env vars `DEV_LOGIN_EMAIL` and `DEV_LOGIN_PASSWORD` in `.env.cloud.local` (never commit them; never in code).
+- `/dev-login` calls `/api/dev-ensure-password`, which (only when `NEXT_PUBLIC_ENABLE_DEV_LOGIN=true` and not a production build) sets that password via the admin SDK and signs in server-side — do NOT manually update `auth.users.encrypted_password` via SQL `crypt()`, it produces a hash GoTrue cannot verify.
 
 ## After UI Changes - REQUIRED
 After making any frontend/UI changes, I must verify and fix issues automatically:

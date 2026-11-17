@@ -17,6 +17,7 @@ import {
   Checkbox,
   CircularProgress,
   Collapse,
+  Divider,
   Link,
 } from "@mui/material";
 import {
@@ -27,9 +28,18 @@ import {
   Lock as LockIcon,
   ErrorOutline,
   CheckCircleOutline,
+  ExpandMore,
 } from "@mui/icons-material";
 import { useAuth } from "@/contexts/AuthContext";
 import { createClient } from "@/lib/supabase/client";
+import OAuthButtons, { type OAuthProvider } from "@/components/auth/OAuthButtons";
+import {
+  LAST_LOGIN_METHOD_KEY,
+  oauthErrorMessage,
+  readLoginMethod,
+  safeNextPath,
+  type LoginMethod,
+} from "@/lib/auth/redirect";
 
 // Error messages mapping for user-friendly display
 const ERROR_MESSAGES: Record<string, string> = {
@@ -104,10 +114,58 @@ function LoginPage() {
   const [lockoutDisplay, setLockoutDisplay] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
+  // Last sign-in method on this device: shown first next time.
+  const [lastMethod, setLastMethod] = useState<LoginMethod | null>(null);
+  // Phones: the password form sits behind "Sign in with password".
+  const [passwordOpen, setPasswordOpen] = useState(false);
+
   const { signIn, user, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const sessionExpired = searchParams.get("session_expired") === "true";
+  const nextPath = safeNextPath(searchParams.get("next"));
+
+  // OAuth errors come back in the query (from /auth/callback) or, for some
+  // provider failures, in the hash. Show them in plain words, then tidy the URL.
+  useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const pick = (k: string) => searchParams.get(k) ?? hash.get(k);
+    const message = oauthErrorMessage({
+      error: pick("error"),
+      code: pick("error_code"),
+      description: pick("error_description"),
+    });
+    if (message) {
+      setError(message);
+      const clean = new URL(window.location.href);
+      ["error", "error_code", "error_description"].forEach((k) => clean.searchParams.delete(k));
+      clean.hash = "";
+      window.history.replaceState(null, "", clean.pathname + clean.search);
+    }
+  }, [searchParams]);
+
+  const startOAuth = async (provider: OAuthProvider) => {
+    setError("");
+    try {
+      localStorage.setItem(LAST_LOGIN_METHOD_KEY, provider);
+    } catch {
+      // Private mode: ordering just won't be remembered.
+    }
+    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`;
+    const supabase = createClient();
+    const { error: oauthError } = await supabase.auth.signInWithOAuth(
+      provider === "azure"
+        ? { provider: "azure", options: { scopes: "email", redirectTo } }
+        : { provider: "google", options: { redirectTo } }
+    );
+    if (oauthError) {
+      console.error("OAuth start failed:", oauthError);
+      setError(
+        oauthErrorMessage({ code: oauthError.code, description: oauthError.message }) ??
+          "Could not start sign-in. Please try again."
+      );
+    }
+  };
 
   // Clear expired session to stop background token refresh errors
   useEffect(() => {
@@ -121,6 +179,10 @@ function LoginPage() {
 
   // Load remembered email and check lockout on mount
   useEffect(() => {
+    const method = readLoginMethod(localStorage.getItem(LAST_LOGIN_METHOD_KEY));
+    setLastMethod(method);
+    if (method === "password") setPasswordOpen(true);
+
     // Load remembered email
     const remembered = localStorage.getItem(STORAGE_KEYS.REMEMBER_ME);
     if (remembered === "true") {
@@ -128,6 +190,7 @@ function LoginPage() {
       if (savedEmail) {
         setEmail(savedEmail);
         setRememberMe(true);
+        setPasswordOpen(true);
       }
     }
 
@@ -137,6 +200,7 @@ function LoginPage() {
       const lockoutTime = parseInt(storedLockout, 10);
       if (lockoutTime > Date.now()) {
         setLockoutUntil(lockoutTime);
+        setPasswordOpen(true);
       } else {
         localStorage.removeItem(STORAGE_KEYS.LOCKOUT_UNTIL);
         localStorage.removeItem(STORAGE_KEYS.LOGIN_ATTEMPTS);
@@ -153,9 +217,9 @@ function LoginPage() {
   // Redirect if already logged in
   useEffect(() => {
     if (!authLoading && user) {
-      router.push("/site/dashboard");
+      router.push(nextPath);
     }
-  }, [user, authLoading, router]);
+  }, [user, authLoading, router, nextPath]);
 
   // Lockout countdown timer
   useEffect(() => {
@@ -305,12 +369,13 @@ function LoginPage() {
       // Clear login attempts on success
       localStorage.removeItem(STORAGE_KEYS.LOGIN_ATTEMPTS);
       localStorage.removeItem(STORAGE_KEYS.LOCKOUT_UNTIL);
+      localStorage.setItem(LAST_LOGIN_METHOD_KEY, "password");
 
       setSuccessMessage("Login successful! Redirecting...");
 
       // Small delay to show success message
       setTimeout(() => {
-        router.push("/site/dashboard");
+        router.push(nextPath);
       }, 500);
     } catch (err: any) {
       console.error("Login error:", err);
@@ -465,8 +530,54 @@ function LoginPage() {
               </Alert>
             )}
 
+            {/* Microsoft / Google first; the last one used on this device on top */}
+            <OAuthButtons
+              order={lastMethod === "google" ? ["google", "azure"] : ["azure", "google"]}
+              lastUsed={lastMethod}
+              disabled={loading}
+              onSelect={startOAuth}
+            />
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              component="p"
+              sx={{ mt: 1.25, textAlign: "center" }}
+            >
+              Neram team: use Microsoft. Everyone else: use Google.
+            </Typography>
+
+            <Divider sx={{ my: 3, color: "text.secondary", fontSize: "0.875rem" }}>or</Divider>
+
+            {/* Phones: password form behind a button (always shown from sm up) */}
+            <Button
+              fullWidth
+              variant="text"
+              endIcon={<ExpandMore />}
+              aria-expanded={passwordOpen}
+              aria-controls="password-sign-in"
+              onClick={() => {
+                setPasswordOpen(true);
+                // Move focus into the form that just appeared.
+                requestAnimationFrame(() =>
+                  document.querySelector<HTMLInputElement>("#password-sign-in input")?.focus()
+                );
+              }}
+              sx={{
+                display: { xs: passwordOpen ? "none" : "flex", sm: "none" },
+                minHeight: 48,
+                textTransform: "none",
+                fontWeight: 600,
+              }}
+            >
+              Sign in with password
+            </Button>
+
             {/* Login Form */}
-            <form onSubmit={handleSubmit} noValidate>
+            <Box
+              id="password-sign-in"
+              sx={{ display: { xs: passwordOpen ? "block" : "none", sm: "block" } }}
+            >
+            <form onSubmit={handleSubmit} noValidate aria-label="Sign in with email and password">
               <TextField
                 fullWidth
                 label="Email Address"
@@ -477,7 +588,7 @@ function LoginPage() {
                 margin="normal"
                 required
                 autoComplete="email"
-                autoFocus={!email}
+                autoFocus={!email && passwordOpen}
                 disabled={loading || isLocked}
                 error={touched.email && !!formErrors.email}
                 helperText={touched.email && formErrors.email}
@@ -620,6 +731,7 @@ function LoginPage() {
                 )}
               </Button>
             </form>
+            </Box>
 
             {/* Footer */}
             <Box sx={{ mt: 3, textAlign: "center" }}>
@@ -634,6 +746,26 @@ function LoginPage() {
               >
                 Pudukkottai, Tamil Nadu
               </Typography>
+              <Box sx={{ mt: 0.5, display: "flex", justifyContent: "center", gap: 1 }}>
+                <Link
+                  href="/privacy"
+                  variant="caption"
+                  color="text.secondary"
+                  underline="always"
+                  sx={{ display: "inline-flex", alignItems: "center", minHeight: 44, px: 1 }}
+                >
+                  Privacy policy
+                </Link>
+                <Link
+                  href="/terms"
+                  variant="caption"
+                  color="text.secondary"
+                  underline="always"
+                  sx={{ display: "inline-flex", alignItems: "center", minHeight: 44, px: 1 }}
+                >
+                  Terms of use
+                </Link>
+              </Box>
             </Box>
           </CardContent>
         </Card>

@@ -3,9 +3,13 @@
 /**
  * Tasks + bug reports — React Query hooks.
  *
- * RLS (see 20261108100000_tasks.sql) limits rows to tasks the caller created,
- * is assigned to, or (admin) everything. Notifications are emitted by DB
- * triggers, so these hooks never write to `notifications` directly.
+ * Two backends, one set of hook names (picked at build time):
+ *  - NEXT_PUBLIC_FF_NERAM_TASKS=true → Neram's task hub via /api/neram/*
+ *    (useNeramTasks.ts).
+ *  - otherwise → Aesta's own tables (the "Local" hooks below). RLS (see
+ *    20261108100000_tasks.sql) limits rows to tasks the caller created, is
+ *    assigned to, or (admin) everything. Notifications are emitted by DB
+ *    triggers, so these hooks never write to `notifications` directly.
  */
 
 import { useEffect } from "react";
@@ -14,8 +18,10 @@ import { createClient } from "@/lib/supabase/client";
 import { queryKeys } from "@/lib/cache/keys";
 import { useAuth } from "@/contexts/AuthContext";
 import { hardenedUpload } from "@/lib/storage/uploadHelpers";
+import { NERAM_TASKS_ENABLED } from "@/lib/neram-hub/flag";
+import { sortTasks } from "@/lib/tasks/sortTasks";
+import * as hub from "./useNeramTasks";
 import {
-  PRIORITY_META,
   TASK_OPEN_STATUSES,
   type AddTaskUpdateInput,
   type CreateTaskInput,
@@ -90,31 +96,13 @@ export async function uploadTaskAttachments(
   if (error) throw error;
 }
 
-export function sortTasks(tasks: Task[]): Task[] {
-  const statusRank: Record<TaskStatus, number> = {
-    blocked: 0,
-    in_progress: 1,
-    todo: 2,
-    done: 3,
-    cancelled: 4,
-  };
-  return [...tasks].sort((a, b) => {
-    const s = statusRank[a.status] - statusRank[b.status];
-    if (s !== 0) return s;
-    const p = PRIORITY_META[a.priority].rank - PRIORITY_META[b.priority].rank;
-    if (p !== 0) return p;
-    const ad = a.due_date ?? "9999-12-31";
-    const bd = b.due_date ?? "9999-12-31";
-    if (ad !== bd) return ad < bd ? -1 : 1;
-    return a.created_at < b.created_at ? 1 : -1;
-  });
-}
+export { sortTasks };
 
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
 
-export function useTasks(scope: TaskScope, filters: TaskListFilters = {}) {
+function useTasksLocal(scope: TaskScope, filters: TaskListFilters = {}) {
   const { userProfile } = useAuth();
   const userId = userProfile?.id;
   const isAdmin = userProfile?.role === "admin";
@@ -148,7 +136,7 @@ export function useMyTasksToday() {
 }
 
 /** Badge count: open tasks assigned to me (any due date). */
-export function useMyOpenTaskCount() {
+function useMyOpenTaskCountLocal() {
   const { userProfile } = useAuth();
   const userId = userProfile?.id;
   return useQuery({
@@ -168,7 +156,7 @@ export function useMyOpenTaskCount() {
 }
 
 /** Admin dashboard summary across everyone. */
-export function useTeamTaskSummary(enabled: boolean) {
+function useTeamTaskSummaryLocal(enabled: boolean) {
   const { userProfile } = useAuth();
   return useQuery({
     queryKey: [...queryKeys.tasks.list("team-summary", userProfile?.id ?? "anon")],
@@ -196,7 +184,7 @@ export function useTeamTaskSummary(enabled: boolean) {
   });
 }
 
-export function useTask(id: string | null | undefined) {
+function useTaskLocal(id: string | null | undefined) {
   return useQuery({
     queryKey: queryKeys.tasks.byId(id ?? "none"),
     enabled: !!id,
@@ -208,7 +196,7 @@ export function useTask(id: string | null | undefined) {
   });
 }
 
-export function useTaskUpdates(taskId: string | null | undefined) {
+function useTaskUpdatesLocal(taskId: string | null | undefined) {
   return useQuery({
     queryKey: queryKeys.tasks.updates(taskId ?? "none"),
     enabled: !!taskId,
@@ -228,7 +216,7 @@ export interface TaskAttachmentWithUrl extends TaskAttachment {
   url: string | null;
 }
 
-export function useTaskAttachments(taskId: string | null | undefined) {
+function useTaskAttachmentsLocal(taskId: string | null | undefined) {
   return useQuery({
     queryKey: queryKeys.tasks.attachments(taskId ?? "none"),
     enabled: !!taskId,
@@ -256,7 +244,7 @@ export function useTaskAttachments(taskId: string | null | undefined) {
 }
 
 /** Everyone active in the app — anyone can assign a task to anyone. */
-export function useAssignableUsers() {
+function useAssignableUsersLocal() {
   return useQuery({
     queryKey: queryKeys.tasks.assignableUsers(),
     staleTime: 10 * 60_000,
@@ -287,21 +275,21 @@ function useInvalidateTasks() {
   };
 }
 
-export function useCreateTask() {
+function useCreateTaskLocal() {
   const { userProfile } = useAuth();
   const invalidate = useInvalidateTasks();
 
   return useMutation({
     mutationFn: async (input: CreateTaskInput): Promise<Task> => {
       if (!userProfile?.id) throw new Error("Not signed in");
-      const { attachments, ...fields } = input;
+      const { attachments, page, ...fields } = input;
       const { data, error } = await db()
         .from("tasks")
         .insert({
           ...fields,
           title: fields.title.trim(),
           created_by: userProfile.id,
-          context: fields.context ?? {},
+          context: page ? { ...(fields.context ?? {}), page } : fields.context ?? {},
         })
         .select("*")
         .single();
@@ -314,7 +302,7 @@ export function useCreateTask() {
   });
 }
 
-export function useUpdateTaskStatus() {
+function useUpdateTaskStatusLocal() {
   const { userProfile } = useAuth();
   const invalidate = useInvalidateTasks();
 
@@ -352,7 +340,7 @@ export function useUpdateTaskStatus() {
   });
 }
 
-export function useAddTaskUpdate() {
+function useAddTaskUpdateLocal() {
   const { userProfile } = useAuth();
   const invalidate = useInvalidateTasks();
 
@@ -381,7 +369,7 @@ export function useAddTaskUpdate() {
   });
 }
 
-export function useEditTask() {
+function useEditTaskLocal() {
   const invalidate = useInvalidateTasks();
   return useMutation({
     mutationFn: async ({ id, patch }: { id: string; patch: Partial<Task> }) => {
@@ -397,7 +385,7 @@ export function useEditTask() {
 // ---------------------------------------------------------------------------
 
 /** Refresh task lists/threads live. RLS filters which rows reach this client. */
-export function useTasksRealtime() {
+function useTasksRealtimeLocal() {
   const queryClient = useQueryClient();
   const { userProfile } = useAuth();
   const userId = userProfile?.id;
@@ -416,3 +404,44 @@ export function useTasksRealtime() {
     };
   }, [userId, queryClient]);
 }
+
+/** Adds one photo to a task (drawer camera button; proof for Done in the hub). */
+function useAddTaskPhotoLocal() {
+  const invalidate = useInvalidateTasks();
+  return useMutation({
+    mutationFn: async ({ taskId, file }: { taskId: string; file: Blob }) => {
+      const mime = file.type || "image/jpeg";
+      await uploadTaskAttachments(taskId, [{ kind: "photo", blob: file, mime }]);
+    },
+    onSuccess: (_d, v) => invalidate(v.taskId),
+  });
+}
+
+/** Local tasks have no hub events to catch up on. */
+function useHubEventsSyncLocal() {}
+
+// ---------------------------------------------------------------------------
+// The exported hooks: hub or local, fixed at build time (so hook order never changes)
+// ---------------------------------------------------------------------------
+
+const H = NERAM_TASKS_ENABLED;
+
+export const useTasks: typeof useTasksLocal = H ? (hub.useTasksHub as typeof useTasksLocal) : useTasksLocal;
+export const useMyOpenTaskCount: typeof useMyOpenTaskCountLocal = H ? hub.useMyOpenTaskCountHub : useMyOpenTaskCountLocal;
+export const useTeamTaskSummary: typeof useTeamTaskSummaryLocal = H ? hub.useTeamTaskSummaryHub : useTeamTaskSummaryLocal;
+export const useTask: typeof useTaskLocal = H ? (hub.useTaskHub as unknown as typeof useTaskLocal) : useTaskLocal;
+export const useTaskUpdates: typeof useTaskUpdatesLocal = H
+  ? (hub.useTaskUpdatesHub as unknown as typeof useTaskUpdatesLocal)
+  : useTaskUpdatesLocal;
+export const useTaskAttachments: typeof useTaskAttachmentsLocal = H
+  ? (hub.useTaskAttachmentsHub as unknown as typeof useTaskAttachmentsLocal)
+  : useTaskAttachmentsLocal;
+export const useAssignableUsers: typeof useAssignableUsersLocal = H ? hub.useAssignableUsersHub : useAssignableUsersLocal;
+export const useCreateTask: typeof useCreateTaskLocal = H ? hub.useCreateTaskHub : useCreateTaskLocal;
+export const useUpdateTaskStatus: typeof useUpdateTaskStatusLocal = H ? hub.useUpdateTaskStatusHub : useUpdateTaskStatusLocal;
+export const useAddTaskUpdate: typeof useAddTaskUpdateLocal = H ? hub.useAddTaskUpdateHub : useAddTaskUpdateLocal;
+export const useEditTask: typeof useEditTaskLocal = H ? hub.useEditTaskHub : useEditTaskLocal;
+export const useAddTaskPhoto: typeof useAddTaskPhotoLocal = H ? hub.useAddTaskPhotoHub : useAddTaskPhotoLocal;
+export const useTasksRealtime: typeof useTasksRealtimeLocal = H ? hub.useTasksRealtimeHub : useTasksRealtimeLocal;
+/** Call on the Tasks page: pulls hub events a push may have missed (no-op for local tasks). */
+export const useHubEventsSync: () => void = H ? hub.useHubEventsSyncHub : useHubEventsSyncLocal;

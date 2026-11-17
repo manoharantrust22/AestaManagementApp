@@ -110,6 +110,15 @@ export interface CreateTaskInput {
   transcript?: string | null;
   transcript_en?: string | null;
   attachments?: PendingAttachment[];
+  /** The Aesta page this task is about ("New task from this page"). url carries ?site=<id>. */
+  page?: TaskPage | null;
+}
+
+export interface TaskPage {
+  url: string;
+  title: string | null;
+  siteId: string | null;
+  siteName: string | null;
 }
 
 export interface UpdateTaskStatusInput {

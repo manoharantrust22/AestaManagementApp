@@ -26,23 +26,11 @@ function parseEnv(filePath) {
 async function createBucket() {
     // Try .env.cloud.local first, then .env.local
     let env = parseEnv(path.join(process.cwd(), '.env.cloud.local'));
-    if (!env.SUPABASE_SERVICE_ROLE_KEY) {
-        console.log('SUPABASE_SERVICE_ROLE_KEY not found in .env.cloud.local, checking NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY...');
-        // Fallback to the public one if provided (user did this)
-        if (env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {
-            env.SUPABASE_SERVICE_ROLE_KEY = env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
-        }
-    }
 
     if (!env.SUPABASE_SERVICE_ROLE_KEY) {
         console.log('Service role key not found in .env.cloud.local, checking .env.local...');
         const localEnv = parseEnv(path.join(process.cwd(), '.env.local'));
         env = { ...env, ...localEnv };
-
-        // Check again in the merged env
-        if (!env.SUPABASE_SERVICE_ROLE_KEY && env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {
-            env.SUPABASE_SERVICE_ROLE_KEY = env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY;
-        }
     }
 
     const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL;

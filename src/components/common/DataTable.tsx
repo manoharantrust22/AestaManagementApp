@@ -298,6 +298,11 @@ export default function DataTable<TData extends MRT_RowData>({
         py: useCompact ? 0.25 : isTablet ? 0.5 : 0.75,
         px: useCompact ? 0.75 : isTablet ? 1 : 1.5,
         lineHeight: 1.3,
+        // MRT draws pinned cells at 0.97 opacity, so chips scrolled under a
+        // pinned column (e.g. Status under Actions) show through faintly.
+        '&[data-pinned="true"]': {
+          opacity: 1,
+        },
         '& .MuiChip-root': {
           height: useCompact ? 18 : 22,
           fontSize: useCompact ? '0.6rem' : '0.7rem',

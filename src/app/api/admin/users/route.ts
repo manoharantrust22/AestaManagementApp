@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { verifyAdminAccess } from "@/lib/auth/admin";
+import { invitePerson, resolveAdminCompany } from "@/lib/auth/people";
 
 // Error messages for better user experience
 const ERROR_MESSAGES: Record<string, string> = {
@@ -35,84 +37,25 @@ function getReadableError(error: any): string {
   return message;
 }
 
-// Verify admin access
-// Temporarily allowing all authenticated users during development
-async function verifyAdminAccess(
-  supabase: Awaited<ReturnType<typeof createClient>>
-) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return {
-      authorized: false,
-      error: "You must be logged in to perform this action.",
-    };
-  }
-
-  // Allow all authenticated users during development
-  return { authorized: true, error: null };
-}
-
+/**
+ * Invite a person (admin only): auth user -> users row -> company_members row
+ * for the admin's current company, each step undone if a later one fails.
+ * The password is optional ("Leave empty if they will use Continue with Google").
+ */
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
 
-    // Verify admin access
-    const { authorized, error: authError } = await verifyAdminAccess(supabase);
-    if (!authorized) {
-      return NextResponse.json(
-        { success: false, error: authError },
-        { status: 403 }
-      );
+    const access = await verifyAdminAccess(supabase);
+    if (!access.authorized) {
+      return NextResponse.json({ success: false, error: access.error }, { status: 403 });
     }
 
-    const body = await request.json();
-    const { email, password, name, phone, role, assigned_sites, status } = body;
-
-    // Validate required fields
-    if (!email || !name || !role || !password) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Missing required fields. Please provide email, name, role, and password.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return NextResponse.json(
-        { success: false, error: "Please enter a valid email address." },
-        { status: 400 }
-      );
-    }
-
-    // Validate password strength
-    if (password.length < 6) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Password must be at least 6 characters long.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // Validate role
-    const validRoles = ["admin", "office", "site_engineer"];
-    if (!validRoles.includes(role)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Invalid role. Must be admin, office, or site_engineer.",
-        },
-        { status: 400 }
-      );
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ success: false, error: "Invalid request." }, { status: 400 });
     }
 
     let adminClient;
@@ -130,67 +73,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create auth user
-    const { data: authData, error: authCreateError } =
-      await adminClient.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-      });
-
-    if (authCreateError) {
-      return NextResponse.json(
-        { success: false, error: getReadableError(authCreateError) },
-        { status: 400 }
-      );
+    const company = await resolveAdminCompany(adminClient, access.userId, body.company_id);
+    if (!company.ok) {
+      return NextResponse.json({ success: false, error: company.error, code: company.code }, { status: company.status });
     }
 
-    if (!authData.user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Failed to create user account. Please try again.",
-        },
-        { status: 500 }
-      );
-    }
-
-    // Create user profile in database
-    const { error: profileError } = await adminClient.from("users").insert({
-      auth_id: authData.user.id,
-      email,
-      name,
-      phone: phone || null,
-      role,
-      assigned_sites: assigned_sites?.length > 0 ? assigned_sites : null,
-      status: status || "active",
-    });
-
-    if (profileError) {
-      // Rollback: delete the auth user if profile creation fails
-      await adminClient.auth.admin.deleteUser(authData.user.id);
-
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Failed to create user profile: ${getReadableError(
-            profileError
-          )}`,
-        },
-        { status: 400 }
-      );
+    const result = await invitePerson(adminClient, body, company.companyId);
+    if (!result.ok) {
+      return NextResponse.json({ success: false, error: result.error, code: result.code }, { status: result.status });
     }
 
     return NextResponse.json(
-      {
-        success: true,
-        message: "User created successfully",
-        userId: authData.user.id,
-      },
+      { success: true, message: "Person invited", userId: result.userId },
       { status: 201 }
     );
   } catch (error: any) {
-    console.error("Error creating user:", error);
+    console.error("Error inviting person:", error);
     return NextResponse.json(
       { success: false, error: getReadableError(error) },
       { status: 500 }

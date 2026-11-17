@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import {
   Box,
   Button,
@@ -24,12 +24,17 @@ import {
   Typography,
 } from "@mui/material";
 import {
-  Add as AddIcon,
+  PersonAdd as AddIcon,
+  AlternateEmail as LoginEmailIcon,
   Edit as EditIcon,
   Refresh as RefreshIcon,
+  Fingerprint as TaskIdIcon,
 } from "@mui/icons-material";
 import DataTable, { type MRT_ColumnDef } from "@/components/common/DataTable";
 import { createClient } from "@/lib/supabase/client";
+import { useToast } from "@/contexts/ToastContext";
+import { copyText } from "@/lib/utils/copyText";
+import { useSelectedCompany } from "@/contexts/CompanyContext";
 import type { Database } from "@/types/database.types";
 
 type User = Database["public"]["Tables"]["users"]["Row"];
@@ -46,6 +51,30 @@ export default function UsersManagement() {
   const [success, setSuccess] = useState("");
 
   const supabase = createClient();
+  const { showSuccess, showError } = useToast();
+  const { selectedCompany } = useSelectedCompany();
+
+  // "Change login email": only the email moves; the user id and data stay.
+  const [emailTarget, setEmailTarget] = useState<User | null>(null);
+  const [newEmail, setNewEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [emailSaving, setEmailSaving] = useState(false);
+
+  const openChangeEmail = useCallback((user: User) => {
+    setEmailTarget(user);
+    setNewEmail("");
+    setEmailError("");
+  }, []);
+
+  // The task id is users.id: the id Neram links in Admin > Team > Connected apps.
+  const handleCopyTaskId = useCallback(
+    async (user: User) => {
+      const ok = await copyText(user.id);
+      if (ok) showSuccess(`Task id for ${user.name} copied`);
+      else showError(`Could not copy. Task id for ${user.name}: ${user.id}`, { duration: 15000 });
+    },
+    [showSuccess, showError]
+  );
 
   const [formData, setFormData] = useState({
     email: "",
@@ -141,14 +170,9 @@ export default function UsersManagement() {
         return;
       }
 
-      if (!editingUser && !formData.password) {
-        setError("Password is required for new users.");
-        setSubmitting(false);
-        return;
-      }
-
-      if (!editingUser && formData.password.length < 6) {
-        setError("Password must be at least 6 characters long.");
+      // Inviting: a password is optional (Google/Microsoft people need none).
+      if (!editingUser && formData.password && formData.password.length < 6) {
+        setError("A password must be at least 6 characters, or leave it empty.");
         setSubmitting(false);
         return;
       }
@@ -180,20 +204,24 @@ export default function UsersManagement() {
 
         setSuccess("User updated successfully!");
       } else {
-        // Create new user via API
+        // Invite: account + profile + company membership, server side.
         const response = await fetch("/api/admin/users", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(userData),
+          body: JSON.stringify({ ...userData, company_id: selectedCompany?.id ?? null }),
         });
 
         const result = await response.json();
 
         if (!result.success) {
-          throw new Error(result.error || "Failed to create user");
+          throw new Error(result.error || "Could not invite this person");
         }
 
-        setSuccess("User created successfully! They can now log in with their email and password.");
+        setSuccess(
+          formData.password
+            ? `Invited. ${formData.email} can sign in with Google, Microsoft or the password you set.`
+            : `Invited. ${formData.email} can now tap "Continue with Google" (or Microsoft for a Neram work account).`
+        );
       }
 
       await fetchUsers();
@@ -208,12 +236,42 @@ export default function UsersManagement() {
     }
   };
 
+  const handleChangeEmail = async () => {
+    if (!emailTarget) return;
+    const email = newEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setEmailError("Please enter a valid email address.");
+      return;
+    }
+    setEmailSaving(true);
+    setEmailError("");
+    try {
+      const res = await fetch("/api/admin/users/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: emailTarget.id, email }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok || !result.success) {
+        setEmailError(result.error || "Could not change the login email.");
+        return;
+      }
+      showSuccess(`${emailTarget.name} now signs in with ${email}`);
+      setEmailTarget(null);
+      await fetchUsers();
+    } catch {
+      setEmailError("Could not reach the server. Please try again.");
+    } finally {
+      setEmailSaving(false);
+    }
+  };
+
   const columns = useMemo<MRT_ColumnDef<User>[]>(
     () => [
       {
         id: "mrt-row-actions",
         header: "Actions",
-        size: 100,
+        size: 150,
         Cell: ({ row }) => (
           <Box sx={{ display: "flex", gap: 1 }}>
             <Tooltip title="Edit">
@@ -222,6 +280,24 @@ export default function UsersManagement() {
                 onClick={() => handleOpenDialog(row.original)}
               >
                 <EditIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Change login email">
+              <IconButton
+                size="small"
+                aria-label={`Change login email for ${row.original.name}`}
+                onClick={() => openChangeEmail(row.original)}
+              >
+                <LoginEmailIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Copy task id">
+              <IconButton
+                size="small"
+                aria-label={`Copy task id for ${row.original.name}`}
+                onClick={() => handleCopyTaskId(row.original)}
+              >
+                <TaskIdIcon />
               </IconButton>
             </Tooltip>
           </Box>
@@ -356,7 +432,7 @@ export default function UsersManagement() {
           dayjs(cell.getValue<string>()).format("DD MMM YYYY"),
       },
     ],
-    [sites]
+    [sites, handleCopyTaskId, openChangeEmail]
   );
 
   return (
@@ -381,7 +457,7 @@ export default function UsersManagement() {
             startIcon={<AddIcon />}
             onClick={() => handleOpenDialog()}
           >
-            Add User
+            Invite person
           </Button>
         </Box>
       </Box>
@@ -412,7 +488,7 @@ export default function UsersManagement() {
         maxWidth="md"
         fullWidth
       >
-        <DialogTitle>{editingUser ? "Edit User" : "Add New User"}</DialogTitle>
+        <DialogTitle>{editingUser ? "Edit User" : "Invite person"}</DialogTitle>
         <DialogContent>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
@@ -444,6 +520,12 @@ export default function UsersManagement() {
                 label="Email"
                 type="email"
                 required
+                autoComplete="off"
+                helperText={
+                  editingUser
+                    ? "To change it, use Change login email on their row."
+                    : "Their Gmail, or their Neram work email for Microsoft."
+                }
                 disabled={!!editingUser}
                 value={formData.email}
                 onChange={(e) =>
@@ -484,9 +566,10 @@ export default function UsersManagement() {
               <Grid size={{ xs: 12, md: 6 }}>
                 <TextField
                   fullWidth
-                  label="Password"
+                  label="Password (optional)"
                   type="password"
-                  required
+                  autoComplete="new-password"
+                  helperText="Leave empty if they will use Continue with Google"
                   value={formData.password}
                   onChange={(e) =>
                     setFormData({ ...formData, password: e.target.value })
@@ -495,7 +578,8 @@ export default function UsersManagement() {
               </Grid>
             )}
 
-            <Grid size={{ xs: 12, md: editingUser ? 6 : 6 }}>
+            {editingUser && (
+            <Grid size={{ xs: 12, md: 6 }}>
               <FormControl fullWidth>
                 <InputLabel>Status</InputLabel>
                 <Select
@@ -509,7 +593,11 @@ export default function UsersManagement() {
                   <MenuItem value="inactive">Inactive</MenuItem>
                 </Select>
               </FormControl>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+                Inactive: they are signed out on their next page load (within 5 minutes). Nothing is deleted.
+              </Typography>
             </Grid>
+            )}
 
             {/* Site Assignment Section */}
             {formData.role === "admin" ? (
@@ -572,7 +660,64 @@ export default function UsersManagement() {
             disabled={submitting}
             startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : undefined}
           >
-            {submitting ? "Saving..." : editingUser ? "Update User" : "Create User"}
+            {submitting ? "Saving..." : editingUser ? "Update User" : "Invite"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      {/* Change login email */}
+      <Dialog
+        open={!!emailTarget}
+        onClose={() => !emailSaving && setEmailTarget(null)}
+        maxWidth="sm"
+        fullWidth
+        aria-labelledby="change-email-title"
+      >
+        <DialogTitle id="change-email-title">Change login email</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            {emailTarget?.name} signs in with{" "}
+            <Box component="span" sx={{ fontWeight: 600, wordBreak: "break-all" }}>
+              {emailTarget?.email}
+            </Box>{" "}
+            today.
+          </Typography>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            They will sign in with the new email from now on. Their data stays the same.
+          </Alert>
+          {emailError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {emailError}
+            </Alert>
+          )}
+          <TextField
+            fullWidth
+            autoFocus
+            label="New login email"
+            type="email"
+            autoComplete="off"
+            value={newEmail}
+            onChange={(e) => {
+              setNewEmail(e.target.value);
+              setEmailError("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleChangeEmail();
+            }}
+            helperText="Their Gmail for Google, or their Neram work email for Microsoft."
+            disabled={emailSaving}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEmailTarget(null)} disabled={emailSaving}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleChangeEmail}
+            disabled={emailSaving || !newEmail.trim()}
+            startIcon={emailSaving ? <CircularProgress size={16} color="inherit" /> : undefined}
+          >
+            {emailSaving ? "Changing..." : "Change email"}
           </Button>
         </DialogActions>
       </Dialog>

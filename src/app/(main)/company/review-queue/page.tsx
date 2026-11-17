@@ -197,6 +197,8 @@ function FlagCard({
               </Typography>
             )}
           </Box>
+        ) : flag.entity_type === "purchase_document" ? (
+          <BillFlagDetails flag={flag} />
         ) : (
           <Typography variant="body2" color="text.secondary" sx={{ wordBreak: "break-word" }}>
             {Object.keys(flag.details ?? {}).length > 0 ? JSON.stringify(flag.details) : "No details"}
@@ -223,6 +225,11 @@ function FlagCard({
             Open material expenses
           </Button>
         )}
+        {flag.entity_type === "purchase_document" && (
+          <Button size="small" component={NextLink} href="/site/materials/bill-inbox">
+            Open Bill Inbox
+          </Button>
+        )}
         {flag.status === "open" && canResolve && (
           <>
             <Box sx={{ flex: 1 }} />
@@ -239,6 +246,34 @@ function FlagCard({
         )}
       </CardActions>
     </Card>
+  );
+}
+
+/** Bill Inbox flags: shop name filled later, possible duplicate, hard-to-read photo. */
+function BillFlagDetails({ flag }: { flag: ReviewFlag }) {
+  const d = (flag.details ?? {}) as Record<string, unknown>;
+  const total = typeof d.total_amount === "number" ? formatCurrencyFull(d.total_amount) : null;
+  const invoice = typeof d.invoice_no === "string" ? `Bill no. ${d.invoice_no}` : null;
+  let line: string;
+  if (flag.reason === "vendor_name_added") {
+    line = `Shop name added later: "${String(d.vendor_name ?? "")}". Check it matches the bill and the person who bought it.`;
+  } else if (flag.reason === "possible_duplicate") {
+    line = String(d.why ?? "This bill may already be recorded.") + (d.refCode ? ` (${String(d.refCode)})` : "");
+  } else if (flag.reason === "low_confidence_extraction") {
+    const c = typeof d.confidence === "number" ? ` (${Math.round(d.confidence * 100)}% sure)` : "";
+    line = `The bill photo was hard to read${c}. Check the saved lines against the photo.`;
+  } else {
+    line = "Bill needs a check.";
+  }
+  return (
+    <Box>
+      <Typography variant="body2">{line}</Typography>
+      {(total || invoice) && (
+        <Typography variant="body2" color="text.secondary">
+          {[invoice, total].filter(Boolean).join(" · ")}
+        </Typography>
+      )}
+    </Box>
   );
 }
 

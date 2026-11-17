@@ -343,7 +343,7 @@ export default function RentalOrderDialog({
               getOptionLabel={(option) =>
                 option.shop_name || option.name || ""
               }
-              value={selectedVendor}
+              value={selectedVendor as (typeof rentalStores)[number] | null}
               onChange={(_, value) => setSelectedVendor(value as Vendor | null)}
               renderInput={(params) => (
                 <TextField

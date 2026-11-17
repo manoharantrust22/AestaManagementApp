@@ -665,7 +665,7 @@ export function useOngoingRentals(siteId: string) {
           total_advance_paid: totalAdvancePaid,
           days_since_start: daysSinceStart,
           is_overdue: isOverdue,
-        } as RentalOrderWithDetails;
+        } as unknown as RentalOrderWithDetails;
       });
     }, { operationName: "useOngoingRentals" }),
     staleTime: 5 * 60 * 1000,
@@ -696,7 +696,7 @@ export function useOverdueRentals(siteId: string) {
         .order("expected_return_date", { ascending: true });
 
       if (error) throw error;
-      return data as RentalOrderWithDetails[];
+      return data as unknown as RentalOrderWithDetails[];
     },
     enabled: !!siteId,
   });

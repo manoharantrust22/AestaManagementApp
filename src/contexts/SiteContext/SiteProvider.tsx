@@ -7,8 +7,10 @@ import {
   useRef,
   useMemo,
 } from "react";
+import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/types/database.types";
+import { searchWithoutSite, siteIdFromSearch } from "@/lib/tasks/pageLink";
 
 type Site = Database["public"]["Tables"]["sites"]["Row"];
 import { useAuth } from "../AuthContext";
@@ -308,6 +310,29 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
     return () =>
       document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [error, userProfile, fetchSites]);
+
+  // A link can open a page on a given site: ?site=<id> (from a task, or from
+  // Neram Admin). Switch to it when it is one of this person's sites, then
+  // drop the parameter so a later manual switch isn't undone on navigation.
+  const pathname = usePathname();
+  const appliedSiteLinkRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined" || sites.length === 0) return;
+    const { search, hash } = window.location;
+    const wanted = siteIdFromSearch(search);
+    if (!wanted) return;
+    const key = `${window.location.pathname}${search}`;
+    if (appliedSiteLinkRef.current === key) return;
+    const site = sites.find((s) => s.id === wanted);
+    if (!site) return; // not (yet) one of this person's sites: wait for the fresh list
+    appliedSiteLinkRef.current = key;
+    setSelectedSite(site);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${window.location.pathname}${searchWithoutSite(search)}${hash}`
+    );
+  }, [pathname, sites, setSelectedSite]);
 
   // Cleanup retry timeout on unmount
   useEffect(() => {

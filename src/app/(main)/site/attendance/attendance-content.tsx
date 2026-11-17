@@ -3040,19 +3040,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           console.error("Reset payment error:", resetError);
         }
 
-        // Reset the engineer transaction settlement status to pending if exists
-        if (editingRecord.engineer_transaction_id) {
-          const { error: txError } = await supabase
-            .from("site_engineer_transactions")
-            .update({
-              settlement_status: "pending_settlement",
-            })
-            .eq("id", editingRecord.engineer_transaction_id);
-
-          if (txError) {
-            console.error("Reset transaction error:", txError);
-          }
-        }
+        // (Wallet v2, 20260509120100, dropped settlement_status from
+        // site_engineer_transactions, so there is no transaction state to reset.)
 
         // Handle expense record if exists (direct payment)
         if (editingRecord.expense_id) {
@@ -3420,19 +3409,8 @@ export default function AttendanceContent({ initialData }: AttendanceContentProp
           console.error("Reset market payment error:", resetError);
         }
 
-        // Reset engineer transaction if exists
-        if (currentRecord?.engineer_transaction_id) {
-          const { error: txError } = await supabase
-            .from("site_engineer_transactions")
-            .update({
-              settlement_status: "pending_settlement",
-            })
-            .eq("id", currentRecord.engineer_transaction_id);
-
-          if (txError) {
-            console.error("Reset market transaction error:", txError);
-          }
-        }
+        // (Wallet v2, 20260509120100, dropped settlement_status from
+        // site_engineer_transactions, so there is no transaction state to reset.)
 
         // Handle expense record if exists (direct payment)
         if (currentRecord?.expense_id) {

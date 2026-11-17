@@ -10,6 +10,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import type { Json } from "@/types/database.types";
 import type {
   FlaggedPurchaseSnapshot,
   ReviewEntityType,
@@ -26,8 +27,7 @@ export const reviewFlagKeys = {
 };
 
 function db() {
-  // review_flags is newer than the generated types; keep the cast local.
-  return createClient() as any;
+  return createClient();
 }
 
 const FLAG_SELECT = `
@@ -112,7 +112,7 @@ export function useRaiseReviewFlag() {
           entity_id: input.entityId,
           reason: input.reason,
           site_id: input.siteId ?? null,
-          details: input.details ?? {},
+          details: (input.details ?? {}) as Json,
           raised_by: userProfile.id,
         });
       // 23505 = an open flag for this entity and reason already exists; treat as success.

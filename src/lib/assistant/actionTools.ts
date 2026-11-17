@@ -11,6 +11,16 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { NERAM_TASKS_ENABLED } from "@/lib/neram-hub/flag";
+import {
+  hubAddComment,
+  hubChangeStatus,
+  hubCreateBug,
+  hubCreateTask,
+  hubFindTask,
+  hubListTasks,
+} from "./hubTasks";
+import type { TaskPriority, TaskSize, TaskStatus } from "@/types/task.types";
 
 type Db = SupabaseClient<any, any, any>;
 
@@ -203,9 +213,14 @@ async function getUser(db: Db, id: unknown): Promise<{ id: string; name: string;
   return (data as { id: string; name: string; role: string } | null) ?? null;
 }
 
-async function getTask(db: Db, id: unknown) {
+async function getTask(db: Db, id: unknown, me?: AssistantUser) {
   const s = str(id);
   if (!s || !UUID_RE.test(s)) return null;
+  // Hub tasks: looked up as the signed-in person; created_by/assignee_id aren't needed here.
+  if (NERAM_TASKS_ENABLED && me) {
+    const t = await hubFindTask(me.id, s);
+    return t ? { ...t, created_by: "", assignee_id: "" } : null;
+  }
   const { data } = await db.from("tasks").select("id, title, status, created_by, assignee_id").eq("id", s).maybeSingle();
   return (data as { id: string; title: string; status: string; created_by: string; assignee_id: string } | null) ?? null;
 }
@@ -260,6 +275,15 @@ export async function runLookup(db: Db, me: AssistantUser, name: string, args: R
   if (name === "list_tasks") {
     const scope = oneOf(args.scope, ["mine", "assigned_by_me", "person"] as const, "mine");
     const status = str(args.status) ?? "open";
+    if (NERAM_TASKS_ENABLED) {
+      const uid = str(args.user_id);
+      if (scope === "person" && (!uid || !UUID_RE.test(uid))) return { error: "user_id is required for scope 'person' (use find_user)" };
+      try {
+        return { today: todayIST(), tasks: await hubListTasks(me.id, scope, status, uid, str(args.search)) };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : "Could not list tasks" };
+      }
+    }
     let q = db
       .from("tasks")
       .select("id, title, status, priority, size, due_date, blocker_note, assignee:users!tasks_assignee_id_fkey(name), creator:users!tasks_created_by_fkey(name)")
@@ -362,6 +386,8 @@ async function prepare(db: Db, me: AssistantUser, tool: string, raw: Record<stri
       due_date: due,
       site_id: siteId ?? null,
       category: oneOf(raw.category, CATEGORIES, "other"),
+      // Only used by the task hub (its page link names the site).
+      ...(NERAM_TASKS_ENABLED ? { site_name: siteName } : {}),
     };
     const who = assignee.id === me.id ? "yourself" : assignee.name;
     const sizeLabel = args.size === "large" ? "big" : args.size;
@@ -370,7 +396,7 @@ async function prepare(db: Db, me: AssistantUser, tool: string, raw: Record<stri
   }
 
   if (tool === "update_task_status") {
-    const task = await getTask(db, raw.task_id);
+    const task = await getTask(db, raw.task_id, me);
     if (!task) throw new ToolInputError("task_id not found or not visible — call list_tasks first");
     const status = oneOf(raw.status, STATUSES, "todo");
     if (typeof raw.status !== "string" || !(STATUSES as readonly string[]).includes(raw.status)) {
@@ -393,7 +419,7 @@ async function prepare(db: Db, me: AssistantUser, tool: string, raw: Record<stri
   }
 
   if (tool === "add_task_comment") {
-    const task = await getTask(db, raw.task_id);
+    const task = await getTask(db, raw.task_id, me);
     if (!task) throw new ToolInputError("task_id not found or not visible — call list_tasks first");
     const text = str(raw.text);
     if (!text) throw new ToolInputError("text is required");
@@ -481,6 +507,40 @@ export async function executeAction(
   tool: string,
   args: Record<string, any>
 ): Promise<{ message: string; task_id?: string; url?: string }> {
+  if (tool === "create_task" && NERAM_TASKS_ENABLED) {
+    const id = await hubCreateTask(me.id, {
+      title: args.title,
+      assignee_id: args.assignee_id,
+      description: args.description ?? null,
+      priority: args.priority as TaskPriority,
+      size: args.size as TaskSize,
+      due_date: args.due_date ?? null,
+      site_id: args.site_id ?? null,
+      site_name: args.site_name ?? null,
+    });
+    return { message: "Task assigned", task_id: id, url: `/tasks?id=${id}` };
+  }
+
+  if (tool === "update_task_status" && NERAM_TASKS_ENABLED) {
+    await hubChangeStatus(me.id, args.task_id, args.from_status as TaskStatus, args.status as TaskStatus, args.note ?? null);
+    return { message: "Task updated", task_id: args.task_id, url: `/tasks?id=${args.task_id}` };
+  }
+
+  if (tool === "add_task_comment" && NERAM_TASKS_ENABLED) {
+    await hubAddComment(me.id, args.task_id, args.text);
+    return { message: "Update added", task_id: args.task_id, url: `/tasks?id=${args.task_id}` };
+  }
+
+  if (tool === "create_bug_report" && NERAM_TASKS_ENABLED) {
+    const owner = await resolveBugOwner(db, me);
+    const id = await hubCreateBug(me.id, owner, {
+      title: args.title,
+      details: args.details ?? null,
+      priority: args.priority as TaskPriority,
+    });
+    return { message: "Problem reported", task_id: id, url: `/tasks?id=${id}` };
+  }
+
   if (tool === "create_task") {
     const { data, error } = await db
       .from("tasks")

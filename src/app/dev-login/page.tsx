@@ -5,11 +5,8 @@ import { useRouter } from "next/navigation";
 import { Box, CircularProgress, Typography } from "@mui/material";
 import { useAuth } from "@/contexts/AuthContext";
 
-const DEV_EMAIL = "Haribabu@nerasmclasses.onmicrosoft.com";
-const DEV_PASSWORD = "Padma@123";
-
 export default function DevLoginPage() {
-  const { signIn, user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [status, setStatus] = useState("Checking session...");
   const [error, setError] = useState("");
@@ -32,19 +29,20 @@ export default function DevLoginPage() {
 
     async function autoLogin() {
       try {
-        // Use admin SDK (via API route) to set password through GoTrue — correct hash format guaranteed
-        setStatus("Preparing dev session...");
+        // The API route reads the dev account from server env, sets its
+        // password via the admin SDK and signs in on the server, returning
+        // the session as cookies. No credentials live in this bundle.
+        setStatus("Signing in...");
         const res = await fetch("/api/dev-ensure-password", { method: "POST" });
         if (!res.ok) {
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           throw new Error(data.error || "Failed to prepare dev session");
         }
 
-        setStatus("Signing in...");
-        await signIn(DEV_EMAIL, DEV_PASSWORD);
         if (!cancelled) {
           setStatus("Authenticated! Redirecting...");
-          router.push("/site/dashboard");
+          // Full navigation so AuthContext boots from the new cookies.
+          window.location.href = "/site/dashboard";
         }
       } catch (err: any) {
         if (!cancelled) {
@@ -58,7 +56,7 @@ export default function DevLoginPage() {
     return () => {
       cancelled = true;
     };
-  }, [authLoading, user, signIn, router]);
+  }, [authLoading, user, router]);
 
   return (
     <Box

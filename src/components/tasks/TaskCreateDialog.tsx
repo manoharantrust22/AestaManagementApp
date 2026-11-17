@@ -20,16 +20,20 @@ import {
   Typography,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
+import LinkIcon from "@mui/icons-material/Link";
 import dayjs from "dayjs";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSelectedSite, useSitesData } from "@/contexts/SiteContext";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useAssignableUsers, useCreateTask } from "@/hooks/queries/useTasks";
 import VoiceRecorder, { type VoiceRecording } from "@/components/common/VoiceRecorder";
+import { NERAM_TASKS_ENABLED } from "@/lib/neram-hub/flag";
+import { isNotLinked } from "@/lib/neram-hub/browser";
 import {
   CATEGORY_LABELS,
   type Task,
   type TaskCategory,
+  type TaskPage,
   type TaskPriority,
   type TaskSize,
   type TaskUserRef,
@@ -40,6 +44,8 @@ interface TaskCreateDialogProps {
   onClose: () => void;
   onCreated?: (task: Task) => void;
   defaultAssigneeId?: string | null;
+  /** "New task from this page": the page (with ?site=) the task is about. */
+  page?: TaskPage | null;
 }
 
 type DueChoice = "today" | "tomorrow" | "pick" | "none";
@@ -50,12 +56,18 @@ const ROLE_LABEL: Record<string, string> = {
   site_engineer: "Site engineer",
 };
 
-export default function TaskCreateDialog({ open, onClose, onCreated, defaultAssigneeId }: TaskCreateDialogProps) {
+/** A page link for a task about a site, so the task opens on that site. */
+function sitePage(siteId: string, siteName: string | null): TaskPage {
+  return { url: `/site/dashboard?site=${encodeURIComponent(siteId)}`, title: siteName ? `${siteName} dashboard` : "Site dashboard", siteId, siteName };
+}
+
+export default function TaskCreateDialog({ open, onClose, onCreated, defaultAssigneeId, page }: TaskCreateDialogProps) {
   const isMobile = useIsMobile("md");
   const { userProfile } = useAuth();
   const { selectedSite } = useSelectedSite();
   const { sites } = useSitesData();
-  const { data: users = [] } = useAssignableUsers();
+  const { data: users = [], error: usersError } = useAssignableUsers();
+  const notLinked = isNotLinked(usersError);
   const createTask = useCreateTask();
 
   const [title, setTitle] = useState("");
@@ -69,6 +81,7 @@ export default function TaskCreateDialog({ open, onClose, onCreated, defaultAssi
   const [siteId, setSiteId] = useState<string>("");
   const [voice, setVoice] = useState<VoiceRecording | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [attachedPage, setAttachedPage] = useState<TaskPage | null>(null);
 
   // Reset each time the dialog opens.
   useEffect(() => {
@@ -80,7 +93,8 @@ export default function TaskCreateDialog({ open, onClose, onCreated, defaultAssi
     setCategory("other");
     setDueChoice("today");
     setDueDate(dayjs().format("YYYY-MM-DD"));
-    setSiteId(selectedSite?.id ?? "");
+    setSiteId(page?.siteId ?? selectedSite?.id ?? "");
+    setAttachedPage(page ?? null);
     setVoice(null);
     setError(null);
     createTask.reset();
@@ -122,6 +136,8 @@ export default function TaskCreateDialog({ open, onClose, onCreated, defaultAssi
     setError(null);
     if (!title.trim()) return setError("Add a short title (or speak it)");
     if (!assignee) return setError("Choose who should do this");
+    const siteName = sites.find((s) => s.id === siteId)?.name ?? null;
+    const taskPage = attachedPage ?? (siteId ? sitePage(siteId, siteName) : null);
     try {
       const task = await createTask.mutateAsync({
         title,
@@ -135,6 +151,7 @@ export default function TaskCreateDialog({ open, onClose, onCreated, defaultAssi
         transcript: voice?.transcription?.transcript || null,
         transcript_en: voice?.transcription?.transcript_en || null,
         attachments: voice ? [{ kind: "voice", blob: voice.blob, mime: voice.mime }] : [],
+        page: taskPage,
       });
       onCreated?.(task);
       onClose();
@@ -153,6 +170,22 @@ export default function TaskCreateDialog({ open, onClose, onCreated, defaultAssi
       </DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2.25}>
+          {notLinked && <Alert severity="info">{(usersError as Error).message}</Alert>}
+
+          {attachedPage && (
+            <Box>
+              <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 0.5 }}>
+                About this page
+              </Typography>
+              <Chip
+                icon={<LinkIcon />}
+                label={[attachedPage.title || "This page", attachedPage.siteName].filter(Boolean).join(" · ")}
+                onDelete={() => setAttachedPage(null)}
+                sx={{ maxWidth: "100%" }}
+              />
+            </Box>
+          )}
+
           <VoiceRecorder value={voice} onChange={onVoice} label="Speak the task (Tamil / English)" disabled={createTask.isPending} />
 
           <TextField
@@ -218,14 +251,25 @@ export default function TaskCreateDialog({ open, onClose, onCreated, defaultAssi
           </Box>
 
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-            <TextField select label="Type" value={category} onChange={(e) => setCategory(e.target.value as TaskCategory)} fullWidth>
-              {(Object.keys(CATEGORY_LABELS) as TaskCategory[]).map((c) => (
-                <MenuItem key={c} value={c}>
-                  {CATEGORY_LABELS[c]}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField select label="Site (optional)" value={siteId} onChange={(e) => setSiteId(e.target.value)} fullWidth>
+            {/* The task hub has no task types; the site goes with the task as its page. */}
+            {!NERAM_TASKS_ENABLED && (
+              <TextField select label="Type" value={category} onChange={(e) => setCategory(e.target.value as TaskCategory)} fullWidth>
+                {(Object.keys(CATEGORY_LABELS) as TaskCategory[]).map((c) => (
+                  <MenuItem key={c} value={c}>
+                    {CATEGORY_LABELS[c]}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+            <TextField
+              select
+              label="Site (optional)"
+              value={siteId}
+              onChange={(e) => setSiteId(e.target.value)}
+              fullWidth
+              disabled={!!attachedPage?.siteId}
+              helperText={attachedPage?.siteId ? "From the attached page" : undefined}
+            >
               <MenuItem value="">
                 <em>No site</em>
               </MenuItem>
@@ -253,7 +297,7 @@ export default function TaskCreateDialog({ open, onClose, onCreated, defaultAssi
         <Button onClick={onClose} disabled={createTask.isPending}>
           Cancel
         </Button>
-        <Button variant="contained" onClick={submit} disabled={createTask.isPending} size="large">
+        <Button variant="contained" onClick={submit} disabled={createTask.isPending || notLinked} size="large">
           {createTask.isPending ? "Assigning…" : "Assign task"}
         </Button>
       </DialogActions>

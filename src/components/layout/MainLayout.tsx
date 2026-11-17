@@ -78,12 +78,16 @@ import {
   SmartToy as SmartToyIcon,
   Checklist as TasksIcon,
   BugReportOutlined as BugReportIcon,
+  AddTask as AddTaskIcon,
+  Fingerprint as TaskIdIcon,
   CalculateRounded as CalculateRoundedIcon,
   FactCheck as FactCheckIcon,
   SquareFoot as SquareFootIcon,
 } from "@mui/icons-material";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/contexts/ToastContext";
+import { copyText } from "@/lib/utils/copyText";
 import { useThemeMode } from "@/contexts/ThemeContext";
 import { useSyncStatus } from "@/hooks/useSyncStatus";
 import SiteSelector from "@/components/layout/SiteSelector";
@@ -92,8 +96,12 @@ import NotificationBell from "@/components/notifications/NotificationBell";
 import ActiveSectionChip from "@/components/layout/ActiveSectionChip";
 import ChatAssistant from "@/components/chat-assistant/ChatAssistant";
 import BugReportProvider from "@/components/bug-report/BugReportProvider";
+import NewTaskFromPage, { openNewTaskFromPage } from "@/components/tasks/NewTaskFromPage";
+import { TaskHubBarItems } from "@/components/tasks/RunningTasksChip";
+import { NERAM_TASKS_ENABLED } from "@/lib/neram-hub/flag";
 import { useMyOpenTaskCount } from "@/hooks/queries/useTasks";
 import StaleStateSnackbar from "@/components/layout/StaleStateSnackbar";
+import BillQueueRunner from "@/components/bill-inbox/BillQueueRunner";
 import ConnectionDegradedSnackbar from "@/components/layout/ConnectionDegradedSnackbar";
 import ThemeToggle from "@/components/common/ThemeToggle";
 import DateRangePicker from "@/components/common/DateRangePicker";
@@ -273,6 +281,11 @@ const siteNavCategories: NavCategory[] = [
         text: "Hub",
         icon: <DashboardIcon />,
         path: "/site/materials/hub",
+      },
+      {
+        text: "Bill Inbox",
+        icon: <ReceiptLongIcon />,
+        path: "/site/materials/bill-inbox",
       },
       {
         text: "Inventory",
@@ -533,6 +546,7 @@ export default function MainLayout({
   }>({ open: false, message: "", severity: "info" });
 
   const { user, userProfile, loading: authLoading, signOut } = useAuth();
+  const { showSuccess: toastSuccess, showError: toastError } = useToast();
   const router = useRouter();
   const pathname = usePathname();
   const theme = useTheme();
@@ -1376,6 +1390,13 @@ export default function MainLayout({
           {/* Manual Refresh Button */}
           <ManualRefreshButton />
 
+          {/* Task hub: running task(s) and "New task from this page" */}
+          {NERAM_TASKS_ENABLED && (
+            <Box sx={{ ml: { xs: 0.5, sm: 1 }, display: "flex", alignItems: "center", gap: 0.5 }}>
+              <TaskHubBarItems />
+            </Box>
+          )}
+
           {/* Notification Bell */}
           <Box sx={{ ml: { xs: 0.5, sm: 1 } }}>
             <NotificationBell />
@@ -1463,6 +1484,36 @@ export default function MainLayout({
               </ListItemIcon>
               <ListItemText secondary="or long-press anywhere">Report a problem</ListItemText>
             </MenuItem>
+            {NERAM_TASKS_ENABLED && (
+              <MenuItem
+                onClick={() => {
+                  setAnchorEl(null);
+                  // Let the menu close first so focus returns before the dialog opens.
+                  setTimeout(openNewTaskFromPage, 150);
+                }}
+              >
+                <ListItemIcon>
+                  <AddTaskIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText secondary="With this page attached">New task from this page</ListItemText>
+              </MenuItem>
+            )}
+            {userProfile?.id && (
+              <MenuItem
+                onClick={async () => {
+                  setAnchorEl(null);
+                  // users.id: the id Neram links in Admin > Team > Connected apps.
+                  const id = userProfile.id;
+                  if (await copyText(id)) toastSuccess("Your task id is copied");
+                  else toastError(`Could not copy. Your task id: ${id}`, { duration: 15000 });
+                }}
+              >
+                <ListItemIcon>
+                  <TaskIdIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText secondary="To connect your tasks">Copy task id</ListItemText>
+              </MenuItem>
+            )}
             {userProfile?.role !== "admin" && (
               <MenuItem
                 onClick={() => {
@@ -1626,11 +1677,15 @@ export default function MainLayout({
 
       {/* Bug reporter — long-press anywhere (or profile menu) → screenshot + voice */}
       <BugReportProvider />
+      {NERAM_TASKS_ENABLED && <NewTaskFromPage />}
 
       {/* Stale-state toast — fires when a guarded mutation hits a row that
           no longer matches its expected state (e.g. dialog opened on stale
           IDB cache after idle, another tab already approved it). */}
       <StaleStateSnackbar />
+
+      {/* Bill Inbox: keeps uploading bills snapped on this phone, on any page. */}
+      <BillQueueRunner />
 
       {/* Connection-degraded banner — fires when pool recovery gives up
           (SessionManager heal still failing, or QueryProvider's timeout

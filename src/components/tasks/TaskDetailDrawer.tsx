@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Box,
@@ -21,10 +21,12 @@ import BlockIcon from "@mui/icons-material/Block";
 import ReplayIcon from "@mui/icons-material/Replay";
 import SendIcon from "@mui/icons-material/Send";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import AddAPhotoIcon from "@mui/icons-material/AddAPhotoOutlined";
 import dayjs from "dayjs";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import {
+  useAddTaskPhoto,
   useAddTaskUpdate,
   useEditTask,
   useTask,
@@ -35,6 +37,8 @@ import {
 } from "@/hooks/queries/useTasks";
 import VoiceRecorder, { type VoiceRecording } from "@/components/common/VoiceRecorder";
 import { TaskMetaChips } from "./TaskCard";
+import { NeramTaskError } from "@/lib/neram-hub/browser";
+import { NERAM_TASKS_ENABLED } from "@/lib/neram-hub/flag";
 import { CATEGORY_LABELS, STATUS_META, type Task, type TaskStatus, type TaskUpdate } from "@/types/task.types";
 
 interface TaskDetailDrawerProps {
@@ -157,12 +161,16 @@ export function buildClaudeCodeBrief(task: Task, attachments: TaskAttachmentWith
 export default function TaskDetailDrawer({ taskId, onClose }: TaskDetailDrawerProps) {
   const isMobile = useIsMobile("md");
   const { userProfile } = useAuth();
-  const { data: task, isLoading } = useTask(taskId);
+  const { data: task, isLoading, error: taskError } = useTask(taskId);
   const { data: updates = [] } = useTaskUpdates(taskId);
   const { data: attachments = [] } = useTaskAttachments(taskId);
   const updateStatus = useUpdateTaskStatus();
   const addUpdate = useAddTaskUpdate();
   const editTask = useEditTask();
+  const addPhoto = useAddTaskPhoto();
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  /** Done was refused for want of a photo: once one is added, try Done again. */
+  const [proofPending, setProofPending] = useState(false);
 
   const [blockMode, setBlockMode] = useState(false);
   const [note, setNote] = useState("");
@@ -175,9 +183,10 @@ export default function TaskDetailDrawer({ taskId, onClose }: TaskDetailDrawerPr
     setNote("");
     setVoice(null);
     setError(null);
+    setProofPending(false);
   }, [taskId]);
 
-  const busy = updateStatus.isPending || addUpdate.isPending || editTask.isPending;
+  const busy = updateStatus.isPending || addUpdate.isPending || editTask.isPending || addPhoto.isPending;
   const me = userProfile?.id;
   const isAdmin = userProfile?.role === "admin";
   const canCancel = !!task && (task.created_by === me || isAdmin);
@@ -206,9 +215,27 @@ export default function TaskDetailDrawer({ taskId, onClose }: TaskDetailDrawerPr
         attachments: voiceAttachment(),
       });
       resetComposer();
+      setProofPending(false);
       setToast(to === "done" ? "Marked as done ✅" : `Moved to ${STATUS_META[to].label}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update");
+      // The task needs a photo (or a note) to close: open the photo picker with the message.
+      if (to === "done" && err instanceof NeramTaskError && err.code === "proof") {
+        setProofPending(true);
+        photoInputRef.current?.click();
+      }
+    }
+  };
+
+  const onPhotoPicked = async (file: File | undefined) => {
+    if (!task || !file) return;
+    setError(null);
+    try {
+      await addPhoto.mutateAsync({ taskId: task.id, file });
+      setToast("Photo added");
+      if (proofPending) await changeStatus("done");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add the photo");
     }
   };
 
@@ -263,7 +290,13 @@ export default function TaskDetailDrawer({ taskId, onClose }: TaskDetailDrawerPr
 
       {isLoading || !task ? (
         <Box sx={{ p: 4, textAlign: "center" }}>
-          {isLoading ? <CircularProgress /> : <Typography color="text.secondary">Task not found or not visible to you.</Typography>}
+          {isLoading ? (
+            <CircularProgress />
+          ) : (
+            <Typography color="text.secondary">
+              {taskError instanceof NeramTaskError ? taskError.message : "Task not found or not visible to you."}
+            </Typography>
+          )}
         </Box>
       ) : (
         <>
@@ -275,7 +308,9 @@ export default function TaskDetailDrawer({ taskId, onClose }: TaskDetailDrawerPr
               <TaskMetaChips task={task} />
             </Box>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              {task.creator?.name ?? "?"} → {task.assignee?.name ?? "?"} · {CATEGORY_LABELS[task.category]}
+              {task.creator?.name ?? "?"} → {task.assignee?.name ?? "?"}
+              {/* Hub tasks have no type. */}
+              {NERAM_TASKS_ENABLED ? "" : ` · ${CATEGORY_LABELS[task.category]}`}
               {task.site?.name ? ` · ${task.site.name}` : ""}
             </Typography>
 
@@ -334,10 +369,36 @@ export default function TaskDetailDrawer({ taskId, onClose }: TaskDetailDrawerPr
           {/* Action + composer area */}
           <Box sx={{ borderTop: 1, borderColor: "divider", p: 1.5, pb: "calc(12px + env(safe-area-inset-bottom))" }}>
             {error && (
-              <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError(null)}>
+              <Alert
+                severity={proofPending ? "warning" : "error"}
+                sx={{ mb: 1 }}
+                onClose={() => {
+                  setError(null);
+                  setProofPending(false);
+                }}
+                action={
+                  proofPending ? (
+                    <Button color="inherit" size="small" onClick={() => photoInputRef.current?.click()} disabled={busy}>
+                      Add photo
+                    </Button>
+                  ) : undefined
+                }
+              >
                 {error}
               </Alert>
             )}
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              hidden
+              data-testid="task-photo-input"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                void onPhotoPicked(file);
+              }}
+            />
 
             <Stack spacing={1}>
               <TextField
@@ -350,7 +411,19 @@ export default function TaskDetailDrawer({ taskId, onClose }: TaskDetailDrawerPr
                 fullWidth
                 error={blockMode && !hasComposerContent}
               />
-              <VoiceRecorder value={voice} onChange={setVoice} label={blockMode ? "Explain the problem by voice" : "Voice update"} disabled={busy} />
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <VoiceRecorder value={voice} onChange={setVoice} label={blockMode ? "Explain the problem by voice" : "Voice update"} disabled={busy} />
+                </Box>
+                <IconButton
+                  aria-label="Add photo"
+                  onClick={() => photoInputRef.current?.click()}
+                  disabled={busy}
+                  sx={{ width: 44, height: 44, border: 1, borderColor: "divider" }}
+                >
+                  <AddAPhotoIcon />
+                </IconButton>
+              </Stack>
 
               {blockMode ? (
                 <Stack direction="row" spacing={1}>

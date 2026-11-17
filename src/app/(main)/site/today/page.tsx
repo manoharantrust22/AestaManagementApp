@@ -20,6 +20,7 @@ import {
   Inventory2 as InventoryIcon,
   Warning as LowStockIcon,
   ShoppingCart as BoughtIcon,
+  CameraAlt as BillIcon,
   Splitscreen as SplitIcon,
   FactCheck as ChecklistIcon,
   LocalCafe as CafeIcon,
@@ -67,6 +68,13 @@ export default function SiteTodayPage() {
   );
 
   const tiles: TileSpec[] = [
+    {
+      label: "Snap a bill",
+      description: "Bought something? Photo the bill now, check it later. Works offline.",
+      href: "/site/materials/bill-inbox",
+      icon: <BillIcon sx={{ fontSize: 36 }} />,
+      accent: "primary",
+    },
     {
       label: "Daily checklist",
       description: "Your duties for today — attendance, stock, usage, settlements",

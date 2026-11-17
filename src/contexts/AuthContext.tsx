@@ -35,6 +35,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     userProfileRef.current = userProfile;
   }, [userProfile]);
 
+  // Set once we have started sending a refused person to /no-access.
+  const noAccessHandledRef = useRef(false);
+
+  // The profile read says "no row" or "not active". Don't trust a single
+  // client read for that (an expired JWT reads as anon and returns no rows):
+  // ask the server, which runs hasAccess. Only an explicit `no_access` answer
+  // signs out — the middleware has already revoked the session and cleared
+  // its cookies by then. Network errors / 503 leave everything as it was.
+  const confirmNoAccess = useCallback(async () => {
+    if (noAccessHandledRef.current) return;
+    try {
+      const res = await fetch("/api/auth/access", { cache: "no-store" });
+      if (res.status !== 403) return;
+      const body = await res.json().catch(() => null);
+      if (body?.code !== "no_access") return;
+    } catch {
+      return;
+    }
+    noAccessHandledRef.current = true;
+    console.warn("[AuthContext] No access to Aesta - signing out");
+    // Clear the in-memory session too, but don't let a slow proxy hold up
+    // the redirect.
+    await Promise.race([
+      supabase.auth.signOut({ scope: "local" }).catch(() => undefined),
+      new Promise((r) => setTimeout(r, 1500)),
+    ]);
+    window.location.href = "/no-access";
+  }, [supabase]);
+
   // Retry once on transient errors (network / auth lock contention) before giving up.
   // Returning a boolean lets the watchdog effect know whether to schedule another attempt.
   const fetchUserProfile = useCallback(async (userId: string): Promise<boolean> => {
@@ -48,6 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (error) return { ok: false, profileFound: false };
         if (!data) return { ok: true, profileFound: false };
         setUserProfile(data);
+        if (data.status !== "active") void confirmNoAccess();
         return { ok: true, profileFound: true };
       } catch {
         return { ok: false, profileFound: false };
@@ -68,13 +98,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     if (!result.profileFound) {
       console.warn("[AuthContext] No profile row for auth user:", userId);
+      void confirmNoAccess();
       // Don't null out an existing profile on a transient empty response; only
       // null it out when there is genuinely no profile and we previously had none.
       setUserProfile((prev) => prev ?? null);
       return false;
     }
     return true;
-  }, [supabase]);
+  }, [supabase, confirmNoAccess]);
 
   const refreshUserProfile = useCallback(async () => {
     if (user) {

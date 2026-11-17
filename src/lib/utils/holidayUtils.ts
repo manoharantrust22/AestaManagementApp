@@ -4,7 +4,7 @@ import dayjs from "dayjs";
 // Define SiteHoliday type from the Database schema, augmented with trade_category_id
 // (The migration 20260625110000_site_holiday_trade_scope already added this column;
 // this extends the type until auto-generated types are regenerated from Supabase)
-export type SiteHoliday = Database["public"]["Tables"]["site_holidays"]["Row"] & {
+export type SiteHoliday = Omit<Database["public"]["Tables"]["site_holidays"]["Row"], "trade_category_id"> & {
   trade_category_id?: string | null;
 };
 

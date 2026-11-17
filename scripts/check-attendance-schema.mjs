@@ -30,8 +30,8 @@ loadEnvFile(resolve(process.cwd(), ".env.local"));
 loadEnvFile(resolve(process.cwd(), ".env"));
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const keyType = process.env.SUPABASE_SERVICE_ROLE_KEY ? "service_role" : (process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY ? "service_role (public)" : "anon");
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const keyType = process.env.SUPABASE_SERVICE_ROLE_KEY ? "service_role" : "anon";
 console.log(`Using ${keyType} key`);
 console.log(`URL: ${supabaseUrl}`);
 const supabase = createClient(supabaseUrl, supabaseKey);

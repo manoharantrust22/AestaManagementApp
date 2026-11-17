@@ -6,6 +6,7 @@ import { Box, Button, Card, CardContent, Skeleton, Stack, Typography } from "@mu
 import AddIcon from "@mui/icons-material/Add";
 import ChecklistIcon from "@mui/icons-material/Checklist";
 import { useMyTasksToday, useTasksRealtime } from "@/hooks/queries/useTasks";
+import { isNotLinked } from "@/lib/neram-hub/browser";
 import TaskCard from "./TaskCard";
 import TaskDetailDrawer from "./TaskDetailDrawer";
 import TaskCreateDialog from "./TaskCreateDialog";
@@ -13,7 +14,7 @@ import TaskCreateDialog from "./TaskCreateDialog";
 /** "What do I have to do today?" — top of the site engineer's Today page. */
 export default function MyTasksTodayCard({ maxItems = 5 }: { maxItems?: number }) {
   const router = useRouter();
-  const { data: tasks = [], isLoading } = useMyTasksToday();
+  const { data: tasks = [], isLoading, error } = useMyTasksToday();
   useTasksRealtime();
   const [openId, setOpenId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -39,7 +40,13 @@ export default function MyTasksTodayCard({ maxItems = 5 }: { maxItems?: number }
           </Button>
         </Stack>
 
-        {isLoading ? (
+        {error ? (
+          <Box sx={{ py: 1.5, textAlign: "center" }}>
+            <Typography variant="body2" color={isNotLinked(error) ? "text.secondary" : "error"}>
+              {error instanceof Error ? error.message : "Could not load tasks."}
+            </Typography>
+          </Box>
+        ) : isLoading ? (
           <Stack spacing={1}>
             <Skeleton variant="rounded" height={64} />
             <Skeleton variant="rounded" height={64} />

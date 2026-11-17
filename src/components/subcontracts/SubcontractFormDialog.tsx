@@ -216,6 +216,41 @@ export default function SubcontractFormDialog({ open, onClose, siteId, subcontra
     };
   }, [open, subcontractId, supabase]);
 
+  // The pickers list active laborers only. If the contract's holder / head mestri
+  // has since gone inactive, add them so the form shows who is really assigned
+  // instead of a misleading blank (the saved value is kept either way).
+  const assignedLaborerId = editing?.laborer_id ?? null;
+  useEffect(() => {
+    if (!optionsLoaded || !assignedLaborerId) return;
+    if (laborers.some((l) => l.id === assignedLaborerId)) return;
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabase
+        .from("laborers")
+        .select("id, name, team_id, labor_categories(name), role:labor_roles(name)")
+        .eq("id", assignedLaborerId)
+        .maybeSingle();
+      if (cancelled || !data) return;
+      const l = data as any;
+      setLaborers((prev) =>
+        prev.some((p) => p.id === l.id)
+          ? prev
+          : [
+              ...prev,
+              {
+                ...l,
+                name: `${l.name} (inactive)`,
+                category_name: l.labor_categories?.name || "Unknown",
+                role_name: l.role?.name || "",
+              },
+            ]
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [optionsLoaded, assignedLaborerId, laborers, supabase]);
+
   // Auto-calculate total value for rate-based contracts
   useEffect(() => {
     if (form.is_rate_based && form.rate_per_unit > 0 && form.total_units > 0) {
@@ -224,12 +259,16 @@ export default function SubcontractFormDialog({ open, onClose, siteId, subcontra
     }
   }, [form.is_rate_based, form.rate_per_unit, form.total_units]);
 
+  // In-house contracts (our own workforce, created from the workspace) carry no
+  // team and are often ₹0 — the work is costed through attendance, not a price.
+  const inHouse = !!editing?.is_in_house;
+
   const handleSubmit = async () => {
-    if (!form.title || form.total_value <= 0) {
+    if (!form.title || form.total_value < 0 || (!inHouse && form.total_value === 0)) {
       setError("Please fill in all required fields with valid values");
       return;
     }
-    if (form.contract_type === "mesthri" && !form.team_id) {
+    if (form.contract_type === "mesthri" && !form.team_id && !inHouse) {
       setError("Please select a team for Mesthri subcontract");
       return;
     }
@@ -279,7 +318,7 @@ export default function SubcontractFormDialog({ open, onClose, siteId, subcontra
       const subcontractData: Record<string, unknown> = {
         site_id: siteId,
         contract_type: form.contract_type,
-        team_id: form.contract_type === "mesthri" ? form.team_id : null,
+        team_id: form.contract_type === "mesthri" ? form.team_id || null : null,
         // For specialist contracts, laborer_id is the contract holder. For
         // mesthri contracts, laborer_id (when set) is the head mestri who
         // receives team-wage settlements via the salary waterfall RPC.
@@ -352,7 +391,7 @@ export default function SubcontractFormDialog({ open, onClose, siteId, subcontra
             <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 2 }}>
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, sm: 6 }}>
-                  <FormControl fullWidth required>
+                  <FormControl fullWidth required disabled={inHouse}>
                     <InputLabel>Subcontract Type</InputLabel>
                     <Select
                       value={form.contract_type}
@@ -400,6 +439,14 @@ export default function SubcontractFormDialog({ open, onClose, siteId, subcontra
                         + Add
                       </Button>
                     </Box>
+                  ) : inHouse ? (
+                    <TextField
+                      fullWidth
+                      disabled
+                      label="Team"
+                      value="Our own workforce (in-house)"
+                      helperText="In-house work has no outside mesthri team."
+                    />
                   ) : form.contract_type === "mesthri" ? (
                     <FormControl fullWidth required>
                       <InputLabel>Team</InputLabel>
@@ -436,7 +483,7 @@ export default function SubcontractFormDialog({ open, onClose, siteId, subcontra
                 </Grid>
                 {/* Head Mestri — the laborer who receives team wages in the salary
                     waterfall. Optional at schema level so older contracts still save. */}
-                {form.contract_type === "mesthri" && form.team_id && (
+                {form.contract_type === "mesthri" && (form.team_id || inHouse) && (
                   <Grid size={{ xs: 12 }}>
                     <FormControl fullWidth>
                       <InputLabel shrink>Head Mestri (Laborer)</InputLabel>
