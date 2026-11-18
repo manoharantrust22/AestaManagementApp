@@ -161,3 +161,6 @@ dev-server.log
 /verify3.yml
 /wallet-card-after-fix.png
 .env*
+
+# Personal signature: upload it in the app (private bucket), never serve it from /public
+public/Sign.PNG

@@ -434,15 +434,15 @@ function LoginPage() {
   return (
     <Box
       sx={{
-        minHeight: "100vh",
+        minHeight: "100dvh",
         display: "flex",
-        alignItems: "center",
+        alignItems: "safe center",
         justifyContent: "center",
         background: "linear-gradient(135deg, #1976d2 0%, #1565c0 100%)",
-        py: 4,
+        py: { xs: 1.5, sm: 1 },
       }}
     >
-      <Container maxWidth="sm">
+      <Container maxWidth={false} sx={{ maxWidth: 440 }}>
         <Card
           sx={{
             boxShadow: "0 8px 32px rgba(0,0,0,0.15)",
@@ -450,32 +450,31 @@ function LoginPage() {
             overflow: "hidden",
           }}
         >
-          <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
+          <CardContent sx={{ p: { xs: 2.5, sm: 3 }, "&:last-child": { pb: { xs: 1.5, sm: 1.5 } } }}>
             {/* Logo and Title */}
             <Box
               sx={{
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
-                mb: 4,
+                mb: 2,
               }}
             >
               <Box
                 sx={{
                   bgcolor: "primary.main",
                   borderRadius: "50%",
-                  p: 2,
-                  mb: 2,
+                  p: 1,
+                  mb: 1,
                   boxShadow: "0 4px 14px rgba(25, 118, 210, 0.4)",
                 }}
               >
-                <Engineering sx={{ fontSize: 40, color: "white" }} />
+                <Engineering sx={{ fontSize: 26, color: "white", display: "block" }} />
               </Box>
               <Typography
-                variant="h4"
+                variant="h5"
                 component="h1"
                 fontWeight={700}
-                gutterBottom
                 textAlign="center"
               >
                 Aesta
@@ -493,7 +492,7 @@ function LoginPage() {
             {sessionExpired && (
               <Alert
                 severity="warning"
-                sx={{ mb: 3 }}
+                sx={{ mb: 2 }}
               >
                 Your session has expired. Please sign in again to continue.
               </Alert>
@@ -504,7 +503,7 @@ function LoginPage() {
               <Alert
                 severity="success"
                 icon={<CheckCircleOutline />}
-                sx={{ mb: 3 }}
+                sx={{ mb: 2 }}
               >
                 {successMessage}
               </Alert>
@@ -515,7 +514,7 @@ function LoginPage() {
               <Alert
                 severity="error"
                 icon={<ErrorOutline />}
-                sx={{ mb: 3 }}
+                sx={{ mb: 2 }}
                 onClose={() => setError("")}
               >
                 {error}
@@ -524,7 +523,7 @@ function LoginPage() {
 
             {/* Lockout Warning */}
             {isLocked && (
-              <Alert severity="warning" sx={{ mb: 3 }}>
+              <Alert severity="warning" sx={{ mb: 2 }}>
                 Account temporarily locked. Try again in{" "}
                 <strong>{lockoutDisplay}</strong>
               </Alert>
@@ -541,12 +540,12 @@ function LoginPage() {
               variant="caption"
               color="text.secondary"
               component="p"
-              sx={{ mt: 1.25, textAlign: "center" }}
+              sx={{ mt: 1, textAlign: "center" }}
             >
               Neram team: use Microsoft. Everyone else: use Google.
             </Typography>
 
-            <Divider sx={{ my: 3, color: "text.secondary", fontSize: "0.875rem" }}>or</Divider>
+            <Divider sx={{ my: 1.5, color: "text.secondary", fontSize: "0.875rem" }}>or</Divider>
 
             {/* Phones: password form behind a button (always shown from sm up) */}
             <Button
@@ -585,7 +584,7 @@ function LoginPage() {
                 value={email}
                 onChange={(e) => handleEmailChange(e.target.value)}
                 onBlur={() => handleBlur("email")}
-                margin="normal"
+                margin="dense"
                 required
                 autoComplete="email"
                 autoFocus={!email && passwordOpen}
@@ -619,7 +618,7 @@ function LoginPage() {
                 value={password}
                 onChange={(e) => handlePasswordChange(e.target.value)}
                 onBlur={() => handleBlur("password")}
-                margin="normal"
+                margin="dense"
                 required
                 autoComplete="current-password"
                 disabled={loading || isLocked}
@@ -667,8 +666,8 @@ function LoginPage() {
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  mt: 1,
-                  mb: 2,
+                  mt: 0,
+                  mb: 0.5,
                 }}
               >
                 <FormControlLabel
@@ -707,9 +706,9 @@ function LoginPage() {
                 size="large"
                 disabled={loading || isLocked}
                 sx={{
-                  mt: 2,
-                  mb: 2,
-                  py: 1.5,
+                  mt: 1,
+                  mb: 0,
+                  py: 1,
                   fontSize: "1rem",
                   fontWeight: 600,
                   textTransform: "none",
@@ -734,25 +733,17 @@ function LoginPage() {
             </Box>
 
             {/* Footer */}
-            <Box sx={{ mt: 3, textAlign: "center" }}>
-              <Typography variant="caption" color="text.secondary">
-                © {new Date().getFullYear()} Aesta Architects & Engineers
+            <Box sx={{ mt: 1.5, textAlign: "center" }}>
+              <Typography variant="caption" color="text.secondary" display="block">
+                © {new Date().getFullYear()} Aesta Architects & Engineers · Pudukkottai, Tamil Nadu
               </Typography>
-              <Typography
-                variant="caption"
-                display="block"
-                color="text.secondary"
-                sx={{ mt: 0.5 }}
-              >
-                Pudukkottai, Tamil Nadu
-              </Typography>
-              <Box sx={{ mt: 0.5, display: "flex", justifyContent: "center", gap: 1 }}>
+              <Box sx={{ display: "flex", justifyContent: "center", gap: 1 }}>
                 <Link
                   href="/privacy"
                   variant="caption"
                   color="text.secondary"
                   underline="always"
-                  sx={{ display: "inline-flex", alignItems: "center", minHeight: 44, px: 1 }}
+                  sx={{ display: "inline-flex", alignItems: "center", minHeight: { xs: 44, sm: 28 }, px: 1 }}
                 >
                   Privacy policy
                 </Link>
@@ -761,7 +752,7 @@ function LoginPage() {
                   variant="caption"
                   color="text.secondary"
                   underline="always"
-                  sx={{ display: "inline-flex", alignItems: "center", minHeight: 44, px: 1 }}
+                  sx={{ display: "inline-flex", alignItems: "center", minHeight: { xs: 44, sm: 28 }, px: 1 }}
                 >
                   Terms of use
                 </Link>
@@ -770,18 +761,6 @@ function LoginPage() {
           </CardContent>
         </Card>
 
-        {/* Version Info */}
-        <Typography
-          variant="caption"
-          sx={{
-            display: "block",
-            textAlign: "center",
-            mt: 2,
-            color: "rgba(255,255,255,0.7)",
-          }}
-        >
-          Version 1.0.0
-        </Typography>
       </Container>
     </Box>
   );

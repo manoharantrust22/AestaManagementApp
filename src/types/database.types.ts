@@ -1202,6 +1202,75 @@ export type Database = {
           },
         ]
       }
+      client_statements: {
+        Row: {
+          as_of_date: string
+          balance: number
+          created_at: string
+          created_by: string | null
+          due_label: string | null
+          id: string
+          sent_to_client_id: string | null
+          sent_via: string
+          seq: number
+          site_id: string
+          snapshot: Json
+          statement_no: string
+          title: string
+          total_contract: number
+          total_received: number
+        }
+        Insert: {
+          as_of_date: string
+          balance: number
+          created_at?: string
+          created_by?: string | null
+          due_label?: string | null
+          id?: string
+          sent_to_client_id?: string | null
+          sent_via: string
+          seq: number
+          site_id: string
+          snapshot: Json
+          statement_no: string
+          title: string
+          total_contract: number
+          total_received: number
+        }
+        Update: {
+          as_of_date?: string
+          balance?: number
+          created_at?: string
+          created_by?: string | null
+          due_label?: string | null
+          id?: string
+          sent_to_client_id?: string | null
+          sent_via?: string
+          seq?: number
+          site_id?: string
+          snapshot?: Json
+          statement_no?: string
+          title?: string
+          total_contract?: number
+          total_received?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_statements_sent_to_client_id_fkey"
+            columns: ["sent_to_client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_statements_site_id_fkey"
+            columns: ["site_id"]
+            isOneToOne: false
+            referencedRelation: "sites"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
           address: string | null

@@ -2,8 +2,10 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  Box, CircularProgress, Tab, Tabs, Alert,
+  Box, Button, Chip, CircularProgress, Stack, Tab, Tabs, Alert, Typography,
 } from "@mui/material";
+import { IosShare } from "@mui/icons-material";
+import dayjs from "dayjs";
 import PageHeader from "@/components/layout/PageHeader";
 import { useSite } from "@/contexts/SiteContext";
 import { useSiteFinancialSummary } from "@/hooks/queries/useSiteFinancialSummary";
@@ -13,6 +15,9 @@ import SiteMoneyOverviewHero from "@/components/client-payments/SiteMoneyOvervie
 import ContractTab from "@/components/client-payments/ContractTab";
 import AdditionalWorksTab from "@/components/client-payments/AdditionalWorksTab";
 import PaymentsReceivedTab from "@/components/client-payments/PaymentsReceivedTab";
+import ClientStatementDialog from "@/components/client-payments/statement/ClientStatementDialog";
+import { useClientStatements } from "@/hooks/queries/useClientStatements";
+import { formatINR } from "@/components/payments/KpiTile";
 
 type TabKey = "contract" | "additional" | "payments";
 
@@ -41,13 +46,16 @@ export default function ClientPaymentsPage() {
   const summaryQ  = useSiteFinancialSummary(siteId);
   const worksQ    = useSiteAdditionalWorks(siteId);
   const paymentsQ = useClientPayments(siteId);
+  const statementsQ = useClientStatements(siteId);
+  const [statementOpen, setStatementOpen] = useState(false);
 
   // v1: phases not fetched. Empty array renders the "no phases" alert in ContractTab.
   const phases: never[] = [];
   const paidByPhaseId = useMemo(() => new Map<string, number>(), []);
 
-  const works    = worksQ.data    ?? [];
-  const payments = paymentsQ.data ?? [];
+  // Stable empty arrays so memoised consumers don't recompute every render.
+  const works    = useMemo(() => worksQ.data    ?? [], [worksQ.data]);
+  const payments = useMemo(() => paymentsQ.data ?? [], [paymentsQ.data]);
 
   // Build per-additional-work paid totals (sum of payments tagged to each work).
   const paidByWorkId = useMemo(() => {
@@ -73,10 +81,24 @@ export default function ClientPaymentsPage() {
 
   const loading = summaryQ.isLoading || worksQ.isLoading || paymentsQ.isLoading;
   const errorObj = summaryQ.error ?? worksQ.error ?? paymentsQ.error;
+  const lastStatement = statementsQ.data?.[0];
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <PageHeader title={`Client Payments — ${selectedSite?.name ?? ""}`} />
+      <PageHeader
+        title={`Client Payments — ${selectedSite?.name ?? ""}`}
+        actions={
+          <Button
+            variant="outlined"
+            startIcon={<IosShare />}
+            onClick={() => setStatementOpen(true)}
+            disabled={loading || Boolean(errorObj)}
+            sx={{ minHeight: 40, whiteSpace: "nowrap" }}
+          >
+            Share statement
+          </Button>
+        }
+      />
 
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
@@ -90,6 +112,35 @@ export default function ClientPaymentsPage() {
         <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
           {summaryQ.data && (
             <SiteMoneyOverviewHero siteId={siteId} summary={summaryQ.data} />
+          )}
+
+          {lastStatement && summaryQ.data && (
+            <Stack
+              direction="row"
+              spacing={1}
+              alignItems="center"
+              flexWrap="wrap"
+              useFlexGap
+              sx={{ mt: 1.5, mb: 0.5 }}
+            >
+              <Typography variant="body2" color="text.secondary">
+                Last statement {lastStatement.statement_no} sent {dayjs(lastStatement.created_at).format("DD MMM")}
+                {" · "}
+                {Number(lastStatement.balance) > 0
+                  ? `balance ${formatINR(Number(lastStatement.balance))}`
+                  : Number(lastStatement.balance) < 0 ? "excess received" : "settled"}
+              </Typography>
+              {(Number(lastStatement.total_contract) !== summaryQ.data.totalContract ||
+                Number(lastStatement.total_received) !== summaryQ.data.clientPaid) && (
+                <Chip
+                  size="small"
+                  color="warning"
+                  variant="outlined"
+                  label="Figures changed since. Share an updated statement"
+                  onClick={() => setStatementOpen(true)}
+                />
+              )}
+            </Stack>
           )}
 
           <Tabs
@@ -127,6 +178,16 @@ export default function ClientPaymentsPage() {
             />
           )}
         </Box>
+      )}
+
+      {selectedSite && !loading && !errorObj && (
+        <ClientStatementDialog
+          open={statementOpen}
+          onClose={() => setStatementOpen(false)}
+          site={selectedSite}
+          works={works}
+          payments={payments}
+        />
       )}
     </Box>
   );
